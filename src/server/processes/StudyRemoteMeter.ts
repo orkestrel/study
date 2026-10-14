@@ -1,9 +1,4 @@
-import type {
-	StudyCharge,
-	StudyFailure,
-	StudyTicket,
-	StudyUsage,
-} from '../../core/types.js'
+import type { StudyCharge, StudyFailure, StudyTicket, StudyUsage } from '../../core/types.js'
 import type { StudyRemoteMeterInterface, StudyRemoteMeterOptions } from './types.js'
 import { isRecord } from '@orkestrel/contract'
 import { failureToStudyError, readStudyFailure } from '../../core/engines/index.js'

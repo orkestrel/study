@@ -3484,13 +3484,26 @@ describe('configuration helpers', () => {
 
 	it('admits computed artifact imports through Vite while retaining literal boundary inspection', async () => {
 		for (const [path, admitted] of ARTIFACT_IMPORT_CASES) {
-			const reading = configHelpers.environmentAssetSources('void import(process.argv[2])', resolve(root, path))
+			const reading = configHelpers.environmentAssetSources(
+				'void import(process.argv[2])',
+				resolve(root, path),
+			)
 			if (admitted) await expect(reading).resolves.toEqual([])
 			else await expect(reading).rejects.toThrow('Dynamic imports must use static string values')
 		}
-		await expect(configHelpers.environmentAssetSources("void import('@src/browser')", resolve(root, 'src/server/artifacts/Artifacts.ts'))).resolves.toEqual(['@src/browser'])
+		await expect(
+			configHelpers.environmentAssetSources(
+				"void import('@src/browser')",
+				resolve(root, 'src/server/artifacts/Artifacts.ts'),
+			),
+		).resolves.toEqual(['@src/browser'])
 		expect(configHelpers.environmentSourceError('src/server', '@src/browser')).toBeDefined()
-		await expect(configHelpers.environmentAssetSources('void import(process.argv[2])', resolve(root, '../outside/src/server/artifacts/Artifacts.ts'))).rejects.toThrow('Dynamic imports must use static string values')
+		await expect(
+			configHelpers.environmentAssetSources(
+				'void import(process.argv[2])',
+				resolve(root, '../outside/src/server/artifacts/Artifacts.ts'),
+			),
+		).rejects.toThrow('Dynamic imports must use static string values')
 	})
 
 	it('drives each plugin through its real Vite hooks', async () => {
