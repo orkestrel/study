@@ -144,12 +144,20 @@ export interface StudyUsage {
 /** Holds one admitted request until its actual charge is recorded. */
 export interface StudyTicket {
 	readonly signal: AbortSignal
+	/** Records actual measurements for one admitted request.
+	 * @param usage - The request's measured charges.
+	 * @returns Nothing after settlement.
+	 */
 	finish(usage: StudyUsage): void
+	/** Records an attributable failure for one admitted request.
+	 * @param failure - The retained operational attribution.
+	 * @returns Nothing after failure propagation.
+	 */
 	fail(failure: StudyFailure): void
 }
 
 /** Admits requests against enclosing limits before an adapter dispatches them. */
-export interface StudyMeterInterface {
+export interface StudyAdmissionInterface {
 	readonly signal: AbortSignal
 	readonly usage: readonly StudyUsage[]
 	/** Resolves admission before dispatch; local meters may return the ticket synchronously. */
@@ -165,13 +173,17 @@ export interface StudyEvidence {
 
 /** Holds an evidence sink whose implementation owns byte limits and custody. */
 export interface StudySinkInterface {
+	/** Appends bounded domain evidence to the owned execution record.
+	 * @param evidence - The public evidence for a declared goal.
+	 * @returns A promise that resolves when custody accepts the bytes.
+	 */
 	append(evidence: StudyEvidence): Promise<void>
 }
 
 /** Holds the resources visible to one running goal. */
 export interface StudyContext {
 	readonly signal: AbortSignal
-	readonly meter: StudyMeterInterface
+	readonly meter: StudyAdmissionInterface
 	readonly evidence: StudySinkInterface
 }
 
@@ -183,12 +195,25 @@ export interface StudyProduct {
 
 /** Owns domain state across a trial and releases it before the next trial. */
 export interface StudySessionInterface {
+	/** Executes one public goal against the trial's retained domain state.
+	 * @param goal - The declared public input.
+	 * @param context - Cancellation, borrowed admission, and evidence custody.
+	 * @returns The observed product without a task verdict.
+	 */
 	execute(goal: StudyGoal, context: StudyContext): Promise<StudyProduct>
+	/** Releases the trial's domain resources.
+	 * @returns A promise that resolves after release.
+	 */
 	close(): Promise<void>
 }
 
 /** Creates isolated domain state through a concrete package consumer. */
 export interface StudyDriverInterface {
+	/** Creates fresh domain state for one scheduled trial.
+	 * @param trial - The scheduled scenario, arm, and repetition.
+	 * @param signal - The caller's cancellation.
+	 * @returns The isolated session for this trial.
+	 */
 	open(trial: StudyTrial, signal: AbortSignal): Promise<StudySessionInterface>
 }
 
@@ -211,7 +236,15 @@ export interface StudyAttempt {
 
 /** Appends terminal records without overwriting a prior attempt. */
 export interface StudyStoreInterface {
+	/** Opens append-only evidence custody for one scheduled trial.
+	 * @param trial - The exact scheduled trial.
+	 * @returns The borrowed evidence sink.
+	 */
 	start(trial: StudyTrial): Promise<StudySinkInterface>
+	/** Retains the terminal record for one scheduled trial.
+	 * @param attempt - The complete scheduled goal horizon.
+	 * @returns A promise that resolves after custody retains the record.
+	 */
 	finish(attempt: StudyAttempt): Promise<void>
 }
 

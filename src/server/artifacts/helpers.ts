@@ -8,6 +8,12 @@ import { ArtifactError } from './errors.js'
 /** Computes a SHA-256 identity for exact bytes.
  * @param input - Bytes or UTF-8 text to identify.
  * @returns The lowercase hexadecimal digest.
+ * @example Identify captured bytes
+ * ```ts
+ * import { hashBytes } from '@orkestrel/study/server'
+ *
+ * hashBytes('retained evidence')
+ * ```
  */
 export function hashBytes(input: string | Uint8Array): string {
 	return createHash('sha256').update(input).digest('hex')

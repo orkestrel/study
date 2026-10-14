@@ -24,8 +24,10 @@ import {
  * @param required - Required keys
  * @param optional - Allowed optional keys
  * @returns True if the record has exactly the allowed data keys; false otherwise
- * @example
+ * @example Check exact keys
  * ```ts
+ * import { matchesStudyKeys } from '@orkestrel/study'
+ *
  * matchesStudyKeys({ id: 'one' }, ['id']) // true
  * ```
  */

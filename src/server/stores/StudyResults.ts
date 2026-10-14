@@ -2,12 +2,12 @@ import type {
 	StudyAttempt,
 	StudyManifest,
 	StudySinkInterface,
-	StudyStoreInterface,
 	StudyTrial,
 } from '../../core/types.js'
 import type {
 	StudyCustodyPhase,
 	StudyResultOptions,
+	StudyResultsInterface,
 	StudySeal,
 	StudyTrialCustody,
 } from './types.js'
@@ -30,7 +30,7 @@ import { StudyEvidenceSink } from './StudyEvidenceSink.js'
 import { isStudyCustodyAttempt, isStudyCustodyManifest, isStudyCustodyTrial } from './validators.js'
 
 /** Owns append-only execution bytes and seals only a complete terminal population. */
-export class StudyResults implements StudyStoreInterface {
+export class StudyResults implements StudyResultsInterface {
 	readonly #directory: string
 	readonly #manifest: StudyManifest
 	readonly #trials = new Map<string, StudyTrialCustody>()

@@ -32,8 +32,10 @@ import {
  * @param value - The validated record
  * @returns The exact canonical UTF-8 bytes
  * @throws StudyError - Thrown when the record cannot be serialized
- * @example
+ * @example Encode custody bytes
  * ```ts
+ * import { encodeStudyJSON } from '@orkestrel/study/server'
+ *
  * encodeStudyJSON({ version: 1 })
  * ```
  */

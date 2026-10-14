@@ -25,7 +25,7 @@ export const STUDY_COMMAND_INVALID_ARGUMENTS: ReadonlyArray<readonly string[]> =
 	['check', 'tools', '--profile', 'local', '--profile', 'local'],
 	['check', 'tools', '--unknown', 'local'],
 	['check', 'tools', '--out', '/unused'],
-	['execute', 'tools', '--out', 'relative'],
+	['execute', 'tools', '--out', '../escape'],
 	['execute', 'tools', '--expected', 'invalid'],
 	['grade', 'result'],
 	['label', 'result', '--grading', 'a'.repeat(64)],

@@ -1,0 +1,285 @@
+import type {
+	StudyContext,
+	StudyGoal,
+	StudyProduct,
+	StudySessionInterface,
+} from '../../core/types.js'
+import type { StudyOperation, StudyParentTicket, StudyProcessSessionOptions } from './types.js'
+import type { JSONValue } from '@orkestrel/contract'
+import type { ChildProcess } from 'node:child_process'
+import { isRecord } from '@orkestrel/contract'
+import { execFile, fork } from 'node:child_process'
+import { mkdtemp } from 'node:fs/promises'
+import { isAbsolute, join } from 'node:path'
+import { StudyControl, failureToStudyError, readStudyFailure } from '../../core/engines/index.js'
+import { StudyError } from '../../core/errors.js'
+import { isStudyUsage } from '../../core/validators.js'
+import { STUDY_LOG_BYTES, STUDY_WORKER_OPERATION } from './constants.js'
+import { createStudyProcessFailure, toStudyWire } from './helpers.js'
+import { awaitStudyProcess } from './handlers.js'
+import { StudyChannel } from './StudyChannel.js'
+import {
+	isStudyCharge,
+	isStudyEvidence,
+	isStudyProcessFailure,
+	isStudyProduct,
+} from './validators.js'
+
+/** Keeps admission and evidence custody in the parent of one fresh trial process. */
+export class StudyProcessSession implements StudySessionInterface {
+	#options: StudyProcessSessionOptions
+	#control: StudyControl
+	#listeners = new AbortController()
+	#child: ChildProcess | undefined
+	#channel: StudyChannel | undefined
+	#exit: Promise<void> | undefined
+	#closing: Promise<void> | undefined
+	#context: StudyContext | undefined
+	#tickets = new Map<number, StudyParentTicket>()
+	#ticket = 0
+	#evidence = 0
+	#logs = 0
+	#started = false
+	#deadline: ReturnType<typeof setTimeout> | undefined
+
+	/** Owns one trial's process lifecycle without starting host work.
+	 * @param options - Public trial and immutable process configuration.
+	 */
+	constructor(options: StudyProcessSessionOptions) {
+		this.#options = options
+		this.#control = new StudyControl(options.signal)
+	}
+
+	/** Starts the child and verifies its artifact-bound readiness. */
+	async start(): Promise<void> {
+		if (this.#started || this.#closing !== undefined)
+			throw new StudyError('FAULT', 'Study process start is single use')
+		this.#started = true
+		if (this.#control.failure !== undefined) throw failureToStudyError(this.#control.failure)
+		if (![this.#options.entry, this.#options.root, this.#options.directory].every(isAbsolute))
+			throw new StudyError('CONFIG', 'Study process paths must be absolute')
+		const directory = await mkdtemp(join(this.#options.directory, 'trial-'))
+		if (this.#control.failure !== undefined) throw failureToStudyError(this.#control.failure)
+		const child = fork(this.#options.entry, [STUDY_WORKER_OPERATION], {
+			cwd: this.#options.root,
+			execArgv: [...process.execArgv],
+			silent: true,
+			serialization: 'json',
+			windowsHide: true,
+			detached: process.platform !== 'win32',
+		})
+		this.#child = child
+		this.#deadline = setTimeout(() => {
+			this.#control.fail({
+				cause: 'deadline',
+				message: 'Trial native deadline exceeded',
+				role: undefined,
+			})
+			void this.#terminate().catch((error: unknown) => this.#control.fail(readStudyFailure(error)))
+		}, this.#options.profile.bounds.trial.duration)
+		this.#exit = new Promise<void>((resolve) => child.once('close', () => resolve()))
+		this.#channel = new StudyChannel({
+			endpoint: child,
+			handle: (operation, value) =>
+				this.#handle(operation, value).catch((error: unknown) => {
+					this.#control.fail(readStudyFailure(error))
+					throw error
+				}),
+			abort: () => {
+				throw new StudyError('FAULT', 'Worker cannot cancel parent authority')
+			},
+		})
+		this.#channel.signal.addEventListener(
+			'abort',
+			() => this.#control.fail(readStudyFailure(this.#channel?.signal.reason)),
+			{ once: true, signal: this.#listeners.signal },
+		)
+		this.#control.signal.addEventListener(
+			'abort',
+			() => this.#channel?.abort(toStudyWire({ failure: this.#control.failure })),
+			{ once: true, signal: this.#listeners.signal },
+		)
+		child.stdout?.on('data', (value: Buffer) => this.#readLog(value))
+		child.stderr?.on('data', (value: Buffer) => this.#readLog(value))
+		const ready = await this.#control.wait(
+			awaitStudyProcess(
+				this.#channel.request(
+					'open',
+					toStudyWire({ ...this.#options, signal: undefined, directory }),
+				),
+				this.#options.profile.bounds.trial.duration,
+			),
+		)
+		if (
+			!isRecord(ready) ||
+			ready.pid !== child.pid ||
+			ready.subject !== this.#options.identity.subject ||
+			ready.instrument !== this.#options.identity.instrument
+		)
+			throw new StudyError('FAULT', 'Worker readiness identity differs')
+	}
+
+	/** Runs one ordered goal through parent-authorized requests and acknowledged evidence.
+	 * @param goal - Public goal without grading truth.
+	 * @param context - Actual parent meter and evidence sink.
+	 * @returns The retained child product after every admitted operation settles.
+	 */
+	async execute(goal: StudyGoal, context: StudyContext): Promise<StudyProduct> {
+		if (this.#context !== undefined || this.#closing !== undefined || this.#channel === undefined)
+			throw new StudyError('FAULT', 'Study process cannot execute in its current state')
+		if (this.#control.failure !== undefined) throw failureToStudyError(this.#control.failure)
+		this.#context = context
+		this.#ticket = 0
+		const listeners = new AbortController()
+		const control = new StudyControl(context.signal)
+		this.#control.signal.addEventListener(
+			'abort',
+			() =>
+				control.fail(this.#control.failure ?? createStudyProcessFailure('Study process failed')),
+			{ once: true, signal: listeners.signal },
+		)
+		control.signal.addEventListener(
+			'abort',
+			() => this.#channel?.abort(toStudyWire({ failure: control.failure })),
+			{ once: true, signal: listeners.signal },
+		)
+		try {
+			const product = await control.wait(this.#channel.request('goal', toStudyWire(goal)))
+			if (this.#tickets.size !== 0 || this.#evidence !== 0)
+				throw new StudyError('FAULT', 'Worker goal ended with unsettled admission or evidence')
+			if (!isStudyProduct(product)) throw new StudyError('FAULT', 'Worker product is invalid')
+			return product
+		} catch (error) {
+			this.#control.fail(readStudyFailure(error))
+			throw failureToStudyError(this.#control.failure ?? readStudyFailure(error))
+		} finally {
+			listeners.abort()
+			control.close()
+			this.#context = undefined
+		}
+	}
+
+	/** Requests verified cleanup, then terminates only this recorded process tree. */
+	close(): Promise<void> {
+		this.#closing ??= this.#close()
+		return this.#closing
+	}
+
+	async #handle(operation: StudyOperation, value: JSONValue): Promise<JSONValue> {
+		const context = this.#context
+		if (context === undefined) throw new StudyError('FAULT', 'Worker requested work outside a goal')
+		if (operation === 'admit') {
+			if (!isRecord(value) || value.id !== this.#ticket + 1 || !isStudyCharge(value.charge))
+				throw new StudyError('FAULT', 'Invalid worker admission')
+			this.#ticket++
+			const id = this.#ticket
+			const ticket = await context.meter.admit(value.charge)
+			const listeners = new AbortController()
+			this.#tickets.set(id, { ticket, listeners })
+			ticket.signal.addEventListener(
+				'abort',
+				() =>
+					this.#channel?.abort(
+						toStudyWire({ id, failure: readStudyFailure(ticket.signal.reason) }),
+					),
+				{ once: true, signal: listeners.signal },
+			)
+			if (ticket.signal.aborted) throw ticket.signal.reason
+			return { id }
+		}
+		if (operation === 'finish' || operation === 'fail') {
+			if (!isRecord(value) || typeof value.id !== 'number')
+				throw new StudyError('FAULT', 'Invalid worker settlement')
+			const entry = this.#tickets.get(value.id)
+			if (entry === undefined)
+				throw new StudyError('FAULT', 'Foreign or repeated worker settlement')
+			if (
+				(operation === 'finish' && !isStudyUsage(value.usage)) ||
+				(operation === 'fail' && !isStudyProcessFailure(value.failure))
+			)
+				throw new StudyError('FAULT', 'Invalid worker settlement payload')
+			this.#tickets.delete(value.id)
+			entry.listeners.abort()
+			if (operation === 'finish' && isStudyUsage(value.usage)) entry.ticket.finish(value.usage)
+			else if (isStudyProcessFailure(value.failure)) entry.ticket.fail(value.failure)
+			return true
+		}
+		if (operation === 'evidence') {
+			if (!isStudyEvidence(value)) throw new StudyError('FAULT', 'Invalid worker evidence')
+			this.#evidence++
+			try {
+				await context.evidence.append(value)
+				return true
+			} finally {
+				this.#evidence--
+			}
+		}
+		throw new StudyError('FAULT', 'Worker requested a forbidden operation')
+	}
+
+	#readLog(value: Buffer): void {
+		this.#logs += value.byteLength
+		if (this.#logs > STUDY_LOG_BYTES) {
+			this.#control.fail(createStudyProcessFailure('Worker output limit exceeded'))
+			void this.close().catch(() => undefined)
+		}
+	}
+
+	async #close(): Promise<void> {
+		let failure: unknown
+		try {
+			if (this.#channel !== undefined && !this.#channel.signal.aborted) {
+				const closed = await awaitStudyProcess(
+					this.#channel.request('close', true),
+					this.#options.profile.bounds.request.duration,
+				)
+				if (closed !== true)
+					throw new StudyError('FAULT', 'Worker cleanup acknowledgment is invalid')
+			}
+		} catch (error) {
+			failure = error
+		} finally {
+			for (const entry of this.#tickets.values()) {
+				entry.listeners.abort()
+				if (!entry.ticket.signal.aborted) {
+					try {
+						entry.ticket.fail(
+							this.#control.failure ??
+								createStudyProcessFailure('Worker closed with an unfinished request'),
+						)
+					} catch {
+						/* First parent failure is already retained. */
+					}
+				}
+			}
+			this.#tickets.clear()
+			this.#listeners.abort()
+			this.#channel?.close(failure)
+			await this.#terminate()
+			this.#control.close()
+		}
+		if (failure !== undefined) throw failure
+	}
+
+	async #terminate(): Promise<void> {
+		clearTimeout(this.#deadline)
+		const child = this.#child
+		if (child === undefined) return
+		if (child.exitCode === null && child.signalCode === null && child.pid !== undefined) {
+			if (process.platform === 'win32') {
+				await new Promise<void>((resolve, reject) =>
+					execFile(
+						'taskkill',
+						['/PID', String(child.pid), '/T', '/F'],
+						{ windowsHide: true, timeout: 2000 },
+						(error) =>
+							error === null || child.exitCode !== null || child.signalCode !== null
+								? resolve()
+								: reject(error),
+					),
+				)
+			} else process.kill(-child.pid, 'SIGKILL')
+		}
+		if (this.#exit !== undefined) await awaitStudyProcess(this.#exit, 2000)
+	}
+}

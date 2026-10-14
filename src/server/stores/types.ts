@@ -3,6 +3,7 @@ import type {
 	StudyManifest,
 	StudyProduct,
 	StudySinkInterface,
+	StudyStoreInterface,
 } from '../../core/types.js'
 import type { FileHandle } from 'node:fs/promises'
 import type { JSONValue } from '@orkestrel/contract'
@@ -11,6 +12,18 @@ import type { JSONValue } from '@orkestrel/contract'
 export interface StudyResultOptions {
 	readonly directory: string
 	readonly manifest: StudyManifest
+}
+
+/** Owns execution custody from exclusive creation through complete sealing. */
+export interface StudyResultsInterface extends StudyStoreInterface {
+	/** Exclusively creates the result directory and initial manifest bytes.
+	 * @returns A promise that resolves after the manifest is synchronized.
+	 */
+	create(): Promise<void>
+	/** Seals a complete terminal population with its exact execution-byte inventory.
+	 * @returns The synchronized execution seal.
+	 */
+	seal(): Promise<StudySeal>
 }
 
 /** Holds the exact byte identity of one execution file. */
@@ -94,6 +107,9 @@ export interface StudyTrialCustody {
 
 /** Closes evidence admission and drains already admitted appends. */
 export interface StudyCustodySinkInterface extends StudySinkInterface {
+	/** Closes admission immediately and synchronizes all previously admitted writes.
+	 * @returns A promise that resolves after the evidence descriptor closes.
+	 */
 	close(): Promise<void>
 }
 

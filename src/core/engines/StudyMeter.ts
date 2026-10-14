@@ -1,5 +1,5 @@
-import type { StudyCharge, StudyMeterInterface, StudyTicket, StudyUsage } from '../types.js'
-import type { StudyMeterOptions } from './types.js'
+import type { StudyCharge, StudyTicket, StudyUsage } from '../types.js'
+import type { StudyMeterInterface, StudyMeterOptions } from './types.js'
 import { StudyError } from '../errors.js'
 import { isStudyLimit } from '../validators.js'
 import { failureToStudyError } from './helpers.js'
