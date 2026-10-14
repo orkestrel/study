@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest'
 import { requireValue } from '@orkestrel/test'
 import { createScratch, isRunning } from '@orkestrel/test/server'
 import { resolve } from 'node:path'
-import { hashStudyBytes } from '../../../../src/server/helpers.js'
 import {
 	computeStudyInstrumentDigest,
 	computeStudyProfileDigest,
@@ -65,7 +64,7 @@ describe('process helpers', () => {
 		const entry = 'a'.repeat(64)
 		const inventory = 'b'.repeat(64)
 		expect(computeStudyInstrumentDigest(entry, inventory)).toBe(
-			hashStudyBytes(`["${entry}","${inventory}"]`),
+			'2ba3056e95d23c0c154eca683e330401c46e441d5074523e16349e29d7597a64',
 		)
 		expect(computeStudyInstrumentDigest(inventory, entry)).not.toBe(
 			computeStudyInstrumentDigest(entry, inventory),
