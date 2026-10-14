@@ -1,0 +1,31 @@
+{
+	"compilerOptions": {
+		"target": "ESNext",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"allowImportingTsExtensions": true,
+		"lib": ["ESNext", "DOM", "DOM.Iterable"],
+		"types": ["node", "vite/client", "vitest/globals"],
+		"moduleDetection": "force",
+		"resolveJsonModule": true,
+		"strict": true,
+		"verbatimModuleSyntax": true,
+		"noUncheckedIndexedAccess": true,
+		"noUncheckedSideEffectImports": true,
+		"exactOptionalPropertyTypes": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"noImplicitOverride": true,
+		"noFallthroughCasesInSwitch": true,
+		"forceConsistentCasingInFileNames": true,
+		"skipLibCheck": true,
+		"noEmit": true,
+		"paths": {
+			"@src/core": ["./src/core/index.ts"],
+			"@src/server": ["./src/server/index.ts"],
+			"@orkestrel/study/server": ["./src/server/index.ts"],
+			"@orkestrel/study": ["./src/core/index.ts"]
+		}
+	},
+	"exclude": ["node_modules", "dist", "tmp"]
+}

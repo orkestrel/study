@@ -1,0 +1,113 @@
+{
+	"name": "@orkestrel/study",
+	"version": "0.0.1",
+	"description": "The @orkestrel/study package.",
+	"keywords": [],
+	"homepage": "https://github.com/orkestrel/study#readme",
+	"bugs": "https://github.com/orkestrel/study/issues",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/orkestrel/study.git"
+	},
+	"bin": {
+		"study": "./dist/bin/main.js"
+	},
+	"files": [
+		"dist/src",
+		"dist/bin",
+		"README.md"
+	],
+	"type": "module",
+	"sideEffects": [
+		"./src/bin/main.ts",
+		"./dist/bin/main.js"
+	],
+	"main": "./dist/src/core/index.cjs",
+	"module": "./dist/src/core/index.js",
+	"exports": {
+		".": {
+			"import": {
+				"types": "./dist/src/core/index.d.ts",
+				"default": "./dist/src/core/index.js"
+			},
+			"require": {
+				"types": "./dist/src/core/index.d.cts",
+				"default": "./dist/src/core/index.cjs"
+			}
+		},
+		"./server": {
+			"import": {
+				"types": "./dist/src/server/index.d.ts",
+				"default": "./dist/src/server/index.js"
+			},
+			"require": {
+				"types": "./dist/src/server/index.d.cts",
+				"default": "./dist/src/server/index.cjs"
+			}
+		},
+		"./package.json": "./package.json"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"scripts": {
+		"clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+		"copy": "node -e \"const fs=require('node:fs'),p=require('node:path'),a=process.argv[1],b=process.argv[2];fs.mkdirSync(p.dirname(b),{recursive:true});fs.cpSync(a,b,{force:true});console.log('Copied: '+a+' to '+b)\"",
+		"format": "oxfmt --config .oxfmtrc.json --write .",
+		"format:check": "oxfmt --config .oxfmtrc.json --check .",
+		"lint": "oxlint --config .oxlintrc.json --fix .",
+		"lint:check": "oxlint --config .oxlintrc.json --deny-warnings .",
+		"check": "tsc --noEmit --project tsconfig.json && npm run check:src",
+		"check:src": "npm run check:src:core && npm run check:src:server && npm run check:src:bin",
+		"check:src:core": "tsc --noEmit -p configs/src/tsconfig.core.json",
+		"check:src:server": "tsc --noEmit -p configs/src/tsconfig.server.json",
+		"check:src:bin": "tsc --noEmit -p configs/src/tsconfig.bin.json",
+		"test": "npm run test:src && npm run test:policy && npm run test:config",
+		"test:src": "vitest run --config vite.config.ts --no-cache --reporter=dot --project src:core --project src:server --project src:bin",
+		"test:src:core": "vitest run --config vite.config.ts --no-cache --reporter=dot --project src:core",
+		"test:src:server": "vitest run --config vite.config.ts --no-cache --reporter=dot --project src:server",
+		"test:src:bin": "vitest run --config vite.config.ts --no-cache --reporter=dot --project src:bin",
+		"test:policy": "vitest run --config vite.config.ts --no-cache --reporter=dot --project policy",
+		"test:config": "vitest run --config vite.config.ts --no-cache --reporter=dot --project config",
+		"test:probe": "vitest run --config vite.config.ts --no-cache --reporter=verbose --project probe",
+		"test:bench": "vitest bench --config vite.config.ts --no-cache --project probe",
+		"test:distribution": "vitest run --config vite.config.ts --no-cache --reporter=dot --project distribution",
+		"build": "npm run clean && npm run build:src",
+		"build:src": "npm run build:src:core && npm run build:src:server && npm run build:src:bin",
+		"build:src:core": "vite build --config configs/src/vite.core.config.ts && npm run copy dist/src/core/index.d.ts dist/src/core/index.d.cts",
+		"build:src:server": "vite build --config configs/src/vite.server.config.ts && npm run copy dist/src/server/index.d.ts dist/src/server/index.d.cts",
+		"build:src:bin": "vite build --config configs/src/vite.bin.config.ts",
+		"prepack": "npm run build",
+		"prepublishOnly": "npm run format:check && npm run lint:check && npm run check && npm run build && npm test && npm run test:distribution -- --mode release"
+	},
+	"dependencies": {
+		"@orkestrel/abort": "^0.0.13",
+		"@orkestrel/budget": "^0.0.13",
+		"@orkestrel/contract": "^0.0.19",
+		"@orkestrel/timeout": "^0.0.13"
+	},
+	"devDependencies": {
+		"@microsoft/api-extractor": "^7.59.4",
+		"@orkestrel/guide": "^0.0.24",
+		"@orkestrel/probe": "^0.0.23",
+		"@orkestrel/scaffold": "^0.0.100",
+		"@orkestrel/test": "^0.0.25",
+		"@types/node": "^26.6.4",
+		"oxfmt": "^0.72.0",
+		"oxlint": "^1.87.0",
+		"typescript": "^6.0.3",
+		"vite": "^8.3.4",
+		"vitest": "^4.1.11"
+	},
+	"devEngines": {
+		"packageManager": {
+			"name": "npm",
+			"version": ">=11.6.0",
+			"onFail": "error"
+		}
+	},
+	"engines": {
+		"node": ">=22.18.0"
+	}
+}

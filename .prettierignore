@@ -1,0 +1,20 @@
+# oxfmt (and prettier) read this file by default. Keep generated / minified
+# artifacts out of the formatter so a tree-wide `npm run format` never rewrites them.
+
+# Build output (also gitignored, listed for explicitness).
+dist/
+
+# Generated single-file application showcase.
+showcase/
+
+# Campaign records under the orchestration folder are verbatim evidence, not formatted source.
+.orkestrel/
+
+# Fetched-bytes mirrors keep their upstream bytes and stay out of the formatter.
+tests/mirrors/
+
+# The vendored host inventory: `npm run build` regenerates it (`stageInventory`), so its bytes are the generator's, not the formatter's.
+host.json
+
+# A minified generated record (`*.min.*`, such as a compact JSON inventory an instrument writes from an installed package) keeps its compact bytes: nothing in it is authored, and a formatted copy would be a second artifact of the same bytes. Authored source never takes the suffix.
+*.min.*
