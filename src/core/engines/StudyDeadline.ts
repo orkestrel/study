@@ -20,11 +20,18 @@ export class StudyDeadline implements StudyDeadlineInterface {
 	 */
 	async wait<T>(work: PromiseLike<T>): Promise<T> {
 		const control = new StudyControl()
-		const scope = new StudyScope({
-			limit: { duration: this.#options.duration, calls: 1, tokens: 1, bytes: 1 },
-			control,
-			label: this.#options.label,
-		})
+		let scope: StudyScope
+		try {
+			scope = new StudyScope({
+				limit: { duration: this.#options.duration, calls: 1, tokens: 1, bytes: 1 },
+				control,
+				label: this.#options.label,
+			})
+		} catch (error) {
+			Promise.resolve(work).catch(() => undefined)
+			control.close()
+			throw error
+		}
 		try {
 			const result = await control.wait(work)
 			scope.check()

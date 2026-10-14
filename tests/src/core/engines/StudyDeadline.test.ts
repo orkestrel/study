@@ -62,4 +62,14 @@ describe('StudyDeadline', () => {
 			await expect(pending).rejects.toMatchObject({ code: 'CONFIG' })
 		}
 	})
+
+	it('observes late work rejection after invalid deadline configuration', async () => {
+		const work = waitForDelay(30).then(() => {
+			throw new Error('Invalid deadline late rejection')
+		})
+		await expect(
+			new StudyDeadline({ duration: 0, label: 'Process lifecycle' }).wait(work),
+		).rejects.toMatchObject({ code: 'CONFIG' })
+		await waitForDelay(50)
+	})
 })

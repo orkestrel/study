@@ -1,0 +1,9 @@
+# Refinement ruling
+
+Native clean-context Astra audited the actual f977e68 through 4bbfd3e change. Claims 1, 2, 4 and 5 held. Claim 3 failed for invalid deadline configuration with already-started work that later rejects. No outside finding was substantiated. The medium refinement required one independent objective lane; Opus authored the refinement and did not accept it.
+
+Root reproduced the exact invalid-duration and valid-duration control through the compiled Vitest probe project. Both assertions passed, but the invalid-duration late rejection produced one unhandled error: exit 1, uncapped 774 ms. The report's 50 file citations resolved. Valid waits, result identity, rejection identity, label attribution and independent ownership remain sound.
+
+The fix unit adopts the reviewer prescription: catch scope setup failure, attach a rejection observer to the supplied work, close the control and rethrow the original configuration error asynchronously. Constructor validation would break the existing asynchronous refusal contract. A retained regression, red original implementation and observer-removal mutation followed by restored green close the repaired claim. No second design or full audit round is needed for that exact prescription.
+
+The bounded fix adopted that prescription verbatim. The retained regression failed against the preceding implementation with one unhandled rejection, exit 1, uncapped 1011 ms. Removing only the observer reproduced the same error, exit 1, 822 ms. Exact source restoration returned the touched file to 6 passing tests, exit 0, 990 ms. Core passed 42 tests; source and test typechecks, owned-file lint and formatting passed. Root read the actual diff and bare logs. The repaired claim is closed by this mutation proof under the orchestration contract. Final tree and distribution verification remain pending.
