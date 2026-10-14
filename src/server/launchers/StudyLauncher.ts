@@ -1,12 +1,14 @@
 import type { ChildProcess } from 'node:child_process'
 import type { StudyLaunchOptions, StudyLaunchResult } from './types.js'
+import { isRecord } from '@orkestrel/contract'
 import { spawn } from 'node:child_process'
 import { StudyError } from '../../core/errors.js'
-import { isStudyDigest } from '../../core/validators.js'
+import { isStudyBounds, isStudyDigest } from '../../core/validators.js'
 import { STUDY_COMMAND_DURATION } from '../commands/constants.js'
 import { parseStudyArguments } from '../commands/parsers.js'
 import { STUDY_COMMAND_OPERATION } from '../processes/constants.js'
-import { terminateStudyChild } from '../processes/handlers.js'
+import { terminateStudyChild } from '../processes/helpers.js'
+import { STUDY_LAUNCH_BYTES, STUDY_LAUNCH_CLEANUP, STUDY_LAUNCH_DURATION } from './constants.js'
 
 /** Supervises finite command trees and binds offline check to execution. */
 export class StudyLauncher {
@@ -35,7 +37,7 @@ export class StudyLauncher {
 		process.on('SIGINT', this.#signal)
 		process.on('SIGTERM', this.#signal)
 		try {
-			let duration = 60000
+			let duration = STUDY_LAUNCH_DURATION
 			let execution = arguments_
 			if (request.command === 'execute') {
 				const check = ['check', request.target, '--profile', request.profile]
@@ -46,26 +48,16 @@ export class StudyLauncher {
 				}
 				const value: unknown = JSON.parse(reading.output)
 				if (
-					typeof value !== 'object' ||
-					value === null ||
-					!('bounds' in value) ||
-					typeof value.bounds !== 'object' ||
-					value.bounds === null ||
-					!('series' in value.bounds) ||
-					typeof value.bounds.series !== 'object' ||
-					value.bounds.series === null ||
-					!('duration' in value.bounds.series) ||
-					typeof value.bounds.series.duration !== 'number' ||
-					!Number.isSafeInteger(value.bounds.series.duration) ||
-					value.bounds.series.duration <= 0 ||
+					!isRecord(value) ||
+					!isStudyBounds(value.bounds) ||
 					value.bounds.series.duration > STUDY_COMMAND_DURATION
 				)
 					throw new Error(
 						'Study execution requires a validated series duration within the 24-hour host ceiling',
 					)
-				if (!('fingerprint' in value) || !isStudyDigest(value.fingerprint))
+				if (!isStudyDigest(value.fingerprint))
 					throw new Error('Study check did not return an execution fingerprint')
-				duration = value.bounds.series.duration + 15000
+				duration = value.bounds.series.duration + STUDY_LAUNCH_CLEANUP
 				if (request.expected !== undefined && request.expected !== value.fingerprint)
 					throw new StudyError(
 						'CONFIG',
@@ -118,7 +110,7 @@ export class StudyLauncher {
 			}, duration)
 			child.stdout?.on('data', (chunk: Buffer) => {
 				bytes += chunk.byteLength
-				if (bytes > 16777216) {
+				if (bytes > STUDY_LAUNCH_BYTES) {
 					failure ??= new Error('Study command output exceeds the 16 MiB host allowance')
 					terminateStudyChild(child)
 					return
@@ -128,7 +120,7 @@ export class StudyLauncher {
 			})
 			child.stderr?.on('data', (chunk: Buffer) => {
 				bytes += chunk.byteLength
-				if (bytes > 16777216) {
+				if (bytes > STUDY_LAUNCH_BYTES) {
 					failure ??= new Error('Study command output exceeds the 16 MiB host allowance')
 					terminateStudyChild(child)
 					return

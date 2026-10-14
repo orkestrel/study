@@ -16,9 +16,9 @@ import type {
 import { canonicalStringify, parseJSON } from '@orkestrel/contract'
 import { constants } from 'node:fs'
 import { lstat, open, readdir } from 'node:fs/promises'
-import { createHash } from 'node:crypto'
 import { dirname, join, parse, relative, resolve, sep } from 'node:path'
 import { StudyError } from '../../core/errors.js'
+import { decodeStudyJSON, encodeStudyJSON, hashStudyBytes } from '../helpers.js'
 import { STUDY_CUSTODY_BYTES, STUDY_PACKET_DISCLOSURE } from './constants.js'
 import {
 	isStudyCustodyAttempt,
@@ -26,38 +26,6 @@ import {
 	isStudyCustodyManifest,
 	isStudyCustodySeal,
 } from './validators.js'
-
-/**
- * Encodes deterministic JSON bytes without synthesizing execution metadata.
- * @param value - The validated record
- * @returns The exact canonical UTF-8 bytes
- * @throws StudyError - Thrown when the record cannot be serialized
- * @example Encode custody bytes
- * ```ts
- * import { encodeStudyJSON } from '@orkestrel/study/server'
- *
- * encodeStudyJSON({ version: 1 })
- * ```
- */
-export function encodeStudyJSON(value: unknown): Uint8Array {
-	const wire = JSON.stringify(value)
-	const text = wire === undefined ? undefined : canonicalStringify(parseJSON(wire))
-	if (text === undefined) throw new StudyError('EVIDENCE', 'Record cannot be encoded')
-	return Buffer.from(`${text}\n`, 'utf8')
-}
-
-/**
- * Computes the lowercase SHA-256 identity of exact bytes.
- * @param bytes - The retained bytes
- * @returns The byte digest
- * @example
- * ```ts
- * hashStudyBytes(new Uint8Array())
- * ```
- */
-export function hashStudyBytes(bytes: Uint8Array): string {
-	return createHash('sha256').update(bytes).digest('hex')
-}
 
 /**
  * Builds neutral semantic identities for the complete eligible sealed horizon.
@@ -451,7 +419,7 @@ export async function readStudyResult(directory: string): Promise<StudyResultRea
 	const manifestBytes = await readStudyBytes(join(execution, 'manifest.json'), STUDY_CUSTODY_BYTES)
 	let manifest: unknown
 	try {
-		manifest = parseJSON(new TextDecoder('utf-8', { fatal: true }).decode(manifestBytes))
+		manifest = decodeStudyJSON(manifestBytes)
 	} catch (error) {
 		if (sealed) throw error
 	}
@@ -493,7 +461,7 @@ export async function readStudyResult(directory: string): Promise<StudyResultRea
 			throw new StudyError('CUSTODY', 'Attempt changed during inventory reading')
 		let attempt: unknown
 		try {
-			attempt = parseJSON(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
+			attempt = decodeStudyJSON(bytes)
 		} catch (error) {
 			if (sealed) throw error
 		}
@@ -516,7 +484,7 @@ export async function readStudyResult(directory: string): Promise<StudyResultRea
 		manifest.bounds.series.bytes
 	)
 		throw new StudyError('CUSTODY', 'Seal and execution exceed the series allowance')
-	const seal = parseJSON(new TextDecoder('utf-8', { fatal: true }).decode(sealBytes))
+	const seal = decodeStudyJSON(sealBytes)
 	if (
 		!isStudyCustodySeal(seal) ||
 		seal.result !== manifest.id ||

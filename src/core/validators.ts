@@ -1,5 +1,6 @@
 import type {
 	StudyBounds,
+	StudyCause,
 	StudyDefinition,
 	StudyCriterion,
 	StudyErrorCode,
@@ -10,15 +11,31 @@ import type {
 	StudyLimit,
 	StudyProfile,
 	StudyProvider,
+	StudyRole,
 	StudyRoom,
 	StudyScenario,
 	StudyRubric,
 	StudyUsage,
 } from './types.js'
-import { holds, canonicalStringify, isArray, isJSONValue, isRecord } from '@orkestrel/contract'
+import type { Guard } from '@orkestrel/contract'
+import {
+	holds,
+	canonicalStringify,
+	isArray,
+	isJSONValue,
+	isNonEmptyString,
+	isRecord,
+	literalOf,
+} from '@orkestrel/contract'
 import { MAX_TIMEOUT_MS } from '@orkestrel/timeout'
-import { STUDY_GOALS, STUDY_NAME, STUDY_TRIALS } from './constants.js'
+import { STUDY_CAUSES, STUDY_GOALS, STUDY_NAME, STUDY_ROLES, STUDY_TRIALS } from './constants.js'
 import { matchesStudyKeys } from './helpers.js'
+
+/** Checks whether a value names a measured request role. */
+export const isStudyRole: Guard<StudyRole> = literalOf(STUDY_ROLES)
+
+/** Checks whether a value names an operational ending. */
+export const isStudyCause: Guard<StudyCause> = literalOf(STUDY_CAUSES)
 
 /**
  * Checks whether an identifier is portable and bounded.
@@ -169,10 +186,8 @@ export function isStudyDefinition(value: unknown): value is StudyDefinition {
 			]) ||
 			!isStudyName(value.name) ||
 			!isStudyName(value.driver) ||
-			typeof value.version !== 'string' ||
-			value.version.length === 0 ||
-			typeof value.question !== 'string' ||
-			value.question.length === 0 ||
+			!isNonEmptyString(value.version) ||
+			!isNonEmptyString(value.question) ||
 			(value.purpose !== 'mechanism' &&
 				value.purpose !== 'quality' &&
 				value.purpose !== 'capacity') ||
@@ -188,8 +203,7 @@ export function isStudyDefinition(value: unknown): value is StudyDefinition {
 			!isJSONValue(value.order) ||
 			value.order.length === 0 ||
 			value.retries !== 0 ||
-			typeof value.rubric !== 'string' ||
-			value.rubric.length === 0
+			!isNonEmptyString(value.rubric)
 		)
 			return false
 		const arms = value.arms
@@ -253,9 +267,7 @@ export function isStudyProvider(value: unknown): value is StudyProvider {
 		if (
 			!isRecord(value) ||
 			!matchesStudyKeys(value, ['entry', 'url', 'model', 'judge', 'digest']) ||
-			!['entry', 'url', 'model', 'judge'].every(
-				(key) => typeof value[key] === 'string' && value[key].length > 0,
-			) ||
+			!['entry', 'url', 'model', 'judge'].every((key) => isNonEmptyString(value[key])) ||
 			typeof value.url !== 'string' ||
 			!isRecord(value.digest) ||
 			!matchesStudyKeys(value.digest, ['model', 'judge']) ||
@@ -299,13 +311,11 @@ export function isStudyProfile(value: unknown): value is StudyProfile {
 			value.roots.length > 0 &&
 			value.roots.every((root) => typeof root === 'string' && root.trim().length > 0) &&
 			new Set(value.roots).size === value.roots.length &&
-			typeof value.subject === 'string' &&
-			value.subject.length > 0 &&
+			isNonEmptyString(value.subject) &&
 			isStudyBounds(value.bounds) &&
 			isStudyRoom(value.room) &&
 			(value.provider === undefined || isStudyProvider(value.provider)) &&
-			(value.qualification === undefined ||
-				(typeof value.qualification === 'string' && value.qualification.length > 0))
+			(value.qualification === undefined || isNonEmptyString(value.qualification))
 		)
 	})
 }
@@ -356,9 +366,7 @@ export function isStudyUsage(value: unknown): value is StudyUsage {
 		return (
 			isRecord(value) &&
 			matchesStudyKeys(value, ['role', 'calls', 'duration'], ['tokens', 'bytes']) &&
-			['agent', 'judge', 'summary', 'metadata', 'tool'].includes(
-				typeof value.role === 'string' ? value.role : '',
-			) &&
+			isStudyRole(value.role) &&
 			['calls', 'duration'].every(
 				(key) =>
 					typeof value[key] === 'number' && Number.isSafeInteger(value[key]) && value[key] >= 0,

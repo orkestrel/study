@@ -13,8 +13,9 @@ import type {
 import { isBuiltin, stripTypeScriptTypes } from 'node:module'
 import { basename, extname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { containsArtifact } from '../helpers.js'
 import { ArtifactError } from './errors.js'
-import { containsArtifact, readArtifact } from './helpers.js'
+import { readArtifact } from './helpers.js'
 
 /** Enforces captured inventory membership at every synchronous native import edge. */
 export class Resolution {

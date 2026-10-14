@@ -123,12 +123,14 @@ await new GuideCommand({
 
 	it('executes the titled helper examples against their claimed values', () => {
 		const { matchesStudyKeys } = core
-		const { encodeStudyJSON, hashBytes, isStudyAdapter, toStudyWire, parseStudyArguments } = server
+		const { decodeStudyJSON, encodeStudyJSON, hashStudyBytes, isStudyAdapter, toStudyWire } = server
+		const { parseStudyArguments } = server
 		expect(matchesStudyKeys({ id: 'one' }, ['id'])).toBe(true)
 		expect(matchesStudyKeys({ id: 'one', extra: true }, ['id'])).toBe(false)
 		expect(new TextDecoder().decode(encodeStudyJSON({ version: 1 }))).toBe('{"version":1}\n')
-		expect(hashBytes('retained evidence')).toMatch(/^[a-f0-9]{64}$/)
-		expect(hashBytes('changed evidence')).not.toBe(hashBytes('retained evidence'))
+		expect(decodeStudyJSON(new TextEncoder().encode('{"version":1}'))).toEqual({ version: 1 })
+		expect(hashStudyBytes('retained evidence')).toMatch(/^[a-f0-9]{64}$/)
+		expect(hashStudyBytes('changed evidence')).not.toBe(hashStudyBytes('retained evidence'))
 		expect(isStudyAdapter({})).toBe(false)
 		expect(toStudyWire({ state: 'ready', failure: undefined })).toEqual({ state: 'ready' })
 		expect(parseStudyArguments(['check', 'files', '--profile', 'local'])).toEqual({

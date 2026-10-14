@@ -7,13 +7,22 @@ import type {
 	StudyTrial,
 } from '../../core/types.js'
 import type { StudyFile, StudySeal } from './types.js'
-import { holds, canonicalStringify, isArray, isJSONValue, isRecord } from '@orkestrel/contract'
+import {
+	holds,
+	canonicalStringify,
+	isArray,
+	isJSONValue,
+	isNonEmptyString,
+	isRecord,
+} from '@orkestrel/contract'
 import { buildStudySchedule, matchesStudyKeys } from '../../core/helpers.js'
 import {
 	isStudyBounds,
+	isStudyCause,
 	isStudyDefinition,
 	isStudyDigest,
 	isStudyName,
+	isStudyRole,
 	isStudyScenario,
 	isStudyTimestamp,
 	isStudyUsage,
@@ -153,15 +162,9 @@ export function isStudyCustodyFailure(value: unknown): value is StudyFailure {
 		return (
 			isRecord(value) &&
 			matchesStudyKeys(value, ['cause', 'message'], ['role']) &&
-			['capacity', 'infrastructure', 'deadline', 'interrupted'].includes(
-				typeof value.cause === 'string' ? value.cause : '',
-			) &&
-			typeof value.message === 'string' &&
-			value.message.length > 0 &&
-			(value.role === undefined ||
-				['agent', 'judge', 'summary', 'metadata', 'tool'].includes(
-					typeof value.role === 'string' ? value.role : '',
-				))
+			isStudyCause(value.cause) &&
+			isNonEmptyString(value.message) &&
+			(value.role === undefined || isStudyRole(value.role))
 		)
 	})
 }

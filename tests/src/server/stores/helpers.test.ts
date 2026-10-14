@@ -8,14 +8,13 @@ import {
 	buildStudyRubric,
 } from '../../../setupStudy.js'
 import { buildCustodyPacketLabels, retainStudyFixture } from '../../../setupServer.js'
+import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
 import {
 	checkStudyDirectory,
 	buildStudyPacket,
 	buildStudyPacketLinks,
 	computeStudyPacketDigest,
 	computeStudySealId,
-	encodeStudyJSON,
-	hashStudyBytes,
 	readStudyBytes,
 	readStudyResult,
 	scanStudyExecution,
@@ -89,16 +88,19 @@ describe('study custody helpers', () => {
 			scratch.destroy()
 		}
 	})
-	it('encodes stable keys and omitted optional fields and hashes exact bytes', () => {
-		expect(
-			Buffer.from(encodeStudyJSON({ optional: undefined, nested: { z: 2, a: 1 } })).toString(),
-		).toBe('{"nested":{"a":1,"z":2}}\n')
-		expect(encodeStudyJSON({ b: 2, a: 1 })).toEqual(encodeStudyJSON({ a: 1, b: 2 }))
-		expect(hashStudyBytes(new Uint8Array())).toBe(
-			'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-		)
-		expect(() => encodeStudyJSON(undefined)).toThrow('Record cannot be encoded')
+	it('binds a seal identity to its result identity and exact inventory', () => {
+		const file = { path: 'manifest.json', bytes: 10, digest: 'a'.repeat(64) }
 		expect(computeStudySealId('execution', [])).not.toBe(computeStudySealId('other', []))
+		expect(computeStudySealId('execution', [file])).toBe(
+			hashStudyBytes(
+				'{"files":[{"bytes":10,"digest":"' +
+					'a'.repeat(64) +
+					'","path":"manifest.json"}],"result":"execution","version":1}\n',
+			),
+		)
+		expect(computeStudySealId('execution', [{ ...file, bytes: 11 }])).not.toBe(
+			computeStudySealId('execution', [file]),
+		)
 	})
 
 	it('bounds regular-file reads and preserves exclusive writes', async () => {

@@ -7,7 +7,7 @@ import type {
 	StudyTrial,
 	StudyIdentity,
 } from '../../core/types.js'
-import { isStudyDigest, isStudyName } from '../../core/validators.js'
+import { isStudyCause, isStudyDigest, isStudyName, isStudyRole } from '../../core/validators.js'
 import { holds, isJSONValue, isRecord } from '@orkestrel/contract'
 
 /** Checks the complete transport envelope before domain handling.
@@ -49,11 +49,8 @@ export function isStudyProcessFailure(value: unknown): value is StudyFailure {
 		() =>
 			isRecord(value) &&
 			typeof value.message === 'string' &&
-			typeof value.cause === 'string' &&
-			['capacity', 'infrastructure', 'deadline', 'interrupted'].includes(value.cause) &&
-			(value.role === undefined ||
-				(typeof value.role === 'string' &&
-					['agent', 'judge', 'summary', 'metadata', 'tool'].includes(value.role))),
+			isStudyCause(value.cause) &&
+			(value.role === undefined || isStudyRole(value.role)),
 	)
 }
 
@@ -65,8 +62,7 @@ export function isStudyCharge(value: unknown): value is StudyCharge {
 	return holds(
 		() =>
 			isRecord(value) &&
-			typeof value.role === 'string' &&
-			['agent', 'judge', 'summary', 'metadata', 'tool'].includes(value.role) &&
+			isStudyRole(value.role) &&
 			typeof value.tokens === 'number' &&
 			Number.isSafeInteger(value.tokens) &&
 			value.tokens >= 0 &&

@@ -1,19 +1,18 @@
 import type { StudyGrading, StudyLabels, StudyRubric } from '../../core/types.js'
 import type { StudyGradingOptions, StudyPacketBundle, StudySealedResult } from './types.js'
-import { canonicalStringify, parseJSON } from '@orkestrel/contract'
+import { canonicalStringify } from '@orkestrel/contract'
 import { lstat, mkdir, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { StudyError } from '../../core/errors.js'
 import { computeStudyScores } from '../../core/helpers.js'
 import { parseStudyGrading, parseStudyLabels, parseStudyRubric } from '../../core/parsers.js'
 import { isStudyDigest } from '../../core/validators.js'
+import { decodeStudyJSON, encodeStudyJSON, hashStudyBytes } from '../helpers.js'
 import { STUDY_CUSTODY_BYTES } from './constants.js'
 import {
 	checkStudyDirectory,
 	buildStudyPacket,
 	computeStudyPacketDigest,
-	encodeStudyJSON,
-	hashStudyBytes,
 	readStudyBytes,
 	readStudyResult,
 	translateStudyPacketLabels,
@@ -50,18 +49,14 @@ export class StudyGradings {
 		this.#seal = options.result.seal.id
 		this.#rubricBytes = new Uint8Array(options.rubric)
 		this.#rubricDigest = hashStudyBytes(this.#rubricBytes)
-		this.#rubric = parseStudyRubric(
-			parseJSON(new TextDecoder('utf-8', { fatal: true }).decode(this.#rubricBytes)),
-		)
+		this.#rubric = parseStudyRubric(decodeStudyJSON(this.#rubricBytes))
 		this.#labelsBytes = options.labels === undefined ? undefined : new Uint8Array(options.labels)
 		this.#labelsDigest =
 			this.#labelsBytes === undefined ? undefined : hashStudyBytes(this.#labelsBytes)
 		this.#labels =
 			this.#labelsBytes === undefined
 				? undefined
-				: parseStudyLabels(
-						parseJSON(new TextDecoder('utf-8', { fatal: true }).decode(this.#labelsBytes)),
-					)
+				: parseStudyLabels(decodeStudyJSON(this.#labelsBytes))
 		if (
 			options.packet !== undefined &&
 			(options.packet.content.byteLength > STUDY_CUSTODY_BYTES ||
@@ -117,9 +112,7 @@ export class StudyGradings {
 		const bytes = await readStudyBytes(join(directory, 'grading.json'), STUDY_CUSTODY_BYTES)
 		if (hashStudyBytes(bytes) !== id)
 			throw new StudyError('CUSTODY', 'Grading identity differs from its exact bytes')
-		const grading = parseStudyGrading(
-			parseJSON(new TextDecoder('utf-8', { fatal: true }).decode(bytes)),
-		)
+		const grading = parseStudyGrading(decodeStudyJSON(bytes))
 		const expected = [
 			'grading.json',
 			`${grading.rubric}.rubric.json`,
@@ -142,9 +135,7 @@ export class StudyGradings {
 		)
 		if (hashStudyBytes(rubricBytes) !== grading.rubric)
 			throw new StudyError('CUSTODY', 'Rubric bytes differ from the grading identity')
-		const rubric = parseStudyRubric(
-			parseJSON(new TextDecoder('utf-8', { fatal: true }).decode(rubricBytes)),
-		)
+		const rubric = parseStudyRubric(decodeStudyJSON(rubricBytes))
 		let labels: StudyLabels | undefined
 		if (grading.labels !== undefined) {
 			const labelsBytes = await readStudyBytes(
@@ -153,9 +144,7 @@ export class StudyGradings {
 			)
 			if (hashStudyBytes(labelsBytes) !== grading.labels)
 				throw new StudyError('CUSTODY', 'Labels bytes differ from the grading identity')
-			labels = parseStudyLabels(
-				parseJSON(new TextDecoder('utf-8', { fatal: true }).decode(labelsBytes)),
-			)
+			labels = parseStudyLabels(decodeStudyJSON(labelsBytes))
 		}
 		let packet: StudyPacketBundle | undefined
 		if (grading.packet !== undefined) {

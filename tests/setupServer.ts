@@ -2,12 +2,15 @@ import type { StudyLaunchResult } from '../src/server/launchers/types.js'
 import type { ScratchInterface } from '@orkestrel/test/server'
 import type { StudyGrading, StudyLabels, StudyManifest, StudyRubric } from '../src/core/types.js'
 import type { StudySealedResult } from '../src/server/stores/types.js'
-import { execFile } from 'node:child_process'
+import type { StudyPeerFixture } from './src/server/processes/types.js'
+import { waitForEvent } from '@orkestrel/test'
+import { execFile, fork } from 'node:child_process'
 import { join, relative, resolve } from 'node:path'
 import { isBuiltin } from 'node:module'
 import { build } from 'vite'
 import { srcBin, srcCore } from '../vite.config.js'
 import { outputBoundary } from '../configs/helpers.js'
+import { encodeStudyJSON, hashStudyBytes } from '../src/server/helpers.js'
 import {
 	isStudyCharge,
 	isStudyEvidence,
@@ -21,8 +24,6 @@ import { StudyResults } from '../src/server/stores/StudyResults.js'
 import {
 	buildStudyPacket,
 	buildStudyPacketLinks,
-	encodeStudyJSON,
-	hashStudyBytes,
 	readStudyResult,
 } from '../src/server/stores/helpers.js'
 import {
@@ -65,20 +66,51 @@ export const ARTIFACT_NATIVE_FILES = Object.freeze({
  * @returns The absolute child entry path.
  */
 export function createArtifactWorker(scratch: ScratchInterface, body: string): string {
-	const library = new URL('../src/server/artifacts/', import.meta.url).href
+	const library = new URL('../src/', import.meta.url).href
 	return scratch.write(
 		'worker.mts',
 		`import { registerHooks } from 'node:module'
 import assert from 'node:assert/strict'
 import { writeFileSync } from 'node:fs'
 registerHooks({ resolve(specifier, context, next) {
- if (context.parentURL?.startsWith(${JSON.stringify(library)}) && specifier.startsWith('./') && specifier.endsWith('.js')) return next(new URL(specifier.slice(0, -3) + '.ts', context.parentURL).href, context)
+ if (context.parentURL?.startsWith(${JSON.stringify(library)}) && (specifier.startsWith('./') || specifier.startsWith('../')) && specifier.endsWith('.js')) return next(new URL(specifier.slice(0, -3) + '.ts', context.parentURL).href, context)
  return next(specifier, context)
 } })
-const { Artifacts } = await import(${JSON.stringify(`${library}Artifacts.ts`)})
+const { Artifacts } = await import(${JSON.stringify(`${library}server/artifacts/Artifacts.ts`)})
 ${body}
 `,
 	)
+}
+
+/** Forks a scripted protocol peer whose exit the fixture bounds on release.
+ * @param scratch - The owned temporary resource holding the peer source.
+ * @param source - The CommonJS peer program.
+ * @returns The live peer and its bounded release.
+ */
+export function createStudyPeer(scratch: ScratchInterface, source: string): StudyPeerFixture {
+	const child = fork(scratch.write('peer.cjs', source), [], {
+		execArgv: [],
+		silent: true,
+		windowsHide: true,
+	})
+	return Object.freeze({
+		child,
+		async close(): Promise<void> {
+			if (child.exitCode !== null || child.signalCode !== null) return
+			const exited = waitForEvent(
+				(listener: () => void) => {
+					child.once('close', listener)
+					return () => {
+						child.off('close', listener)
+					}
+				},
+				'study peer exit',
+				{ budget: 2000 },
+			)
+			child.kill()
+			await exited
+		},
+	})
 }
 
 /**

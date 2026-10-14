@@ -10,11 +10,10 @@ import {
 	retainStudyFixture,
 } from '../../../setupServer.js'
 import { StudyGradings } from '../../../../src/server/stores/StudyGradings.js'
+import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
 import {
 	buildStudyPacket,
 	computeStudyPacketDigest,
-	encodeStudyJSON,
-	hashStudyBytes,
 } from '../../../../src/server/stores/helpers.js'
 
 describe('StudyGradings', () => {

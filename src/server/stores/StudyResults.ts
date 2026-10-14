@@ -11,15 +11,15 @@ import type {
 	StudySeal,
 	StudyTrialCustody,
 } from './types.js'
-import { canonicalStringify, parseJSON } from '@orkestrel/contract'
+import { canonicalStringify } from '@orkestrel/contract'
 import { mkdir, open } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { StudyError } from '../../core/errors.js'
+import { decodeStudyJSON, encodeStudyJSON } from '../helpers.js'
 import { STUDY_CUSTODY_BYTES } from './constants.js'
 import {
 	checkStudyDirectory,
 	computeStudySealId,
-	encodeStudyJSON,
 	readStudyBytes,
 	readStudyResult,
 	scanStudyExecution,
@@ -46,7 +46,7 @@ export class StudyResults implements StudyResultsInterface {
 	constructor(options: StudyResultOptions) {
 		if (!isStudyCustodyManifest(options.manifest))
 			throw new StudyError('CONFIG', 'Invalid execution manifest')
-		const snapshot = parseJSON(new TextDecoder().decode(encodeStudyJSON(options.manifest)))
+		const snapshot = decodeStudyJSON(encodeStudyJSON(options.manifest))
 		if (!isStudyCustodyManifest(snapshot))
 			throw new StudyError('CONFIG', 'Invalid manifest snapshot')
 		this.#manifest = snapshot

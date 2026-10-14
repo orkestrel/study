@@ -81,6 +81,11 @@ describe('custody validators', () => {
 			true,
 		)
 		expect(isStudyCustodyFailure({ cause: 'success', message: 'Awarded' })).toBe(false)
+		expect(isStudyCustodyFailure({ cause: 'capacity', message: '', role: undefined })).toBe(false)
+		expect(isStudyCustodyFailure({ cause: 'capacity', message: 'Full', role: 'tool' })).toBe(true)
+		expect(isStudyCustodyFailure({ cause: 'capacity', message: 'Full', role: 'foreign' })).toBe(
+			false,
+		)
 		expect(isStudyCustodyObservation({ goal: 'write', usage: [], duration: 0 })).toBe(false)
 		expect(isStudyCustodyObservation({ ...attempt.observations[0], duration: Number.NaN })).toBe(
 			false,

@@ -11,7 +11,7 @@ import type {
 	StudyPreparation,
 	StudyReportRequest,
 } from './types.js'
-import { isArray, parseJSON } from '@orkestrel/contract'
+import { arrayOf, isArray, isString, parseJSON } from '@orkestrel/contract'
 import { randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { isAbsolute, join, resolve } from 'node:path'
@@ -29,13 +29,12 @@ import { StudySeries } from '../../core/engines/StudySeries.js'
 import { StudyArtifacts } from '../processes/StudyArtifacts.js'
 import { StudyProcessDriver } from '../processes/StudyProcessDriver.js'
 import { computeStudyProfileDigest, toStudyWire } from '../processes/helpers.js'
+import { decodeStudyJSON, encodeStudyJSON, hashStudyBytes } from '../helpers.js'
 import { STUDY_CUSTODY_BYTES, STUDY_PACKET_DISCLOSURE } from '../stores/constants.js'
 import {
 	buildStudyPacket,
 	checkStudyDirectory,
 	computeStudyPacketDigest,
-	encodeStudyJSON,
-	hashStudyBytes,
 	readStudyBytes,
 	readStudyResult,
 	translateStudyPacketLabels,
@@ -93,9 +92,7 @@ export class StudyCommand {
 			resolveStudyPath(directory, 'study.json'),
 			STUDY_CUSTODY_BYTES,
 		)
-		const definition = parseStudyDefinition(
-			parseJSON(new TextDecoder('utf-8', { fatal: true }).decode(definitionBytes)),
-		)
+		const definition = parseStudyDefinition(decodeStudyJSON(definitionBytes))
 		if (definition.name !== request.target)
 			throw new StudyError('CONFIG', 'Study name differs from its selected directory')
 		const bundle = resolveStudyPath(join(this.#root, 'studies'), definition.driver)
@@ -105,9 +102,7 @@ export class StudyCommand {
 			signal.throwIfAborted()
 			const path = `scenarios/${id}.json`
 			const bytes = await readStudyBytes(resolveStudyPath(bundle, path), STUDY_CUSTODY_BYTES)
-			const scenario = parseStudyScenario(
-				parseJSON(new TextDecoder('utf-8', { fatal: true }).decode(bytes)),
-			)
+			const scenario = parseStudyScenario(decodeStudyJSON(bytes))
 			if (scenario.id !== id) throw new StudyError('CONFIG', 'Scenario identity is incompatible')
 			scenarios.push(scenario)
 			fixtures.push({ path, digest: hashStudyBytes(bytes) })
@@ -116,9 +111,7 @@ export class StudyCommand {
 			resolveStudyPath(bundle, `profiles/${request.profile}.json`),
 			STUDY_CUSTODY_BYTES,
 		)
-		const source = parseStudyProfile(
-			parseJSON(new TextDecoder('utf-8', { fatal: true }).decode(profileBytes)),
-		)
+		const source = parseStudyProfile(decodeStudyJSON(profileBytes))
 		if (source.name !== request.profile)
 			throw new StudyError('CONFIG', 'Profile name differs from its selected file')
 		if (source.bounds.series.duration > STUDY_COMMAND_DURATION)
@@ -128,9 +121,7 @@ export class StudyCommand {
 			resolveStudyPath(directory, definition.rubric),
 			STUDY_CUSTODY_BYTES,
 		)
-		const rubric = parseStudyRubric(
-			parseJSON(new TextDecoder('utf-8', { fatal: true }).decode(rubricBytes)),
-		)
+		const rubric = parseStudyRubric(decodeStudyJSON(rubricBytes))
 		validateStudyInputs(definition, scenarios, rubric, profile)
 		if (definition.purpose === 'quality' && profile.qualification === undefined)
 			throw new StudyError('CONFIG', 'Quality studies require a capacity qualification')
@@ -272,13 +263,11 @@ export class StudyCommand {
 	async #grade(request: StudyGradeRequest, signal: AbortSignal): Promise<JSONValue> {
 		const result = await this.#result(request.target)
 		const bytes = await readStudyBytes(this.#file(request.rubric), STUDY_CUSTODY_BYTES)
-		const rubric = parseStudyRubric(
-			parseJSON(new TextDecoder('utf-8', { fatal: true }).decode(bytes)),
-		)
+		const rubric = parseStudyRubric(decodeStudyJSON(bytes))
 		const evidence = await collectStudyEvidence(result)
 		signal.throwIfAborted()
 		const roots = parseJSON(result.manifest.host.roots ?? '')
-		if (!isArray(roots) || !roots.every((path): path is string => typeof path === 'string'))
+		if (!arrayOf(isString)(roots))
 			throw new StudyError('CONFIG', 'Execution does not retain adapter dependency roots')
 		const evaluated = await new StudyTask({
 			root: this.#root,
@@ -340,9 +329,7 @@ export class StudyCommand {
 		if (previous.packet === undefined || previous.grading.packet === undefined)
 			throw new StudyError('EVIDENCE', 'Selected grading has no semantic packet')
 		const bytes = await readStudyBytes(this.#file(request.labels), STUDY_CUSTODY_BYTES)
-		const labels = parseStudyLabels(
-			parseJSON(new TextDecoder('utf-8', { fatal: true }).decode(bytes)),
-		)
+		const labels = parseStudyLabels(decodeStudyJSON(bytes))
 		const translated = translateStudyPacketLabels(
 			result,
 			previous.rubric,
@@ -354,9 +341,7 @@ export class StudyCommand {
 			...previous.grading,
 			// Binds the preceding grader so equal labels over distinct gradings stay distinct.
 			instrument: hashStudyBytes(
-				new TextEncoder().encode(
-					JSON.stringify([previous.grading.instrument, await this.#instrument()]),
-				),
+				JSON.stringify([previous.grading.instrument, await this.#instrument()]),
 			),
 			labels: hashStudyBytes(bytes),
 			judgments: previous.grading.judgments.map((judgment) => {
@@ -402,9 +387,7 @@ export class StudyCommand {
 		const labels =
 			context.labels === undefined
 				? undefined
-				: parseStudyLabels(
-						parseJSON(new TextDecoder('utf-8', { fatal: true }).decode(context.labels)),
-					)
+				: parseStudyLabels(decodeStudyJSON(context.labels))
 		return toStudyWire({
 			command: 'report',
 			grading: request.grading,
@@ -443,16 +426,12 @@ export class StudyCommand {
 		}
 		if (hashStudyBytes(raw) !== id)
 			throw new StudyError('CUSTODY', 'Selected grading differs from its byte identity')
-		const declared = parseStudyGrading(
-			parseJSON(new TextDecoder('utf-8', { fatal: true }).decode(raw)),
-		)
+		const declared = parseStudyGrading(decodeStudyJSON(raw))
 		const bytes = await readStudyBytes(
 			join(directory, `${declared.rubric}.rubric.json`),
 			STUDY_CUSTODY_BYTES,
 		)
-		const rubric = parseStudyRubric(
-			parseJSON(new TextDecoder('utf-8', { fatal: true }).decode(bytes)),
-		)
+		const rubric = parseStudyRubric(decodeStudyJSON(bytes))
 		const grading = await new StudyGradings({ result, rubric: bytes }).read(id)
 		if (grading === undefined)
 			throw new StudyError('CUSTODY', `Selected grading is missing: ${directory}`)

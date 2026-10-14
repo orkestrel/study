@@ -13,7 +13,7 @@ import {
 	ARTIFACT_ROOTS,
 	ARTIFACT_VISITS,
 } from '../../../../src/server/artifacts/constants.js'
-import { hashBytes } from '../../../../src/server/artifacts/helpers.js'
+import { hashStudyBytes } from '../../../../src/server/helpers.js'
 import { ARTIFACT_NATIVE_FILES, createArtifactWorker } from '../../../setupServer.js'
 
 it('admits distinct same-name package roots and preserves native provider dependency resolution', async () => {
@@ -34,10 +34,10 @@ it('admits distinct same-name package roots and preserves native provider depend
 				.map((root) => ({ root, name: 'same-name', version: '1.0.0' })),
 		)
 		expect(inventory.files.find((file) => file.path === entry)?.digest).toBe(
-			hashBytes(ARTIFACT_NATIVE_FILES['subject/dist/index.js']),
+			hashStudyBytes(ARTIFACT_NATIVE_FILES['subject/dist/index.js']),
 		)
 		expect(inventory.files.find((file) => file.path === part)?.digest).toBe(
-			hashBytes(ARTIFACT_NATIVE_FILES['subject/node_modules/same-name/dist/index.js']),
+			hashStudyBytes(ARTIFACT_NATIVE_FILES['subject/node_modules/same-name/dist/index.js']),
 		)
 		expect(inventory.files.find((file) => file.path === entry)?.digest).not.toBe(
 			inventory.files.find((file) => file.path === part)?.digest,

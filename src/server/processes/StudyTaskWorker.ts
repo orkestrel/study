@@ -1,6 +1,6 @@
 import type { JSONValue } from '@orkestrel/contract'
 import type { StudyEvidence, StudyAttempt } from '../../core/types.js'
-import { attempt, isArray, isError, isRecord } from '@orkestrel/contract'
+import { arrayOf, attempt, isArray, isError, isRecord, isString } from '@orkestrel/contract'
 import { dirname } from 'node:path'
 import { StudyError } from '../../core/errors.js'
 import {
@@ -12,15 +12,21 @@ import {
 import { isStudyErrorCode, isStudyJudgment } from '../../core/validators.js'
 import { Artifacts } from '../artifacts/Artifacts.js'
 import { readStudyAdapter } from '../adapters/helpers.js'
+import { hashStudyBytes } from '../helpers.js'
 import { STUDY_CUSTODY_BYTES } from '../stores/constants.js'
-import { hashStudyBytes, readStudyBytes } from '../stores/helpers.js'
+import { readStudyBytes } from '../stores/helpers.js'
 import {
 	isStudyCustodyAttempt,
 	isStudyCustodyEvidence,
 	isStudyCustodyManifest,
 } from '../stores/validators.js'
 import { STUDY_FRAME_BYTES } from './constants.js'
-import { resolveStudyInstrument, validateStudyRuntime, toStudyWire } from './helpers.js'
+import {
+	computeStudyInstrumentDigest,
+	resolveStudyInstrument,
+	validateStudyRuntime,
+	toStudyWire,
+} from './helpers.js'
 
 /** Evaluates only admitted instrumentation in a disposable native child. */
 export class StudyTaskWorker {
@@ -58,8 +64,7 @@ export class StudyTaskWorker {
 			Buffer.byteLength(JSON.stringify(value)) > STUDY_FRAME_BYTES ||
 			typeof value.adapter !== 'string' ||
 			typeof value.entry !== 'string' ||
-			!isArray(value.roots) ||
-			!value.roots.every((root): root is string => typeof root === 'string') ||
+			!arrayOf(isString)(value.roots) ||
 			!isRecord(value.input)
 		)
 			throw new StudyError('CONFIG', 'Adapter request is malformed')
@@ -84,13 +89,9 @@ export class StudyTaskWorker {
 						],
 					}),
 		})
-		const instrument = hashStudyBytes(
-			new TextEncoder().encode(
-				JSON.stringify([
-					hashStudyBytes(await readStudyBytes(value.entry, STUDY_CUSTODY_BYTES)),
-					loader.inspect().digest,
-				]),
-			),
+		const instrument = computeStudyInstrumentDigest(
+			hashStudyBytes(await readStudyBytes(value.entry, STUDY_CUSTODY_BYTES)),
+			loader.inspect().digest,
 		)
 		const adapter = readStudyAdapter(await loader.load(value.adapter))
 		let output: unknown

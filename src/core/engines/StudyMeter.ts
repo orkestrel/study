@@ -1,7 +1,7 @@
 import type { StudyCharge, StudyTicket, StudyUsage } from '../types.js'
 import type { StudyMeterInterface, StudyMeterOptions } from './types.js'
 import { StudyError } from '../errors.js'
-import { isStudyLimit } from '../validators.js'
+import { isStudyLimit, isStudyRole } from '../validators.js'
 import { failureToStudyError } from './helpers.js'
 import { StudyRequest } from './StudyRequest.js'
 
@@ -42,7 +42,7 @@ export class StudyMeter implements StudyMeterInterface {
 		if (this.#options.control.failure !== undefined)
 			throw failureToStudyError(this.#options.control.failure)
 		if (
-			!['agent', 'judge', 'summary', 'metadata', 'tool'].includes(charge.role) ||
+			!isStudyRole(charge.role) ||
 			!Number.isSafeInteger(charge.tokens) ||
 			charge.tokens < 0 ||
 			!Number.isSafeInteger(charge.bytes) ||

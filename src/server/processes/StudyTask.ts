@@ -9,8 +9,7 @@ import {
 	STUDY_TASK_DURATION,
 	STUDY_TASK_OPERATION,
 } from './constants.js'
-import { terminateStudyChild } from './handlers.js'
-import { toStudyWire } from './helpers.js'
+import { terminateStudyChild, toStudyWire } from './helpers.js'
 
 /** Bounds adapter evaluation by an independent native parent timer. */
 export class StudyTask {

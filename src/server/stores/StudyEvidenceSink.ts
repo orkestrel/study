@@ -1,7 +1,7 @@
 import type { StudyEvidence } from '../../core/types.js'
 import type { StudyCustodySinkInterface, StudyEvidenceOptions } from './types.js'
 import { StudyError } from '../../core/errors.js'
-import { encodeStudyJSON } from './helpers.js'
+import { encodeStudyJSON } from '../helpers.js'
 import { isStudyCustodyEvidence } from './validators.js'
 
 /** Retains admitted evidence in order and closes admission before terminal records. */

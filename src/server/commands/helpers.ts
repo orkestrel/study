@@ -11,10 +11,12 @@ import type { StudyCommandArtifact } from './types.js'
 import type { StudySealedResult } from '../stores/types.js'
 import type { JSONValue } from '@orkestrel/contract'
 import { parseJSON } from '@orkestrel/contract'
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
+import { STUDY_CAUSES, STUDY_ROLES } from '../../core/constants.js'
 import { StudyError } from '../../core/errors.js'
 import { computeStudyScores } from '../../core/helpers.js'
-import { encodeStudyJSON, hashStudyBytes, readStudyBytes } from '../stores/helpers.js'
+import { containsArtifact, encodeStudyJSON, hashStudyBytes } from '../helpers.js'
+import { readStudyBytes } from '../stores/helpers.js'
 import { isStudyCustodyEvidence } from '../stores/validators.js'
 import { STUDY_RESERVED_NAME } from '../stores/constants.js'
 
@@ -50,13 +52,7 @@ export function resolveStudyPath(directory: string, path: string): string {
 	)
 		throw new StudyError('CONFIG', 'Artifact path must be a portable contained relative path')
 	const absolute = resolve(directory, ...names)
-	const relation = relative(resolve(directory), absolute)
-	if (
-		relation === '' ||
-		relation === '..' ||
-		relation.startsWith(`..${sep}`) ||
-		isAbsolute(relation)
-	)
+	if (!containsArtifact(resolve(directory), absolute))
 		throw new StudyError('CONFIG', 'Artifact path escapes its selected directory')
 	return absolute
 }
@@ -185,10 +181,8 @@ export function computeStudyReport(
 	grading: StudyGrading,
 ): JSONValue {
 	const scores = computeStudyScores(result.manifest, rubric, grading)
-	const causes = ['capacity', 'infrastructure', 'deadline', 'interrupted']
 	const observations = result.attempts.flatMap((attempt) => attempt.observations)
 	const usage = observations.flatMap((observation) => observation.usage)
-	const roles = ['agent', 'judge', 'summary', 'metadata', 'tool']
 	const repetitions = result.manifest.definition.order.map((order, repetition) => ({
 		repetition,
 		order: [...order],
@@ -255,7 +249,7 @@ export function computeStudyReport(
 			trials: {
 				scheduled: result.manifest.schedule.length,
 				terminal: result.attempts.length,
-				faults: causes.map((cause) => ({
+				faults: STUDY_CAUSES.map((cause) => ({
 					cause,
 					count: result.attempts.filter((attempt) => attempt.failure?.cause === cause).length,
 				})),
@@ -265,7 +259,7 @@ export function computeStudyReport(
 				products: observations.filter((observation) => observation.product !== undefined).length,
 				partial: observations.filter((observation) => observation.product?.partial === true).length,
 				unexecuted: observations.filter((observation) => observation.product === undefined).length,
-				faults: causes.map((cause) => ({
+				faults: STUDY_CAUSES.map((cause) => ({
 					cause,
 					count: observations.filter((observation) => observation.failure?.cause === cause).length,
 				})),
@@ -273,7 +267,7 @@ export function computeStudyReport(
 		},
 		costs: {
 			duration: result.attempts.reduce((total, attempt) => total + attempt.duration, 0),
-			roles: roles.map((role) => {
+			roles: STUDY_ROLES.map((role) => {
 				const charges = usage.filter((entry) => entry.role === role)
 				return {
 					role,

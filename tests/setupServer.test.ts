@@ -1,3 +1,4 @@
+import { waitForEvent } from '@orkestrel/test'
 import { createScratch } from '@orkestrel/test/server'
 import { execFileSync } from 'node:child_process'
 import { join, resolve } from 'node:path'
@@ -11,6 +12,7 @@ import {
 	buildStudyCLI,
 	buildStudyLibrary,
 	createArtifactWorker,
+	createStudyPeer,
 	executeStudyCLI,
 	retainStudyFixture,
 	writeStudyConsumer,
@@ -65,6 +67,30 @@ describe('study server fixtures', () => {
 					windowsHide: true,
 				}),
 			).toBe('artifact-ready\n')
+		} finally {
+			scratch.destroy()
+		}
+	})
+	it('forks a scripted peer over real IPC and releases it idempotently after a bounded exit', async () => {
+		const scratch = createScratch()
+		try {
+			const peer = createStudyPeer(scratch, `process.on('message', (value) => process.send(value))`)
+			const echoed = waitForEvent(
+				(listener: (value: unknown) => void) => {
+					peer.child.once('message', listener)
+					return () => {
+						peer.child.off('message', listener)
+					}
+				},
+				'study peer echo',
+				{ budget: 5000 },
+			)
+			peer.child.send({ ping: true })
+			expect((await echoed)[0]).toEqual({ ping: true })
+			await peer.close()
+			await peer.close()
+			expect(peer.child.exitCode !== null || peer.child.signalCode !== null).toBe(true)
+			expect(peer.child.connected).toBe(false)
 		} finally {
 			scratch.destroy()
 		}

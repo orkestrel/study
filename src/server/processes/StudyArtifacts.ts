@@ -5,9 +5,14 @@ import { readFileSync } from 'node:fs'
 import { StudyError } from '../../core/errors.js'
 import { Artifacts } from '../artifacts/Artifacts.js'
 import { readStudyAdapter } from '../adapters/helpers.js'
-import { hashStudyBytes, readStudyBytes } from '../stores/helpers.js'
+import { hashStudyBytes } from '../helpers.js'
+import { readStudyBytes } from '../stores/helpers.js'
 import { STUDY_CUSTODY_BYTES } from '../stores/constants.js'
-import { resolveStudyInstrument, validateStudyRuntime } from './helpers.js'
+import {
+	computeStudyInstrumentDigest,
+	resolveStudyInstrument,
+	validateStudyRuntime,
+} from './helpers.js'
 
 /** Binds consumer instrumentation separately from selected executable identities. */
 export class StudyArtifacts {
@@ -47,7 +52,8 @@ export class StudyArtifacts {
 		validateStudyRuntime(instrument, roots)
 		const source = { root: dirname(this.#options.adapter), entry: this.#options.adapter }
 		this.#instrument = new Artifacts({ entries: [], roots, source, instrument })
-		this.#entry = hashStudyBytes(await readStudyBytes(this.#options.entry, STUDY_CUSTODY_BYTES))
+		const entry = hashStudyBytes(await readStudyBytes(this.#options.entry, STUDY_CUSTODY_BYTES))
+		this.#entry = entry
 		this.#loader = new Artifacts({
 			entries: [
 				profile.subject,
@@ -61,9 +67,7 @@ export class StudyArtifacts {
 		this.#identity = Object.freeze({
 			subject: inventory.digest,
 			provider: profile.provider === undefined ? undefined : inventory.digest,
-			instrument: hashStudyBytes(
-				new TextEncoder().encode(JSON.stringify([this.#entry, this.#instrument.inspect().digest])),
-			),
+			instrument: computeStudyInstrumentDigest(entry, this.#instrument.inspect().digest),
 		})
 		this.verify()
 		return this.#identity

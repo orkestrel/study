@@ -1,11 +1,13 @@
 import type { StudyFailure, StudyProfile } from '../../core/types.js'
 import type { JSONValue } from '@orkestrel/contract'
-import { canonicalStringify, isJSONValue } from '@orkestrel/contract'
-import { createHash } from 'node:crypto'
+import type { ChildProcess } from 'node:child_process'
+import { canonicalStringify, isJSONValue, isRecord } from '@orkestrel/contract'
+import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { StudyError } from '../../core/errors.js'
+import { hashStudyBytes } from '../helpers.js'
 
 /** Projects optional domain fields into the JSON wire representation.
  * @param value - An owned domain value with optional undefined fields.
@@ -38,7 +40,16 @@ export function createStudyProcessFailure(message: string): StudyFailure {
 export function computeStudyProfileDigest(profile: StudyProfile): string {
 	const encoded = canonicalStringify(toStudyWire(profile))
 	if (encoded === undefined) throw new StudyError('CONFIG', 'Study profile is not JSON-compatible')
-	return createHash('sha256').update(encoded).digest('hex')
+	return hashStudyBytes(encoded)
+}
+
+/** Computes the instrument identity binding trusted runtime bytes to the adapter inventory.
+ * @param entry - The SHA-256 identity of the trusted runtime entry bytes.
+ * @param inventory - The captured adapter inventory digest.
+ * @returns The identity that validation, grading, and trial children must share.
+ */
+export function computeStudyInstrumentDigest(entry: string, inventory: string): string {
+	return hashStudyBytes(JSON.stringify([entry, inventory]))
 }
 
 /** Resolves the actual host package from its trusted executable entry.
@@ -51,13 +62,7 @@ export function resolveStudyInstrument(entry: string): string {
 		const manifest = join(directory, 'package.json')
 		if (existsSync(manifest)) {
 			const value: unknown = JSON.parse(readFileSync(manifest, 'utf8'))
-			if (
-				typeof value === 'object' &&
-				value !== null &&
-				'name' in value &&
-				value.name === '@orkestrel/study'
-			)
-				return directory
+			if (isRecord(value) && value.name === '@orkestrel/study') return directory
 		}
 		const parent = dirname(directory)
 		if (parent === directory)
@@ -81,21 +86,59 @@ export function validateStudyRuntime(instrument: string, roots: readonly string[
 			throw new StudyError('CONFIG', `Profile roots omit a runtime dependency: ${root}`)
 		const manifest = join(root, 'package.json')
 		const value: unknown = JSON.parse(readFileSync(manifest, 'utf8'))
-		if (
-			typeof value !== 'object' ||
-			value === null ||
-			!('dependencies' in value) ||
-			value.dependencies === undefined
-		)
-			continue
-		if (
-			typeof value.dependencies !== 'object' ||
-			value.dependencies === null ||
-			Array.isArray(value.dependencies)
-		)
+		if (!isRecord(value) || value.dependencies === undefined) continue
+		if (!isRecord(value.dependencies))
 			throw new StudyError('CONFIG', 'Runtime dependency declarations are invalid')
 		const resolver = createRequire(manifest)
 		for (const dependency of Object.keys(value.dependencies))
 			pending.push(dirname(realpathSync(resolver.resolve(`${dependency}/package.json`))))
+	}
+}
+
+/** Terminates the recorded native process tree under a finite cleanup allowance.
+ * @param child - The exclusively owned child process.
+ */
+export function terminateStudyChild(child: ChildProcess): void {
+	if (child.pid === undefined) return
+	try {
+		if (process.platform === 'win32')
+			execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+				windowsHide: true,
+				timeout: 2000,
+				stdio: 'ignore',
+			})
+		else {
+			const rows = execFileSync('ps', ['-eo', 'pid=,ppid='], {
+				timeout: 2000,
+				encoding: 'utf8',
+				maxBuffer: 1024 * 1024,
+			})
+				.trim()
+				.split(/\r\n|\n/)
+				.map((row) => row.trim().split(/\s+/).map(Number))
+			const descendants = new Set([child.pid])
+			for (let index = 0; index < rows.length; index++)
+				for (const [pid, parent] of rows)
+					if (pid !== undefined && parent !== undefined && descendants.has(parent))
+						descendants.add(pid)
+			for (const pid of [...descendants].reverse()) {
+				try {
+					process.kill(pid, 'SIGKILL')
+				} catch (error) {
+					if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) throw error
+				}
+			}
+		}
+	} catch (error) {
+		try {
+			process.kill(child.pid, 0)
+		} catch (status) {
+			if (status instanceof Error && 'code' in status && status.code === 'ESRCH') return
+			throw status
+		}
+		if (child.exitCode === null && child.signalCode === null) {
+			child.kill('SIGKILL')
+			throw error
+		}
 	}
 }

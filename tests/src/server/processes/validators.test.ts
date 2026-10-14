@@ -62,7 +62,14 @@ describe('process validators', () => {
 			false,
 		)
 		expect(isStudyCharge({ role: 'tool', tokens: Infinity, bytes: 0 })).toBe(false)
+		expect(isStudyCharge({ role: 'foreign', tokens: 0, bytes: 0 })).toBe(false)
 		expect(isStudyProcessFailure({ cause: 'deadline', message: 'expired' })).toBe(true)
+		expect(isStudyProcessFailure({ cause: 'deadline', message: 'expired', role: 'judge' })).toBe(
+			true,
+		)
+		expect(isStudyProcessFailure({ cause: 'deadline', message: 'expired', role: 'foreign' })).toBe(
+			false,
+		)
 		expect(isStudyProcessFailure({ cause: 'success', message: 'won' })).toBe(false)
 		expect(isStudyProduct({ value: { answer: 1 }, partial: true })).toBe(true)
 		expect(isStudyProduct({ value: undefined, partial: false })).toBe(false)

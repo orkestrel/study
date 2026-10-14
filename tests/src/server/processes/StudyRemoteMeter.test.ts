@@ -1,22 +1,20 @@
 import { createScratch } from '@orkestrel/test/server'
-import { fork } from 'node:child_process'
 import { describe, expect, it } from 'vitest'
 import { StudyControl } from '../../../../src/core/engines/StudyControl.js'
 import { StudyChannel } from '../../../../src/server/processes/StudyChannel.js'
 import { StudyRemoteMeter } from '../../../../src/server/processes/StudyRemoteMeter.js'
 import { awaitStudyProcess } from '../../../../src/server/processes/handlers.js'
+import { createStudyPeer } from '../../../setupServer.js'
 
 describe('StudyRemoteMeter', () => {
 	it('waits for a real IPC admission grant and settlement acknowledgment before completion', async () => {
 		const scratch = createScratch()
-		const entry = scratch.write(
-			'peer.cjs',
+		const peer = createStudyPeer(
+			scratch,
 			`process.on('message', frame => setTimeout(() => process.send({version:1,id:frame.id,operation:'reply',value:frame.operation === 'admit' ? {id:frame.value.id} : true}),25))`,
 		)
-		const child = fork(entry, [], { execArgv: [], silent: true, windowsHide: true })
-		const exited = new Promise<void>((resolve) => child.once('close', () => resolve()))
 		const channel = new StudyChannel({
-			endpoint: child,
+			endpoint: peer.child,
 			handle: async () => true,
 			abort: () => undefined,
 		})
@@ -43,22 +41,19 @@ describe('StudyRemoteMeter', () => {
 		} finally {
 			channel.close()
 			control.close()
-			child.kill()
-			await awaitStudyProcess(exited, 2000)
+			await peer.close()
 			scratch.destroy()
 		}
 	})
 
 	it('keeps denied admission sticky even when its rejection is caught', async () => {
 		const scratch = createScratch()
-		const entry = scratch.write(
-			'peer.cjs',
+		const peer = createStudyPeer(
+			scratch,
 			`process.on('message', frame => process.send({version:1,id:frame.id,operation:'error',value:{cause:'capacity',message:'parent denied',role:'tool'}}))`,
 		)
-		const child = fork(entry, [], { execArgv: [], silent: true, windowsHide: true })
-		const exited = new Promise<void>((resolve) => child.once('close', () => resolve()))
 		const channel = new StudyChannel({
-			endpoint: child,
+			endpoint: peer.child,
 			handle: async () => true,
 			abort: () => undefined,
 		})
@@ -76,8 +71,7 @@ describe('StudyRemoteMeter', () => {
 		} finally {
 			channel.close()
 			control.close()
-			child.kill()
-			await awaitStudyProcess(exited, 2000)
+			await peer.close()
 			scratch.destroy()
 		}
 	})

@@ -159,6 +159,7 @@ The following declarations describe this concept.
 | `ArtifactSourceOptions`          | interface | Selects a consumer-owned executable source directory and its exact adapter entry.         |
 | `Artifacts`                      | class     | Captures built ESM and a separate strip-only consumer adapter in a fresh worker.          |
 | `Resolution`                     | class     | Enforces captured inventory membership at every synchronous native import edge.           |
+| `STUDY_CAUSES`                   | const     | Lists every operational ending in report order.                                           |
 | `STUDY_COMMAND_DURATION`         | const     | Caps declared execution duration at the native supervisor's host ceiling.                 |
 | `STUDY_COMMAND_GRADER`           | const     | Fixes the trusted command's independent offline predicate version.                        |
 | `STUDY_COMMAND_HELP`             | const     | Defines the complete public CLI reference shared by help and grammar diagnostics.         |
@@ -166,11 +167,15 @@ The following declarations describe this concept.
 | `STUDY_CUSTODY_BYTES`            | const     | Limits untrusted metadata before JSON parsing or file allocation.                         |
 | `STUDY_FRAME_BYTES`              | const     | Limits each serialized IPC envelope, including its JSON framing.                          |
 | `STUDY_GOALS`                    | const     | Caps a declared scenario horizon before execution.                                        |
+| `STUDY_LAUNCH_BYTES`             | const     | Bounds combined supervised command output to 16 MiB before terminating the tree.          |
+| `STUDY_LAUNCH_CLEANUP`           | const     | Extends supervised execution beyond its declared series duration for cleanup.             |
+| `STUDY_LAUNCH_DURATION`          | const     | Bounds each supervised operation other than execution to 60 seconds.                      |
 | `STUDY_LOG_BYTES`                | const     | Limits combined worker stdout and stderr before termination.                              |
 | `STUDY_NAME`                     | const     | Restricts identifiers to portable path-safe names.                                        |
 | `STUDY_PACKET_DISCLOSURE`        | const     | Discloses the limits of neutral identifiers when public text remains visible.             |
 | `STUDY_PENDING_LIMIT`            | const     | Limits outstanding bidirectional protocol work per process.                               |
 | `STUDY_RESERVED_NAME`            | const     | Rejects names that Windows reserves even on other hosts.                                  |
+| `STUDY_ROLES`                    | const     | Lists every measured request role in report order.                                        |
 | `STUDY_TASK_DURATION`            | const     | Caps pure domain work independently of its event loop.                                    |
 | `STUDY_TASK_OPERATION`           | const     | Names the private bounded validation and grading route.                                   |
 | `STUDY_TRIALS`                   | const     | Caps a declared trial population before schedule allocation.                              |
@@ -295,6 +300,7 @@ The following declarations describe this concept.
 | `collectStudyEvidence`           | function  | Reads sealed evidence bytes through custody checks without loading executable code.       |
 | `computeStudyCommandFingerprint` | function  | Computes the native supervisor's exact validated execution fingerprint.                   |
 | `computeStudyFixtureDigest`      | function  | Computes public fixture identity from execution policy and exact scenario bytes.          |
+| `computeStudyInstrumentDigest`   | function  | Computes the instrument identity binding trusted runtime bytes to the adapter inventory.  |
 | `computeStudyPacketDigest`       | function  | Computes a bundle identity binding exact public packet and private map bytes.             |
 | `computeStudyProfileDigest`      | function  | Binds the canonical fully resolved execution profile carried over IPC.                    |
 | `computeStudyReport`             | function  | Computes whole-horizon results with operational costs and repetitions kept distinct.      |
@@ -302,13 +308,14 @@ The following declarations describe this concept.
 | `computeStudySealId`             | function  | Computes an execution seal identity from its exact sorted inventory.                      |
 | `containsArtifact`               | function  | Checks strict lexical containment under a selected directory.                             |
 | `createStudyProcessFailure`      | function  | Creates attributable protocol infrastructure failure.                                     |
+| `decodeStudyJSON`                | function  | Decodes strict UTF-8 custody bytes and parses their JSON text.                            |
 | `encodeStudyJSON`                | function  | Encodes deterministic JSON bytes without synthesizing execution metadata.                 |
 | `failureToStudyError`            | function  | Converts an operational reading to its throwable boundary.                                |
-| `hashBytes`                      | function  | Computes a SHA-256 identity for exact bytes.                                              |
-| `hashStudyBytes`                 | function  | Computes the lowercase SHA-256 identity of exact bytes.                                   |
+| `hashStudyBytes`                 | function  | Computes the lowercase SHA-256 identity of exact bytes or UTF-8 text.                     |
 | `isArtifactError`                | function  | Narrows a caught value to an artifact refusal.                                            |
 | `isStudyAdapter`                 | function  | Checks whether a factory returned the complete consumer adapter contract.                 |
 | `isStudyBounds`                  | function  | Checks whether nested scopes admit no larger allowance than their parent.                 |
+| `isStudyCause`                   | const     | Checks whether a value names an operational ending.                                       |
 | `isStudyCharge`                  | function  | Checks a request's declared role and finite cost ceilings.                                |
 | `isStudyCriterion`               | function  | Checks whether a criterion declares exact grading inputs and references.                  |
 | `isStudyCustodyAttempt`          | function  | Checks whether an attempt terminally accounts for the exact scheduled goal horizon.       |
@@ -337,6 +344,7 @@ The following declarations describe this concept.
 | `isStudyProduct`                 | function  | Checks a retained public product without awarding task achievement.                       |
 | `isStudyProfile`                 | function  | Checks whether a profile carries finite bounds and an optional explicit provider.         |
 | `isStudyProvider`                | function  | Checks whether a provider declaration names artifacts, an HTTP origin and models.         |
+| `isStudyRole`                    | const     | Checks whether a value names a measured request role.                                     |
 | `isStudyRoom`                    | function  | Checks whether generation room leaves positive context for input.                         |
 | `isStudyRubric`                  | function  | Checks whether a rubric declares nonempty criteria with unique identities.                |
 | `isStudyScenario`                | function  | Checks whether a scenario declares a nonempty horizon with unique goal ids.               |
@@ -1012,16 +1020,6 @@ import { isStudyAdapter } from '@orkestrel/study/server'
 isStudyAdapter({}) // false
 ```
 
-### Identify captured bytes
-
-Use the exported declaration with its documented arguments.
-
-```ts
-import { hashBytes } from '@orkestrel/study/server'
-
-hashBytes('retained evidence')
-```
-
 ### resolveStudyPath
 
 Use the exported declaration with its documented arguments.
@@ -1092,14 +1090,14 @@ import { parseStudyArguments } from '@orkestrel/study/server'
 parseStudyArguments(['check', 'files', '--profile', 'local'])
 ```
 
-### Project a wire value
+### Identify captured bytes
 
 Use the exported declaration with its documented arguments.
 
 ```ts
-import { toStudyWire } from '@orkestrel/study/server'
+import { hashStudyBytes } from '@orkestrel/study/server'
 
-toStudyWire({ state: 'ready', failure: undefined }) // { state: 'ready' }
+hashStudyBytes('retained evidence')
 ```
 
 ### Encode custody bytes
@@ -1112,14 +1110,24 @@ import { encodeStudyJSON } from '@orkestrel/study/server'
 encodeStudyJSON({ version: 1 })
 ```
 
-### hashStudyBytes
+### decodeStudyJSON
 
 Use the exported declaration with its documented arguments.
 
 ```ts
-import { hashStudyBytes } from '@orkestrel/study/server'
+import { decodeStudyJSON } from '@orkestrel/study/server'
 
-hashStudyBytes(new Uint8Array())
+decodeStudyJSON(new TextEncoder().encode('{"version":1}')) // { version: 1 }
+```
+
+### Project a wire value
+
+Use the exported declaration with its documented arguments.
+
+```ts
+import { toStudyWire } from '@orkestrel/study/server'
+
+toStudyWire({ state: 'ready', failure: undefined }) // { state: 'ready' }
 ```
 
 ### buildStudyPacketLinks
@@ -1330,6 +1338,7 @@ Supply the argument tuple from each helper's signature.
 import { failureToStudyError, readStudyFailure } from '@orkestrel/study'
 import {
 	awaitStudyProcess,
+	computeStudyInstrumentDigest,
 	computeStudyProfileDigest,
 	containsArtifact,
 	createStudyProcessFailure,
@@ -1350,6 +1359,8 @@ import {
 
 declare const awaitStudyProcessArguments: Parameters<typeof awaitStudyProcess>
 awaitStudyProcess(...awaitStudyProcessArguments)
+declare const computeStudyInstrumentDigestArguments: Parameters<typeof computeStudyInstrumentDigest>
+computeStudyInstrumentDigest(...computeStudyInstrumentDigestArguments)
 declare const computeStudyProfileDigestArguments: Parameters<typeof computeStudyProfileDigest>
 computeStudyProfileDigest(...computeStudyProfileDigestArguments)
 declare const containsArtifactArguments: Parameters<typeof containsArtifact>

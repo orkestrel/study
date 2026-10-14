@@ -1,16 +1,16 @@
 import { createScratch } from '@orkestrel/test/server'
-import { fork } from 'node:child_process'
 import { describe, expect, it } from 'vitest'
 import { StudyChannel } from '../../../../src/server/processes/StudyChannel.js'
 import { awaitStudyProcess } from '../../../../src/server/processes/handlers.js'
 import { readStudyFailure } from '../../../../src/core/engines/helpers.js'
+import { createStudyPeer } from '../../../setupServer.js'
 
 describe('StudyChannel', () => {
 	it('correlates real child replies and rejects malformed, foreign, oversized and premature endings', async () => {
 		for (const action of ['echo', 'malformed', 'foreign', 'failure', 'oversized', 'exit']) {
 			const scratch = createScratch()
-			const entry = scratch.write(
-				'peer.cjs',
+			const peer = createStudyPeer(
+				scratch,
 				`process.on('message', frame => {
 				const action = ${JSON.stringify(action)}
 				if (action === 'exit') { process.exit(7); return }
@@ -20,10 +20,8 @@ describe('StudyChannel', () => {
 				process.send({version:1,id:action === 'foreign' ? frame.id+1 : frame.id,operation:'reply',value:frame.value})
 			})`,
 			)
-			const child = fork(entry, [], { execArgv: [], silent: true, windowsHide: true })
-			const exited = new Promise<void>((resolve) => child.once('close', () => resolve()))
 			const channel = new StudyChannel({
-				endpoint: child,
+				endpoint: peer.child,
 				handle: async () => true,
 				abort: () => undefined,
 			})
@@ -38,9 +36,8 @@ describe('StudyChannel', () => {
 				)
 			} finally {
 				channel.close()
-				if (child.exitCode === null && child.signalCode === null) child.kill()
-				await awaitStudyProcess(exited, 2000)
-				expect(child.listenerCount('message')).toBe(0)
+				await peer.close()
+				expect(peer.child.listenerCount('message')).toBe(0)
 				scratch.destroy()
 			}
 		}
@@ -48,15 +45,13 @@ describe('StudyChannel', () => {
 
 	it('refuses nonsequential requests before invoking the domain handler', async () => {
 		const scratch = createScratch()
-		const entry = scratch.write(
-			'peer.cjs',
+		const peer = createStudyPeer(
+			scratch,
 			`process.send({version:1,id:2,operation:'admit',value:{}}); process.on('message',()=>{})`,
 		)
-		const child = fork(entry, [], { execArgv: [], silent: true, windowsHide: true })
-		const exited = new Promise<void>((resolve) => child.once('close', () => resolve()))
 		const operations: string[] = []
 		const channel = new StudyChannel({
-			endpoint: child,
+			endpoint: peer.child,
 			handle: async (operation) => {
 				operations.push(operation)
 				return true
@@ -79,8 +74,7 @@ describe('StudyChannel', () => {
 			})
 		} finally {
 			channel.close()
-			child.kill()
-			await awaitStudyProcess(exited, 2000)
+			await peer.close()
 			scratch.destroy()
 		}
 	})

@@ -12,7 +12,7 @@ import {
 	resolveStudyPath,
 	resolveStudyProfile,
 } from '../../../../src/server/commands/helpers.js'
-import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/stores/helpers.js'
+import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
 import { buildStudyProfile } from '../../../setupStudy.js'
 
 describe('study command helpers', () => {

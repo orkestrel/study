@@ -4,7 +4,7 @@ import type {
 	ArtifactPackage,
 	ArtifactSource,
 } from './types.js'
-import { isRecord } from '@orkestrel/contract'
+import { isNonEmptyString, isRecord } from '@orkestrel/contract'
 import { randomUUID } from 'node:crypto'
 import { lstatSync, opendirSync, realpathSync } from 'node:fs'
 import { registerHooks, stripTypeScriptTypes } from 'node:module'
@@ -17,8 +17,9 @@ import {
 	ARTIFACT_ROOTS,
 	ARTIFACT_VISITS,
 } from './constants.js'
+import { containsArtifact, hashStudyBytes } from '../helpers.js'
 import { ArtifactError } from './errors.js'
-import { containsArtifact, hashBytes, readArtifact } from './helpers.js'
+import { readArtifact } from './helpers.js'
 import { Resolution } from './Resolution.js'
 
 /** Captures built ESM and a separate strip-only consumer adapter in a fresh worker.
@@ -79,10 +80,8 @@ export class Artifacts {
 			if (
 				!isRecord(value) ||
 				value.type !== 'module' ||
-				typeof value.name !== 'string' ||
-				value.name.length === 0 ||
-				typeof value.version !== 'string' ||
-				value.version.length === 0
+				!isNonEmptyString(value.name) ||
+				!isNonEmptyString(value.version)
 			)
 				throw new ArtifactError(`Artifact requires a named, versioned ESM package: ${root}`)
 			if (packages.some((item) => item.root === root))
@@ -141,7 +140,10 @@ export class Artifacts {
 			),
 		}
 		this.#sources = sources
-		this.#inventory = Object.freeze({ digest: hashBytes(JSON.stringify(evidence)), ...evidence })
+		this.#inventory = Object.freeze({
+			digest: hashStudyBytes(JSON.stringify(evidence)),
+			...evidence,
+		})
 		this.verify()
 		return this.#inventory
 	}

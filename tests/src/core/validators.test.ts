@@ -1,6 +1,8 @@
 import { expect, it } from 'vitest'
+import { STUDY_CAUSES, STUDY_ROLES } from '../../../src/core/constants.js'
 import {
 	isStudyBounds,
+	isStudyCause,
 	isStudyCriterion,
 	isStudyDefinition,
 	isStudyDigest,
@@ -13,6 +15,7 @@ import {
 	isStudyName,
 	isStudyProfile,
 	isStudyProvider,
+	isStudyRole,
 	isStudyRoom,
 	isStudyRubric,
 	isStudyScenario,
@@ -192,6 +195,22 @@ it('requires nonnegative known usage and honest semantic-label provenance', () =
 	expect(isStudyLabels({ ...labels, usage: Array(1) })).toBe(false)
 	expect(isStudyLabels({ ...labels, usage: Object.assign([usage], { typo: true }) })).toBe(false)
 	expect(isStudyLabels({ ...labels, typo: true })).toBe(false)
+})
+
+it('accepts exactly the declared roles and operational causes in their frozen report order', () => {
+	expect(STUDY_ROLES).toEqual(['agent', 'judge', 'summary', 'metadata', 'tool'])
+	expect(STUDY_CAUSES).toEqual(['capacity', 'infrastructure', 'deadline', 'interrupted'])
+	expect(Object.isFrozen(STUDY_ROLES) && Object.isFrozen(STUDY_CAUSES)).toBe(true)
+	for (const role of ['agent', 'judge', 'summary', 'metadata', 'tool'])
+		expect(isStudyRole(role)).toBe(true)
+	for (const cause of ['capacity', 'infrastructure', 'deadline', 'interrupted'])
+		expect(isStudyCause(cause)).toBe(true)
+	for (const value of ['Agent', 'success', '', undefined, null, 0, ['tool'], { role: 'tool' }]) {
+		expect(isStudyRole(value)).toBe(false)
+		expect(isStudyCause(value)).toBe(false)
+	}
+	expect(isStudyRole('capacity')).toBe(false)
+	expect(isStudyCause('tool')).toBe(false)
 })
 
 it('accepts only declared error codes, never a foreign or case-folded code', () => {

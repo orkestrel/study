@@ -1,6 +1,6 @@
 import type { ScratchInterface } from '@orkestrel/test/server'
-import { isArray, isRecord, parseJSON } from '@orkestrel/contract'
-import { createScratch, destroyScratch } from '@orkestrel/test/server'
+import { arrayOf, isArray, isRecord, isString, parseJSON } from '@orkestrel/contract'
+import { createScratch, destroyScratch, isRunning } from '@orkestrel/test/server'
 import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
@@ -122,11 +122,7 @@ describe('built study executable', () => {
 			output: '',
 		})
 		const result = parseJSON(executed.output)
-		if (
-			!isRecord(result) ||
-			!isArray(result.next) ||
-			!result.next.every((token): token is string => typeof token === 'string')
-		)
+		if (!isRecord(result) || !arrayOf(isString)(result.next))
 			throw new Error('Missing relative output next argv')
 		expect(result.path).toBe(join(scratch.path, 'chosen', 'result'))
 		expect(parseStudyArguments(result.next)).toMatchObject({
@@ -174,11 +170,7 @@ describe('built study executable', () => {
 	it('executes real file operations in children, seals, grades, labels and reports the whole horizon', async () => {
 		const checked = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
 		const planned = parseJSON(checked.output)
-		if (
-			!isRecord(planned) ||
-			!isArray(planned.next) ||
-			!planned.next.every((token): token is string => typeof token === 'string')
-		)
+		if (!isRecord(planned) || !arrayOf(isString)(planned.next))
 			throw new Error('Missing check next argv')
 		expect(parseStudyArguments(planned.next)).toMatchObject({
 			command: 'execute',
@@ -195,8 +187,7 @@ describe('built study executable', () => {
 			!isRecord(result) ||
 			typeof result.path !== 'string' ||
 			typeof result.result !== 'string' ||
-			!isArray(result.next) ||
-			!result.next.every((token): token is string => typeof token === 'string')
+			!arrayOf(isString)(result.next)
 		)
 			throw new Error('Missing execution path')
 		expect(result).not.toHaveProperty('id')
@@ -211,7 +202,7 @@ describe('built study executable', () => {
 			.split(/\r\n|\n/)
 			.map(Number)
 		expect(pids.length).toBe(1)
-		for (const pid of pids) expect(() => process.kill(pid, 0)).toThrow(/ESRCH|no such process/i)
+		for (const pid of pids) expect(isRunning(pid)).toBe(false)
 		const sealed = await readStudyResult(result.path)
 		if (sealed.status !== 'sealed') throw new Error('Execution did not seal')
 		expect(
@@ -228,8 +219,7 @@ describe('built study executable', () => {
 		if (
 			!isRecord(grading) ||
 			typeof grading.grading !== 'string' ||
-			!isArray(grading.next) ||
-			!grading.next.every((token): token is string => typeof token === 'string')
+			!arrayOf(isString)(grading.next)
 		)
 			throw new Error('Missing grading')
 		expect(parseStudyArguments(grading.next)).toEqual({
@@ -262,11 +252,7 @@ describe('built study executable', () => {
 			output: '',
 		})
 		const labeledResult = parseJSON(labeled.output)
-		if (
-			!isRecord(labeledResult) ||
-			!isArray(labeledResult.next) ||
-			!labeledResult.next.every((token): token is string => typeof token === 'string')
-		)
+		if (!isRecord(labeledResult) || !arrayOf(isString)(labeledResult.next))
 			throw new Error('Missing label next argv')
 		expect(parseStudyArguments(labeledResult.next)).toEqual({
 			command: 'report',
@@ -786,7 +772,7 @@ describe('built study executable', () => {
 		).rejects.toThrow('deadline')
 		const pid = Number(scratch.read('blocked.pid'))
 		expect(Number.isSafeInteger(pid) && pid > 0).toBe(true)
-		expect(() => process.kill(pid, 0)).toThrow(/ESRCH|no such process/i)
+		expect(isRunning(pid)).toBe(false)
 		await expect(
 			command.execute(
 				['execute', 'assessment', '--expected', 'a'.repeat(64)],

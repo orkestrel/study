@@ -1,38 +1,9 @@
 import type { ArtifactSource } from './types.js'
-import { createHash } from 'node:crypto'
 import { closeSync, fstatSync, lstatSync, openSync, readSync, realpathSync } from 'node:fs'
-import { isAbsolute, relative, resolve, sep } from 'node:path'
+import { isAbsolute, resolve } from 'node:path'
+import { hashStudyBytes } from '../helpers.js'
 import { ARTIFACT_FILE_BYTES } from './constants.js'
 import { ArtifactError } from './errors.js'
-
-/** Computes a SHA-256 identity for exact bytes.
- * @param input - Bytes or UTF-8 text to identify.
- * @returns The lowercase hexadecimal digest.
- * @example Identify captured bytes
- * ```ts
- * import { hashBytes } from '@orkestrel/study/server'
- *
- * hashBytes('retained evidence')
- * ```
- */
-export function hashBytes(input: string | Uint8Array): string {
-	return createHash('sha256').update(input).digest('hex')
-}
-
-/** Checks strict lexical containment under a selected directory.
- * @param root - The canonical directory.
- * @param path - The candidate absolute file.
- * @returns True if the file is below the directory; false otherwise.
- */
-export function containsArtifact(root: string, path: string): boolean {
-	const location = relative(root, path)
-	return (
-		location !== '' &&
-		location !== '..' &&
-		!location.startsWith(`..${sep}`) &&
-		!isAbsolute(location)
-	)
-}
 
 /** Reads a bounded regular file only through its canonical absolute path.
  * @param path - The absolute path to inspect.
@@ -72,7 +43,7 @@ export function readArtifact(path: string, maximum = ARTIFACT_FILE_BYTES): Artif
 			!lstatSync(path).isFile()
 		)
 			throw new ArtifactError(`Artifact file drifted while reading: ${path}`)
-		return { path, digest: hashBytes(source), size: source.byteLength, source }
+		return { path, digest: hashStudyBytes(source), size: source.byteLength, source }
 	} finally {
 		closeSync(descriptor)
 	}
