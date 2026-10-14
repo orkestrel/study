@@ -114,8 +114,8 @@ export class StudyTaskWorker {
 			const manifest = value.input.manifest
 			const attempts: readonly unknown[] = value.input.attempts
 			if (
-				!attempts.every((attempt): attempt is StudyAttempt =>
-					isStudyCustodyAttempt(attempt, manifest),
+				!attempts.every((retained): retained is StudyAttempt =>
+					isStudyCustodyAttempt(retained, manifest),
 				)
 			)
 				throw new StudyError('CONFIG', 'Adapter attempts are invalid')

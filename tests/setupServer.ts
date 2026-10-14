@@ -1,12 +1,22 @@
 import type { StudyLaunchResult } from '../src/server/launchers/types.js'
-import { execFile } from 'node:child_process'
-import { join, relative, resolve } from 'node:path'
-import { build } from 'vite'
-import { srcBin, srcCore } from '../vite.config.js'
-import { outputBoundary } from '../configs/helpers.js'
 import type { ScratchInterface } from '@orkestrel/test/server'
 import type { StudyGrading, StudyLabels, StudyManifest, StudyRubric } from '../src/core/types.js'
 import type { StudySealedResult } from '../src/server/stores/types.js'
+import { execFile } from 'node:child_process'
+import { join, relative, resolve } from 'node:path'
+import { isBuiltin } from 'node:module'
+import { build } from 'vite'
+import { srcBin, srcCore } from '../vite.config.js'
+import { outputBoundary } from '../configs/helpers.js'
+import {
+	isStudyCharge,
+	isStudyEvidence,
+	isStudyFrame,
+	isStudyIdentity,
+	isStudyProcessFailure,
+	isStudyProduct,
+	isStudyTrial,
+} from '../src/server/processes/validators.js'
 import { StudyResults } from '../src/server/stores/StudyResults.js'
 import {
 	buildStudyPacket,
@@ -23,6 +33,17 @@ import {
 	buildStudyProfile,
 	buildStudyScenario,
 } from './setupStudy.js'
+
+/** Supplies every exported process guard for hostile-boundary proofs. */
+export const STUDY_PROCESS_GUARDS = Object.freeze([
+	isStudyFrame,
+	isStudyProcessFailure,
+	isStudyCharge,
+	isStudyProduct,
+	isStudyEvidence,
+	isStudyTrial,
+	isStudyIdentity,
+])
 
 /** Writes a native child entry that loads the source library before driving artifacts.
  * @param scratch - The owned temporary resource.
@@ -198,11 +219,15 @@ export async function buildStudyCLI(scratch: ScratchInterface): Promise<string> 
 	return join(output, 'main.js')
 }
 
-/** Builds the actual core library as a separate admitted package, as a consumer would import it.
+/** Builds the actual library source as a separate admitted package, as a consumer would import it.
  * @param scratch - The owned temporary package parent inside the workspace.
+ * @param source - The real source entry; Default: the core library.
  * @returns The built library entry under the package's dist directory.
  */
-export async function buildStudyLibrary(scratch: ScratchInterface): Promise<string> {
+export async function buildStudyLibrary(
+	scratch: ScratchInterface,
+	source = resolve('src/core/index.ts'),
+): Promise<string> {
 	const output = scratch.ensure('library/dist')
 	scratch.write(
 		'library/package.json',
@@ -215,8 +240,12 @@ export async function buildStudyLibrary(scratch: ScratchInterface): Promise<stri
 				outDir: output,
 				emptyOutDir: false,
 				sourcemap: false,
-				lib: { entry: resolve('src/core/index.ts'), formats: ['es'] },
-				rolldownOptions: { output: { entryFileNames: 'index.js' } },
+				lib: { entry: source, formats: ['es'] },
+				rolldownOptions: {
+					platform: 'node',
+					external: isBuiltin,
+					output: { entryFileNames: 'index.js' },
+				},
 			},
 		}),
 		configFile: false,
@@ -236,13 +265,13 @@ export function executeStudyCLI(
 	root: string,
 	tokens: readonly string[],
 ): Promise<StudyLaunchResult> {
-	return new Promise((resolve) =>
+	return new Promise((complete) =>
 		execFile(
 			process.execPath,
 			[entry, ...tokens],
 			{ cwd: root, windowsHide: true, timeout: 20000, maxBuffer: 16 * 1024 * 1024 },
 			(error, stdout, stderr) =>
-				resolve({
+				complete({
 					code: error === null ? 0 : typeof error.code === 'number' ? error.code : 1,
 					output: error === null ? stdout : stdout + stderr,
 				}),

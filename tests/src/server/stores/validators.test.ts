@@ -13,6 +13,40 @@ import {
 } from '../../../../src/server/stores/validators.js'
 
 describe('custody validators', () => {
+	it('contains hostile reads and rejects descriptors without evaluating their accessors', () => {
+		const manifest = buildCustodyManifest()
+		expect(
+			isStudyCustodyManifest(
+				new Proxy(manifest, {
+					get() {
+						throw new Error('Hostile manifest read')
+					},
+				}),
+			),
+		).toBe(false)
+		let reads = 0
+		const evidence = Object.defineProperty({ goal: 'write', value: true }, 'event', {
+			enumerable: true,
+			get() {
+				reads++
+				return 'saved'
+			},
+		})
+		expect(isStudyCustodyEvidence(evidence)).toBe(false)
+		expect(reads).toBe(0)
+		expect(
+			isStudyCustodyEvidence({
+				event: 'saved',
+				goal: 'write',
+				value: true,
+				[Symbol('extra')]: true,
+			}),
+		).toBe(false)
+		const revoked = Proxy.revocable(manifest, {})
+		revoked.revoke()
+		expect(isStudyCustodyManifest(revoked.proxy)).toBe(false)
+	})
+
 	it('refuses reserved names and malformed or changed manifest identities', () => {
 		const manifest = buildCustodyManifest()
 		expect(isStudyCustodyManifest(manifest)).toBe(true)

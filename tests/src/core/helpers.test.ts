@@ -34,6 +34,9 @@ it('requires own exact enumerable data fields without invoking accessors', () =>
 	).toBe(false)
 	expect(matchesStudyKeys({ id: 'one', [Symbol('extra')]: true }, ['id'])).toBe(false)
 	expect(matchesStudyKeys(Object.defineProperty({}, 'id', { value: 'one' }), ['id'])).toBe(false)
+	const revoked = Proxy.revocable({}, {})
+	revoked.revoke()
+	expect(matchesStudyKeys(revoked.proxy, [])).toBe(false)
 	expect(
 		matchesStudyKeys(
 			new Proxy(

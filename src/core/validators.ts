@@ -15,7 +15,7 @@ import type {
 	StudyRubric,
 	StudyUsage,
 } from './types.js'
-import { canonicalStringify, isArray, isJSONValue, isRecord } from '@orkestrel/contract'
+import { holds, canonicalStringify, isArray, isJSONValue, isRecord } from '@orkestrel/contract'
 import { MAX_TIMEOUT_MS } from '@orkestrel/timeout'
 import { STUDY_GOALS, STUDY_NAME, STUDY_TRIALS } from './constants.js'
 import { matchesStudyKeys } from './helpers.js'
@@ -43,7 +43,7 @@ export function isStudyName(value: unknown): value is string {
  * ```
  */
 export function isStudyLimit(value: unknown): value is StudyLimit {
-	try {
+	return holds(() => {
 		if (!isRecord(value) || !matchesStudyKeys(value, ['duration', 'calls', 'tokens', 'bytes']))
 			return false
 		return (
@@ -54,9 +54,7 @@ export function isStudyLimit(value: unknown): value is StudyLimit {
 			typeof value.duration === 'number' &&
 			value.duration <= MAX_TIMEOUT_MS
 		)
-	} catch {
-		return false
-	}
+	})
 }
 
 /**
@@ -69,7 +67,7 @@ export function isStudyLimit(value: unknown): value is StudyLimit {
  * ```
  */
 export function isStudyBounds(value: unknown): value is StudyBounds {
-	try {
+	return holds(() => {
 		if (
 			!isRecord(value) ||
 			!matchesStudyKeys(value, ['request', 'goal', 'trial', 'series']) ||
@@ -92,9 +90,7 @@ export function isStudyBounds(value: unknown): value is StudyBounds {
 				return false
 		}
 		return value.request.calls === 1
-	} catch {
-		return false
-	}
+	})
 }
 
 /**
@@ -107,16 +103,14 @@ export function isStudyBounds(value: unknown): value is StudyBounds {
  * ```
  */
 export function isStudyGoal(value: unknown): value is StudyGoal {
-	try {
+	return holds(() => {
 		return (
 			isRecord(value) &&
 			matchesStudyKeys(value, ['id', 'input']) &&
 			isStudyName(value.id) &&
 			isJSONValue(value.input)
 		)
-	} catch {
-		return false
-	}
+	})
 }
 
 /**
@@ -129,7 +123,7 @@ export function isStudyGoal(value: unknown): value is StudyGoal {
  * ```
  */
 export function isStudyScenario(value: unknown): value is StudyScenario {
-	try {
+	return holds(() => {
 		if (
 			!isRecord(value) ||
 			!matchesStudyKeys(value, ['id', 'goals']) ||
@@ -144,9 +138,7 @@ export function isStudyScenario(value: unknown): value is StudyScenario {
 			new Set(value.goals.map((goal) => goal.id)).size === value.goals.length &&
 			isJSONValue(value.goals)
 		)
-	} catch {
-		return false
-	}
+	})
 }
 
 /**
@@ -159,7 +151,7 @@ export function isStudyScenario(value: unknown): value is StudyScenario {
  * ```
  */
 export function isStudyDefinition(value: unknown): value is StudyDefinition {
-	try {
+	return holds(() => {
 		if (
 			!isRecord(value) ||
 			!isJSONValue(value) ||
@@ -209,9 +201,7 @@ export function isStudyDefinition(value: unknown): value is StudyDefinition {
 				new Set(order).size === arms.length &&
 				order.every((arm) => typeof arm === 'string' && arms.includes(arm)),
 		)
-	} catch {
-		return false
-	}
+	})
 }
 
 /**
@@ -224,7 +214,7 @@ export function isStudyDefinition(value: unknown): value is StudyDefinition {
  * ```
  */
 export function isStudyRoom(value: unknown): value is StudyRoom {
-	try {
+	return holds(() => {
 		if (
 			!isRecord(value) ||
 			!matchesStudyKeys(value, ['context', 'output', 'safety', 'recap', 'think']) ||
@@ -246,9 +236,7 @@ export function isStudyRoom(value: unknown): value is StudyRoom {
 			value.output + value.safety < value.context &&
 			value.recap + value.safety < value.context
 		)
-	} catch {
-		return false
-	}
+	})
 }
 
 /**
@@ -261,7 +249,7 @@ export function isStudyRoom(value: unknown): value is StudyRoom {
  * ```
  */
 export function isStudyProvider(value: unknown): value is StudyProvider {
-	try {
+	return holds(() => {
 		if (
 			!isRecord(value) ||
 			!matchesStudyKeys(value, ['entry', 'url', 'model', 'judge', 'digest']) ||
@@ -284,9 +272,7 @@ export function isStudyProvider(value: unknown): value is StudyProvider {
 			url.hash === '' &&
 			url.pathname === '/'
 		)
-	} catch {
-		return false
-	}
+	})
 }
 
 /**
@@ -299,7 +285,7 @@ export function isStudyProvider(value: unknown): value is StudyProvider {
  * ```
  */
 export function isStudyProfile(value: unknown): value is StudyProfile {
-	try {
+	return holds(() => {
 		return (
 			isRecord(value) &&
 			matchesStudyKeys(
@@ -321,9 +307,7 @@ export function isStudyProfile(value: unknown): value is StudyProfile {
 			(value.qualification === undefined ||
 				(typeof value.qualification === 'string' && value.qualification.length > 0))
 		)
-	} catch {
-		return false
-	}
+	})
 }
 
 /**
@@ -349,15 +333,13 @@ export function isStudyDigest(value: unknown): value is string {
  * ```
  */
 export function isStudyTimestamp(value: unknown): value is string {
-	try {
+	return holds(() => {
 		return (
 			typeof value === 'string' &&
 			/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) &&
 			new Date(value).toISOString() === value
 		)
-	} catch {
-		return false
-	}
+	})
 }
 
 /**
@@ -370,7 +352,7 @@ export function isStudyTimestamp(value: unknown): value is string {
  * ```
  */
 export function isStudyUsage(value: unknown): value is StudyUsage {
-	try {
+	return holds(() => {
 		return (
 			isRecord(value) &&
 			matchesStudyKeys(value, ['role', 'calls', 'duration'], ['tokens', 'bytes']) &&
@@ -390,9 +372,7 @@ export function isStudyUsage(value: unknown): value is StudyUsage {
 					Number.isSafeInteger(value.tokens) &&
 					value.tokens >= 0))
 		)
-	} catch {
-		return false
-	}
+	})
 }
 
 /**
@@ -405,7 +385,7 @@ export function isStudyUsage(value: unknown): value is StudyUsage {
  * ```
  */
 export function isStudyCriterion(value: unknown): value is StudyCriterion {
-	try {
+	return holds(() => {
 		return (
 			isRecord(value) &&
 			matchesStudyKeys(value, ['id', 'scenario', 'goal', 'method', 'critical', 'assertion']) &&
@@ -416,9 +396,7 @@ export function isStudyCriterion(value: unknown): value is StudyCriterion {
 			typeof value.critical === 'boolean' &&
 			isJSONValue(value.assertion)
 		)
-	} catch {
-		return false
-	}
+	})
 }
 
 /**
@@ -431,7 +409,7 @@ export function isStudyCriterion(value: unknown): value is StudyCriterion {
  * ```
  */
 export function isStudyRubric(value: unknown): value is StudyRubric {
-	try {
+	return holds(() => {
 		return (
 			isRecord(value) &&
 			matchesStudyKeys(value, ['version', 'criteria']) &&
@@ -443,9 +421,7 @@ export function isStudyRubric(value: unknown): value is StudyRubric {
 			new Set(value.criteria.map((criterion) => criterion.id)).size === value.criteria.length &&
 			isJSONValue(value.criteria)
 		)
-	} catch {
-		return false
-	}
+	})
 }
 
 /**
@@ -458,7 +434,7 @@ export function isStudyRubric(value: unknown): value is StudyRubric {
  * ```
  */
 export function isStudyJudgment(value: unknown): value is StudyJudgment {
-	try {
+	return holds(() => {
 		return (
 			isRecord(value) &&
 			matchesStudyKeys(value, [
@@ -488,9 +464,7 @@ export function isStudyJudgment(value: unknown): value is StudyJudgment {
 			new Set(value.references).size === value.references.length &&
 			(value.verdict === 'unknown' || value.references.length > 0)
 		)
-	} catch {
-		return false
-	}
+	})
 }
 
 /**
@@ -503,7 +477,7 @@ export function isStudyJudgment(value: unknown): value is StudyJudgment {
  * ```
  */
 export function isStudyLabels(value: unknown): value is StudyLabels {
-	try {
+	return holds(() => {
 		return (
 			isRecord(value) &&
 			matchesStudyKeys(value, ['packet', 'labeler', 'version', 'created', 'usage', 'judgments']) &&
@@ -526,9 +500,7 @@ export function isStudyLabels(value: unknown): value is StudyLabels {
 			).size === value.judgments.length &&
 			isJSONValue(value.judgments)
 		)
-	} catch {
-		return false
-	}
+	})
 }
 
 /**
@@ -561,7 +533,7 @@ export function isStudyErrorCode(value: unknown): value is StudyErrorCode {
  * ```
  */
 export function isStudyGrading(value: unknown): value is StudyGrading {
-	try {
+	return holds(() => {
 		return (
 			isRecord(value) &&
 			matchesStudyKeys(
@@ -588,7 +560,5 @@ export function isStudyGrading(value: unknown): value is StudyGrading {
 			).size === value.judgments.length &&
 			isJSONValue(value.judgments)
 		)
-	} catch {
-		return false
-	}
+	})
 }

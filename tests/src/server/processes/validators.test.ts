@@ -1,4 +1,5 @@
 import { buildStudyManifest } from '../../../setupStudy.js'
+import { STUDY_PROCESS_GUARDS } from '../../../setupServer.js'
 import { describe, expect, it } from 'vitest'
 import {
 	isStudyCharge,
@@ -11,6 +12,43 @@ import {
 } from '../../../../src/server/processes/validators.js'
 
 describe('process validators', () => {
+	it('contains hostile property reads after admitting a plain record', () => {
+		for (const guard of STUDY_PROCESS_GUARDS) {
+			let reads = 0
+			const hostile = new Proxy(
+				{},
+				{
+					get() {
+						reads++
+						throw new Error('Hostile property read')
+					},
+				},
+			)
+			// Frame reads only after its enumerable-key cardinality passes.
+			Object.assign(hostile, { version: 1, id: 0, operation: 'goal', value: true })
+			expect(guard(hostile)).toBe(false)
+			expect(reads).toBeGreaterThan(0)
+			const revoked = Proxy.revocable({}, {})
+			revoked.revoke()
+			expect(guard(revoked.proxy)).toBe(false)
+		}
+	})
+
+	it('contains throwing enumerable-key traps in transport envelopes', () => {
+		let reads = 0
+		const hostile = new Proxy(
+			{},
+			{
+				ownKeys() {
+					reads++
+					throw new Error('Hostile key read')
+				},
+			},
+		)
+		expect(isStudyFrame(hostile)).toBe(false)
+		expect(reads).toBe(1)
+	})
+
 	it('refuses foreign envelopes and invalid domain leaves', () => {
 		expect(isStudyFrame({ version: 1, id: 1, operation: 'goal', value: true })).toBe(true)
 		expect(isStudyFrame({ version: 1, id: 1, operation: 'goal', value: true, extra: true })).toBe(
@@ -19,6 +57,10 @@ describe('process validators', () => {
 		expect(isStudyFrame({ version: 1, id: NaN, operation: 'goal', value: true })).toBe(false)
 		expect(isStudyFrame({ version: 1, id: 1, operation: 'unknown', value: true })).toBe(false)
 		expect(isStudyCharge({ role: 'tool', tokens: 0, bytes: 0 })).toBe(true)
+		expect(isStudyCharge({ role: 'tool', tokens: -0, bytes: -0 })).toBe(true)
+		expect(isStudyCharge({ role: 'tool', tokens: Number.MAX_SAFE_INTEGER + 1, bytes: 0 })).toBe(
+			false,
+		)
 		expect(isStudyCharge({ role: 'tool', tokens: Infinity, bytes: 0 })).toBe(false)
 		expect(isStudyProcessFailure({ cause: 'deadline', message: 'expired' })).toBe(true)
 		expect(isStudyProcessFailure({ cause: 'success', message: 'won' })).toBe(false)

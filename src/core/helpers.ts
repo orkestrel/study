@@ -8,7 +8,7 @@ import type {
 	StudyScore,
 	StudyTrial,
 } from './types.js'
-import { canonicalStringify, isRecord } from '@orkestrel/contract'
+import { holds, canonicalStringify, isRecord } from '@orkestrel/contract'
 import { StudyError } from './errors.js'
 import {
 	isStudyDefinition,
@@ -36,7 +36,7 @@ export function matchesStudyKeys(
 	required: readonly string[],
 	optional: readonly string[] = [],
 ): boolean {
-	try {
+	return holds(() => {
 		if (!isRecord(value)) return false
 		const keys = Reflect.ownKeys(value)
 		return (
@@ -52,9 +52,7 @@ export function matchesStudyKeys(
 				)
 			})
 		)
-	} catch {
-		return false
-	}
+	})
 }
 
 /**

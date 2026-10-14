@@ -117,6 +117,8 @@ Check returns a fingerprint for the declared execution selection. Pass that fing
 
 Help succeeds on stdout when --help appears anywhere. Empty arguments and invalid public grammar report on stderr with exit code 64. Operational diagnostics carry a study:CODE prefix and the refused token or path when applicable. Other exits are 0 for success, 124 for deadline, 130 for interruption, and 1 for operational failure. Private child routes require the native IPC boundary.
 
+An adapter error response preserves the `CONFIG` code and translates other returned codes to `FAULT`.
+
 Check, grade, label, and report have a fixed 60-second allowance. Execution checks first, then uses the declared series duration with a 15-second cleanup allowance. The command supervises process trees; consumer adapters remain trusted code.
 
 ## Guide parity

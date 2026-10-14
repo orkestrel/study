@@ -7,7 +7,7 @@ import type {
 	StudyTrial,
 } from '../../core/types.js'
 import type { StudyFile, StudySeal } from './types.js'
-import { canonicalStringify, isArray, isJSONValue, isRecord } from '@orkestrel/contract'
+import { holds, canonicalStringify, isArray, isJSONValue, isRecord } from '@orkestrel/contract'
 import { buildStudySchedule, matchesStudyKeys } from '../../core/helpers.js'
 import {
 	isStudyBounds,
@@ -43,7 +43,7 @@ export function isStudyCustodyName(value: unknown): value is string {
  * ```
  */
 export function isStudyCustodyManifest(value: unknown): value is StudyManifest {
-	try {
+	return holds(() => {
 		if (
 			!isRecord(value) ||
 			!matchesStudyKeys(
@@ -91,9 +91,7 @@ export function isStudyCustodyManifest(value: unknown): value is StudyManifest {
 			value.schedule.every(isStudyCustodyTrial) &&
 			canonicalStringify(schedule) === canonicalStringify(value.schedule)
 		)
-	} catch {
-		return false
-	}
+	})
 }
 
 /**
@@ -106,7 +104,7 @@ export function isStudyCustodyManifest(value: unknown): value is StudyManifest {
  * ```
  */
 export function isStudyCustodyTrial(value: unknown): value is StudyTrial {
-	try {
+	return holds(() => {
 		return (
 			isRecord(value) &&
 			matchesStudyKeys(value, ['id', 'scenario', 'arm', 'repetition']) &&
@@ -117,9 +115,7 @@ export function isStudyCustodyTrial(value: unknown): value is StudyTrial {
 			Number.isSafeInteger(value.repetition) &&
 			value.repetition >= 0
 		)
-	} catch {
-		return false
-	}
+	})
 }
 
 /**
@@ -132,7 +128,7 @@ export function isStudyCustodyTrial(value: unknown): value is StudyTrial {
  * ```
  */
 export function isStudyCustodyEvidence(value: unknown): value is StudyEvidence {
-	try {
+	return holds(() => {
 		return (
 			isRecord(value) &&
 			matchesStudyKeys(value, ['event', 'goal', 'value']) &&
@@ -140,9 +136,7 @@ export function isStudyCustodyEvidence(value: unknown): value is StudyEvidence {
 			isStudyName(value.goal) &&
 			isJSONValue(value.value)
 		)
-	} catch {
-		return false
-	}
+	})
 }
 
 /**
@@ -155,7 +149,7 @@ export function isStudyCustodyEvidence(value: unknown): value is StudyEvidence {
  * ```
  */
 export function isStudyCustodyFailure(value: unknown): value is StudyFailure {
-	try {
+	return holds(() => {
 		return (
 			isRecord(value) &&
 			matchesStudyKeys(value, ['cause', 'message'], ['role']) &&
@@ -169,9 +163,7 @@ export function isStudyCustodyFailure(value: unknown): value is StudyFailure {
 					typeof value.role === 'string' ? value.role : '',
 				))
 		)
-	} catch {
-		return false
-	}
+	})
 }
 
 /**
@@ -184,7 +176,7 @@ export function isStudyCustodyFailure(value: unknown): value is StudyFailure {
  * ```
  */
 export function isStudyCustodyObservation(value: unknown): value is StudyObservation {
-	try {
+	return holds(() => {
 		if (
 			!isRecord(value) ||
 			!matchesStudyKeys(value, ['goal', 'usage', 'duration'], ['product', 'failure']) ||
@@ -204,9 +196,7 @@ export function isStudyCustodyObservation(value: unknown): value is StudyObserva
 			isJSONValue(value.product.value) &&
 			typeof value.product.partial === 'boolean'
 		)
-	} catch {
-		return false
-	}
+	})
 }
 
 /**
@@ -223,7 +213,7 @@ export function isStudyCustodyAttempt(
 	value: unknown,
 	manifest: StudyManifest,
 ): value is StudyAttempt {
-	try {
+	return holds(() => {
 		if (
 			!isRecord(value) ||
 			!matchesStudyKeys(value, ['trial', 'observations', 'duration'], ['failure']) ||
@@ -248,9 +238,7 @@ export function isStudyCustodyAttempt(
 				(observation, index) => observation.goal === scenario.goals[index]?.id,
 			)
 		)
-	} catch {
-		return false
-	}
+	})
 }
 
 /**
@@ -263,7 +251,7 @@ export function isStudyCustodyAttempt(
  * ```
  */
 export function isStudyCustodyFile(value: unknown): value is StudyFile {
-	try {
+	return holds(() => {
 		return (
 			isRecord(value) &&
 			matchesStudyKeys(value, ['path', 'bytes', 'digest']) &&
@@ -276,9 +264,7 @@ export function isStudyCustodyFile(value: unknown): value is StudyFile {
 			value.bytes >= 0 &&
 			isStudyDigest(value.digest)
 		)
-	} catch {
-		return false
-	}
+	})
 }
 
 /**
@@ -291,7 +277,7 @@ export function isStudyCustodyFile(value: unknown): value is StudyFile {
  * ```
  */
 export function isStudyCustodySeal(value: unknown): value is StudySeal {
-	try {
+	return holds(() => {
 		return (
 			isRecord(value) &&
 			matchesStudyKeys(value, ['version', 'result', 'id', 'files']) &&
@@ -303,7 +289,5 @@ export function isStudyCustodySeal(value: unknown): value is StudySeal {
 			value.files.every(isStudyCustodyFile) &&
 			new Set(value.files.map((entry) => entry.path)).size === value.files.length
 		)
-	} catch {
-		return false
-	}
+	})
 }

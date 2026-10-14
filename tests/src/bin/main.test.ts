@@ -1,9 +1,10 @@
 import type { ScratchInterface } from '@orkestrel/test/server'
 import { isArray, isRecord, parseJSON } from '@orkestrel/contract'
 import { createScratch, destroyScratch } from '@orkestrel/test/server'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
+import { cpSync } from 'node:fs'
 import { parseStudyArguments } from '../../../src/server/commands/parsers.js'
 import { StudyCLI } from '../../../src/server/launchers/StudyCLI.js'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
@@ -514,10 +515,15 @@ describe('built study executable', () => {
 			}),
 		)
 		scratch.write('studies/files/part.ts', `export { prefix } from ${JSON.stringify(subject)}\n`)
+		scratch.write(
+			'studies/files/provider.ts',
+			`export { marker as prefix } from ${JSON.stringify(pathToFileURL(provider).href)}\n`,
+		)
 		for (const imported of [
 			`import { prefix } from ${JSON.stringify(subject)}`,
 			"import { prefix } from './part.js'",
 			`import { marker as prefix } from ${JSON.stringify(pathToFileURL(provider).href)}`,
+			"import { prefix } from './provider.js'",
 		]) {
 			scratch.write('studies/files/index.ts', `${imported}\nvoid prefix\n${adapter}`)
 			for (const operation of ['check', 'execute']) {
@@ -621,6 +627,27 @@ describe('built study executable', () => {
 			labeled.push(value.grading)
 		}
 		expect(new Set([first.grading, second.grading, ...labeled]).size).toBe(4)
+		const importer = runtime.read(entry)
+		if (importer === undefined) throw new Error('Missing importer bytes')
+		try {
+			runtime.write(entry, `${importer}\n// Changed label importer bytes\n`)
+			const imported = await executeStudyCLI(entry, scratch.path, [
+				'label',
+				result.path,
+				'--grading',
+				first.grading,
+				'--labels',
+				labels,
+			])
+			expect(imported.code).toBe(0)
+			const value = parseJSON(imported.output)
+			if (!isRecord(value) || typeof value.grading !== 'string') throw new Error('Missing label')
+			expect(value.previous).toBe(first.grading)
+			expect(labeled).not.toContain(value.grading)
+			labeled.push(value.grading)
+		} finally {
+			runtime.write(entry, importer)
+		}
 		for (const grading of [first.grading, second.grading, ...labeled]) {
 			const report = await executeStudyCLI(entry, scratch.path, [
 				'report',
@@ -643,10 +670,11 @@ describe('built study executable', () => {
 				JSON.stringify({ ...profile, roots: [...profile.roots, join(library.path, 'library')] }),
 			)
 			for (const [thrown, code, message] of [
+				["new StudyError('CONFIG', 'Built library refusal')", 64, 'CONFIG: Built library refusal'],
 				[
-					"new StudyError('CONFIG', 'Built library refusal')",
-					64,
-					'CONFIG: Built library refusal',
+					"new StudyError('EVIDENCE', 'Built evidence refusal')",
+					1,
+					'FAULT: Built evidence refusal',
 				],
 				[
 					"Object.assign(new Error('Plain refusal'), { code: 'CONFIG' })",
@@ -667,6 +695,48 @@ describe('built study executable', () => {
 				expect(checked.code).toBe(code)
 				expect(checked.output).toContain(`study: ${message}`)
 			}
+		} finally {
+			await destroyScratch(library)
+		}
+	})
+
+	it('refuses a nested trusted runtime loader reaching an unadmitted package', async () => {
+		const library = createScratch({ parent: resolve('tmp/units'), prefix: 'nested-library-' })
+		try {
+			const built = await buildStudyLibrary(library, resolve('src/server/artifacts/index.ts'))
+			const runtimeLibrary = join(runtime.ensure('runtime/dist/src/server'), 'index.js')
+			cpSync(dirname(built), dirname(runtimeLibrary), { recursive: true })
+			const outside = scratch.ensure('outside')
+			scratch.write(
+				'outside/package.json',
+				JSON.stringify({
+					name: 'unadmitted-subject',
+					version: '1.0.0',
+					type: 'module',
+				}),
+			)
+			const target = scratch.write(
+				'outside/dist/index.js',
+				`import {writeFileSync} from 'node:fs'; writeFileSync(${JSON.stringify(join(scratch.path, 'escaped.log'))}, 'escaped'); export const prefix='saved:'`,
+			)
+			scratch.write(
+				'subject/dist/index.js',
+				`import {Artifacts} from ${JSON.stringify(pathToFileURL(runtimeLibrary).href)}; const artifacts=new Artifacts(${JSON.stringify({ entries: [target], roots: [outside] })}); const namespace=await artifacts.load(${JSON.stringify(target)}); export const prefix=namespace.prefix`,
+			)
+			const checked = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
+			expect({ code: checked.code, output: checked.code === 0 ? '' : checked.output }).toEqual({
+				code: 0,
+				output: '',
+			})
+			expect(scratch.has('escaped.log')).toBe(false)
+			const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
+			const output = parseJSON(executed.output.split(/\r\n|\n/)[0] ?? '')
+			if (!isRecord(output) || typeof output.path !== 'string') throw new Error(executed.output)
+			const retained = await readStudyResult(output.path)
+			expect(executed.code).toBe(1)
+			if (retained.status !== 'sealed') throw new Error('Missing retained failure')
+			expect(retained.attempts[0]?.failure?.message).toContain('Artifact URL is unsupported:')
+			expect(scratch.has('escaped.log')).toBe(false)
 		} finally {
 			await destroyScratch(library)
 		}
