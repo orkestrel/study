@@ -24,16 +24,14 @@ await new GuideCommand({
 	const { createScratch } = await import('@orkestrel/test/server')
 	const { join } = await import('node:path')
 	const { writeFile } = await import('node:fs/promises')
-	const { buildCustodyManifest, buildCustodyAttempt } = await import('./setupStudy.js')
+	const { buildCustodyManifest, buildCustodyAttempt, buildStudyRubric } =
+		await import('./setupStudy.js')
+	const { retainStudyFixture, buildCustodyGrading } = await import('./setupServer.js')
+	const { realpathSync } = await import('node:fs')
 
-	it('indexes every public concept and keeps the README pitch equal to the Study tagline', () => {
+	it('indexes the package guide and keeps the README pitch equal to the Study tagline', () => {
 		expect(report.input).toEqual([])
-		expect(rows.map(({ entry }) => entry.spec)).toEqual([
-			'guides/study.md',
-			'guides/artifacts.md',
-			'guides/adapters.md',
-			'guides/commands.md',
-		])
+		expect(rows.map(({ entry }) => entry.spec)).toEqual(['guides/study.md'])
 		expect(report.pitch).toEqual([])
 		expect(createGuide(requireValue(files['README.md'])).tagline()).toBe(
 			createGuide(requireValue(files['guides/study.md'])).tagline(),
@@ -66,7 +64,8 @@ await new GuideCommand({
 					report.examples.titles,
 					report.imports,
 					report.drift,
-				]) expect(findings.filter(({ spec }) => spec === entry.spec)).toEqual([])
+				])
+					expect(findings.filter(({ spec }) => spec === entry.spec)).toEqual([])
 			})
 		})
 	}
@@ -80,7 +79,8 @@ await new GuideCommand({
 		try {
 			const ticket = meter.admit({ role: 'tool', tokens: 8, bytes: 64 })
 			ticket.finish({ role: 'tool', calls: 1, tokens: 3, bytes: 12, duration: 1 })
-			expect(meter.usage).toEqual([{ role: 'tool', calls: 1, tokens: 3, bytes: 12, duration: 1 }])
+			const usage = meter.usage // [{ role: 'tool', calls: 1, tokens: 3, bytes: 12, duration: 1 }]
+			expect(usage).toEqual([{ role: 'tool', calls: 1, tokens: 3, bytes: 12, duration: 1 }])
 			expect(() => meter.admit({ role: 'tool', tokens: 1, bytes: 1 })).toThrow(core.StudyError)
 			expect(control.failure?.cause).toBe('capacity')
 			expect(control.signal.aborted).toBe(true)
@@ -98,20 +98,96 @@ await new GuideCommand({
 		const directory = join(scratch.path, 'result')
 		const results = new StudyResults({ directory, manifest })
 		try {
+			const attempts = manifest.schedule.map((trial) => buildCustodyAttempt(manifest, trial))
 			await results.create()
-			for (const trial of manifest.schedule) {
-				const sink = await results.start(trial)
+			for (const attempt of attempts) {
+				const sink = await results.start(attempt.trial)
 				await sink.append({ event: 'saved', goal: 'write', value: 'remember' })
-				await results.finish(buildCustodyAttempt(manifest, trial))
+				await results.finish(attempt)
 			}
 			const seal = await results.seal()
 			const reading = await readStudyResult(directory)
-			expect(reading.status).toBe('sealed')
+			const status = reading.status // 'sealed'
+			const sealed = reading.status === 'sealed' && reading.seal.id === seal.id // true
+			expect(status).toBe('sealed')
+			expect(sealed).toBe(true)
 			if (reading.status !== 'sealed') throw new Error('Expected sealed custody')
 			expect(reading.seal.id).toBe(seal.id)
 			const trial = requireValue(manifest.schedule[0])
 			await writeFile(join(directory, 'execution', 'trials', trial.id, 'evidence.jsonl'), '')
 			await expect(readStudyResult(directory)).rejects.toMatchObject({ code: 'CUSTODY' })
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('executes the titled helper examples against their claimed values', () => {
+		const { matchesStudyKeys } = core
+		const { encodeStudyJSON, hashBytes, isStudyAdapter, toStudyWire, parseStudyArguments } = server
+		expect(matchesStudyKeys({ id: 'one' }, ['id'])).toBe(true)
+		expect(matchesStudyKeys({ id: 'one', extra: true }, ['id'])).toBe(false)
+		expect(new TextDecoder().decode(encodeStudyJSON({ version: 1 }))).toBe('{"version":1}\n')
+		expect(hashBytes('retained evidence')).toMatch(/^[a-f0-9]{64}$/)
+		expect(hashBytes('changed evidence')).not.toBe(hashBytes('retained evidence'))
+		expect(isStudyAdapter({})).toBe(false)
+		expect(toStudyWire({ state: 'ready', failure: undefined })).toEqual({ state: 'ready' })
+		expect(parseStudyArguments(['check', 'files', '--profile', 'local'])).toEqual({
+			command: 'check',
+			target: 'files',
+			profile: 'local',
+			out: undefined,
+			expected: undefined,
+		})
+	})
+
+	it('inspects captured package bytes without executing them and refuses drift', async () => {
+		const { Artifacts } = server
+		const scratch = createScratch()
+		try {
+			scratch.write(
+				'package.json',
+				'{"name":"study-inspection-fixture","version":"1","type":"module"}',
+			)
+			scratch.write('dist/index.js', 'throw new Error("Inspection must not evaluate this entry")')
+			const root = realpathSync(scratch.path)
+			const entry = realpathSync(join(root, 'dist', 'index.js'))
+			const artifacts = new Artifacts({ roots: [root], entries: [entry] })
+			const inventory = artifacts.inspect()
+			const selected = inventory.entries.includes(entry) // true
+			artifacts.verify()
+			expect(selected).toBe(true)
+			expect(inventory.node).toBe(process.version)
+			expect(inventory.files.map(({ path }) => path)).toEqual([
+				join(root, 'dist', 'index.js'),
+				join(root, 'package.json'),
+			])
+			await writeFile(entry, 'export const changed = true')
+			expect(() => artifacts.verify()).toThrow(server.ArtifactError)
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('retains unknown semantic criteria in immutable grading without changing execution', async () => {
+		const scratch = createScratch()
+		try {
+			const result = await retainStudyFixture(join(scratch.path, 'result'))
+			const rubric = buildStudyRubric()
+			const grading = buildCustodyGrading(result, rubric)
+			const versions = new server.StudyGradings({ result, rubric: server.encodeStudyJSON(rubric) })
+			const id = await versions.write(grading)
+			expect(await versions.read(id)).toEqual(grading)
+			expect(await versions.write(grading)).toBe(id)
+			const scores = core.computeStudyScores(result.manifest, rubric, grading)
+			expect(scores.length).toBeGreaterThan(0)
+			for (const score of scores) {
+				expect(score.unknown).toBeGreaterThan(0)
+				expect(score.lower).toBeLessThan(score.upper)
+				expect(score.coverage).toBeLessThan(1)
+			}
+			const retained = await server.readStudyResult(result.directory)
+			if (retained.status !== 'sealed') throw new Error('Grading changed execution completeness')
+			expect(retained.seal).toEqual(result.seal)
 		} finally {
 			scratch.destroy()
 		}

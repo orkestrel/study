@@ -2,29 +2,22 @@
 
 ## By concept
 
-- Package
-  - Spec: Not created. Create this file when the workspace has a public surface:
-    `guides/study.md`
-  - Source:
-    - [`src/core`](../src/core)
-    - [`src/server`](../src/server)
-    - [`src/bin`](../src/bin)
-  - Tests:
-    - [`tests/src/core`](../tests/src/core)
-    - [`tests/src/server`](../tests/src/server)
-    - [`tests/src/bin`](../tests/src/bin)
+The concept index connects each guide to its source and proof.
+
+| Concept | Spec              | Source                                                                      | Tests                     |
+| ------- | ----------------- | --------------------------------------------------------------------------- | ------------------------- |
+| Study   | [Study](study.md) | [src/core](../src/core), [src/server](../src/server), [src/bin](../src/bin) | [tests/src](../tests/src) |
 
 ## By directory
 
-- [`src/core`](../src/core)
-  - Guide: Not created. Create this file when the workspace has a public surface:
-    `guides/study.md`
-  - Tests: [`tests/src/core`](../tests/src/core)
-- [`src/server`](../src/server)
-  - Guide: Not created. Create this file when the workspace has a public surface:
-    `guides/study.md`
-  - Tests: [`tests/src/server`](../tests/src/server)
-- [`src/bin`](../src/bin)
-  - Guide: Not created. Create this file when the workspace has a public surface:
-    `guides/study.md`
-  - Tests: [`tests/src/bin`](../tests/src/bin)
+The directory index locates the guide for each published source scope.
+
+| Directory                   | Guide             | Tests                                   |
+| --------------------------- | ----------------- | --------------------------------------- |
+| [src/core](../src/core)     | [Study](study.md) | [tests/src/core](../tests/src/core)     |
+| [src/server](../src/server) | [Study](study.md) | [tests/src/server](../tests/src/server) |
+| [src/bin](../src/bin)       | [Study](study.md) | [tests/src/bin](../tests/src/bin)       |
+
+## Dependency mirrors
+
+See [Guide](guide.md) for parity primitives and [Scaffold](scaffold.md) for workspace tooling. These files document their own packages.

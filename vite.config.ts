@@ -296,6 +296,21 @@ export function setup(override?: UserConfig): UserConfig {
 	return mergeOverride(project, override)
 }
 
+export function guides(override?: UserConfig): UserConfig {
+	const project: UserConfig = {
+		resolve,
+		test: {
+			name: { label: 'guides', color: 'green' },
+			include: ['tests/guides.test.ts'],
+			exclude: ['tests/src/**/*.test.ts', 'tests/app/**/*.test.ts', 'tests/setup.test.ts'],
+			setupFiles: ['./tests/setup.ts'],
+			environment: 'node',
+			browser: { enabled: false },
+		},
+	}
+	return mergeOverride(project, override)
+}
+
 export function distribution(override?: UserConfig): UserConfig {
 	const project: UserConfig = {
 		resolve,
@@ -339,6 +354,6 @@ export function probe(override?: UserConfig): UserConfig {
 export default defineConfig({
 	resolve,
 	test: {
-		projects: [srcCore, srcServer, srcBin, policy, config, setup, distribution, probe],
+		projects: [srcCore, srcServer, srcBin, policy, config, setup, guides, distribution, probe],
 	},
 })
