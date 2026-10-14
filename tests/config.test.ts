@@ -3483,13 +3483,15 @@ describe('configuration helpers', () => {
 	})
 
 	it('admits computed artifact imports through Vite while retaining literal boundary inspection', async () => {
-		for (const [path, admitted] of ARTIFACT_IMPORT_CASES) {
-			const reading = configHelpers.environmentAssetSources(
-				'void import(process.argv[2])',
-				resolve(root, path),
-			)
-			if (admitted) await expect(reading).resolves.toEqual([])
-			else await expect(reading).rejects.toThrow('Dynamic imports must use static string values')
+		for (const [path] of ARTIFACT_IMPORT_CASES.filter(([, admitted]) => admitted)) {
+			await expect(
+				configHelpers.environmentAssetSources('void import(process.argv[2])', resolve(root, path)),
+			).resolves.toEqual([])
+		}
+		for (const [path] of ARTIFACT_IMPORT_CASES.filter(([, admitted]) => !admitted)) {
+			await expect(
+				configHelpers.environmentAssetSources('void import(process.argv[2])', resolve(root, path)),
+			).rejects.toThrow('Dynamic imports must use static string values')
 		}
 		await expect(
 			configHelpers.environmentAssetSources(
