@@ -71,6 +71,8 @@ Captured identities bind admitted files, module selections, and Node runtime set
 
 Select canonical absolute package roots and built ESM entries under each package's dist directory. Inspection captures bytes without evaluating modules. Verification compares captured bytes to disk. Loading evaluates the selected entry through captured-byte hooks and verifies again after evaluation.
 
+Admit every package root reached by native dependency resolution, including installed copies alongside a selected local package. Distinct canonical roots may share a package name; each root and its captured bytes retain their own identity. Repeated roots refuse inspection, and imports into omitted roots refuse loading before evaluation.
+
 Select a consumer-owned source directory separately when the adapter needs strip-only TypeScript. Its graph cannot overlap a built package graph. Source JSON assets are excluded; fixture and rubric bytes retain separate identities. Native package exports and extension rules still govern resolution. The inventory records package manifests, captured files, selected entries, Node version, and runtime settings.
 
 Select excluded built files to refuse every import edge that reaches them; exclusion leaves the inventory identity unchanged. Run loading in a disposable worker and terminate the worker afterwards. A process admits one loaded inventory. Trusted code can use native process APIs, evaluation, and external services; the loader does not replay those resources or sandbox hostile code.

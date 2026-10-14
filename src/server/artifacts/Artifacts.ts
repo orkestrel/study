@@ -85,7 +85,7 @@ export class Artifacts {
 				value.version.length === 0
 			)
 				throw new ArtifactError(`Artifact requires a named, versioned ESM package: ${root}`)
-			if (packages.some((item) => item.name === value.name || item.root === root))
+			if (packages.some((item) => item.root === root))
 				throw new ArtifactError(`Artifact package identity is duplicated: ${value.name}`)
 			packages.push(Object.freeze({ root, name: value.name, version: value.version }))
 		}

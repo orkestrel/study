@@ -45,6 +45,20 @@ export const STUDY_PROCESS_GUARDS = Object.freeze([
 	isStudyIdentity,
 ])
 
+/** Supplies distinct native package roots with one shared package name and different module bytes. */
+export const ARTIFACT_NATIVE_FILES = Object.freeze({
+	'subject/package.json':
+		'{"name":"same-name","version":"1.0.0","type":"module","exports":"./dist/index.js"}\n',
+	'subject/dist/index.js': 'export const value = 11\n',
+	'subject/node_modules/same-name/package.json':
+		'{"name":"same-name","version":"1.0.0","type":"module","exports":"./dist/index.js"}\n',
+	'subject/node_modules/same-name/dist/index.js':
+		"import { writeFileSync } from 'node:fs'; writeFileSync(new URL('../evaluated.txt', import.meta.url), 'installed'); export const value = 22\n",
+	'subject/node_modules/provider/package.json':
+		'{"name":"provider","version":"1.0.0","type":"module","exports":"./dist/index.js","dependencies":{"same-name":"1.0.0"}}\n',
+	'subject/node_modules/provider/dist/index.js': "export { value } from 'same-name'\n",
+})
+
 /** Writes a native child entry that loads the source library before driving artifacts.
  * @param scratch - The owned temporary resource.
  * @param body - The child's assertions and selected artifact operations.

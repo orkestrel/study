@@ -13,7 +13,80 @@ import {
 	ARTIFACT_ROOTS,
 	ARTIFACT_VISITS,
 } from '../../../../src/server/artifacts/constants.js'
-import { createArtifactWorker } from '../../../setupServer.js'
+import { hashBytes } from '../../../../src/server/artifacts/helpers.js'
+import { ARTIFACT_NATIVE_FILES, createArtifactWorker } from '../../../setupServer.js'
+
+it('admits distinct same-name package roots and preserves native provider dependency resolution', async () => {
+	const scratch = createScratch({ files: ARTIFACT_NATIVE_FILES })
+	try {
+		const subject = join(scratch.path, 'subject')
+		const dependency = join(subject, 'node_modules', 'same-name')
+		const provider = join(subject, 'node_modules', 'provider')
+		const entry = join(subject, 'dist', 'index.js')
+		const part = join(dependency, 'dist', 'index.js')
+		const providerEntry = join(provider, 'dist', 'index.js')
+		const marker = join(dependency, 'evaluated.txt')
+		const options = { entries: [entry, providerEntry], roots: [subject, dependency, provider] }
+		const inventory = new Artifacts(options).inspect()
+		expect(inventory.packages.filter((item) => item.name === 'same-name')).toEqual(
+			[subject, dependency]
+				.toSorted()
+				.map((root) => ({ root, name: 'same-name', version: '1.0.0' })),
+		)
+		expect(inventory.files.find((file) => file.path === entry)?.digest).toBe(
+			hashBytes(ARTIFACT_NATIVE_FILES['subject/dist/index.js']),
+		)
+		expect(inventory.files.find((file) => file.path === part)?.digest).toBe(
+			hashBytes(ARTIFACT_NATIVE_FILES['subject/node_modules/same-name/dist/index.js']),
+		)
+		expect(inventory.files.find((file) => file.path === entry)?.digest).not.toBe(
+			inventory.files.find((file) => file.path === part)?.digest,
+		)
+		expect(scratch.has(marker)).toBe(false)
+		expect(() =>
+			new Artifacts({ ...options, roots: [subject, provider, subject] }).inspect(),
+		).toThrow('Artifact package identity is duplicated: same-name')
+		const worker = createArtifactWorker(
+			scratch,
+			`
+const options = ${JSON.stringify(options)}
+const selection = process.argv[2] === 'omitted' ? { ...options, roots: options.roots.filter((root) => root !== ${JSON.stringify(dependency)}) } : options
+const artifacts = new Artifacts(selection)
+const subject: unknown = await artifacts.load(${JSON.stringify(entry)})
+assert.ok(typeof subject === 'object' && subject !== null && 'value' in subject)
+assert.equal(subject.value, 11)
+const provider: unknown = await artifacts.load(${JSON.stringify(providerEntry)})
+assert.ok(typeof provider === 'object' && provider !== null && 'value' in provider)
+assert.equal(provider.value, 22)
+artifacts.verify()
+console.log('native-roots:' + subject.value + ':' + provider.value)
+`,
+		)
+		const omitted = spawnSync(process.execPath, [worker, 'omitted'], {
+			encoding: 'utf8',
+			timeout: 10000,
+			windowsHide: true,
+		})
+		expect(omitted.status).toBe(1)
+		expect(omitted.stderr).toContain(
+			`Artifact dependency is not admitted ESM: ${pathToFileURL(part).href}`,
+		)
+		expect(scratch.has(marker)).toBe(false)
+		const loaded = spawnSync(process.execPath, [worker], {
+			encoding: 'utf8',
+			timeout: 10000,
+			windowsHide: true,
+		})
+		expect({ status: loaded.status, stderr: loaded.status === 0 ? '' : loaded.stderr }).toEqual({
+			status: 0,
+			stderr: '',
+		})
+		expect(loaded.stdout).toContain('native-roots:11:22')
+		expect(scratch.read(marker)).toBe('installed')
+	} finally {
+		await destroyScratch(scratch)
+	}
+}, 30000)
 
 it('captures separate built and source inventories and drives native confined execution in fresh workers', async () => {
 	const scratch = createScratch()
