@@ -13,11 +13,11 @@ export class StudyEvidenceSink implements StudyCustodySinkInterface {
 	#closing: Promise<void> | undefined
 
 	/**
-	 * Records an already exclusively opened evidence file and its constraints.
+	 * Owns the descriptor selection and constraints while retaining the live file and budget.
 	 * @param options - The owned descriptor, goal names, and byte admission bounds
 	 */
 	constructor(options: StudyEvidenceOptions) {
-		this.#options = options
+		this.#options = { ...options, goals: [...options.goals] }
 	}
 
 	/**

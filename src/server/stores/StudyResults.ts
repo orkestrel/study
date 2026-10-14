@@ -100,9 +100,9 @@ export class StudyResults implements StudyResultsInterface {
 			canonicalStringify(scheduled) !== canonicalStringify(trial)
 		)
 			throw new StudyError('CUSTODY', 'Trial differs from the execution schedule')
-		this.#starting.add(trial.id)
+		this.#starting.add(scheduled.id)
 		try {
-			const directory = join(this.#directory, 'execution', 'trials', trial.id)
+			const directory = join(this.#directory, 'execution', 'trials', scheduled.id)
 			await checkStudyDirectory(dirname(directory))
 			await mkdir(directory)
 			const file = await open(join(directory, 'evidence.jsonl'), 'wx')
@@ -113,13 +113,13 @@ export class StudyResults implements StudyResultsInterface {
 				trial: this.#manifest.bounds.trial.bytes,
 				budget: { reserve: (bytes) => this.#reserve(bytes) },
 			})
-			this.#trials.set(trial.id, { sink, terminal: undefined })
+			this.#trials.set(scheduled.id, { sink, terminal: undefined })
 			return sink
 		} catch (error) {
 			this.#phase = 'failed'
 			throw error
 		} finally {
-			this.#starting.delete(trial.id)
+			this.#starting.delete(scheduled.id)
 		}
 	}
 
