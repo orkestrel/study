@@ -912,6 +912,8 @@ export async function environmentAssetSources(
 			} else if (node.source.type === 'TemplateLiteral' && node.source.expressions.length === 0) {
 				value = node.source.quasis.map((quasi) => quasi.value.cooked ?? quasi.value.raw).join('')
 			} else {
+				const location = workspacePath(path)
+				if (location !== undefined && /^(?:src\/server\/artifacts\/|tools\/artifacts\/|\.orkestrel\/[^/]+\/instruments\/(?:[^/]+\/)*tools\/artifacts\/).+\.(?:js|mjs|ts|mts)$/.test(location)) return
 				throw new Error(
 					'[orkestrel-environment-boundary] Dynamic imports must use static string values',
 				)
