@@ -7,6 +7,9 @@ export const STUDY_PENDING_LIMIT = 64
 /** Limits combined worker stdout and stderr before termination. */
 export const STUDY_LOG_BYTES = 64 * 1024
 
+/** Attributes an expired process handshake or cleanup deadline. */
+export const STUDY_PROCESS_LABEL = 'Process lifecycle'
+
 /** Names the worker operation routed by the built application entry. */
 export const STUDY_WORKER_OPERATION = 'study-worker'
 

@@ -11,19 +11,18 @@ import { isRecord } from '@orkestrel/contract'
 import { execFile, fork } from 'node:child_process'
 import { mkdtemp } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
-import { StudyControl, failureToStudyError, readStudyFailure } from '../../core/engines/index.js'
-import { StudyError } from '../../core/errors.js'
-import { isStudyUsage } from '../../core/validators.js'
-import { STUDY_LOG_BYTES, STUDY_WORKER_OPERATION } from './constants.js'
-import { createStudyProcessFailure, toStudyWire } from './helpers.js'
-import { awaitStudyProcess } from './handlers.js'
-import { StudyChannel } from './StudyChannel.js'
 import {
-	isStudyCharge,
-	isStudyEvidence,
-	isStudyProcessFailure,
-	isStudyProduct,
-} from './validators.js'
+	StudyControl,
+	StudyDeadline,
+	failureToStudyError,
+	readStudyFailure,
+} from '../../core/engines/index.js'
+import { StudyError } from '../../core/errors.js'
+import { isStudyProduct, isStudyUsage } from '../../core/validators.js'
+import { STUDY_LOG_BYTES, STUDY_PROCESS_LABEL, STUDY_WORKER_OPERATION } from './constants.js'
+import { createStudyProcessFailure, toStudyWire } from './helpers.js'
+import { StudyChannel } from './StudyChannel.js'
+import { isStudyCharge, isStudyEvidence, isStudyProcessFailure } from './validators.js'
 
 /** Keeps admission and evidence custody in the parent of one fresh trial process. */
 export class StudyProcessSession implements StudySessionInterface {
@@ -102,12 +101,14 @@ export class StudyProcessSession implements StudySessionInterface {
 		child.stdout?.on('data', (value: Buffer) => this.#readLog(value))
 		child.stderr?.on('data', (value: Buffer) => this.#readLog(value))
 		const ready = await this.#control.wait(
-			awaitStudyProcess(
+			new StudyDeadline({
+				duration: this.#options.profile.bounds.trial.duration,
+				label: STUDY_PROCESS_LABEL,
+			}).wait(
 				this.#channel.request(
 					'open',
 					toStudyWire({ ...this.#options, signal: undefined, directory }),
 				),
-				this.#options.profile.bounds.trial.duration,
 			),
 		)
 		if (
@@ -229,10 +230,10 @@ export class StudyProcessSession implements StudySessionInterface {
 		let failure: unknown
 		try {
 			if (this.#channel !== undefined && !this.#channel.signal.aborted) {
-				const closed = await awaitStudyProcess(
-					this.#channel.request('close', true),
-					this.#options.profile.bounds.request.duration,
-				)
+				const closed = await new StudyDeadline({
+					duration: this.#options.profile.bounds.request.duration,
+					label: STUDY_PROCESS_LABEL,
+				}).wait(this.#channel.request('close', true))
 				if (closed !== true)
 					throw new StudyError('FAULT', 'Worker cleanup acknowledgment is invalid')
 			}
@@ -280,6 +281,7 @@ export class StudyProcessSession implements StudySessionInterface {
 				)
 			} else process.kill(-child.pid, 'SIGKILL')
 		}
-		if (this.#exit !== undefined) await awaitStudyProcess(this.#exit, 2000)
+		if (this.#exit !== undefined)
+			await new StudyDeadline({ duration: 2000, label: STUDY_PROCESS_LABEL }).wait(this.#exit)
 	}
 }

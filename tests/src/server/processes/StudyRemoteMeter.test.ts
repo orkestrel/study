@@ -1,9 +1,10 @@
 import { createScratch } from '@orkestrel/test/server'
 import { describe, expect, it } from 'vitest'
 import { StudyControl } from '../../../../src/core/engines/StudyControl.js'
+import { StudyDeadline } from '../../../../src/core/engines/StudyDeadline.js'
+import { STUDY_PROCESS_LABEL } from '../../../../src/server/processes/constants.js'
 import { StudyChannel } from '../../../../src/server/processes/StudyChannel.js'
 import { StudyRemoteMeter } from '../../../../src/server/processes/StudyRemoteMeter.js'
-import { awaitStudyProcess } from '../../../../src/server/processes/handlers.js'
 import { createStudyPeer } from '../../../setupServer.js'
 
 describe('StudyRemoteMeter', () => {
@@ -20,6 +21,7 @@ describe('StudyRemoteMeter', () => {
 		})
 		const control = new StudyControl()
 		const meter = new StudyRemoteMeter({ channel, control })
+		const deadline = new StudyDeadline({ duration: 1000, label: STUDY_PROCESS_LABEL })
 		try {
 			let admitted = false
 			const pending = meter.admit({ role: 'tool', tokens: 1, bytes: 1 }).then((ticket) => {
@@ -28,11 +30,11 @@ describe('StudyRemoteMeter', () => {
 			})
 			await Promise.resolve()
 			expect(admitted).toBe(false)
-			const ticket = await awaitStudyProcess(pending, 1000)
+			const ticket = await deadline.wait(pending)
 			expect(admitted).toBe(true)
 			ticket.finish({ role: 'tool', calls: 1, tokens: 1, bytes: 1, duration: 1 })
 			expect(meter.usage).toEqual([])
-			await awaitStudyProcess(meter.close(), 1000)
+			await deadline.wait(meter.close())
 			expect(meter.usage).toEqual([{ role: 'tool', calls: 1, tokens: 1, bytes: 1, duration: 1 }])
 			expect(() =>
 				ticket.finish({ role: 'tool', calls: 1, tokens: 1, bytes: 1, duration: 1 }),
@@ -61,7 +63,9 @@ describe('StudyRemoteMeter', () => {
 		const meter = new StudyRemoteMeter({ channel, control })
 		try {
 			await expect(
-				awaitStudyProcess(meter.admit({ role: 'tool', tokens: 1, bytes: 1 }), 1000),
+				new StudyDeadline({ duration: 1000, label: STUDY_PROCESS_LABEL }).wait(
+					meter.admit({ role: 'tool', tokens: 1, bytes: 1 }),
+				),
 			).rejects.toThrow(/parent denied/)
 			await expect(meter.admit({ role: 'tool', tokens: 0, bytes: 0 })).rejects.toThrow(
 				/parent denied/,

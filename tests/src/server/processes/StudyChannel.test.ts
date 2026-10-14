@@ -1,8 +1,9 @@
 import { createScratch } from '@orkestrel/test/server'
 import { describe, expect, it } from 'vitest'
 import { StudyChannel } from '../../../../src/server/processes/StudyChannel.js'
-import { awaitStudyProcess } from '../../../../src/server/processes/handlers.js'
+import { STUDY_PROCESS_LABEL } from '../../../../src/server/processes/constants.js'
 import { readStudyFailure } from '../../../../src/core/engines/helpers.js'
+import { StudyDeadline } from '../../../../src/core/engines/StudyDeadline.js'
 import { createStudyPeer } from '../../../setupServer.js'
 
 describe('StudyChannel', () => {
@@ -26,7 +27,9 @@ describe('StudyChannel', () => {
 				abort: () => undefined,
 			})
 			try {
-				const response = awaitStudyProcess(channel.request('goal', { public: 'input' }), 2000)
+				const response = new StudyDeadline({ duration: 2000, label: STUDY_PROCESS_LABEL }).wait(
+					channel.request('goal', { public: 'input' }),
+				)
 				const outcome = await response.then(
 					(value) => ({ value }),
 					(error: unknown) => ({ failure: readStudyFailure(error).cause }),
@@ -59,11 +62,10 @@ describe('StudyChannel', () => {
 			abort: () => undefined,
 		})
 		try {
-			await awaitStudyProcess(
+			await new StudyDeadline({ duration: 2000, label: STUDY_PROCESS_LABEL }).wait(
 				new Promise<void>((resolve) =>
 					channel.signal.addEventListener('abort', () => resolve(), { once: true }),
 				),
-				2000,
 			)
 			expect(operations).toEqual([])
 			expect(channel.signal.reason).toMatchObject({

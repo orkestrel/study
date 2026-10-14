@@ -16,4 +16,10 @@ describe('src core entry', () => {
 			control.close()
 		}
 	})
+
+	it('exposes the shared bounded wait and product guard through the package entry', async () => {
+		const deadline = new entry.StudyDeadline({ duration: 1000, label: 'Custody or cleanup' })
+		expect(await deadline.wait(Promise.resolve('closed'))).toBe('closed')
+		expect(entry.isStudyProduct({ value: 'closed', partial: false })).toBe(true)
+	})
 })

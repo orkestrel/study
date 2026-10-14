@@ -17,7 +17,6 @@ import {
 	isStudyFrame,
 	isStudyIdentity,
 	isStudyProcessFailure,
-	isStudyProduct,
 	isStudyTrial,
 } from '../src/server/processes/validators.js'
 import { StudyResults } from '../src/server/stores/StudyResults.js'
@@ -40,7 +39,6 @@ export const STUDY_PROCESS_GUARDS = Object.freeze([
 	isStudyFrame,
 	isStudyProcessFailure,
 	isStudyCharge,
-	isStudyProduct,
 	isStudyEvidence,
 	isStudyTrial,
 	isStudyIdentity,

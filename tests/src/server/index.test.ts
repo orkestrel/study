@@ -14,4 +14,10 @@ describe('src server entry', () => {
 		expect(entry.hashStudyBytes(bytes)).toBe(entry.hashStudyBytes('{"version":1}\n'))
 		expect(entry).not.toHaveProperty('hashBytes')
 	})
+	it('leaves the bounded wait and product guard to the core entry without aliases', () => {
+		expect(entry.STUDY_PROCESS_LABEL).toBe('Process lifecycle')
+		expect(entry).not.toHaveProperty('awaitStudyProcess')
+		expect(entry).not.toHaveProperty('isStudyProduct')
+		expect(entry).not.toHaveProperty('StudyDeadline')
+	})
 })

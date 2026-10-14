@@ -1,7 +1,6 @@
 export * from './types.js'
 export * from './constants.js'
 export * from './helpers.js'
-export * from './handlers.js'
 export * from './validators.js'
 export * from './StudyArtifacts.js'
 export * from './StudyChannel.js'

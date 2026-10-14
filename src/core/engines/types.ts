@@ -51,6 +51,15 @@ export interface StudyScopeInterface {
 	close(): void
 }
 
+/** Bounds one independent asynchronous operation under its own deadline. */
+export interface StudyDeadlineInterface {
+	/** Waits for work under a fresh failure owner and releases its timer and listener.
+	 * @param work - Already-started work whose late rejection remains observed.
+	 * @returns The work's result when it settles before the deadline.
+	 */
+	wait<T>(work: PromiseLike<T>): Promise<T>
+}
+
 /** Owns request admission and the goal's terminal lifecycle. */
 export interface StudyMeterInterface extends StudyAdmissionInterface {
 	/** Refuses unfinished requests before closing a goal's admission boundary.
@@ -63,6 +72,12 @@ export interface StudyMeterInterface extends StudyAdmissionInterface {
 export interface StudyScopeOptions {
 	readonly limit: StudyLimit
 	readonly control: StudyControlInterface
+	readonly label: string
+}
+
+/** Supplies one bounded operation's finite deadline and diagnostic label. */
+export interface StudyDeadlineOptions {
+	readonly duration: number
 	readonly label: string
 }
 

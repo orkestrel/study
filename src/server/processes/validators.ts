@@ -3,7 +3,6 @@ import type {
 	StudyCharge,
 	StudyEvidence,
 	StudyFailure,
-	StudyProduct,
 	StudyTrial,
 	StudyIdentity,
 } from '../../core/types.js'
@@ -69,16 +68,6 @@ export function isStudyCharge(value: unknown): value is StudyCharge {
 			typeof value.bytes === 'number' &&
 			Number.isSafeInteger(value.bytes) &&
 			value.bytes >= 0,
-	)
-}
-
-/** Checks a retained public product without awarding task achievement.
- * @param value - Decoded product.
- * @returns True if the product carries JSON output and partial status; false otherwise.
- */
-export function isStudyProduct(value: unknown): value is StudyProduct {
-	return holds(
-		() => isRecord(value) && typeof value.partial === 'boolean' && isJSONValue(value.value),
 	)
 }
 

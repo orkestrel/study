@@ -385,9 +385,7 @@ export class StudyCommand {
 		const context = await this.#grading(result, request.grading)
 		signal.throwIfAborted()
 		const labels =
-			context.labels === undefined
-				? undefined
-				: parseStudyLabels(decodeStudyJSON(context.labels))
+			context.labels === undefined ? undefined : parseStudyLabels(decodeStudyJSON(context.labels))
 		return toStudyWire({
 			command: 'report',
 			grading: request.grading,

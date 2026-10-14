@@ -10,12 +10,13 @@ import type {
 	StudyTrial,
 } from '../types.js'
 import { Budget } from '@orkestrel/budget'
-import { canonicalStringify, cloneJSONValue, isJSONValue, isRecord } from '@orkestrel/contract'
+import { canonicalStringify, cloneJSONValue } from '@orkestrel/contract'
 import { isStudyError, StudyError } from '../errors.js'
 import { buildStudySchedule } from '../helpers.js'
-import { isStudyBounds } from '../validators.js'
+import { isStudyBounds, isStudyProduct } from '../validators.js'
 import { failureToStudyError, readStudyFailure } from './helpers.js'
 import { StudyControl } from './StudyControl.js'
+import { StudyDeadline } from './StudyDeadline.js'
 import { StudyMeter } from './StudyMeter.js'
 import { StudyScope } from './StudyScope.js'
 
@@ -49,6 +50,10 @@ export class StudySeries {
 			throw new StudyError('CONFIG', 'Study manifest schedule or bounds are invalid')
 		const control = new StudyControl(this.#options.signal)
 		const scope = new StudyScope({ limit: manifest.bounds.series, control, label: 'Series' })
+		const deadline = new StudyDeadline({
+			duration: manifest.bounds.request.duration,
+			label: 'Custody or cleanup',
+		})
 		const output = new Budget({
 			max: manifest.bounds.series.bytes,
 			consumer: (bytes: number) => bytes,
@@ -56,7 +61,7 @@ export class StudySeries {
 		const attempts: StudyAttempt[] = []
 		try {
 			for (const trial of manifest.schedule)
-				attempts.push(await this.#executeTrial(trial, control, scope, output))
+				attempts.push(await this.#executeTrial(trial, control, scope, output, deadline))
 		} finally {
 			scope.close()
 			control.close()
@@ -69,6 +74,7 @@ export class StudySeries {
 		control: StudyControl,
 		series: StudyScope,
 		output: Budget<number>,
+		deadline: StudyDeadline,
 	): Promise<StudyAttempt> {
 		const started = performance.now()
 		const scenario = this.#options.manifest.scenarios.find((entry) => entry.id === trial.scenario)
@@ -88,12 +94,12 @@ export class StudySeries {
 					control,
 					label: 'Trial',
 				})
-				evidence = await this.#start(trial, control)
+				evidence = await this.#start(trial, control, deadline)
 				series.check()
 				scope.check()
-				opening = this.#open(trial, control)
+				opening = this.#open(trial, control, deadline)
 				session = await control.wait(opening)
-			} else evidence = await this.#start(trial, control)
+			} else evidence = await this.#start(trial, control, deadline)
 			const trialOutput = new Budget({
 				max: this.#options.manifest.bounds.trial.bytes,
 				consumer: (bytes: number) => bytes,
@@ -125,15 +131,15 @@ export class StudySeries {
 		} finally {
 			if (session !== undefined) {
 				try {
-					await this.#bounded(session.close())
+					await deadline.wait(session.close())
 				} catch (error) {
 					cleanup = readStudyFailure(error)
 					control.fail(cleanup)
 				}
 			} else if (opening !== undefined) {
 				try {
-					const late = await this.#bounded(opening)
-					await this.#bounded(late.close())
+					const late = await deadline.wait(opening)
+					await deadline.wait(late.close())
 				} catch (error) {
 					const late = readStudyFailure(error)
 					if (late.message !== control.failure?.message) cleanup = late
@@ -178,7 +184,7 @@ export class StudySeries {
 			duration: Math.ceil(performance.now() - started),
 		})
 		try {
-			await this.#bounded(this.#options.store.finish(attempt))
+			await deadline.wait(this.#options.store.finish(attempt))
 			if (attempt.failure === undefined) series.check()
 		} catch (error) {
 			control.fail(readStudyFailure(error))
@@ -205,7 +211,7 @@ export class StudySeries {
 			const value: unknown = await control.wait(
 				session.execute(goal, { signal: control.signal, meter, evidence }),
 			)
-			if (!isRecord(value) || typeof value.partial !== 'boolean' || !isJSONValue(value.value))
+			if (!isStudyProduct(value))
 				throw new StudyError('FAULT', 'Driver returned no valid study product')
 			product = Object.freeze({ value: cloneJSONValue(value.value), partial: value.partial })
 			for (const parent of parents) parent.check()
@@ -233,38 +239,29 @@ export class StudySeries {
 		})
 	}
 
-	async #open(trial: StudyTrial, control: StudyControl): Promise<StudySessionInterface> {
+	async #open(
+		trial: StudyTrial,
+		control: StudyControl,
+		deadline: StudyDeadline,
+	): Promise<StudySessionInterface> {
 		const session = await this.#options.driver.open(trial, control.signal)
 		if (control.failure !== undefined) {
-			await this.#bounded(session.close())
+			await deadline.wait(session.close())
 			throw failureToStudyError(control.failure)
 		}
 		return session
 	}
 
-	async #bounded<T>(work: PromiseLike<T>): Promise<T> {
-		const control = new StudyControl()
-		const scope = new StudyScope({
-			limit: this.#options.manifest.bounds.request,
-			control,
-			label: 'Custody or cleanup',
-		})
-		try {
-			const result = await control.wait(work)
-			scope.check()
-			return result
-		} finally {
-			scope.close()
-			control.close()
-		}
-	}
-
-	async #start(trial: StudyTrial, control: StudyControl): Promise<StudySinkInterface> {
+	async #start(
+		trial: StudyTrial,
+		control: StudyControl,
+		deadline: StudyDeadline,
+	): Promise<StudySinkInterface> {
 		try {
 			const pending = this.#options.store.start(trial)
 			return control.failure === undefined
 				? await control.wait(pending)
-				: await this.#bounded(pending)
+				: await deadline.wait(pending)
 		} catch (error) {
 			control.fail(readStudyFailure(error))
 			const failure = control.failure ?? readStudyFailure(error)

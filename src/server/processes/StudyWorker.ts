@@ -2,20 +2,20 @@ import type { StudySessionInterface } from '../../core/types.js'
 import type { StudyOperation } from './types.js'
 import type { JSONValue } from '@orkestrel/contract'
 import { isRecord } from '@orkestrel/contract'
-import { StudyControl, failureToStudyError, readStudyFailure } from '../../core/engines/index.js'
+import {
+	StudyControl,
+	StudyDeadline,
+	failureToStudyError,
+	readStudyFailure,
+} from '../../core/engines/index.js'
 import { StudyError } from '../../core/errors.js'
-import { isStudyGoal, isStudyProfile } from '../../core/validators.js'
+import { isStudyGoal, isStudyProduct, isStudyProfile } from '../../core/validators.js'
+import { STUDY_PROCESS_LABEL } from './constants.js'
 import { computeStudyProfileDigest, createStudyProcessFailure, toStudyWire } from './helpers.js'
-import { awaitStudyProcess } from './handlers.js'
 import { StudyArtifacts } from './StudyArtifacts.js'
 import { StudyChannel } from './StudyChannel.js'
 import { StudyRemoteMeter } from './StudyRemoteMeter.js'
-import {
-	isStudyIdentity,
-	isStudyProcessFailure,
-	isStudyProduct,
-	isStudyTrial,
-} from './validators.js'
+import { isStudyIdentity, isStudyProcessFailure, isStudyTrial } from './validators.js'
 
 /** Executes one verified trial behind parent-authorized admission and custody. */
 export class StudyWorker {
@@ -49,7 +49,9 @@ export class StudyWorker {
 		} finally {
 			this.#control.fail(createStudyProcessFailure('Study worker disconnected'))
 			if (this.#session !== undefined)
-				await awaitStudyProcess(this.#session.close(), this.#duration).catch(() => undefined)
+				await new StudyDeadline({ duration: this.#duration, label: STUDY_PROCESS_LABEL })
+					.wait(this.#session.close())
+					.catch(() => undefined)
 			this.#session = undefined
 			this.#channel.close()
 			this.#control.close()
@@ -69,7 +71,9 @@ export class StudyWorker {
 					role: undefined,
 				})
 				if (this.#session !== undefined)
-					await awaitStudyProcess(this.#session.close(), this.#duration)
+					await new StudyDeadline({ duration: this.#duration, label: STUDY_PROCESS_LABEL }).wait(
+						this.#session.close(),
+					)
 				this.#session = undefined
 				this.#artifacts?.verify()
 				return true

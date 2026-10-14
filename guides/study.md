@@ -174,6 +174,7 @@ The following declarations describe this concept.
 | `STUDY_NAME`                     | const     | Restricts identifiers to portable path-safe names.                                        |
 | `STUDY_PACKET_DISCLOSURE`        | const     | Discloses the limits of neutral identifiers when public text remains visible.             |
 | `STUDY_PENDING_LIMIT`            | const     | Limits outstanding bidirectional protocol work per process.                               |
+| `STUDY_PROCESS_LABEL`            | const     | Attributes an expired process handshake or cleanup deadline.                              |
 | `STUDY_RESERVED_NAME`            | const     | Rejects names that Windows reserves even on other hosts.                                  |
 | `STUDY_ROLES`                    | const     | Lists every measured request role in report order.                                        |
 | `STUDY_TASK_DURATION`            | const     | Caps pure domain work independently of its event loop.                                    |
@@ -205,6 +206,9 @@ The following declarations describe this concept.
 | `StudyCustodyBudget`             | interface | Holds the evidence sink's shared admission budget.                                        |
 | `StudyCustodyPhase`              | type      | Names the execution custody lifecycle without inferring seal completeness.                |
 | `StudyCustodySinkInterface`      | interface | Closes evidence admission and drains already admitted appends.                            |
+| `StudyDeadline`                  | class     | Bounds each independent operation with a fresh failure owner and deadline.                |
+| `StudyDeadlineInterface`         | interface | Bounds one independent asynchronous operation under its own deadline.                     |
+| `StudyDeadlineOptions`           | interface | Supplies one bounded operation's finite deadline and diagnostic label.                    |
 | `StudyDefinition`                | interface | Holds the frozen study question, population and explicit repetition orders.               |
 | `StudyDriverInterface`           | interface | Creates isolated domain state through a concrete package consumer.                        |
 | `StudyDriverOptions`             | interface | Supplies admitted modules and an exclusive scratch parent without grader truth.           |
@@ -292,7 +296,6 @@ The following declarations describe this concept.
 | `StudyUsage`                     | interface | Holds actual request measurements; absent token usage remains unknown.                    |
 | `StudyValidation`                | interface | Holds declarations for domain validation before subject or provider execution.            |
 | `StudyWorker`                    | class     | Executes one verified trial behind parent-authorized admission and custody.               |
-| `awaitStudyProcess`              | function  | Bounds process handshake or cleanup work independently of cancelled execution.            |
 | `buildStudyPacket`               | function  | Builds deterministic public semantic inputs and a separately retained private map.        |
 | `buildStudyPacketLinks`          | function  | Builds neutral semantic identities for the complete eligible sealed horizon.              |
 | `buildStudySchedule`             | function  | Builds a bounded schedule from explicit repetition rows and declared scenarios.           |
@@ -482,6 +485,22 @@ The declaration exposes these methods.
 | -------- | ----------------------------------------------------------------------------- |
 | `append` | Appends bounded domain evidence to the owned execution record.                |
 | `close`  | Closes admission immediately and synchronizes all previously admitted writes. |
+
+#### `StudyDeadline`
+
+The declaration exposes these methods.
+
+| Method | Summary                                                                         |
+| ------ | ------------------------------------------------------------------------------- |
+| `wait` | Waits for work under a fresh failure owner and releases its timer and listener. |
+
+#### `StudyDeadlineInterface`
+
+The declaration exposes these methods.
+
+| Method | Summary                                                                         |
+| ------ | ------------------------------------------------------------------------------- |
+| `wait` | Waits for work under a fresh failure owner and releases its timer and listener. |
 
 #### `StudyDriverInterface`
 
@@ -936,6 +955,16 @@ import { isStudyUsage } from '@orkestrel/study'
 isStudyUsage({ role: 'tool', calls: 0, bytes: 0, duration: 0 }) // true
 ```
 
+### isStudyProduct
+
+Use the exported declaration with its documented arguments.
+
+```ts
+import { isStudyProduct } from '@orkestrel/study'
+
+isStudyProduct({ value: { answer: 1 }, partial: true }) // true
+```
+
 ### isStudyCriterion
 
 Use the exported declaration with its documented arguments.
@@ -1337,7 +1366,6 @@ Supply the argument tuple from each helper's signature.
 ```ts
 import { failureToStudyError, readStudyFailure } from '@orkestrel/study'
 import {
-	awaitStudyProcess,
 	computeStudyInstrumentDigest,
 	computeStudyProfileDigest,
 	containsArtifact,
@@ -1348,7 +1376,6 @@ import {
 	isStudyFrame,
 	isStudyIdentity,
 	isStudyProcessFailure,
-	isStudyProduct,
 	isStudyTrial,
 	readArtifact,
 	readStudyAdapter,
@@ -1357,8 +1384,6 @@ import {
 	validateStudyRuntime,
 } from '@orkestrel/study/server'
 
-declare const awaitStudyProcessArguments: Parameters<typeof awaitStudyProcess>
-awaitStudyProcess(...awaitStudyProcessArguments)
 declare const computeStudyInstrumentDigestArguments: Parameters<typeof computeStudyInstrumentDigest>
 computeStudyInstrumentDigest(...computeStudyInstrumentDigestArguments)
 declare const computeStudyProfileDigestArguments: Parameters<typeof computeStudyProfileDigest>
@@ -1381,8 +1406,6 @@ declare const isStudyIdentityArguments: Parameters<typeof isStudyIdentity>
 isStudyIdentity(...isStudyIdentityArguments)
 declare const isStudyProcessFailureArguments: Parameters<typeof isStudyProcessFailure>
 isStudyProcessFailure(...isStudyProcessFailureArguments)
-declare const isStudyProductArguments: Parameters<typeof isStudyProduct>
-isStudyProduct(...isStudyProductArguments)
 declare const isStudyTrialArguments: Parameters<typeof isStudyTrial>
 isStudyTrial(...isStudyTrialArguments)
 declare const readArtifactArguments: Parameters<typeof readArtifact>
@@ -1559,6 +1582,30 @@ declare const append: Parameters<StudyCustodySinkInterface['append']>
 instance.append(...append)
 declare const close: Parameters<StudyCustodySinkInterface['close']>
 instance.close(...close)
+```
+
+### Call StudyDeadline methods
+
+Supply an instance of the declared contract.
+
+```ts
+import type { StudyDeadline } from '@orkestrel/study'
+
+declare const instance: StudyDeadline
+declare const wait: Parameters<StudyDeadline['wait']>
+instance.wait(...wait)
+```
+
+### Call StudyDeadlineInterface methods
+
+Supply an instance of the declared contract.
+
+```ts
+import type { StudyDeadlineInterface } from '@orkestrel/study'
+
+declare const instance: StudyDeadlineInterface
+declare const wait: Parameters<StudyDeadlineInterface['wait']>
+instance.wait(...wait)
 ```
 
 ### Call StudyDriverInterface methods

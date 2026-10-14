@@ -9,6 +9,7 @@ import type {
 	StudyLabels,
 	StudyGoal,
 	StudyLimit,
+	StudyProduct,
 	StudyProfile,
 	StudyProvider,
 	StudyRole,
@@ -381,6 +382,21 @@ export function isStudyUsage(value: unknown): value is StudyUsage {
 					value.tokens >= 0))
 		)
 	})
+}
+
+/**
+ * Checks a retained public product without awarding task achievement.
+ * @param value - The candidate product
+ * @returns True if the product carries JSON output and partial status; false otherwise
+ * @example
+ * ```ts
+ * isStudyProduct({ value: { answer: 1 }, partial: true }) // true
+ * ```
+ */
+export function isStudyProduct(value: unknown): value is StudyProduct {
+	return holds(
+		() => isRecord(value) && typeof value.partial === 'boolean' && isJSONValue(value.value),
+	)
 }
 
 /**

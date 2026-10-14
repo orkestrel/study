@@ -7,7 +7,6 @@ import {
 	isStudyFrame,
 	isStudyIdentity,
 	isStudyProcessFailure,
-	isStudyProduct,
 	isStudyTrial,
 } from '../../../../src/server/processes/validators.js'
 
@@ -71,8 +70,6 @@ describe('process validators', () => {
 			false,
 		)
 		expect(isStudyProcessFailure({ cause: 'success', message: 'won' })).toBe(false)
-		expect(isStudyProduct({ value: { answer: 1 }, partial: true })).toBe(true)
-		expect(isStudyProduct({ value: undefined, partial: false })).toBe(false)
 		expect(isStudyEvidence({ event: 'saved', goal: 'write', value: 'one' })).toBe(true)
 		expect(isStudyEvidence({ event: 'saved', goal: '', value: 'one' })).toBe(false)
 		expect(isStudyTrial({ id: 'trial', scenario: 'first', arm: 'tool', repetition: 0 })).toBe(true)

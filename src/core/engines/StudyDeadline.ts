@@ -1,0 +1,37 @@
+import type { StudyDeadlineInterface, StudyDeadlineOptions } from './types.js'
+import { StudyControl } from './StudyControl.js'
+import { StudyScope } from './StudyScope.js'
+
+/** Bounds each independent operation with a fresh failure owner and deadline. */
+export class StudyDeadline implements StudyDeadlineInterface {
+	#options: StudyDeadlineOptions
+
+	/** Retains the deadline without starting a timer.
+	 * @param options - Finite duration in milliseconds and diagnostic label.
+	 */
+	constructor(options: StudyDeadlineOptions) {
+		this.#options = { ...options }
+	}
+
+	/** Waits for work under a fresh failure owner and releases its timer and listener.
+	 * @param work - Already-started work whose late rejection remains observed.
+	 * @returns The work's result when it settles before the deadline.
+	 * @throws Thrown for an invalid duration, the work's own rejection, or the labelled deadline.
+	 */
+	async wait<T>(work: PromiseLike<T>): Promise<T> {
+		const control = new StudyControl()
+		const scope = new StudyScope({
+			limit: { duration: this.#options.duration, calls: 1, tokens: 1, bytes: 1 },
+			control,
+			label: this.#options.label,
+		})
+		try {
+			const result = await control.wait(work)
+			scope.check()
+			return result
+		} finally {
+			scope.close()
+			control.close()
+		}
+	}
+}

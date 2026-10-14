@@ -13,6 +13,7 @@ import {
 	isStudyLabels,
 	isStudyLimit,
 	isStudyName,
+	isStudyProduct,
 	isStudyProfile,
 	isStudyProvider,
 	isStudyRole,
@@ -195,6 +196,33 @@ it('requires nonnegative known usage and honest semantic-label provenance', () =
 	expect(isStudyLabels({ ...labels, usage: Array(1) })).toBe(false)
 	expect(isStudyLabels({ ...labels, usage: Object.assign([usage], { typo: true }) })).toBe(false)
 	expect(isStudyLabels({ ...labels, typo: true })).toBe(false)
+})
+
+it('accepts JSON products with partial status and refuses non-JSON or hostile output', () => {
+	expect(isStudyProduct({ value: { answer: 1 }, partial: true })).toBe(true)
+	expect(isStudyProduct({ value: null, partial: false })).toBe(true)
+	expect(isStudyProduct({ value: 'retained', partial: false, extra: true })).toBe(true)
+	expect(isStudyProduct({ value: undefined, partial: false })).toBe(false)
+	expect(isStudyProduct({ value: 'retained' })).toBe(false)
+	expect(isStudyProduct({ value: 'retained', partial: 'false' })).toBe(false)
+	expect(isStudyProduct({ value: NaN, partial: false })).toBe(false)
+	expect(isStudyProduct([])).toBe(false)
+	expect(isStudyProduct(null)).toBe(false)
+	const cycle: Record<string, unknown> = {}
+	cycle.self = cycle
+	expect(isStudyProduct({ value: cycle, partial: false })).toBe(false)
+	const hostile = new Proxy(
+		{ partial: false },
+		{
+			get() {
+				throw new Error('Hostile property read')
+			},
+		},
+	)
+	expect(isStudyProduct(hostile)).toBe(false)
+	const revoked = Proxy.revocable({}, {})
+	revoked.revoke()
+	expect(isStudyProduct(revoked.proxy)).toBe(false)
 })
 
 it('accepts exactly the declared roles and operational causes in their frozen report order', () => {
