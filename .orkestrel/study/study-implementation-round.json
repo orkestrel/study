@@ -1,0 +1,154 @@
+{
+  "date": "2026-10-14",
+  "scope": "Expanded real-use implementation, not a repeat of the naming round",
+  "restriction": "Final authorized Fable pass consumed; no further Fable use without fresh explicit permission",
+  "entries": [
+    {
+      "lane": "design",
+      "model": "claude-opus-5-5",
+      "session": "e3d1fcae-1b76-4069-9ff2-b50822b9eb2b",
+      "duration": 163128,
+      "turns": 6,
+      "cost": 0.6828525,
+      "modelUsage": {
+        "claude-haiku-5-5": {
+          "inputTokens": 1188,
+          "outputTokens": 17,
+          "cacheReadInputTokens": 0,
+          "cacheCreationInputTokens": 0,
+          "webSearchRequests": 0,
+          "costUSD": 0.0001273,
+          "contextWindow": 1000000,
+          "maxOutputTokens": 128000,
+          "thinkingTokens": 0,
+          "canonicalModel": "claude-haiku-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        },
+        "claude-opus-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 15957,
+          "cacheReadInputTokens": 41086,
+          "cacheCreationInputTokens": 44417,
+          "webSearchRequests": 0,
+          "costUSD": 0.6827251999999999,
+          "contextWindow": 1000000,
+          "maxOutputTokens": 128000,
+          "thinkingTokens": 11010,
+          "canonicalModel": "claude-opus-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      },
+      "reads": [
+        "brief.md",
+        "law.md",
+        "facts.md",
+        "proposal.md"
+      ],
+      "inputs": [
+        {
+          "name": "brief.md",
+          "hash": "87642c5c3d8fdaac9f3e1d65800bb01f2aa79a774d084278ceb2d451785973e9"
+        },
+        {
+          "name": "law.md",
+          "hash": "77786409cbab9345621b0cbcd5113af9539f6925443d2215462739fb63b52769"
+        },
+        {
+          "name": "facts.md",
+          "hash": "c18117e6f9529d0bed70a2b77a82eeaca85523f04a97ccf9a2516b82b71666c4"
+        },
+        {
+          "name": "proposal.md",
+          "hash": "23aad992469fb676cf0e9b01a72744dffda8becd12c9e0815b1a16ca7113cf65"
+        }
+      ],
+      "report": {
+        "path": ".orkestrel/agent/study-implementation-design.md",
+        "hash": "ab7da600bd6b419d41bade991b026bbd036df0fa73f856422be9fa8d783f82e6"
+      }
+    },
+    {
+      "lane": "final",
+      "model": "claude-fable-5-1",
+      "session": "6bf873ab-5f40-43eb-a9c2-759d5b697192",
+      "duration": 300866,
+      "turns": 9,
+      "cost": 2.20143955,
+      "modelUsage": {
+        "claude-haiku-5-5": {
+          "inputTokens": 1188,
+          "outputTokens": 17,
+          "cacheReadInputTokens": 0,
+          "cacheCreationInputTokens": 0,
+          "webSearchRequests": 0,
+          "costUSD": 0.0001273,
+          "contextWindow": 1000000,
+          "maxOutputTokens": 128000,
+          "thinkingTokens": 0,
+          "canonicalModel": "claude-haiku-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        },
+        "claude-fable-5-1": {
+          "inputTokens": 98,
+          "outputTokens": 20411,
+          "cacheReadInputTokens": 58489,
+          "cacheCreationInputTokens": 58258,
+          "webSearchRequests": 0,
+          "costUSD": 2.20131225,
+          "contextWindow": 1000000,
+          "maxOutputTokens": 64000,
+          "thinkingTokens": 14968,
+          "canonicalModel": "claude-fable-5-1",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      },
+      "reads": [
+        "brief.md",
+        "law.md",
+        "facts.md",
+        "proposal.md",
+        "positions.md",
+        "evidence.md",
+        "questions.md"
+      ],
+      "inputs": [
+        {
+          "name": "brief.md",
+          "hash": "2a264b521585830b11d983b6a13ade68e05d4ca8213949d528073147f4c4b588"
+        },
+        {
+          "name": "law.md",
+          "hash": "77786409cbab9345621b0cbcd5113af9539f6925443d2215462739fb63b52769"
+        },
+        {
+          "name": "facts.md",
+          "hash": "c18117e6f9529d0bed70a2b77a82eeaca85523f04a97ccf9a2516b82b71666c4"
+        },
+        {
+          "name": "proposal.md",
+          "hash": "23aad992469fb676cf0e9b01a72744dffda8becd12c9e0815b1a16ca7113cf65"
+        },
+        {
+          "name": "positions.md",
+          "hash": "ef20cbf62ce6a9ca68f32235db773b82d42b0fc832aec0ce832344f1214ccb1d"
+        },
+        {
+          "name": "evidence.md",
+          "hash": "b8b5730debad276c3bff9f2105244b2e979fceb7c7651cf67a983f0e7d6bec1b"
+        },
+        {
+          "name": "questions.md",
+          "hash": "9ec0fe3ad289ec541edea25db9d4eb3be54412b308bac72cd4e2cea3438d8550"
+        }
+      ],
+      "report": {
+        "path": ".orkestrel/agent/study-implementation-final.md",
+        "hash": "4689f796b95f48b973031b55906b708bb971411b253a68a3f261f29711c6848c"
+      }
+    }
+  ]
+}

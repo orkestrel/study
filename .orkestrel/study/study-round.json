@@ -1,0 +1,201 @@
+{
+  "date": "2026-10-14",
+  "requested": "Two independent Opus5.5 lanes then Fable5.1 synthesis, explicit user override of default routing",
+  "limits": {
+    "wall": 600,
+    "turns": {
+      "independent": 12,
+      "review": 12,
+      "synthesis": 16
+    },
+    "cost": 5,
+    "tools": [
+      "Read"
+    ]
+  },
+  "entries": [
+    {
+      "lane": "independent",
+      "model": "claude-opus-5-5",
+      "session": "c855f078-5e38-416e-b7d5-7a2325ef0163",
+      "duration": 97270,
+      "turns": 8,
+      "cost": 0.6463310999999999,
+      "reads": [
+        "brief.md",
+        "law.md",
+        "rules.md",
+        "procedure.md",
+        "facts.md",
+        "article.md",
+        "methods.md"
+      ],
+      "inputs": [
+        {
+          "name": "brief.md",
+          "hash": "ff6f3cd12e50eb5f70fcb53435408dde281c653d4bab13d07372263156a47a85"
+        },
+        {
+          "name": "law.md",
+          "hash": "155141814d11dfb780e3d5912861730360ddf2e3ed0e4c1792d95ea06534aa54"
+        },
+        {
+          "name": "rules.md",
+          "hash": "cb8e894e01ac34af85018823d8fab034e14e9f8bf9a43923625ba12ef3185e97"
+        },
+        {
+          "name": "procedure.md",
+          "hash": "a50e5bdaf4db93d6f2cc7c294047a4edf4c167ecdeea9807ac9bbd40b9341565"
+        },
+        {
+          "name": "facts.md",
+          "hash": "bad3cdf9a4afb59adf64507b1605d57fd148f44f215e1d189f19a09be5ee4c18"
+        },
+        {
+          "name": "article.md",
+          "hash": "6421e781ca07347ff051eeccf85cf85f9d95cdef44e9325cb8c4c41725123003"
+        },
+        {
+          "name": "methods.md",
+          "hash": "596168b586f88910a323abb812796c3d8a74007619b327dbd25d6205831be330"
+        }
+      ],
+      "report": {
+        "path": ".orkestrel/agent/study-independent.md",
+        "hash": "64b5de21e2b68647a7921ac5dea0c3c4b2fd7409e6cc4f44d078431bbfe8dace"
+      }
+    },
+    {
+      "lane": "review",
+      "model": "claude-opus-5-5",
+      "session": "80a8fa09-a389-4b89-89ec-8b4571cc565f",
+      "duration": 175578,
+      "turns": 9,
+      "cost": 0.8355673,
+      "reads": [
+        "brief.md",
+        "law.md",
+        "rules.md",
+        "procedure.md",
+        "facts.md",
+        "article.md",
+        "methods.md",
+        "proposal.md"
+      ],
+      "inputs": [
+        {
+          "name": "brief.md",
+          "hash": "c2005cb2a37823d8d523505872365e606123c9922264fe4a8bf87e131dadd2db"
+        },
+        {
+          "name": "law.md",
+          "hash": "155141814d11dfb780e3d5912861730360ddf2e3ed0e4c1792d95ea06534aa54"
+        },
+        {
+          "name": "rules.md",
+          "hash": "cb8e894e01ac34af85018823d8fab034e14e9f8bf9a43923625ba12ef3185e97"
+        },
+        {
+          "name": "procedure.md",
+          "hash": "a50e5bdaf4db93d6f2cc7c294047a4edf4c167ecdeea9807ac9bbd40b9341565"
+        },
+        {
+          "name": "facts.md",
+          "hash": "bad3cdf9a4afb59adf64507b1605d57fd148f44f215e1d189f19a09be5ee4c18"
+        },
+        {
+          "name": "article.md",
+          "hash": "6421e781ca07347ff051eeccf85cf85f9d95cdef44e9325cb8c4c41725123003"
+        },
+        {
+          "name": "methods.md",
+          "hash": "596168b586f88910a323abb812796c3d8a74007619b327dbd25d6205831be330"
+        },
+        {
+          "name": "proposal.md",
+          "hash": "c1dc219197fbc246906534399d2aea27641b4c637d9b50198c01d26c592cc744"
+        }
+      ],
+      "report": {
+        "path": ".orkestrel/agent/study-review.md",
+        "hash": "b82fd8e4daea1df3bedc8243ed73a72968977392c277ffdfd612410d0cafab4d"
+      }
+    },
+    {
+      "lane": "synthesis",
+      "model": "claude-fable-5-1",
+      "session": "0270e96c-6175-44f8-ac80-dcb4e5061f4e",
+      "duration": 159562,
+      "turns": 13,
+      "cost": 2.1202313,
+      "reads": [
+        "brief.md",
+        "law.md",
+        "rules.md",
+        "procedure.md",
+        "workspace.md",
+        "facts.md",
+        "article.md",
+        "methods.md",
+        "proposal.md",
+        "independent.md",
+        "review.md",
+        "corrections.md"
+      ],
+      "inputs": [
+        {
+          "name": "brief.md",
+          "hash": "31674bcdd5f389cca63be60eead32594b34c0f54df18a8d078274707a7d47816"
+        },
+        {
+          "name": "law.md",
+          "hash": "155141814d11dfb780e3d5912861730360ddf2e3ed0e4c1792d95ea06534aa54"
+        },
+        {
+          "name": "rules.md",
+          "hash": "cb8e894e01ac34af85018823d8fab034e14e9f8bf9a43923625ba12ef3185e97"
+        },
+        {
+          "name": "procedure.md",
+          "hash": "a50e5bdaf4db93d6f2cc7c294047a4edf4c167ecdeea9807ac9bbd40b9341565"
+        },
+        {
+          "name": "workspace.md",
+          "hash": "eaa4f1ded00159157f2335bc304f01cca178c46dd4ef0097188065b0f3a85607"
+        },
+        {
+          "name": "facts.md",
+          "hash": "bad3cdf9a4afb59adf64507b1605d57fd148f44f215e1d189f19a09be5ee4c18"
+        },
+        {
+          "name": "article.md",
+          "hash": "6421e781ca07347ff051eeccf85cf85f9d95cdef44e9325cb8c4c41725123003"
+        },
+        {
+          "name": "methods.md",
+          "hash": "596168b586f88910a323abb812796c3d8a74007619b327dbd25d6205831be330"
+        },
+        {
+          "name": "proposal.md",
+          "hash": "c1dc219197fbc246906534399d2aea27641b4c637d9b50198c01d26c592cc744"
+        },
+        {
+          "name": "independent.md",
+          "hash": "64b5de21e2b68647a7921ac5dea0c3c4b2fd7409e6cc4f44d078431bbfe8dace"
+        },
+        {
+          "name": "review.md",
+          "hash": "b82fd8e4daea1df3bedc8243ed73a72968977392c277ffdfd612410d0cafab4d"
+        },
+        {
+          "name": "corrections.md",
+          "hash": "3067e9403cc7b911bc7be866f70aa249abb0ef10d69c2e5d27bb343bb1d15310"
+        }
+      ],
+      "report": {
+        "path": ".orkestrel/agent/study-synthesis.md",
+        "hash": "904d1979655e358a92bd3f126f227b4ebd48b73cbcb5fd64b87910303fe5088a"
+      }
+    }
+  ]
+}
