@@ -6,13 +6,49 @@ import { describe, expect, it } from 'vitest'
 import { StudyResults } from '../../../../src/server/stores/StudyResults.js'
 import { encodeStudyJSON } from '../../../../src/server/helpers.js'
 import { readStudyResult } from '../../../../src/server/stores/helpers.js'
+import { StudyEvidenceSink } from '../../../../src/server/stores/StudyEvidenceSink.js'
 import {
+	buildCompactCustodyManifest,
 	buildCustodyAttempt,
 	buildCustodyManifest,
 	STUDY_CUSTODY_MUTATIONS,
 } from '../../../setupStudy.js'
 
 describe('StudyResults', () => {
+	it('owns an exact scheduled trial by value across its filesystem awaits', async () => {
+		const scratch = createScratch()
+		const sinks: StudyEvidenceSink[] = []
+		try {
+			const manifest = buildCompactCustodyManifest()
+			const original = manifest.schedule[0]
+			if (original === undefined) throw new Error('Missing fixture trial')
+			const directory = join(scratch.path, 'result')
+			const results = new StudyResults({ directory, manifest })
+			await results.create()
+			const copy = { ...original }
+			const starting = results.start(copy)
+			copy.id = 'mutated'
+			const first = await starting
+			if (first instanceof StudyEvidenceSink) sinks.push(first)
+			await results.finish(buildCustodyAttempt(manifest, original))
+			for (const trial of manifest.schedule.slice(1)) {
+				const sink = await results.start(trial)
+				if (sink instanceof StudyEvidenceSink) sinks.push(sink)
+				await results.finish(buildCustodyAttempt(manifest, trial))
+			}
+			await results.seal()
+			const reading = await readStudyResult(directory)
+			expect(reading.status).toBe('sealed')
+			expect(reading.attempts.map((attempt) => attempt.trial.id)).toEqual(
+				manifest.schedule.map((trial) => trial.id),
+			)
+			expect(scratch.has('result/execution/trials/mutated')).toBe(false)
+		} finally {
+			await Promise.allSettled(sinks.map((sink) => sink.close()))
+			scratch.destroy()
+		}
+	})
+
 	it('reserves seal artifact bytes before publishing a complete execution seal', async () => {
 		const scratch = createScratch()
 		try {
