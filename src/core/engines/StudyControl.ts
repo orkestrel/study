@@ -47,37 +47,24 @@ export class StudyControl implements StudyControlInterface {
 		const listeners = new Abort()
 		return new Promise<T>((resolve, reject) => {
 			Promise.resolve(work).then(resolve, reject)
-			if (this.#abort.aborted)
-				reject(
-					failureToStudyError(
-						this.#failure ?? {
-							cause: 'interrupted',
-							message: 'Study interrupted',
-							role: undefined,
-						},
-					),
-				)
+			if (this.#abort.aborted) reject(this.#reason())
 			else
-				this.#abort.signal.addEventListener(
-					'abort',
-					() =>
-						reject(
-							failureToStudyError(
-								this.#failure ?? {
-									cause: 'interrupted',
-									message: 'Study interrupted',
-									role: undefined,
-								},
-							),
-						),
-					{ once: true, signal: listeners.signal },
-				)
+				this.#abort.signal.addEventListener('abort', () => reject(this.#reason()), {
+					once: true,
+					signal: listeners.signal,
+				})
 		}).finally(() => listeners.abort())
 	}
 
 	/** Removes the lifecycle listener without changing the retained failure. */
 	close(): void {
 		this.#listeners.abort()
+	}
+
+	#reason(): Error {
+		return failureToStudyError(
+			this.#failure ?? { cause: 'interrupted', message: 'Study interrupted', role: undefined },
+		)
 	}
 
 	#interrupt(): void {

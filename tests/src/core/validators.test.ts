@@ -4,6 +4,7 @@ import {
 	isStudyCriterion,
 	isStudyDefinition,
 	isStudyDigest,
+	isStudyErrorCode,
 	isStudyGoal,
 	isStudyGrading,
 	isStudyJudgment,
@@ -188,6 +189,17 @@ it('requires nonnegative known usage and honest semantic-label provenance', () =
 	expect(isStudyLabels({ ...labels, usage: Array(1) })).toBe(false)
 	expect(isStudyLabels({ ...labels, usage: Object.assign([usage], { typo: true }) })).toBe(false)
 	expect(isStudyLabels({ ...labels, typo: true })).toBe(false)
+})
+
+it('accepts only declared error codes, never a foreign or case-folded code', () => {
+	for (const code of ['CONFIG', 'EVIDENCE', 'CUSTODY', 'CAPACITY', 'FAULT', 'DEADLINE'])
+		expect(isStudyErrorCode(code)).toBe(true)
+	expect(isStudyErrorCode('ARTIFACT')).toBe(false)
+	expect(isStudyErrorCode('ENOENT')).toBe(false)
+	expect(isStudyErrorCode('config')).toBe(false)
+	expect(isStudyErrorCode('')).toBe(false)
+	expect(isStudyErrorCode(undefined)).toBe(false)
+	expect(isStudyErrorCode({ code: 'CONFIG' })).toBe(false)
 })
 
 it('requires SHA bindings, unique attempts and exact grading keys', () => {

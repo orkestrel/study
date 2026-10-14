@@ -1,6 +1,7 @@
 import { createScratch } from '@orkestrel/test/server'
 import { execFileSync } from 'node:child_process'
 import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { buildStudyRubric } from './setupStudy.js'
 import {
@@ -8,6 +9,7 @@ import {
 	buildCustodyLabels,
 	buildCustodyPacketLabels,
 	buildStudyCLI,
+	buildStudyLibrary,
 	createArtifactWorker,
 	executeStudyCLI,
 	retainStudyFixture,
@@ -25,6 +27,26 @@ describe('study server fixtures', () => {
 			expect(() => JSON.parse(checked.output)).not.toThrow()
 			const refused = await executeStudyCLI(entry, scratch.path, ['check', 'missing'])
 			expect(refused.code).not.toBe(0)
+		} finally {
+			scratch.destroy()
+		}
+	})
+	it('builds the core library as a separate importable package with its own error class', async () => {
+		const scratch = createScratch({ parent: resolve('tmp/units'), prefix: 'setup-library-' })
+		try {
+			const entry = await buildStudyLibrary(scratch)
+			expect(entry).toBe(join(scratch.path, 'library', 'dist', 'index.js'))
+			expect(scratch.read('library/package.json')).toContain('"type":"module"')
+			const constructed = execFileSync(
+				process.execPath,
+				[
+					'--input-type=module',
+					'--eval',
+					`import { StudyError } from ${JSON.stringify(pathToFileURL(entry).href)}; const error = new StudyError('CONFIG', 'Built refusal'); console.log(error.name + ':' + error.code + ':' + error.message)`,
+				],
+				{ encoding: 'utf8', timeout: 10000, windowsHide: true },
+			)
+			expect(constructed).toBe('StudyError:CONFIG:Built refusal\n')
 		} finally {
 			scratch.destroy()
 		}

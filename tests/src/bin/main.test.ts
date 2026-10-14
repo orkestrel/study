@@ -2,6 +2,7 @@ import type { ScratchInterface } from '@orkestrel/test/server'
 import { isArray, isRecord, parseJSON } from '@orkestrel/contract'
 import { createScratch, destroyScratch } from '@orkestrel/test/server'
 import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { parseStudyArguments } from '../../../src/server/commands/parsers.js'
 import { StudyCLI } from '../../../src/server/launchers/StudyCLI.js'
@@ -11,6 +12,7 @@ import { StudyCommand } from '../../../src/server/commands/StudyCommand.js'
 import { readStudyResult } from '../../../src/server/stores/helpers.js'
 import {
 	buildStudyCLI,
+	buildStudyLibrary,
 	executeStudyCLI,
 	writeStudyConsumer,
 	buildCustodyPacketLabels,
@@ -406,6 +408,10 @@ describe('built study executable', () => {
 			JSON.stringify({ ...profile, qualification }),
 		)
 		scratch.write(
+			'studies/assessment/study.json',
+			JSON.stringify({ ...definition, purpose: 'quality' }),
+		)
+		scratch.write(
 			'studies/capacity/study.json',
 			JSON.stringify({ ...definition, name: 'capacity', purpose: 'capacity' }),
 		)
@@ -483,6 +489,187 @@ describe('built study executable', () => {
 			output: '',
 		})
 		expect(scratch.has('provider.log')).toBe(true)
+	})
+
+	it('refuses selected subject and provider imports during validation, directly or transitively', async () => {
+		const adapter = scratch.read('studies/files/index.ts') ?? ''
+		const profile = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
+		if (!isRecord(profile)) throw new Error('Missing profile')
+		const subject = pathToFileURL(join(scratch.path, 'subject/dist/index.js')).href
+		const provider = scratch.write(
+			'subject/dist/provider.js',
+			`import {appendFileSync} from 'node:fs'; appendFileSync(${JSON.stringify(join(scratch.path, 'provider.log'))}, String(process.pid)); export const marker='provider-loaded';`,
+		)
+		scratch.write(
+			'studies/files/profiles/local.json',
+			JSON.stringify({
+				...profile,
+				provider: {
+					entry: provider,
+					url: 'http://127.0.0.1:1',
+					model: 'fixture-model',
+					judge: 'fixture-judge',
+					digest: { model: 'a'.repeat(64), judge: 'b'.repeat(64) },
+				},
+			}),
+		)
+		scratch.write('studies/files/part.ts', `export { prefix } from ${JSON.stringify(subject)}\n`)
+		for (const imported of [
+			`import { prefix } from ${JSON.stringify(subject)}`,
+			"import { prefix } from './part.js'",
+			`import { marker as prefix } from ${JSON.stringify(pathToFileURL(provider).href)}`,
+		]) {
+			scratch.write('studies/files/index.ts', `${imported}\nvoid prefix\n${adapter}`)
+			for (const operation of ['check', 'execute']) {
+				const refused = await executeStudyCLI(entry, scratch.path, [operation, 'assessment'])
+				expect(refused.code).not.toBe(0)
+				expect(refused.output).toContain('Artifact module is excluded:')
+			}
+		}
+		expect(scratch.has('imports.log')).toBe(false)
+		expect(scratch.has('provider.log')).toBe(false)
+		expect(scratch.has('tmp')).toBe(false)
+		scratch.write('studies/files/index.ts', adapter)
+		const checked = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
+		expect({ code: checked.code, output: checked.code === 0 ? '' : checked.output }).toEqual({
+			code: 0,
+			output: '',
+		})
+	})
+
+	it('refuses quality without qualification before evaluation while capacity and mechanism execute', async () => {
+		const definition = parseJSON(scratch.read('studies/assessment/study.json') ?? '')
+		const rubric = parseJSON(scratch.read('studies/assessment/rubric.json') ?? '')
+		if (!isRecord(definition) || !isRecord(rubric) || !isArray(rubric.criteria))
+			throw new Error('Missing declarations')
+		expect(definition.purpose).toBe('capacity')
+		scratch.write(
+			'studies/quality/study.json',
+			JSON.stringify({ ...definition, name: 'quality', purpose: 'quality' }),
+		)
+		scratch.write('studies/quality/rubric.json', JSON.stringify(rubric))
+		for (const operation of ['check', 'execute']) {
+			const refused = await executeStudyCLI(entry, scratch.path, [operation, 'quality'])
+			expect(refused.code).toBe(64)
+			expect(refused.output).toContain('Quality studies require a capacity qualification')
+		}
+		expect(scratch.has('imports.log')).toBe(false)
+		expect(scratch.has('tmp')).toBe(false)
+		scratch.write(
+			'studies/mechanism/study.json',
+			JSON.stringify({ ...definition, name: 'mechanism', purpose: 'mechanism' }),
+		)
+		scratch.write(
+			'studies/mechanism/rubric.json',
+			JSON.stringify({
+				...rubric,
+				criteria: rubric.criteria.map((criterion) =>
+					isRecord(criterion) ? { ...criterion, method: 'state' } : criterion,
+				),
+			}),
+		)
+		for (const study of ['assessment', 'mechanism']) {
+			const executed = await executeStudyCLI(entry, scratch.path, ['execute', study])
+			expect({ code: executed.code, output: executed.code === 0 ? '' : executed.output }).toEqual({
+				code: 0,
+				output: '',
+			})
+		}
+	})
+
+	it('keeps distinct labeled gradings when equal labels follow distinct graders', async () => {
+		const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
+		const result = parseJSON(executed.output)
+		if (!isRecord(result) || typeof result.path !== 'string') throw new Error('Missing result')
+		const grade = ['grade', result.path, '--rubric', 'studies/assessment/rubric.json']
+		const first = parseJSON((await executeStudyCLI(entry, scratch.path, grade)).output)
+		const adapter = scratch.read('studies/files/index.ts') ?? ''
+		scratch.write('studies/files/index.ts', `${adapter}\n// Changed grader bytes\n`)
+		const second = parseJSON((await executeStudyCLI(entry, scratch.path, grade)).output)
+		if (
+			!isRecord(first) ||
+			!isRecord(second) ||
+			typeof first.grading !== 'string' ||
+			typeof second.grading !== 'string'
+		)
+			throw new Error('Missing gradings')
+		expect(first.grading).not.toBe(second.grading)
+		const sealed = await readStudyResult(result.path)
+		if (sealed.status !== 'sealed') throw new Error('Execution did not seal')
+		const rubric = parseStudyRubric(parseJSON(scratch.read('studies/assessment/rubric.json') ?? ''))
+		const labels = scratch.write(
+			'labels.json',
+			JSON.stringify(buildCustodyPacketLabels(sealed, rubric)),
+		)
+		const labeled: string[] = []
+		for (const grading of [first.grading, second.grading]) {
+			const output = await executeStudyCLI(entry, scratch.path, [
+				'label',
+				result.path,
+				'--grading',
+				grading,
+				'--labels',
+				labels,
+			])
+			expect({ code: output.code, output: output.code === 0 ? '' : output.output }).toEqual({
+				code: 0,
+				output: '',
+			})
+			const value = parseJSON(output.output)
+			if (!isRecord(value) || typeof value.grading !== 'string') throw new Error('Missing label')
+			expect(value.previous).toBe(grading)
+			labeled.push(value.grading)
+		}
+		expect(new Set([first.grading, second.grading, ...labeled]).size).toBe(4)
+		for (const grading of [first.grading, second.grading, ...labeled]) {
+			const report = await executeStudyCLI(entry, scratch.path, [
+				'report',
+				result.path,
+				'--grading',
+				grading,
+			])
+			expect(report.code).toBe(0)
+		}
+	})
+
+	it('keeps a real built library StudyError code across the captured module boundary', async () => {
+		const library = createScratch({ parent: resolve('tmp/units'), prefix: 'runtime-library-' })
+		try {
+			const built = pathToFileURL(await buildStudyLibrary(library)).href
+			const profile = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
+			if (!isRecord(profile) || !isArray(profile.roots)) throw new Error('Missing profile')
+			scratch.write(
+				'studies/files/profiles/local.json',
+				JSON.stringify({ ...profile, roots: [...profile.roots, join(library.path, 'library')] }),
+			)
+			for (const [thrown, code, message] of [
+				[
+					"new StudyError('CONFIG', 'Built library refusal')",
+					64,
+					'CONFIG: Built library refusal',
+				],
+				[
+					"Object.assign(new Error('Plain refusal'), { code: 'CONFIG' })",
+					1,
+					'FAULT: Plain refusal',
+				],
+				[
+					"Object.assign(new Error('Foreign refusal'), { name: 'StudyError', code: 'ARTIFACT' })",
+					1,
+					'FAULT: Foreign refusal',
+				],
+			] as const) {
+				scratch.write(
+					'studies/files/index.ts',
+					`import { StudyError } from ${JSON.stringify(built)}\nvoid StudyError\nexport function createStudyAdapter() { return { validate() { throw ${thrown} }, driver() {}, grade() { return [] } } }\n`,
+				)
+				const checked = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
+				expect(checked.code).toBe(code)
+				expect(checked.output).toContain(`study: ${message}`)
+			}
+		} finally {
+			await destroyScratch(library)
+		}
 	})
 
 	it('kills a blocked adapter using the native parent deadline without a survivor', async () => {

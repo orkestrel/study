@@ -21,6 +21,8 @@ export interface ArtifactOptions {
 	readonly source?: ArtifactSourceOptions
 	/** Selects one already admitted trusted instrument package permitted to import loader builtins. */
 	readonly instrument?: string
+	/** Refuses these built files at every import edge; the inventory identity is unchanged. */
+	readonly excluded?: readonly string[]
 }
 
 /** Records the exact bytes admitted at one absolute file path. */
@@ -68,4 +70,5 @@ export interface ArtifactHookInput {
 	readonly files: readonly ArtifactSource[]
 	readonly source?: ArtifactSourceOptions
 	readonly instrument?: string
+	readonly excluded?: readonly string[]
 }

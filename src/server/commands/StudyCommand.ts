@@ -132,6 +132,8 @@ export class StudyCommand {
 			parseJSON(new TextDecoder('utf-8', { fatal: true }).decode(rubricBytes)),
 		)
 		validateStudyInputs(definition, scenarios, rubric, profile)
+		if (definition.purpose === 'quality' && profile.qualification === undefined)
+			throw new StudyError('CONFIG', 'Quality studies require a capacity qualification')
 		signal.throwIfAborted()
 		const artifacts = new StudyArtifacts({
 			root: this.#root,
@@ -350,7 +352,12 @@ export class StudyCommand {
 		signal.throwIfAborted()
 		const grading: StudyGrading = {
 			...previous.grading,
-			instrument: await this.#instrument(),
+			// Binds the preceding grader so equal labels over distinct gradings stay distinct.
+			instrument: hashStudyBytes(
+				new TextEncoder().encode(
+					JSON.stringify([previous.grading.instrument, await this.#instrument()]),
+				),
+			),
 			labels: hashStudyBytes(bytes),
 			judgments: previous.grading.judgments.map((judgment) => {
 				const imported = translated.find(

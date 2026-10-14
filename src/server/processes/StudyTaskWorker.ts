@@ -1,6 +1,6 @@
 import type { JSONValue } from '@orkestrel/contract'
 import type { StudyEvidence, StudyAttempt } from '../../core/types.js'
-import { isArray, isRecord } from '@orkestrel/contract'
+import { attempt, isArray, isError, isRecord } from '@orkestrel/contract'
 import { dirname } from 'node:path'
 import { StudyError } from '../../core/errors.js'
 import {
@@ -9,7 +9,7 @@ import {
 	parseStudyRubric,
 	parseStudyScenario,
 } from '../../core/parsers.js'
-import { isStudyJudgment } from '../../core/validators.js'
+import { isStudyErrorCode, isStudyJudgment } from '../../core/validators.js'
 import { Artifacts } from '../artifacts/Artifacts.js'
 import { readStudyAdapter } from '../adapters/helpers.js'
 import { STUDY_CUSTODY_BYTES } from '../stores/constants.js'
@@ -34,9 +34,14 @@ export class StudyTaskWorker {
 		try {
 			response = await this.#execute(value)
 		} catch (error) {
+			// A captured adapter evaluates its own copy of the study library, so its StudyError
+			// class differs from this worker's; classify by validated shape instead of identity.
+			const code = attempt(() =>
+				isError(error) && error.name === 'StudyError' && 'code' in error ? error.code : undefined,
+			)
 			response = {
 				error: error instanceof Error ? error.message : String(error),
-				code: error instanceof StudyError ? error.code : 'FAULT',
+				code: code.success && isStudyErrorCode(code.value) ? code.value : 'FAULT',
 			}
 		}
 		if (Buffer.byteLength(JSON.stringify(response)) > STUDY_FRAME_BYTES)
@@ -61,11 +66,23 @@ export class StudyTaskWorker {
 		const runtime = resolveStudyInstrument(value.entry)
 		const roots = [...new Set([...value.roots, runtime])]
 		validateStudyRuntime(runtime, roots)
+		// Validation precedes subject and provider evaluation, so their selected entries stay
+		// unreachable from every adapter import edge while shared admitted packages still load.
+		const profile =
+			value.operation === 'validate' ? parseStudyProfile(value.input.profile) : undefined
 		const loader = new Artifacts({
 			entries: [],
 			roots,
 			instrument: runtime,
 			source: { root: dirname(value.adapter), entry: value.adapter },
+			...(profile === undefined
+				? {}
+				: {
+						excluded: [
+							profile.subject,
+							...(profile.provider === undefined ? [] : [profile.provider.entry]),
+						],
+					}),
 		})
 		const instrument = hashStudyBytes(
 			new TextEncoder().encode(
@@ -77,14 +94,14 @@ export class StudyTaskWorker {
 		)
 		const adapter = readStudyAdapter(await loader.load(value.adapter))
 		let output: unknown
-		if (value.operation === 'validate') {
+		if (profile !== undefined) {
 			if (!isArray(value.input.scenarios))
 				throw new StudyError('CONFIG', 'Adapter scenarios are invalid')
 			adapter.validate({
 				definition: parseStudyDefinition(value.input.definition),
 				scenarios: value.input.scenarios.map(parseStudyScenario),
 				rubric: parseStudyRubric(value.input.rubric),
-				profile: parseStudyProfile(value.input.profile),
+				profile,
 			})
 			output = true
 		} else if (value.operation === 'grade') {

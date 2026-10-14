@@ -2,6 +2,7 @@ import { createScratch, destroyScratch } from '@orkestrel/test/server'
 import { spawnSync } from 'node:child_process'
 import { closeSync, ftruncateSync, openSync } from 'node:fs'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { expect, it } from 'vitest'
 import { Artifacts } from '../../../../src/server/artifacts/Artifacts.js'
 import {
@@ -273,6 +274,76 @@ console.log('native-loaded:' + namespace.total + ':19:11')
 		await destroyScratch(scratch)
 	}
 }, 60000)
+
+it('refuses excluded built entries at direct and transitive edges while shared admitted modules load', async () => {
+	const scratch = createScratch()
+	try {
+		const subject = scratch.ensure('subject')
+		scratch.write(
+			'subject/package.json',
+			JSON.stringify({
+				name: 'subject',
+				version: '1.0.0',
+				type: 'module',
+				exports: './dist/index.js',
+			}),
+		)
+		const marker = join(scratch.path, 'evaluated.txt')
+		const entry = scratch.write(
+			'subject/dist/index.js',
+			`import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'subject'); export const value = 1\n`,
+		)
+		const shared = scratch.write('subject/dist/shared.js', 'export const shared = 3\n')
+		const sourceRoot = scratch.ensure('subject/studies/adapter')
+		scratch.write('subject/studies/adapter/part.ts', "export { value } from 'subject'\n")
+		const sourceEntry = scratch.write(
+			'subject/studies/adapter/index.ts',
+			`export { shared } from ${JSON.stringify(pathToFileURL(shared).href)}\nexport const value = 0\n`,
+		)
+		const options = {
+			entries: [],
+			roots: [subject],
+			source: { root: sourceRoot, entry: sourceEntry },
+		}
+		expect(new Artifacts({ ...options, excluded: [entry] }).inspect().digest).toBe(
+			new Artifacts(options).inspect().digest,
+		)
+		const load = `.load(${JSON.stringify(sourceEntry)})\nconsole.log('excluded-loaded:' + namespace.value)\n`
+		const worker = createArtifactWorker(
+			scratch,
+			`const namespace = await new Artifacts(${JSON.stringify({ ...options, excluded: [entry] })})${load}`,
+		)
+		const allowed = spawnSync(process.execPath, [worker], { encoding: 'utf8', timeout: 15000 })
+		expect({ status: allowed.status, stderr: allowed.status === 0 ? '' : allowed.stderr }).toEqual({
+			status: 0,
+			stderr: '',
+		})
+		expect(allowed.stdout).toContain('excluded-loaded:0')
+		for (const source of [
+			"export { value } from 'subject'\n",
+			"export { value } from './part.js'\n",
+		]) {
+			scratch.write('subject/studies/adapter/index.ts', source)
+			const refused = spawnSync(process.execPath, [worker], { encoding: 'utf8', timeout: 15000 })
+			expect(refused.status).not.toBe(0)
+			expect(refused.stderr).toContain(`Artifact module is excluded: ${entry}`)
+			expect(scratch.has(marker)).toBe(false)
+		}
+		createArtifactWorker(
+			scratch,
+			`const namespace = await new Artifacts(${JSON.stringify(options)})${load}`,
+		)
+		const control = spawnSync(process.execPath, [worker], { encoding: 'utf8', timeout: 15000 })
+		expect({ status: control.status, stderr: control.status === 0 ? '' : control.stderr }).toEqual({
+			status: 0,
+			stderr: '',
+		})
+		expect(control.stdout).toContain('excluded-loaded:1')
+		expect(scratch.read(marker)).toBe('subject')
+	} finally {
+		await destroyScratch(scratch)
+	}
+}, 30000)
 
 it('refuses file counts, aggregate bytes, traversal populations and depth at finite capture limits', async () => {
 	const scratch = createScratch()

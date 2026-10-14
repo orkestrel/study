@@ -136,6 +136,8 @@ export class Resolution {
 			(result.format !== 'module' && result.format !== 'json')
 		)
 			throw new ArtifactError(`Artifact dependency is not admitted ESM: ${result.url}`)
+		if (this.#input.excluded?.includes(file.path) === true)
+			throw new ArtifactError(`Artifact module is excluded: ${file.path}`)
 		if (readArtifact(file.path).digest !== file.digest)
 			throw new ArtifactError(`Artifact dependency drifted: ${file.path}`)
 		url.searchParams.set('artifact', this.#input.token)

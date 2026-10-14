@@ -2,6 +2,8 @@ import type { ChildProcess } from 'node:child_process'
 import type { StudyLaunchOptions, StudyLaunchResult } from './types.js'
 import { spawn } from 'node:child_process'
 import { StudyError } from '../../core/errors.js'
+import { isStudyDigest } from '../../core/validators.js'
+import { STUDY_COMMAND_DURATION } from '../commands/constants.js'
 import { parseStudyArguments } from '../commands/parsers.js'
 import { STUDY_COMMAND_OPERATION } from '../processes/constants.js'
 import { terminateStudyChild } from '../processes/handlers.js'
@@ -56,16 +58,12 @@ export class StudyLauncher {
 					typeof value.bounds.series.duration !== 'number' ||
 					!Number.isSafeInteger(value.bounds.series.duration) ||
 					value.bounds.series.duration <= 0 ||
-					value.bounds.series.duration > 86400000
+					value.bounds.series.duration > STUDY_COMMAND_DURATION
 				)
 					throw new Error(
 						'Study execution requires a validated series duration within the 24-hour host ceiling',
 					)
-				if (
-					!('fingerprint' in value) ||
-					typeof value.fingerprint !== 'string' ||
-					!/^[a-f0-9]{64}$/.test(value.fingerprint)
-				)
+				if (!('fingerprint' in value) || !isStudyDigest(value.fingerprint))
 					throw new Error('Study check did not return an execution fingerprint')
 				duration = value.bounds.series.duration + 15000
 				if (request.expected !== undefined && request.expected !== value.fingerprint)

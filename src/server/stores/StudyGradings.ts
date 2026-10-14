@@ -1,6 +1,6 @@
 import type { StudyGrading, StudyLabels, StudyRubric } from '../../core/types.js'
 import type { StudyGradingOptions, StudyPacketBundle, StudySealedResult } from './types.js'
-import { canonicalStringify, isRecord, parseJSON } from '@orkestrel/contract'
+import { canonicalStringify, parseJSON } from '@orkestrel/contract'
 import { lstat, mkdir, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { StudyError } from '../../core/errors.js'
@@ -110,7 +110,6 @@ export class StudyGradings {
 		try {
 			await lstat(directory)
 		} catch (error) {
-			if (isRecord(error) && error.code === 'ENOENT') return undefined
 			if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined
 			throw error
 		}

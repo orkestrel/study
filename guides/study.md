@@ -73,7 +73,7 @@ Select canonical absolute package roots and built ESM entries under each package
 
 Select a consumer-owned source directory separately when the adapter needs strip-only TypeScript. Its graph cannot overlap a built package graph. Source JSON assets are excluded; fixture and rubric bytes retain separate identities. Native package exports and extension rules still govern resolution. The inventory records package manifests, captured files, selected entries, Node version, and runtime settings.
 
-Run loading in a disposable worker and terminate the worker afterwards. A process admits one loaded inventory. Trusted code can use native process APIs, evaluation, and external services; the loader does not replay those resources or sandbox hostile code.
+Select excluded built files to refuse every import edge that reaches them; exclusion leaves the inventory identity unchanged. Run loading in a disposable worker and terminate the worker afterwards. A process admits one loaded inventory. Trusted code can use native process APIs, evaluation, and external services; the loader does not replay those resources or sandbox hostile code.
 
 ### Inspect selected bytes
 
@@ -93,7 +93,7 @@ artifacts.verify()
 
 ## Consumer boundary
 
-An authored consumer module exports a factory named createStudyAdapter. The factory returns an adapter with validation, driver construction, and retained-evidence grading. Validation receives generic declarations before subject or provider modules execute. A driver receives admitted module namespaces, its execution profile, and exclusive scratch resources.
+An authored consumer module exports a factory named createStudyAdapter. The factory returns an adapter with validation, driver construction, and retained-evidence grading. Validation receives generic declarations before subject or provider modules execute. During validation, an import edge that reaches the selected subject or provider entry, directly or through another module, refuses the check; other admitted modules still load. A driver receives admitted module namespaces, its execution profile, and exclusive scratch resources.
 
 Keep grading criteria outside public goal input. Grade retained observations and evidence independently of execution. Return unknown judgments when evidence is unavailable; preserve the criterion's declared method. Adapter code runs as trusted instrumentation in bounded child work and is not a security sandbox.
 
@@ -113,7 +113,7 @@ The command supports explicit operations with operation-specific flags. Every fl
 
 Success writes a JSON document. The next field contains suggested argv and never executes it automatically. Execution returns a result identity independently of the original study selector. Result selection accepts an identity under tmp/studies, a contained root-relative path, or an absolute path. Relative output paths stay inside the consumer working directory; existing output directories refuse execution.
 
-Check returns a fingerprint for the declared execution selection. Pass that fingerprint through --expected to pin execution. Grade names an exact independent rubric path. Label and report require an exact grading identity; no operation guesses a grading version. Imported labels are caller-supplied bytes, not a labeler invoked by this command.
+Check returns a fingerprint for the declared execution selection. Pass that fingerprint through --expected to pin execution. A quality study requires a profile qualification that selects a sealed capacity result with the same identity, bounds, schedule, and scenarios and no operational failures; check and execute refuse a quality study without one. Capacity and mechanism studies execute without a qualification. Grade names an exact independent rubric path. Label and report require an exact grading identity; no operation guesses a grading version. Imported labels are caller-supplied bytes, not a labeler invoked by this command. A labeled grading binds the preceding grading's instrument, so equal labels over different gradings retain different identities.
 
 Help succeeds on stdout when --help appears anywhere. Empty arguments and invalid public grammar report on stderr with exit code 64. Operational diagnostics carry a study:CODE prefix and the refused token or path when applicable. Other exits are 0 for success, 124 for deadline, 130 for interruption, and 1 for operational failure. Private child routes require the native IPC boundary.
 
@@ -160,7 +160,6 @@ The following declarations describe this concept.
 | `STUDY_COMMAND_HELP`             | const     | Defines the complete public CLI reference shared by help and grammar diagnostics.         |
 | `STUDY_COMMAND_OPERATION`        | const     | Names the command route beneath the native supervisor.                                    |
 | `STUDY_CUSTODY_BYTES`            | const     | Limits untrusted metadata before JSON parsing or file allocation.                         |
-| `STUDY_DURATION`                 | const     | Limits resource durations to the native timer's supported range.                          |
 | `STUDY_FRAME_BYTES`              | const     | Limits each serialized IPC envelope, including its JSON framing.                          |
 | `STUDY_GOALS`                    | const     | Caps a declared scenario horizon before execution.                                        |
 | `STUDY_LOG_BYTES`                | const     | Limits combined worker stdout and stderr before termination.                              |
@@ -320,6 +319,7 @@ The following declarations describe this concept.
 | `isStudyDefinition`              | function  | Checks whether a study freezes a complete arm order for every repetition.                 |
 | `isStudyDigest`                  | function  | Checks whether a byte identity is a lowercase SHA-256 digest.                             |
 | `isStudyError`                   | function  | Narrows a caught value to an attributable study error.                                    |
+| `isStudyErrorCode`               | function  | Checks whether a value names a supported study error code.                                |
 | `isStudyEvidence`                | function  | Checks append-only public evidence.                                                       |
 | `isStudyFrame`                   | function  | Checks the complete transport envelope before domain handling.                            |
 | `isStudyGoal`                    | function  | Checks whether a goal has a bounded identifier and exact JSON input.                      |
@@ -976,6 +976,16 @@ Use the exported declaration with its documented arguments.
 import { isStudyLabels } from '@orkestrel/study'
 
 isStudyLabels({}) // false
+```
+
+### isStudyErrorCode
+
+Use the exported declaration with its documented arguments.
+
+```ts
+import { isStudyErrorCode } from '@orkestrel/study'
+
+isStudyErrorCode('CONFIG') // true
 ```
 
 ### isStudyGrading

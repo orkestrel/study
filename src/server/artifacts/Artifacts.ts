@@ -46,6 +46,7 @@ export class Artifacts {
 			entries: [...options.entries],
 			roots: [...options.roots],
 			...(options.source === undefined ? {} : { source: { ...options.source } }),
+			...(options.excluded === undefined ? {} : { excluded: [...options.excluded] }),
 		}
 	}
 
@@ -176,6 +177,7 @@ export class Artifacts {
 				files: this.#sources,
 				...(inventory.source === undefined ? {} : { source: inventory.source }),
 				...(inventory.instrument === undefined ? {} : { instrument: inventory.instrument }),
+				...(this.#options.excluded === undefined ? {} : { excluded: this.#options.excluded }),
 			})
 			registerHooks({
 				resolve: (specifier, context, next) => resolution.resolve(specifier, context, next),

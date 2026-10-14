@@ -2,7 +2,7 @@ import type { StudyAdapterInterface } from './types.js'
 
 /** Checks whether a factory returned the complete consumer adapter contract.
  * @param value - The unknown factory result.
- * @returns Whether validation, construction, and grading are callable.
+ * @returns True if validation, construction, and grading are callable; false otherwise.
  * @example Refuse an incomplete adapter
  * ```ts
  * import { isStudyAdapter } from '@orkestrel/study/server'

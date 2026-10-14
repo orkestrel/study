@@ -2,7 +2,7 @@ import type { StudyLaunchResult } from '../src/server/launchers/types.js'
 import { execFile } from 'node:child_process'
 import { join, relative, resolve } from 'node:path'
 import { build } from 'vite'
-import { srcBin } from '../vite.config.js'
+import { srcBin, srcCore } from '../vite.config.js'
 import { outputBoundary } from '../configs/helpers.js'
 import type { ScratchInterface } from '@orkestrel/test/server'
 import type { StudyGrading, StudyLabels, StudyManifest, StudyRubric } from '../src/core/types.js'
@@ -198,6 +198,33 @@ export async function buildStudyCLI(scratch: ScratchInterface): Promise<string> 
 	return join(output, 'main.js')
 }
 
+/** Builds the actual core library as a separate admitted package, as a consumer would import it.
+ * @param scratch - The owned temporary package parent inside the workspace.
+ * @returns The built library entry under the package's dist directory.
+ */
+export async function buildStudyLibrary(scratch: ScratchInterface): Promise<string> {
+	const output = scratch.ensure('library/dist')
+	scratch.write(
+		'library/package.json',
+		JSON.stringify({ name: 'study-library', version: '0.0.1', type: 'module' }),
+	)
+	await build({
+		...srcCore({
+			plugins: [outputBoundary(relative(resolve('.'), output).replaceAll('\\', '/'))],
+			build: {
+				outDir: output,
+				emptyOutDir: false,
+				sourcemap: false,
+				lib: { entry: resolve('src/core/index.ts'), formats: ['es'] },
+				rolldownOptions: { output: { entryFileNames: 'index.js' } },
+			},
+		}),
+		configFile: false,
+		logLevel: 'warn',
+	})
+	return join(output, 'index.js')
+}
+
 /** Drives the real CLI with a finite native command cap.
  * @param entry - The built runtime entry.
  * @param root - The selected consumer working directory.
@@ -224,12 +251,13 @@ export function executeStudyCLI(
 }
 
 /** Writes a real file-operation adapter and a separately selected subject package.
- * @param scratch - The owned temporary consumer.
+ * @param scratch - The owned temporary consumer; its capacity study needs no qualification.
  */
 export function writeStudyConsumer(scratch: ScratchInterface): void {
 	const definition = {
 		...buildStudyDefinition(),
 		name: 'assessment',
+		purpose: 'capacity',
 		driver: 'files',
 		scenarios: ['first'],
 		arms: ['small'],

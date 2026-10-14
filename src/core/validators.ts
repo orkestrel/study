@@ -2,6 +2,7 @@ import type {
 	StudyBounds,
 	StudyDefinition,
 	StudyCriterion,
+	StudyErrorCode,
 	StudyGrading,
 	StudyJudgment,
 	StudyLabels,
@@ -15,7 +16,8 @@ import type {
 	StudyUsage,
 } from './types.js'
 import { canonicalStringify, isArray, isJSONValue, isRecord } from '@orkestrel/contract'
-import { STUDY_DURATION, STUDY_GOALS, STUDY_NAME, STUDY_TRIALS } from './constants.js'
+import { MAX_TIMEOUT_MS } from '@orkestrel/timeout'
+import { STUDY_GOALS, STUDY_NAME, STUDY_TRIALS } from './constants.js'
 import { matchesStudyKeys } from './helpers.js'
 
 /**
@@ -50,7 +52,7 @@ export function isStudyLimit(value: unknown): value is StudyLimit {
 					typeof value[key] === 'number' && Number.isSafeInteger(value[key]) && value[key] > 0,
 			) &&
 			typeof value.duration === 'number' &&
-			value.duration <= STUDY_DURATION
+			value.duration <= MAX_TIMEOUT_MS
 		)
 	} catch {
 		return false
@@ -527,6 +529,26 @@ export function isStudyLabels(value: unknown): value is StudyLabels {
 	} catch {
 		return false
 	}
+}
+
+/**
+ * Checks whether a value names a supported study error code.
+ * @param value - The candidate code
+ * @returns True if it is a declared study error code; false otherwise
+ * @example
+ * ```ts
+ * isStudyErrorCode('CONFIG') // true
+ * ```
+ */
+export function isStudyErrorCode(value: unknown): value is StudyErrorCode {
+	return (
+		value === 'CONFIG' ||
+		value === 'EVIDENCE' ||
+		value === 'CUSTODY' ||
+		value === 'CAPACITY' ||
+		value === 'FAULT' ||
+		value === 'DEADLINE'
+	)
 }
 
 /**
