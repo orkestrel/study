@@ -145,11 +145,56 @@ it('requires positive room, finite bounds and credential-free HTTP origins', () 
 	expect(isStudyRoom({ ...profile.room, output: 0 })).toBe(false)
 	expect(isStudyRoom({ ...profile.room, typo: true })).toBe(false)
 	expect(isStudyProfile({ ...profile, typo: true })).toBe(false)
+	expect(isStudyProfile({ ...profile, agent: '' })).toBe(false)
+	expect(isStudyProfile({ ...profile, agent: undefined })).toBe(false)
 	expect(isStudyProfile({ ...profile, qualification: '' })).toBe(false)
 	expect(isStudyProfile({ ...profile, provider })).toBe(true)
 	expect(isStudyProfile({ ...profile, roots: [] })).toBe(false)
 	expect(isStudyProfile({ ...profile, roots: ['dist', 'dist'] })).toBe(false)
 	expect(isStudyProfile({ ...profile, roots: [' '] })).toBe(false)
+})
+
+it('admits a room without a recap and refuses an unbounded declared recap', () => {
+	const profile = buildStudyProfile()
+	const { recap, ...bare } = profile.room
+	expect(recap).toBeDefined()
+	expect(Object.hasOwn(bare, 'recap')).toBe(false)
+	expect(isStudyRoom(bare)).toBe(true)
+	expect(isStudyRoom({ ...bare, recap: undefined })).toBe(true)
+	expect(isStudyProfile({ ...profile, room: bare })).toBe(true)
+	expect(isStudyRoom({ ...bare, recap: 0 })).toBe(false)
+	expect(isStudyRoom({ ...bare, recap: 1.5 })).toBe(false)
+	expect(isStudyRoom({ ...bare, recap: Number.NaN })).toBe(false)
+	expect(isStudyRoom({ ...bare, recap: '32' })).toBe(false)
+	expect(isStudyRoom({ ...bare, recap: null })).toBe(false)
+	expect(isStudyRoom({ ...bare, recap: bare.context })).toBe(false)
+	expect(isStudyRoom({ ...bare, context: undefined })).toBe(false)
+})
+
+it('admits an omitted judge and refuses a half-declared judge in either direction', () => {
+	const provider = {
+		entry: 'dist/index.js',
+		url: 'http://127.0.0.1:11435',
+		model: 'subject',
+		digest: { model: 'a'.repeat(64) },
+	}
+	const profile = buildStudyProfile()
+	const pinned = { ...provider.digest, judge: 'b'.repeat(64) }
+	expect(isStudyProvider(provider)).toBe(true)
+	expect(isStudyProvider({ ...provider, judge: undefined })).toBe(true)
+	expect(isStudyProfile({ ...profile, provider })).toBe(true)
+	expect(isStudyProvider({ ...provider, judge: 'judge', digest: pinned })).toBe(true)
+	expect(isStudyProvider({ ...provider, judge: 'judge' })).toBe(false)
+	expect(isStudyProvider({ ...provider, digest: pinned })).toBe(false)
+	expect(isStudyProvider({ ...provider, judge: '', digest: pinned })).toBe(false)
+	expect(
+		isStudyProvider({
+			...provider,
+			judge: 'judge',
+			digest: { ...provider.digest, judge: 'mutable' },
+		}),
+	).toBe(false)
+	expect(isStudyProfile({ ...profile, provider: { ...provider, judge: 'judge' } })).toBe(false)
 })
 
 it('admits absent or JSON-object driver settings and refuses every other shape', () => {

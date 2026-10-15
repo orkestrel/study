@@ -78,5 +78,9 @@ describe('process validators', () => {
 		)
 		expect(isStudyIdentity(buildStudyManifest().identity)).toBe(true)
 		expect(isStudyIdentity({})).toBe(false)
+		const { agent, ...unselected } = buildStudyManifest().identity
+		expect(agent).toMatch(/^[a-f0-9]{64}$/)
+		expect(isStudyIdentity(unselected)).toBe(false)
+		expect(isStudyIdentity({ ...unselected, agent: 'unknown' })).toBe(false)
 	})
 })

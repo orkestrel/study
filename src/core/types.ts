@@ -59,7 +59,8 @@ export interface StudyRoom {
 	readonly context: number
 	readonly output: number
 	readonly safety: number
-	readonly recap: number
+	/** Declares the recap allowance; absent when the workflow produces no recap. */
+	readonly recap: number | undefined
 	readonly think: boolean
 }
 
@@ -68,17 +69,22 @@ export interface StudyProvider {
 	readonly entry: string
 	readonly url: string
 	readonly model: string
-	readonly judge: string
+	/** Names the judge model; declared together with its digest or both absent. */
+	readonly judge: string | undefined
 	/** Pins the serving inventory independently of mutable model names. */
 	readonly digest: {
 		readonly model: string
-		readonly judge: string
+		/** Pins the judge model; declared together with its name or both absent. */
+		readonly judge: string | undefined
 	}
 }
 
 /** Holds execution settings independently of scenario and grading declarations. */
 export interface StudyProfile {
 	readonly name: string
+	/** Selects the Agent runtime entry, independently of the package under study. */
+	readonly agent: string
+	/** Selects the entry of the package under study; it can equal the Agent entry. */
 	readonly subject: string
 	readonly roots: readonly string[]
 	readonly bounds: StudyBounds
@@ -99,6 +105,7 @@ export interface StudyTrial {
 
 /** Holds byte identities that qualification and comparisons must agree on. */
 export interface StudyIdentity {
+	readonly agent: string
 	readonly subject: string
 	readonly provider: string | undefined
 	readonly instrument: string

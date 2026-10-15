@@ -164,6 +164,7 @@ export function buildStudyProfile(): StudyProfile {
 	const request = { duration: 100, calls: 1, tokens: 100, bytes: 100 }
 	return {
 		name: 'local',
+		agent: 'agent-v1',
 		subject: 'subject-v1',
 		roots: ['dist'],
 		bounds: {
@@ -220,6 +221,7 @@ export function buildStudyManifest(): StudyManifest {
 		definition,
 		scenarios,
 		identity: {
+			agent: '1'.repeat(64),
 			subject: 'a'.repeat(64),
 			provider: undefined,
 			instrument: 'b'.repeat(64),

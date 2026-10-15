@@ -9,6 +9,7 @@ import { hashStudyBytes } from '../helpers.js'
 import { readStudyBytes } from '../stores/helpers.js'
 import { STUDY_CUSTODY_BYTES } from '../stores/constants.js'
 import {
+	collectStudyEntries,
 	computeStudyInstrumentDigest,
 	resolveStudyInstrument,
 	validateStudyRuntime,
@@ -31,9 +32,8 @@ export class StudyArtifacts {
 				options.entry,
 				options.root,
 				options.adapter,
-				options.profile.subject,
+				...collectStudyEntries(options.profile),
 				...options.profile.roots,
-				...(options.profile.provider === undefined ? [] : [options.profile.provider.entry]),
 			].every(isAbsolute)
 		)
 			throw new StudyError('CONFIG', 'Study artifact paths must be absolute')
@@ -55,16 +55,14 @@ export class StudyArtifacts {
 		const entry = hashStudyBytes(await readStudyBytes(this.#options.entry, STUDY_CUSTODY_BYTES))
 		this.#entry = entry
 		this.#loader = new Artifacts({
-			entries: [
-				profile.subject,
-				...(profile.provider === undefined ? [] : [profile.provider.entry]),
-			],
+			entries: collectStudyEntries(profile),
 			roots,
 			source,
 			instrument,
 		})
 		const inventory = this.#loader.inspect()
 		this.#identity = Object.freeze({
+			agent: inventory.digest,
 			subject: inventory.digest,
 			provider: profile.provider === undefined ? undefined : inventory.digest,
 			instrument: computeStudyInstrumentDigest(entry, this.#instrument.inspect().digest),
@@ -82,19 +80,23 @@ export class StudyArtifacts {
 		return readStudyAdapter(await this.#loader.load(this.#options.adapter))
 	}
 	/** Loads admitted built namespaces inside the trial child.
-	 * @returns The subject and optional provider.
+	 * @returns The agent, subject and optional provider; a shared entry loads once and keeps each role.
 	 */
 	async load(): Promise<StudyArtifactModules> {
 		await this.inspect()
 		if (this.#loader === undefined)
 			throw new StudyError('CONFIG', 'Artifact inspection is required')
-		const subject = await this.#loader.load(this.#options.profile.subject)
-		const provider =
-			this.#options.profile.provider === undefined
-				? undefined
-				: await this.#loader.load(this.#options.profile.provider.entry)
+		const profile = this.#options.profile
+		const namespaces = new Map<string, unknown>()
+		for (const entry of collectStudyEntries(profile))
+			namespaces.set(entry, await this.#loader.load(entry))
 		this.verify()
-		return Object.freeze({ subject, provider })
+		const provider = profile.provider
+		return Object.freeze({
+			agent: namespaces.get(profile.agent),
+			subject: namespaces.get(profile.subject),
+			provider: provider === undefined ? undefined : namespaces.get(provider.entry),
+		})
 	}
 	/** Refuses instrument and inventory drift after inspection. */
 	verify(): void {

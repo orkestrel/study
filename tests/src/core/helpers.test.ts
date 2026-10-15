@@ -3,6 +3,8 @@ import {
 	buildStudySchedule,
 	computeStudyScores,
 	matchesStudyKeys,
+	normalizeStudyProfile,
+	omitStudyAbsent,
 	validateStudyInputs,
 } from '../../../src/core/helpers.js'
 import { StudyError } from '../../../src/core/errors.js'
@@ -15,6 +17,51 @@ import {
 	buildStudyRubric,
 	buildStudyScenario,
 } from '../../setupStudy.js'
+
+it('omits undefined entries in order and keeps falsy declared values', () => {
+	expect(
+		Object.keys(omitStudyAbsent({ a: 1, b: undefined, c: 0, d: false, e: null, f: '' })),
+	).toEqual(['a', 'c', 'd', 'e', 'f'])
+	expect(omitStudyAbsent({})).toEqual({})
+	expect(omitStudyAbsent({ b: undefined })).toEqual({})
+})
+
+it('normalizes a profile so every undeclared optional role is absent and the declared order holds', () => {
+	const base = buildStudyProfile()
+	const absent = normalizeStudyProfile(base)
+	expect(Object.keys(absent)).toEqual(['name', 'agent', 'subject', 'roots', 'bounds', 'room'])
+	const provider = {
+		entry: 'dist/index.js',
+		url: 'http://127.0.0.1:11435',
+		model: 'subject',
+		judge: undefined,
+		digest: { model: 'a'.repeat(64), judge: undefined },
+	}
+	const room = { ...base.room, recap: undefined }
+	const plain = normalizeStudyProfile({ ...base, room, provider })
+	expect(JSON.stringify(plain)).not.toMatch(/recap|judge/)
+	expect(plain).toEqual({
+		...absent,
+		room: { context: 512, output: 32, safety: 16, think: false },
+		provider: {
+			entry: provider.entry,
+			url: provider.url,
+			model: 'subject',
+			digest: { model: 'a'.repeat(64) },
+		},
+	})
+	const declared = normalizeStudyProfile({
+		...base,
+		provider: {
+			...provider,
+			judge: 'judge',
+			digest: { model: 'a'.repeat(64), judge: 'b'.repeat(64) },
+		},
+	})
+	expect(JSON.stringify(declared)).toContain('"judge":"judge"')
+	expect(JSON.stringify(declared)).toContain(`"judge":"${'b'.repeat(64)}"`)
+	expect(JSON.stringify(declared)).toContain('"recap":32')
+})
 
 it('requires own exact enumerable data fields without invoking accessors', () => {
 	expect(matchesStudyKeys({ id: 'one' }, ['id'])).toBe(true)

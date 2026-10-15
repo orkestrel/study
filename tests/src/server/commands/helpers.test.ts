@@ -86,7 +86,11 @@ describe('study command helpers', () => {
 			expect(resolveStudyProfile(scratch.path, profile).subject).toBe(
 				join(scratch.path, profile.subject),
 			)
+			expect(resolveStudyProfile(scratch.path, profile).agent).toBe(
+				join(scratch.path, profile.agent),
+			)
 			expect(profile.subject).toBe('subject-v1')
+			expect(profile.agent).toBe('agent-v1')
 		} finally {
 			scratch.destroy()
 		}
@@ -99,6 +103,12 @@ describe('study command helpers', () => {
 		expect(
 			computeStudyCommandFingerprint(
 				{ ...manifest.identity, subject: 'f'.repeat(64) },
+				manifest.bounds,
+			),
+		).not.toBe(first)
+		expect(
+			computeStudyCommandFingerprint(
+				{ ...manifest.identity, agent: 'f'.repeat(64) },
 				manifest.bounds,
 			),
 		).not.toBe(first)

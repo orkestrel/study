@@ -221,22 +221,24 @@ export function isStudyDefinition(value: unknown): value is StudyDefinition {
 /**
  * Checks whether generation room leaves positive context for input.
  * @param value - The candidate room
- * @returns True if input, output and safety allowances fit; false otherwise
+ * @returns True if input, output and safety allowances fit and any declared recap fits; false otherwise
  * @example
  * ```ts
  * isStudyRoom({ context: 20480, output: 8192, safety: 512, recap: 2048, think: true }) // true
+ * isStudyRoom({ context: 20480, output: 8192, safety: 512, think: true }) // true
  * ```
  */
 export function isStudyRoom(value: unknown): value is StudyRoom {
 	return holds(() => {
 		if (
 			!isRecord(value) ||
-			!matchesStudyKeys(value, ['context', 'output', 'safety', 'recap', 'think']) ||
+			!matchesStudyKeys(value, ['context', 'output', 'safety', 'think'], ['recap']) ||
 			typeof value.think !== 'boolean'
 		)
 			return false
+		const declared = value.recap === undefined ? [] : ['recap']
 		if (
-			!['context', 'output', 'safety', 'recap'].every(
+			!['context', 'output', 'safety', ...declared].every(
 				(key) =>
 					typeof value[key] === 'number' && Number.isSafeInteger(value[key]) && value[key] > 0,
 			)
@@ -246,9 +248,9 @@ export function isStudyRoom(value: unknown): value is StudyRoom {
 			typeof value.context === 'number' &&
 			typeof value.output === 'number' &&
 			typeof value.safety === 'number' &&
-			typeof value.recap === 'number' &&
 			value.output + value.safety < value.context &&
-			value.recap + value.safety < value.context
+			(value.recap === undefined ||
+				(typeof value.recap === 'number' && value.recap + value.safety < value.context))
 		)
 	})
 }
@@ -256,7 +258,7 @@ export function isStudyRoom(value: unknown): value is StudyRoom {
 /**
  * Checks whether a provider declaration names artifacts, an HTTP origin and models.
  * @param value - The candidate provider declaration
- * @returns True if the declaration has a supported origin and nonempty names; false otherwise
+ * @returns True if the declaration has a supported origin, nonempty names, and a judge declared with its digest or not at all; false otherwise
  * @example
  * ```ts
  * isStudyProvider({ entry: 'dist/index.js' }) // false
@@ -266,13 +268,15 @@ export function isStudyProvider(value: unknown): value is StudyProvider {
 	return holds(() => {
 		if (
 			!isRecord(value) ||
-			!matchesStudyKeys(value, ['entry', 'url', 'model', 'judge', 'digest']) ||
-			!['entry', 'url', 'model', 'judge'].every((key) => isNonEmptyString(value[key])) ||
+			!matchesStudyKeys(value, ['entry', 'url', 'model', 'digest'], ['judge']) ||
+			!['entry', 'url', 'model'].every((key) => isNonEmptyString(value[key])) ||
 			typeof value.url !== 'string' ||
 			!isRecord(value.digest) ||
-			!matchesStudyKeys(value.digest, ['model', 'judge']) ||
+			!matchesStudyKeys(value.digest, ['model'], ['judge']) ||
 			!isStudyDigest(value.digest.model) ||
-			!isStudyDigest(value.digest.judge)
+			(value.judge === undefined) !== (value.digest.judge === undefined) ||
+			(value.judge !== undefined &&
+				(!isNonEmptyString(value.judge) || !isStudyDigest(value.digest.judge)))
 		)
 			return false
 		const url = new URL(value.url)
@@ -302,10 +306,11 @@ export function isStudyProfile(value: unknown): value is StudyProfile {
 			isRecord(value) &&
 			matchesStudyKeys(
 				value,
-				['name', 'subject', 'roots', 'bounds', 'room'],
+				['name', 'agent', 'subject', 'roots', 'bounds', 'room'],
 				['provider', 'qualification', 'settings'],
 			) &&
 			isStudyName(value.name) &&
+			isNonEmptyString(value.agent) &&
 			isArray(value.roots) &&
 			isJSONValue(value.roots) &&
 			value.roots.length > 0 &&

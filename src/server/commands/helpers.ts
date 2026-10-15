@@ -74,6 +74,7 @@ export function resolveStudyProfile(root: string, profile: StudyProfile): StudyP
 		...profile,
 		qualification:
 			profile.qualification === undefined ? undefined : resolve(root, profile.qualification),
+		agent: resolve(root, profile.agent),
 		subject: resolve(root, profile.subject),
 		roots: profile.roots.map((path) => resolve(root, path)),
 		provider:
@@ -264,6 +265,7 @@ export function computeStudyReport(
 		result: result.manifest.id,
 		seal: result.seal.id,
 		identity: {
+			agent: identity.agent,
 			subject: identity.subject,
 			instrument: identity.instrument,
 			fixtures: identity.fixtures,

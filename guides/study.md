@@ -103,13 +103,17 @@ artifacts.verify()
 
 ## Consumer boundary
 
-An authored consumer module exports a factory named createStudyAdapter. The factory returns an adapter with validation, driver construction, and retained-evidence grading. Validation receives generic declarations before subject or provider modules execute. During validation, an import edge that reaches the selected subject or provider entry, directly or through another module, refuses the check; other admitted modules still load. A driver receives admitted module namespaces, its execution profile, and exclusive scratch resources.
+An authored consumer module exports a factory named createStudyAdapter. The factory returns an adapter with validation, driver construction, and retained-evidence grading. Validation receives generic declarations before agent, subject, or provider modules execute. During validation, an import edge that reaches the selected agent, subject, or provider entry, directly or through another module, refuses the check; other admitted modules still load. A driver receives admitted module namespaces, its execution profile, and exclusive scratch resources.
 
 Keep grading criteria outside public goal input. Grade retained observations and evidence independently of execution. Return unknown judgments when evidence is unavailable; preserve the criterion's declared method. Adapter code runs as trusted instrumentation in bounded child work and is not a security sandbox.
 
 ## Native command
 
 Install the package in the consumer workspace, then run the study executable from that workspace. The selected declaration lives at studies/<name>/study.json. Its driver field selects a bundle at studies/<driver>/ containing scenarios/<scenario>.json, profiles/<profile>.json, the adapter module, and the declared rubric path. The profile defaults to local. JSON declarations use the public definition, scenario, profile, and rubric contracts.
+
+A profile selects the Agent runtime entry in its required agent field and the package under study in its required subject field. The two fields can name the same entry or two entries, including entries from different installed copies of Agent. Each selected entry is captured and loaded once, and the driver receives both namespaces under the declared roles. The selected entries and their bytes are part of the execution identity.
+
+The recap allowance of the room and the judge of the provider are optional. A study that produces no recap omits the recap allowance. A provider declares its judge model and its judge digest together or omits both; declaring only one refuses the profile. A declared recap and a declared judge keep their finite bounds.
 
 A profile may carry an optional settings object of JSON values. The selected driver owns its interpretation; Study only validates the object, keeps an independent frozen copy, and refuses arrays, primitives, non-JSON values, and cycles. Settings are part of the resolved profile bytes, so changing one value changes the profile identity and the execution fingerprint. A profile without settings keeps the identity it had before the field existed.
 
@@ -306,12 +310,13 @@ The following declarations describe this concept.
 | `StudyTrial`                     | interface | Holds a scheduled trajectory, with a fresh state for each repetition and arm.             |
 | `StudyTrialCustody`              | interface | Holds the trial sink's admitted writes and terminal lifecycle.                            |
 | `StudyUsage`                     | interface | Holds actual request measurements; absent token usage remains unknown.                    |
-| `StudyValidation`                | interface | Holds declarations for domain validation before subject or provider execution.            |
+| `StudyValidation`                | interface | Holds declarations for domain validation before agent, subject or provider execution.     |
 | `StudyWorker`                    | class     | Executes one verified trial behind parent-authorized admission and custody.               |
 | `buildStudyPacket`               | function  | Builds deterministic public semantic inputs and a separately retained private map.        |
 | `buildStudyPacketLinks`          | function  | Builds neutral semantic identities for the complete eligible sealed horizon.              |
 | `buildStudySchedule`             | function  | Builds a bounded schedule from explicit repetition rows and declared scenarios.           |
 | `checkStudyDirectory`            | function  | Refuses symbolic links and non-directory ancestors before custody operations.             |
+| `collectStudyEntries`            | function  | Collects the executable entries a profile selects, each canonical path once.              |
 | `collectStudyEvidence`           | function  | Reads sealed evidence bytes through custody checks without loading executable code.       |
 | `computeStudyCommandFingerprint` | function  | Computes the native supervisor's exact validated execution fingerprint.                   |
 | `computeStudyFixtureDigest`      | function  | Computes public fixture identity from execution policy and exact scenario bytes.          |
@@ -369,6 +374,8 @@ The following declarations describe this concept.
 | `isStudyTrial`                   | function  | Checks a fresh trial's declared identifiers.                                              |
 | `isStudyUsage`                   | function  | Checks whether request usage contains nonnegative safe measurements.                      |
 | `matchesStudyKeys`               | function  | Matches exact own enumerable data keys without evaluating accessors.                      |
+| `normalizeStudyProfile`          | function  | Omits every undefined optional declaration so the profile has one JSON form.              |
+| `omitStudyAbsent`                | function  | Copies the own entries of a record that hold a value, in their original order.            |
 | `parseStudyArguments`            | function  | Parses public command tokens with operation-specific grammar diagnostics.                 |
 | `parseStudyDefinition`           | function  | Parses a definition into an independent frozen validated snapshot.                        |
 | `parseStudyGrading`              | function  | Parses grading into an independent frozen validated evidence snapshot.                    |
@@ -420,11 +427,11 @@ The declaration exposes these methods.
 
 The declaration exposes these methods.
 
-| Method     | Summary                                                                   |
-| ---------- | ------------------------------------------------------------------------- |
-| `driver`   | Constructs the consumer's driver over admitted module namespaces.         |
-| `grade`    | Judges retained evidence without changing the executed trajectory.        |
-| `validate` | Checks domain declarations before loading a selected subject or provider. |
+| Method     | Summary                                                                          |
+| ---------- | -------------------------------------------------------------------------------- |
+| `driver`   | Constructs the consumer's driver over admitted module namespaces.                |
+| `grade`    | Judges retained evidence without changing the executed trajectory.               |
+| `validate` | Checks domain declarations before loading a selected agent, subject or provider. |
 
 #### `StudyAdmissionInterface`
 
@@ -761,6 +768,26 @@ import { matchesStudyKeys } from '@orkestrel/study'
 matchesStudyKeys({ id: 'one' }, ['id']) // true
 ```
 
+### omitStudyAbsent
+
+Use the exported declaration with its documented arguments.
+
+```ts
+import { omitStudyAbsent } from '@orkestrel/study'
+
+omitStudyAbsent({ context: 512, recap: undefined }) // { context: 512 }
+```
+
+### normalizeStudyProfile
+
+Use the exported declaration with its documented arguments.
+
+```ts
+import { normalizeStudyProfile } from '@orkestrel/study'
+
+normalizeStudyProfile(profile) // no `recap` key when the room declares none
+```
+
 ### buildStudySchedule
 
 Use the exported declaration with its documented arguments.
@@ -919,6 +946,7 @@ Use the exported declaration with its documented arguments.
 import { isStudyRoom } from '@orkestrel/study'
 
 isStudyRoom({ context: 20480, output: 8192, safety: 512, recap: 2048, think: true }) // true
+isStudyRoom({ context: 20480, output: 8192, safety: 512, think: true }) // true
 ```
 
 ### isStudyProvider
@@ -1392,6 +1420,7 @@ Supply the argument tuple from each helper's signature.
 ```ts
 import { failureToStudyError, readStudyFailure } from '@orkestrel/study'
 import {
+	collectStudyEntries,
 	computeStudyInstrumentDigest,
 	computeStudyProfileDigest,
 	containsArtifact,
@@ -1411,6 +1440,8 @@ import {
 	validateStudyRuntime,
 } from '@orkestrel/study/server'
 
+declare const collectStudyEntriesArguments: Parameters<typeof collectStudyEntries>
+collectStudyEntries(...collectStudyEntriesArguments)
 declare const computeStudyInstrumentDigestArguments: Parameters<typeof computeStudyInstrumentDigest>
 computeStudyInstrumentDigest(...computeStudyInstrumentDigestArguments)
 declare const computeStudyProfileDigestArguments: Parameters<typeof computeStudyProfileDigest>

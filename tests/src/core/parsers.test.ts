@@ -63,6 +63,7 @@ it('owns driver settings as a frozen JSON snapshot and leaves absent settings ou
 	const base = buildStudyProfile()
 	const absent = {
 		name: base.name,
+		agent: base.agent,
 		subject: base.subject,
 		roots: base.roots,
 		bounds: base.bounds,
@@ -94,6 +95,37 @@ it('owns driver settings as a frozen JSON snapshot and leaves absent settings ou
 	const cycle: Record<string, unknown> = {}
 	cycle.self = cycle
 	expect(() => parseStudyProfile({ ...base, settings: cycle })).toThrow(StudyError)
+})
+
+it('keeps an undeclared recap and judge off the owned profile and round-trips declared ones', () => {
+	const base = buildStudyProfile()
+	const provider = {
+		entry: 'dist/index.js',
+		url: 'http://127.0.0.1:11435',
+		model: 'subject',
+		judge: undefined,
+		digest: { model: 'a'.repeat(64), judge: undefined },
+	}
+	const plain = parseStudyProfile({ ...base, room: { ...base.room, recap: undefined }, provider })
+	expect(isStudyProfile(plain)).toBe(true)
+	expect(Object.hasOwn(plain.room, 'recap')).toBe(false)
+	expect(Object.hasOwn(plain.provider ?? {}, 'judge')).toBe(false)
+	expect(Object.hasOwn(plain.provider?.digest ?? {}, 'judge')).toBe(false)
+	expect(parseStudyProfile(JSON.parse(JSON.stringify(plain)))).toEqual(plain)
+	const pinned = { model: 'a'.repeat(64), judge: 'b'.repeat(64) }
+	const declared = parseStudyProfile({
+		...base,
+		provider: { ...provider, judge: 'judge', digest: pinned },
+	})
+	expect(declared.room.recap).toBe(base.room.recap)
+	expect(declared.provider?.judge).toBe('judge')
+	expect(declared.provider?.digest.judge).toBe('b'.repeat(64))
+	expect(() => parseStudyProfile({ ...base, provider: { ...provider, judge: 'judge' } })).toThrow(
+		expect.objectContaining({ code: 'CONFIG' }),
+	)
+	expect(() => parseStudyProfile({ ...base, agent: undefined })).toThrow(
+		expect.objectContaining({ code: 'CONFIG' }),
+	)
 })
 
 it('parses real JSON grading and labels without coercion and preserves unknown token usage', () => {

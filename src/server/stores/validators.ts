@@ -69,7 +69,7 @@ export function isStudyCustodyManifest(value: unknown): value is StudyManifest {
 			!isRecord(value.identity) ||
 			!matchesStudyKeys(
 				value.identity,
-				['subject', 'instrument', 'fixtures', 'profile'],
+				['agent', 'subject', 'instrument', 'fixtures', 'profile'],
 				['provider'],
 			) ||
 			(value.identity.provider !== undefined && !isStudyDigest(value.identity.provider)) ||
@@ -81,7 +81,9 @@ export function isStudyCustodyManifest(value: unknown): value is StudyManifest {
 			return false
 		const identity = value.identity
 		if (
-			!['subject', 'instrument', 'fixtures', 'profile'].every((key) => isStudyDigest(identity[key]))
+			!['agent', 'subject', 'instrument', 'fixtures', 'profile'].every((key) =>
+				isStudyDigest(identity[key]),
+			)
 		)
 			return false
 		const schedule = buildStudySchedule(value.definition, value.scenarios)

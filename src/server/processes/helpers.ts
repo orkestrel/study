@@ -44,6 +44,21 @@ export function computeStudyProfileDigest(profile: StudyProfile): string {
 	return hashStudyBytes(encoded)
 }
 
+/** Collects the executable entries a profile selects, each canonical path once.
+ * @param profile - The resolved execution profile.
+ * @returns The agent, subject, and provider entries without repeating a shared entry.
+ * @remarks The declared roles stay separate in the profile; only capture and loading deduplicate.
+ */
+export function collectStudyEntries(profile: StudyProfile): readonly string[] {
+	return [
+		...new Set([
+			profile.agent,
+			profile.subject,
+			...(profile.provider === undefined ? [] : [profile.provider.entry]),
+		]),
+	]
+}
+
 /** Computes the instrument identity binding trusted runtime bytes to the adapter inventory.
  * @param entry - The SHA-256 identity of the trusted runtime entry bytes.
  * @param inventory - The captured adapter inventory digest.

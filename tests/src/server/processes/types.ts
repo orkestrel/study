@@ -21,3 +21,16 @@ export interface StudyOrphanReceipt {
 	readonly root: number
 	readonly leaf: number
 }
+
+/** Holds one installed Agent fixture package, its built entry, and its evaluation log. */
+export interface StudyAgentFixture {
+	readonly root: string
+	readonly entry: string
+	readonly log: string
+}
+
+/** Holds the agent identity and fingerprint a supervisor check printed. */
+export interface StudyCheckReading {
+	readonly agent: string
+	readonly fingerprint: string
+}

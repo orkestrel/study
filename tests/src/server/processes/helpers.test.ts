@@ -16,6 +16,7 @@ import { fork } from 'node:child_process'
 import { resolve } from 'node:path'
 import { STUDY_DRAIN_DURATION } from '../../../../src/server/processes/constants.js'
 import {
+	collectStudyEntries,
 	drainStudyChild,
 	computeStudyInstrumentDigest,
 	computeStudyProfileDigest,
@@ -86,6 +87,40 @@ describe('process helpers', () => {
 		const gauge = buildStudySettingsProfile({ gauge: { scale: 1.25 } })
 		const changed = buildStudySettingsProfile({ gauge: { scale: 1.5 } })
 		expect(computeStudyProfileDigest(changed)).not.toBe(computeStudyProfileDigest(gauge))
+	})
+	it('binds the selected agent into the profile digest and absent roles to nothing', () => {
+		const base = buildStudyProfile()
+		expect(computeStudyProfileDigest({ ...base, agent: 'agent-v2' })).not.toBe(
+			computeStudyProfileDigest(base),
+		)
+		const undeclared = { ...base, room: { ...base.room, recap: undefined } }
+		const omitted = { ...base, room: { ...base.room } }
+		Reflect.deleteProperty(omitted.room, 'recap')
+		expect(JSON.stringify(toStudyWire(undeclared))).not.toContain('recap')
+		expect(computeStudyProfileDigest(omitted)).toBe(computeStudyProfileDigest(undeclared))
+		expect(computeStudyProfileDigest(undeclared)).not.toBe(computeStudyProfileDigest(base))
+	})
+	it('collects each selected entry once while the profile keeps every declared role', () => {
+		const base = buildStudyProfile()
+		const provider = {
+			entry: 'provider-v1',
+			url: 'http://127.0.0.1:11435',
+			model: 'subject',
+			judge: undefined,
+			digest: { model: 'a'.repeat(64), judge: undefined },
+		}
+		expect(collectStudyEntries(base)).toEqual(['agent-v1', 'subject-v1'])
+		const shared = { ...base, agent: base.subject }
+		expect(shared.agent).toBe(shared.subject)
+		expect(collectStudyEntries(shared)).toEqual(['subject-v1'])
+		expect(collectStudyEntries({ ...base, provider })).toEqual([
+			'agent-v1',
+			'subject-v1',
+			'provider-v1',
+		])
+		expect(
+			collectStudyEntries({ ...shared, provider: { ...provider, entry: base.subject } }),
+		).toEqual(['subject-v1'])
 	})
 	it('binds the runtime entry and adapter inventory in an ordered JSON pair', () => {
 		const entry = 'a'.repeat(64)

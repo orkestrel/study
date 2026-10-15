@@ -19,6 +19,41 @@ import {
 } from './validators.js'
 
 /**
+ * Copies the own entries of a record that hold a value, in their original order.
+ * @param value - The record whose undefined entries are absent declarations
+ * @returns A new record without the undefined entries
+ * @example
+ * ```ts
+ * omitStudyAbsent({ context: 512, recap: undefined }) // { context: 512 }
+ * ```
+ */
+export function omitStudyAbsent(value: object): Readonly<Record<string, unknown>> {
+	return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined))
+}
+
+/**
+ * Omits every undefined optional declaration so the profile has one JSON form.
+ * @param profile - The validated profile whose optional leaves may be undefined
+ * @returns The profile fields with absent qualification, settings, provider, judge and recap removed
+ * @example
+ * ```ts
+ * normalizeStudyProfile(profile) // no `recap` key when the room declares none
+ * ```
+ */
+export function normalizeStudyProfile(profile: StudyProfile): Readonly<Record<string, unknown>> {
+	const { provider, qualification, settings, room, ...required } = profile
+	return {
+		...required,
+		room: omitStudyAbsent(room),
+		...(provider === undefined
+			? {}
+			: { provider: { ...omitStudyAbsent(provider), digest: omitStudyAbsent(provider.digest) } }),
+		...(qualification === undefined ? {} : { qualification }),
+		...(settings === undefined ? {} : { settings }),
+	}
+}
+
+/**
  * Matches exact own enumerable data keys without evaluating accessors.
  * @param value - The candidate record
  * @param required - Required keys

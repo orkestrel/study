@@ -10,7 +10,7 @@ import type {
 	StudyScenario,
 } from '../../core/types.js'
 
-/** Holds declarations for domain validation before subject or provider execution. */
+/** Holds declarations for domain validation before agent, subject or provider execution. */
 export interface StudyValidation {
 	readonly definition: StudyDefinition
 	readonly scenarios: readonly StudyScenario[]
@@ -20,6 +20,7 @@ export interface StudyValidation {
 
 /** Supplies admitted modules and an exclusive scratch parent without grader truth. */
 export interface StudyDriverOptions {
+	readonly agent: unknown
 	readonly subject: unknown
 	readonly provider: unknown
 	readonly profile: StudyProfile
@@ -42,7 +43,7 @@ export interface StudyAdjudication {
  * Adapter code is trusted instrumentation, not a security sandbox.
  */
 export interface StudyAdapterInterface {
-	/** Checks domain declarations before loading a selected subject or provider.
+	/** Checks domain declarations before loading a selected agent, subject or provider.
 	 * @param input - The generic declarations already parsed by the host.
 	 */
 	validate(input: StudyValidation): void

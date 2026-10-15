@@ -112,6 +112,7 @@ export function isStudyIdentity(value: unknown): value is StudyIdentity {
 	return holds(
 		() =>
 			isRecord(value) &&
+			isStudyDigest(value.agent) &&
 			isStudyDigest(value.subject) &&
 			(value.provider === undefined || isStudyDigest(value.provider)) &&
 			isStudyDigest(value.instrument) &&

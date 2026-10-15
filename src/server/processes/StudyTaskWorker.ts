@@ -22,6 +22,7 @@ import {
 } from '../stores/validators.js'
 import { STUDY_FRAME_BYTES } from './constants.js'
 import {
+	collectStudyEntries,
 	computeStudyInstrumentDigest,
 	resolveStudyInstrument,
 	validateStudyRuntime,
@@ -66,7 +67,7 @@ export class StudyTaskWorker {
 		const runtime = resolveStudyInstrument(value.entry)
 		const roots = [...new Set([...value.roots, runtime])]
 		validateStudyRuntime(runtime, roots)
-		// Validation precedes subject and provider evaluation, so their selected entries stay
+		// Validation precedes agent, subject and provider evaluation, so their selected entries stay
 		// unreachable from every adapter import edge while shared admitted packages still load.
 		const profile =
 			value.operation === 'validate' ? parseStudyProfile(value.input.profile) : undefined
@@ -75,14 +76,7 @@ export class StudyTaskWorker {
 			roots,
 			instrument: runtime,
 			source: { root: dirname(value.adapter), entry: value.adapter },
-			...(profile === undefined
-				? {}
-				: {
-						excluded: [
-							profile.subject,
-							...(profile.provider === undefined ? [] : [profile.provider.entry]),
-						],
-					}),
+			...(profile === undefined ? {} : { excluded: collectStudyEntries(profile) }),
 		})
 		const instrument = computeStudyInstrumentDigest(
 			hashStudyBytes(await readStudyBytes(value.entry, STUDY_CUSTODY_BYTES)),

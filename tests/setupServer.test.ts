@@ -21,11 +21,13 @@ import {
 	createArtifactWorker,
 	createStudyPeer,
 	executeStudyCLI,
+	readStudyCheck,
 	readStudyCommands,
 	readStudyOrphan,
 	readStudyPid,
 	releaseStudyPid,
 	retainStudyFixture,
+	writeStudyAgent,
 	writeStudyCheckEntry,
 	writeStudyConsumer,
 	writeStudyLauncherEntry,
@@ -52,6 +54,25 @@ describe('study server fixtures', () => {
 			const task = buildStudyTaskOptions(entry, 1200)
 			expect(task).toEqual({ entry, root: resolve('.'), adapter: entry, roots: [], duration: 1200 })
 			expect(buildStudyTaskOptions(entry).duration).toBe(5000)
+		} finally {
+			scratch.destroy()
+		}
+	})
+	it('writes an installed agent package that records evaluation and reads a check identity', () => {
+		const scratch = createScratch()
+		try {
+			const agent = writeStudyAgent(scratch, 'agent', 'agent-loaded')
+			expect(agent.root).toBe(join(scratch.path, 'agent'))
+			expect(agent.entry).toBe(join(scratch.path, 'agent', 'dist', 'index.js'))
+			expect(agent.log).toBe(join(scratch.path, 'agent.log'))
+			expect(scratch.has('agent.log')).toBe(false)
+			expect(scratch.read('agent/dist/index.js')).toContain('agent-loaded')
+			const digest = 'a'.repeat(64)
+			const printed = JSON.stringify({ identity: { agent: digest }, fingerprint: digest })
+			expect(readStudyCheck(printed)).toEqual({ agent: digest, fingerprint: digest })
+			expect(() => readStudyCheck(JSON.stringify({ identity: {}, fingerprint: digest }))).toThrow(
+				'Missing check identity',
+			)
 		} finally {
 			scratch.destroy()
 		}

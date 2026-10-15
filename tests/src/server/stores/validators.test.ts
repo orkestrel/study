@@ -68,6 +68,15 @@ describe('custody validators', () => {
 				identity: { ...manifest.identity, subject: 'unknown' },
 			}),
 		).toBe(false)
+		expect(
+			isStudyCustodyManifest({
+				...manifest,
+				identity: { ...manifest.identity, agent: 'unknown' },
+			}),
+		).toBe(false)
+		const { agent, ...unselected } = manifest.identity
+		expect(agent).toMatch(/^[a-f0-9]{64}$/)
+		expect(isStudyCustodyManifest({ ...manifest, identity: unselected })).toBe(false)
 		expect(isStudyCustodyManifest({ ...manifest, schedule: [] })).toBe(false)
 		expect(isStudyCustodyManifest({ ...manifest, created: 'yesterday' })).toBe(false)
 	})

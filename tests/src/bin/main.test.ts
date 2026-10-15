@@ -1,7 +1,7 @@
 import type { ScratchInterface } from '@orkestrel/test/server'
 import { arrayOf, isArray, isRecord, isString, parseJSON } from '@orkestrel/contract'
 import { createScratch, destroyScratch, isRunning } from '@orkestrel/test/server'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { cpSync } from 'node:fs'
@@ -16,6 +16,8 @@ import {
 	buildStudyCLI,
 	buildStudyLibrary,
 	executeStudyCLI,
+	readStudyCheck,
+	writeStudyAgent,
 	writeStudyConsumer,
 	buildCustodyPacketLabels,
 } from '../../setupServer.js'
@@ -477,6 +479,179 @@ describe('built study executable', () => {
 			output: '',
 		})
 		expect(scratch.has('provider.log')).toBe(true)
+	})
+
+	it('loads a shared agent and subject entry once while retaining both declared roles', async () => {
+		const source = scratch.read('studies/files/index.ts') ?? ''
+		scratch.write(
+			'studies/files/index.ts',
+			source.replace(
+				'driver(options) {',
+				"driver(options) { if(options.agent!==options.subject||options.profile.agent!==options.profile.subject||options.agent.prefix!=='saved:') throw new Error('Shared selection split');",
+			),
+		)
+		const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
+		expect({ code: executed.code, output: executed.code === 0 ? '' : executed.output }).toEqual({
+			code: 0,
+			output: '',
+		})
+		expect((scratch.read('imports.log') ?? '').trim().split(/\r\n|\n/)).toHaveLength(1)
+		const result = parseJSON(executed.output)
+		if (!isRecord(result) || typeof result.path !== 'string') throw new Error('Missing result')
+		const sealed = await readStudyResult(result.path)
+		if (sealed.status !== 'sealed') throw new Error('Execution did not seal')
+		expect(sealed.manifest.identity.agent).toBe(sealed.manifest.identity.subject)
+	})
+
+	it('selects a distinct agent entry and binds its bytes into the execution identity', async () => {
+		const agent = writeStudyAgent(scratch, 'agent', 'agent-loaded')
+		const profile = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
+		if (!isRecord(profile) || !isArray(profile.roots)) throw new Error('Missing profile')
+		scratch.write(
+			'studies/files/profiles/local.json',
+			JSON.stringify({ ...profile, agent: agent.entry, roots: [...profile.roots, agent.root] }),
+		)
+		const source = scratch.read('studies/files/index.ts') ?? ''
+		scratch.write(
+			'studies/files/index.ts',
+			source.replace(
+				'driver(options) {',
+				"driver(options) { if(options.agent.marker!=='agent-loaded'||options.agent===options.subject||options.subject.prefix!=='saved:'||options.profile.agent===options.profile.subject) throw new Error('Agent selection dropped');",
+			),
+		)
+		const checked = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
+		expect({ code: checked.code, output: checked.code === 0 ? '' : checked.output }).toEqual({
+			code: 0,
+			output: '',
+		})
+		expect(scratch.has('agent.log')).toBe(false)
+		const before = readStudyCheck(checked.output)
+		const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
+		expect({ code: executed.code, output: executed.code === 0 ? '' : executed.output }).toEqual({
+			code: 0,
+			output: '',
+		})
+		expect((scratch.read('agent.log') ?? '').trim().split(/\r\n|\n/)).toHaveLength(1)
+		scratch.write(
+			'agent/dist/index.js',
+			`${scratch.read('agent/dist/index.js') ?? ''}\n// Changed agent bytes\n`,
+		)
+		const changed = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
+		expect(changed.code).toBe(0)
+		const after = readStudyCheck(changed.output)
+		expect(after.agent).not.toBe(before.agent)
+		expect(after.fingerprint).not.toBe(before.fingerprint)
+	})
+
+	it('selects the named occurrence among several installed agent packages', async () => {
+		const first = writeStudyAgent(scratch, 'agent-first', 'first-loaded')
+		const second = writeStudyAgent(scratch, 'agent-second', 'second-loaded')
+		const profile = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
+		if (!isRecord(profile) || !isArray(profile.roots)) throw new Error('Missing profile')
+		const source = scratch.read('studies/files/index.ts') ?? ''
+		for (const [selected, other, marker] of [
+			[second, first, 'second-loaded'],
+			[first, second, 'first-loaded'],
+		] as const) {
+			scratch.write(
+				'studies/files/profiles/local.json',
+				JSON.stringify({
+					...profile,
+					agent: selected.entry,
+					roots: [...profile.roots, first.root, second.root],
+				}),
+			)
+			scratch.write(
+				'studies/files/index.ts',
+				source.replace(
+					'driver(options) {',
+					`driver(options) { if(options.agent.marker!==${JSON.stringify(marker)}) throw new Error('Wrong agent occurrence');`,
+				),
+			)
+			const untouched = scratch.read(relative(scratch.path, other.log))
+			const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
+			expect({ code: executed.code, output: executed.code === 0 ? '' : executed.output }).toEqual({
+				code: 0,
+				output: '',
+			})
+			expect(scratch.read(relative(scratch.path, other.log))).toBe(untouched)
+		}
+	})
+
+	it('refuses a selected agent import during validation, directly or transitively', async () => {
+		const agent = writeStudyAgent(scratch, 'agent', 'agent-loaded')
+		const profile = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
+		if (!isRecord(profile) || !isArray(profile.roots)) throw new Error('Missing profile')
+		scratch.write(
+			'studies/files/profiles/local.json',
+			JSON.stringify({ ...profile, agent: agent.entry, roots: [...profile.roots, agent.root] }),
+		)
+		const adapter = scratch.read('studies/files/index.ts') ?? ''
+		const href = pathToFileURL(agent.entry).href
+		scratch.write('studies/files/part.ts', `export { marker } from ${JSON.stringify(href)}\n`)
+		for (const imported of [
+			`import { marker } from ${JSON.stringify(href)}`,
+			"import { marker } from './part.js'",
+		]) {
+			scratch.write('studies/files/index.ts', `${imported}\nvoid marker\n${adapter}`)
+			for (const operation of ['check', 'execute']) {
+				const refused = await executeStudyCLI(entry, scratch.path, [operation, 'assessment'])
+				expect(refused.code).not.toBe(0)
+				expect(refused.output).toContain('Artifact module is excluded:')
+			}
+		}
+		expect(scratch.has('agent.log')).toBe(false)
+		expect(scratch.has('imports.log')).toBe(false)
+		expect(scratch.has('tmp')).toBe(false)
+	})
+
+	it('executes a plain study that declares no recap, provider, or judge', async () => {
+		const profile = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
+		if (!isRecord(profile) || !isRecord(profile.room)) throw new Error('Missing profile')
+		scratch.write(
+			'studies/files/profiles/local.json',
+			JSON.stringify({
+				...profile,
+				room: Object.fromEntries(Object.entries(profile.room).filter(([key]) => key !== 'recap')),
+			}),
+		)
+		const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
+		expect({ code: executed.code, output: executed.code === 0 ? '' : executed.output }).toEqual({
+			code: 0,
+			output: '',
+		})
+	})
+
+	it('admits a provider without a judge and refuses a half-declared judge', async () => {
+		const profile = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
+		if (!isRecord(profile)) throw new Error('Missing profile')
+		const provider = scratch.write(
+			'subject/dist/provider.js',
+			`export const marker='provider-loaded';`,
+		)
+		const declared = { entry: provider, url: 'http://127.0.0.1:1', model: 'fixture-model' }
+		scratch.write(
+			'studies/files/profiles/local.json',
+			JSON.stringify({ ...profile, provider: { ...declared, digest: { model: 'a'.repeat(64) } } }),
+		)
+		const omitted = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
+		expect({ code: omitted.code, output: omitted.code === 0 ? '' : omitted.output }).toEqual({
+			code: 0,
+			output: '',
+		})
+		for (const half of [
+			{ ...declared, judge: 'fixture-judge', digest: { model: 'a'.repeat(64) } },
+			{ ...declared, digest: { model: 'a'.repeat(64), judge: 'b'.repeat(64) } },
+		]) {
+			scratch.write(
+				'studies/files/profiles/local.json',
+				JSON.stringify({ ...profile, provider: half }),
+			)
+			const refused = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
+			expect(refused.code).toBe(64)
+			expect(refused.output).toContain('study profile')
+		}
+		expect(scratch.has('imports.log')).toBe(false)
 	})
 
 	it('refuses selected subject and provider imports during validation, directly or transitively', async () => {

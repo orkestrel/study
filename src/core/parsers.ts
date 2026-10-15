@@ -8,6 +8,7 @@ import type {
 } from './types.js'
 import { cloneJSONValue } from '@orkestrel/contract'
 import { StudyError } from './errors.js'
+import { normalizeStudyProfile } from './helpers.js'
 import {
 	isStudyDefinition,
 	isStudyGrading,
@@ -72,13 +73,7 @@ export function parseStudyScenario(value: unknown): StudyScenario {
 export function parseStudyProfile(value: unknown): StudyProfile {
 	try {
 		if (!isStudyProfile(value)) throw new StudyError('CONFIG', 'Invalid study profile')
-		const { provider, qualification, settings, ...required } = value
-		const snapshot = cloneJSONValue({
-			...required,
-			...(provider === undefined ? {} : { provider }),
-			...(qualification === undefined ? {} : { qualification }),
-			...(settings === undefined ? {} : { settings }),
-		})
+		const snapshot = cloneJSONValue(normalizeStudyProfile(value))
 		if (isStudyProfile(snapshot)) return snapshot
 	} catch {
 		throw new StudyError('CONFIG', 'Invalid or unreadable study profile')

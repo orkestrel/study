@@ -113,6 +113,7 @@ export class StudyWorker {
 		})
 		const identity = await this.#artifacts.inspect()
 		if (
+			identity.agent !== value.identity.agent ||
 			identity.subject !== value.identity.subject ||
 			identity.provider !== value.identity.provider ||
 			identity.instrument !== value.identity.instrument ||

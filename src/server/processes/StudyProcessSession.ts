@@ -116,6 +116,7 @@ export class StudyProcessSession implements StudySessionInterface {
 		if (
 			!isRecord(ready) ||
 			ready.pid !== child.pid ||
+			ready.agent !== this.#options.identity.agent ||
 			ready.subject !== this.#options.identity.subject ||
 			ready.instrument !== this.#options.identity.instrument
 		)

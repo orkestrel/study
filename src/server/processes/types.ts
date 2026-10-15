@@ -43,6 +43,7 @@ export interface StudyArtifactOptions {
 
 /** Holds the separately bound instrument and selected module inventory identities. */
 export interface StudyArtifactIdentity {
+	readonly agent: string
 	readonly subject: string
 	readonly provider: string | undefined
 	readonly instrument: string
@@ -50,6 +51,7 @@ export interface StudyArtifactIdentity {
 
 /** Holds actual namespaces loaded only during worker execution. */
 export interface StudyArtifactModules {
+	readonly agent: unknown
 	readonly subject: unknown
 	readonly provider: unknown
 }

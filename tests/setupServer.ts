@@ -16,6 +16,8 @@ import type {
 	StudyTaskRequest,
 } from '../src/server/processes/types.js'
 import type {
+	StudyAgentFixture,
+	StudyCheckReading,
 	StudyOrphanReceipt,
 	StudyPeerFixture,
 	StudyTaskFixture,
@@ -647,6 +649,45 @@ export function executeStudyCLI(
 	)
 }
 
+/** Writes one installed Agent runtime package whose entry records each evaluation.
+ * @param scratch - The owned temporary consumer.
+ * @param name - The package directory and log name.
+ * @param marker - The value the entry exports so a driver can tell which occurrence it received.
+ * @returns The package root, built entry, and evaluation log path.
+ */
+export function writeStudyAgent(
+	scratch: ScratchInterface,
+	name: string,
+	marker: string,
+): StudyAgentFixture {
+	const log = join(scratch.path, `${name}.log`)
+	scratch.write(
+		`${name}/package.json`,
+		JSON.stringify({ name: 'fixture-agent', version: '1.0.0', type: 'module' }),
+	)
+	const entry = scratch.write(
+		`${name}/dist/index.js`,
+		`import {appendFileSync} from 'node:fs'; appendFileSync(${JSON.stringify(log)}, String(process.pid)+'\\n'); export const marker = ${JSON.stringify(marker)};`,
+	)
+	return { root: join(scratch.path, name), entry, log }
+}
+
+/** Reads the agent identity and fingerprint from a supervisor check's printed report.
+ * @param output - The check command's standard output.
+ * @returns The printed agent identity and execution fingerprint.
+ */
+export function readStudyCheck(output: string): StudyCheckReading {
+	const value = parseJSON(output)
+	if (
+		!isRecord(value) ||
+		!isRecord(value.identity) ||
+		typeof value.identity.agent !== 'string' ||
+		typeof value.fingerprint !== 'string'
+	)
+		throw new Error(`Missing check identity: ${output}`)
+	return { agent: value.identity.agent, fingerprint: value.fingerprint }
+}
+
 /** Writes a real file-operation adapter and a separately selected subject package.
  * @param scratch - The owned temporary consumer; its capacity study needs no qualification.
  */
@@ -664,6 +705,7 @@ export function writeStudyConsumer(scratch: ScratchInterface): void {
 	const profile = {
 		...buildStudyProfile(),
 		room: { ...buildStudyProfile().room, context: 4096 },
+		agent: join(scratch.path, 'subject/dist/index.js'),
 		subject: join(scratch.path, 'subject/dist/index.js'),
 		roots: [join(scratch.path, 'subject')],
 		bounds: {
