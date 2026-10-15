@@ -63,17 +63,21 @@ including a prompt in [0.9W,W], where W=20480-8192-512=11776. Missing pressure c
 inconclusive. An underprediction within actual room invalidates calibration; it does not by
 itself establish poor model quality. Do not name residuals template overhead.
 
-Full contexts do not establish transfer to summary-bearing Compaction contexts. A subsequent
-fresh qualification must complete both 96-goal Records and Compaction trials, with no partial
+Full contexts do not establish transfer to summary-bearing Compaction contexts. Per the user's
+October 15 instruction, rerun only Compaction; reuse completed candidate3 Records with its
+original build identity and sealed custody. A fresh qualification must complete the 96-goal
+Compaction trial, with no partial
 product, invalid usage, capacity/operational failure or underprediction. Require exercised
 Compaction pressure and successful compaction: an oversized admission measurement followed by
 a smaller admitted request is valid pressure evidence. Do not require a narrowly chosen admitted
-token band when compaction deliberately reduces it. Records captures checkpoint positions
-8,16,24,32,40,48,56,64,72,80,88,96 during this necessary qualification.
+token band when compaction deliberately reduces it. Do not rerun Records to obtain checkpoints.
+The checkpoint-dependent Records performance diagnostic remains deferred until suitable exact
+captures exist. This does not block Compaction repair or justify reconstructing historical bodies.
 
 Freeze fresh create-only profile, result paths, build identities and declaration fingerprints.
-Qualification and quality each retain the existing six-hour execution plus one-minute launcher
-allowance: twelve hours two minutes after calibration. Root must accept sealed qualification
+Any qualification and quality declarations in this successor select Compaction only. Their
+finite allowances must be frozen prospectively for that reduced population; do not inherit the
+previous two-arm twelve-hour chain as an automatic grant. Root must accept sealed qualification
 before quality starts. The dedicated daemon lifetime must cover that prospective deadline and
 cleanup; restart the idle dedicated daemon if necessary, never the user's daemon. These are
 new bounded experiments, not extensions of candidate3. No additional hidden retries, window
