@@ -5,12 +5,22 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { isArray, isRecord, parseJSON } from '@orkestrel/contract'
+import type { StudyObservation } from '../src/core/types.js'
+import { createMCPClient, HTTPClientTransport } from '@orkestrel/mcp'
+import { existsSync, readFileSync } from 'node:fs'
 import { isStudyBounds } from '../src/core/validators.js'
 import { buildStudyRubric } from './setupStudy.js'
 import {
 	STUDY_CHECK_FINGERPRINT,
 	STUDY_LAUNCHER_PID,
 	admitStudyLibrary,
+	answerStudyMCP,
+	collectStudyRoots,
+	createMCPFixture,
+	createOllamaServer,
+	resolveStudyEntry,
+	resolveStudyPackage,
+	sumStudyCalls,
 	buildCustodyGrading,
 	buildCustodyLabels,
 	buildCustodyPacketLabels,
@@ -277,5 +287,109 @@ describe('study server fixtures', () => {
 		} finally {
 			scratch.destroy()
 		}
+	})
+	it('resolves installed packages to canonical roots and entries with their declared dependency closure', () => {
+		const root = resolveStudyPackage(resolve('.'), '@orkestrel/mcp')
+		const manifest = parseJSON(readFileSync(join(root, 'package.json'), 'utf8'))
+		expect(isRecord(manifest) && manifest.name).toBe('@orkestrel/mcp')
+		const entry = resolveStudyEntry('@orkestrel/mcp')
+		expect(entry).toBe(join(root, 'dist', 'src', 'core', 'index.js'))
+		expect(existsSync(entry)).toBe(true)
+		const roots = collectStudyRoots(['@orkestrel/mcp', '@orkestrel/mcp'])
+		expect(new Set(roots).size).toBe(roots.length)
+		const names = roots.map((candidate) => {
+			const declared = parseJSON(readFileSync(join(candidate, 'package.json'), 'utf8'))
+			return isRecord(declared) ? declared.name : undefined
+		})
+		expect(names).toContain('@orkestrel/mcp')
+		expect(names).toContain('@orkestrel/contract')
+		expect(names).toContain('@orkestrel/tool')
+		// A peer dependency is not a runtime dependency of the closure.
+		expect(names).not.toContain('@orkestrel/router')
+		expect(() => resolveStudyPackage(resolve('.'), '@orkestrel/absent-package')).toThrow(
+			'@orkestrel/absent-package',
+		)
+	})
+	it('answers a chat request as a protocol peer from the exact last message and refuses invalid requests', () => {
+		const user = { role: 'user', content: 'Where?' }
+		expect(answerStudyMCP('/api/tags', '{}')).toBeUndefined()
+		const asked = parseJSON(
+			(answerStudyMCP('/api/chat', JSON.stringify({ messages: [user] })) ?? '').trim(),
+		)
+		expect(asked).toMatchObject({
+			message: { tool_calls: [{ function: { name: 'lookup', arguments: { id: 'order-1' } } }] },
+		})
+		for (const receipt of ['shipped Monday', 'delayed Friday']) {
+			const body = JSON.stringify({ messages: [user, { role: 'tool', content: receipt }] })
+			const answered = parseJSON((answerStudyMCP('/api/chat', body) ?? '').trim())
+			expect(answered).toMatchObject({ message: { content: `Order status: ${receipt}` } })
+			expect(answered).not.toHaveProperty('message.tool_calls')
+		}
+		// An earlier receipt does not answer a later request that ends on a user message.
+		const later = JSON.stringify({ messages: [{ role: 'tool', content: 'shipped Monday' }, user] })
+		expect(parseJSON((answerStudyMCP('/api/chat', later) ?? '').trim())).toMatchObject({
+			message: { tool_calls: [{ function: { name: 'lookup' } }] },
+		})
+		expect(() => answerStudyMCP('/api/chat', 'not json')).toThrow('Invalid chat request')
+		expect(() => answerStudyMCP('/api/chat', '{"messages":{}}')).toThrow('Invalid chat request')
+		expect(() => answerStudyMCP('/api/chat', '{"messages":[]}')).toThrow('Invalid chat message')
+		expect(() =>
+			answerStudyMCP('/api/chat', JSON.stringify({ messages: [{ role: 'tool', content: 7 }] })),
+		).toThrow('Invalid tool receipt')
+	})
+	it('serves scripted outcomes through the real client, records receipts, and releases its port', async () => {
+		const server = await createMCPFixture(['shipped Monday', new Error('No order order-1')])
+		const client = createMCPClient({
+			transport: new HTTPClientTransport({ url: server.url, timeout: 2000 }),
+			timeout: 2000,
+		})
+		try {
+			await client.connect()
+			expect((await client.tools()).map((tool) => tool.name)).toEqual(['lookup'])
+			expect(await client.call('lookup', { id: 'a' })).toEqual({
+				resultType: 'complete',
+				value: 'shipped Monday',
+			})
+			await expect(client.call('lookup', { id: 'b' })).rejects.toThrow('No order order-1')
+			await expect(client.call('lookup', { id: 'c' })).rejects.toThrow('No scripted outcome')
+			expect(server.calls).toEqual([{ id: 'a' }, { id: 'b' }, { id: 'c' }])
+			expect(server.methods.filter((method) => method === 'tools/call')).toHaveLength(3)
+		} finally {
+			await client.disconnect()
+			await server.close()
+		}
+		await expect(fetch(server.url, { method: 'POST', body: '{}' })).rejects.toThrow('fetch failed')
+	})
+	it('lets an Ollama peer answer from request bytes without disturbing queued or default replies', async () => {
+		const peer = await createOllamaServer([], answerStudyMCP)
+		try {
+			const chat = await fetch(`${peer.url}/api/chat`, {
+				method: 'POST',
+				body: JSON.stringify({ messages: [{ role: 'tool', content: 'delayed Friday' }] }),
+			})
+			expect(await chat.text()).toContain('Order status: delayed Friday')
+			const tags = await fetch(`${peer.url}/api/tags`, { method: 'POST', body: '{}' })
+			expect(await tags.text()).toContain('"models"')
+			expect(peer.requests.map((request) => request.path)).toEqual(['/api/chat', '/api/tags'])
+		} finally {
+			await peer.close()
+		}
+	})
+	it('totals observed calls by role and reads zero for an unused role', () => {
+		const observation: StudyObservation = {
+			goal: 'write',
+			product: undefined,
+			failure: undefined,
+			usage: [
+				{ role: 'agent', calls: 2, tokens: 5, bytes: 9, duration: 1 },
+				{ role: 'tool', calls: 1, tokens: undefined, bytes: 3, duration: 1 },
+				{ role: 'agent', calls: 1, tokens: 1, bytes: 1, duration: 1 },
+			],
+			duration: 3,
+			executed: true,
+		}
+		expect(sumStudyCalls(observation, 'agent')).toBe(3)
+		expect(sumStudyCalls(observation, 'tool')).toBe(1)
+		expect(sumStudyCalls(observation, 'judge')).toBe(0)
 	})
 })

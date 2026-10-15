@@ -797,7 +797,7 @@ export const STUDY_OLLAMA_OPTIONS = Object.freeze({
 export const STUDY_OLLAMA_PARTIAL_ROW = `${JSON.stringify({ model: 'model', done: false, message: { role: 'assistant', content: 'par' } })}\n`
 
 /** Supplies one complete request's messages. */
-export const STUDY_AGENT_MESSAGES: readonly Message[] = Object.freeze<Message>([
+export const STUDY_AGENT_MESSAGES: readonly Message[] = Object.freeze<readonly Message[]>([
 	{ id: 'm1', role: 'user', content: 'Count the orders' },
 ])
 

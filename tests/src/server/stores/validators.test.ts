@@ -1,4 +1,4 @@
-import type { StudyObservation } from '../../../../src/core/types.js'
+import type { StudyFailure, StudyObservation } from '../../../../src/core/types.js'
 import { isRecord } from '@orkestrel/contract'
 import { describe, expect, it } from 'vitest'
 import {
@@ -99,7 +99,11 @@ describe('custody validators', () => {
 			true,
 		)
 		expect(isStudyCustodyFailure({ cause: 'success', message: 'Awarded' })).toBe(false)
-		const refused = { cause: 'content', message: 'Summary content was unusable', role: 'summary' }
+		const refused: StudyFailure = {
+			cause: 'content',
+			message: 'Summary content was unusable',
+			role: 'summary',
+		}
 		expect(isStudyCustodyFailure(refused)).toBe(true)
 		expect(isStudyCustodyFailure({ ...refused, cause: 'Content' })).toBe(false)
 		const sealed = {

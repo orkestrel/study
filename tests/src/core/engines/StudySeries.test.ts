@@ -72,7 +72,7 @@ describe('StudySeries', () => {
 		}
 		const driver = createStudyDriverFixture({
 			execute: async (_goal, context): Promise<StudyProduct> => {
-				const ticket = context.meter.admit({ role: 'summary', tokens: 10, bytes: 10 })
+				const ticket = await context.meter.admit({ role: 'summary', tokens: 10, bytes: 10 })
 				ticket.finish({ role: 'summary', calls: 1, tokens: 7, bytes: 9, duration: 1 })
 				throw new StudyError('FAULT', refused.message, refused)
 			},

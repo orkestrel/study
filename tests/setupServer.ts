@@ -9,6 +9,8 @@ import type {
 	StudyGrading,
 	StudyLabels,
 	StudyManifest,
+	StudyObservation,
+	StudyRole,
 	StudyRubric,
 } from '../src/core/types.js'
 import type { StudyAdjudication, StudyGradeFunction } from '../src/server/adapters/types.js'
@@ -28,8 +30,9 @@ import type {
 } from './src/server/processes/types.js'
 import { requireValue, waitForCondition, waitForEvent } from '@orkestrel/test'
 import { execFile, fork } from 'node:child_process'
-import { join, relative, resolve } from 'node:path'
-import { isBuiltin } from 'node:module'
+import { readFileSync, realpathSync } from 'node:fs'
+import { dirname, join, relative, resolve } from 'node:path'
+import { createRequire, isBuiltin } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { build } from 'vite'
 import { srcBin, srcCore } from '../vite.config.js'
@@ -65,7 +68,13 @@ import type {
 	OllamaStreamFailureFixture,
 	OllamaTransportFixture,
 } from './src/server/ollama/types.js'
+import type { StudyMCPAnswer, StudyMCPFixture } from './src/server/adapters/types.js'
 import { createOllama, extractTiming } from '@orkestrel/ollama'
+import { createMCPLegacy, createMCPServer } from '@orkestrel/mcp'
+import { createMCPRoutes } from '@orkestrel/mcp/server'
+import { createDispatcher } from '@orkestrel/router'
+import { createServer as createHost } from '@orkestrel/server'
+import { createTool, createToolManager } from '@orkestrel/tool'
 import { StudyOllamaTransport } from '../src/server/ollama/StudyOllamaTransport.js'
 import { createServer } from 'node:http'
 import {
@@ -76,6 +85,7 @@ import {
 	buildStudyDefinition,
 	buildStudyProfile,
 	buildStudyScenario,
+	buildOllamaCall,
 	buildOllamaRow,
 	buildOllamaStream,
 	createStudyMeterFixture,
@@ -947,10 +957,12 @@ export function createStudyAdapter() { return {
 
 /** Starts a loopback Ollama protocol fixture on an ephemeral port that answers queued replies by path.
  * @param replies - Queued replies for matching request paths; other paths receive the default answer.
+ * @param answer - Answers a request from its exact bytes when no queued reply claims it; declining leaves the default answer.
  * @returns The fixture origin, the exact received requests, the unserved replies, and its close.
  */
 export async function createOllamaServer(
 	replies: readonly OllamaReplyFixture[] = [],
+	answer?: StudyMCPAnswer,
 ): Promise<OllamaServerFixture> {
 	const queue = [...replies]
 	const requests: OllamaRequestFixture[] = []
@@ -959,9 +971,10 @@ export async function createOllamaServer(
 		for await (const chunk of request)
 			chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
 		const path = request.url ?? ''
-		requests.push({ path, body: Buffer.concat(chunks).toString('utf8') })
+		const text = Buffer.concat(chunks).toString('utf8')
+		requests.push({ path, body: text })
 		const supplied = queue[0]?.path === path ? queue.shift() : undefined
-		const body = supplied?.body ?? readOllamaDefault(path)
+		const body = supplied?.body ?? answer?.(path, text) ?? readOllamaDefault(path)
 		response.writeHead(supplied?.status ?? 200)
 		if (supplied?.open === true) response.write(body)
 		else response.end(body)
@@ -1350,3 +1363,285 @@ export const STUDY_OLLAMA_STATUS_FAILURES: readonly OllamaStatusFailureFixture[]
 		message: 'Ollama wire byte allowance exceeded',
 	},
 ])
+
+/** Resolves the canonical root of an installed package as Node resolves it from a directory.
+ * @param from - The directory whose package manifest anchors resolution.
+ * @param name - The package name.
+ * @returns The canonical package root.
+ */
+export function resolveStudyPackage(from: string, name: string): string {
+	return dirname(
+		realpathSync(createRequire(join(from, 'package.json')).resolve(`${name}/package.json`)),
+	)
+}
+
+/** Resolves the built core entry of an installed package from the workspace.
+ * @param name - The package name.
+ * @returns The canonical absolute path of its `dist/src/core/index.js`.
+ */
+export function resolveStudyEntry(name: string): string {
+	return join(resolveStudyPackage(resolve('.'), name), 'dist', 'src', 'core', 'index.js')
+}
+
+/** Sums the calls an observation recorded under one role.
+ * @param observation - The retained goal observation.
+ * @param role - The responsibility to total.
+ * @returns The total calls, zero when the role was never used.
+ */
+export function sumStudyCalls(observation: StudyObservation, role: StudyRole): number {
+	return observation.usage
+		.filter((usage) => usage.role === role)
+		.reduce((total, usage) => total + usage.calls, 0)
+}
+
+/** Collects the canonical roots of installed packages and their declared runtime dependencies.
+ * @param names - The package names selected from the workspace.
+ * @returns Each distinct canonical root, admitted as captured package inventory.
+ */
+export function collectStudyRoots(names: readonly string[]): readonly string[] {
+	const roots = new Set<string>()
+	const pending = names.map((name) => resolveStudyPackage(resolve('.'), name))
+	for (let root = pending.pop(); root !== undefined; root = pending.pop()) {
+		if (roots.has(root)) continue
+		roots.add(root)
+		const manifest = parseJSON(readFileSync(join(root, 'package.json'), 'utf8'))
+		if (!isRecord(manifest) || !isRecord(manifest.dependencies)) continue
+		for (const dependency of Object.keys(manifest.dependencies))
+			pending.push(resolveStudyPackage(root, dependency))
+	}
+	return [...roots]
+}
+
+/** Starts a real MCP server over a real tool on an ephemeral loopback port, as an external service.
+ *
+ * The server is composed from the installed MCP core server, the MCP HTTP routes, the router and
+ * the HTTP server. Its bytes are never captured by a Study inventory.
+ * @param outcomes - One outcome per `lookup` call, in order: a string is the tool's result and an error is its refusal.
+ * @returns The endpoint, the recorded receipts and one bounded teardown.
+ */
+export async function createMCPFixture(
+	outcomes: ReadonlyArray<string | Error>,
+): Promise<StudyMCPFixture> {
+	const queue = [...outcomes]
+	const calls: Array<Readonly<Record<string, unknown>>> = []
+	const methods: string[] = []
+	const tools = createToolManager()
+	tools.add(
+		createTool({
+			name: 'lookup',
+			description: 'Reads an order record',
+			parameters: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+			execute: (args) => {
+				calls.push({ ...args })
+				const outcome = queue.shift()
+				if (outcome === undefined) throw new Error('No scripted outcome remains')
+				if (outcome instanceof Error) throw outcome
+				return outcome
+			},
+		}),
+	)
+	const dispatcher = createDispatcher<unknown>()
+	dispatcher.add(
+		createMCPRoutes(
+			createMCPLegacy(createMCPServer({ identity: { name: 'orders', version: '1.0.0' }, tools })),
+		),
+	)
+	const server = createHost<unknown>({
+		dispatcher,
+		state: () => undefined,
+		host: '127.0.0.1',
+		port: 0,
+	})
+	server.use(async (request, _context, next) => {
+		if (request.method === 'POST') {
+			const message = parseJSON(await request.clone().text())
+			if (isRecord(message) && typeof message.method === 'string') methods.push(message.method)
+		}
+		return next()
+	})
+	try {
+		const port = await server.start()
+		return {
+			url: `http://127.0.0.1:${port}/mcp`,
+			calls,
+			methods,
+			close: async () => {
+				await server.stop()
+				await server.destroy()
+				tools.destroy()
+			},
+		}
+	} catch (error) {
+		await server.destroy()
+		tools.destroy()
+		throw error
+	}
+}
+
+/** Answers a chat request as a deterministic Ollama protocol peer: it asks for `lookup` until the last message is a tool receipt, then answers from that receipt.
+ * @param path - The requested path.
+ * @param body - The exact request bytes.
+ * @returns The terminal row, or undefined for any path but chat.
+ */
+export function answerStudyMCP(path: string, body: string): string | undefined {
+	if (path !== '/api/chat') return undefined
+	const request = parseJSON(body)
+	if (!isRecord(request) || !isArray(request.messages)) throw new Error('Invalid chat request')
+	const last: unknown = request.messages.at(-1)
+	if (!isRecord(last) || typeof last.role !== 'string') throw new Error('Invalid chat message')
+	if (last.role !== 'tool') return buildOllamaCall()
+	if (typeof last.content !== 'string') throw new Error('Invalid tool receipt')
+	return buildOllamaRow({ content: `Order status: ${last.content}` })
+}
+
+/** Names the goals the MCP consumer declares, in order. */
+export const STUDY_MCP_GOALS = Object.freeze(['shipped', 'delayed', 'refused'] as const)
+
+/** Supplies the adapter that drives the admitted Agent over the admitted MCP core client.
+ *
+ * It evaluates nothing during validation: the selected namespaces arrive only through `driver`.
+ */
+export const STUDY_MCP_ADAPTER = `export function createStudyAdapter() { return {
+ validate(input) {
+  if (input.scenarios.some(scenario => scenario.goals.some(goal => typeof goal.input !== 'string'))) throw new Error('Order adapter requires text input')
+  if (input.profile.provider === undefined || typeof input.profile.settings?.endpoint !== 'string') throw new Error('Order adapter requires a provider and an endpoint')
+ },
+ driver(options) {
+  if ('rubric' in options || 'definition' in options) throw new Error('Grader truth entered driver')
+  const { agent, subject, provider, profile } = options
+  return { async open(trial, signal) {
+   let goal
+   const metered = async (role, charge, run) => {
+    const ticket = await goal.meter.admit({ role, ...charge })
+    const started = performance.now()
+    try {
+     const outcome = await run(ticket)
+     ticket.finish({ role, calls: 1, tokens: outcome.tokens, bytes: outcome.bytes, duration: Math.ceil(performance.now() - started) })
+     return outcome.value
+    } catch (error) {
+     if (!ticket.settled) ticket.fail({ cause: 'infrastructure', message: String(error?.message ?? error), role })
+     throw error
+    }
+   }
+   const wire = async (input, init) => metered('agent', { tokens: 4096, bytes: 262144 }, async (ticket) => {
+    const response = await fetch(input, { ...init, signal: init?.signal === undefined || init.signal === null ? ticket.signal : AbortSignal.any([ticket.signal, init.signal]) })
+    const text = await response.text()
+    const row = text.trim().split('\\n').at(-1)
+    const counts = JSON.parse(row)
+    return { value: new Response(text, { status: response.status }), tokens: counts.prompt_eval_count + counts.eval_count, bytes: Buffer.byteLength(text) }
+   })
+   const client = subject.createMCPClient({ transport: new subject.HTTPClientTransport({ url: profile.settings.endpoint, timeout: 4000 }), timeout: 4000 })
+   const runner = agent.createAgent(provider.createOllama({ model: profile.provider.model, url: profile.provider.url, think: false, timeout: 4000, fetch: wire, options: { num_ctx: profile.room.context, num_predict: profile.room.output, temperature: 0, seed: 0 } }), { limit: 4, timeout: 8000, signal })
+   try {
+    await client.connect()
+    for (const remote of await client.tools())
+     runner.context.tools.add({ name: remote.name, description: remote.description, parameters: remote.parameters, execute: async (args, context) => {
+      const ticket = await goal.meter.admit({ role: 'tool', tokens: 0, bytes: 4096 })
+      const started = performance.now()
+      let bytes
+      try {
+       const value = await remote.execute(args, context)
+       bytes = Buffer.byteLength(JSON.stringify(value) ?? '')
+       return value
+      } finally {
+       if (!ticket.settled && !ticket.signal.aborted) ticket.finish({ role: 'tool', calls: 1, tokens: undefined, bytes, duration: Math.ceil(performance.now() - started) })
+      }
+     } })
+   } catch (error) {
+    runner.emitter.destroy()
+    await client.disconnect()
+    throw error
+   }
+   return {
+    async execute(declared, context) {
+     goal = context
+     const receipts = []
+     const onTool = (call, result) => receipts.push({ name: call.name, success: result.success, ...(result.success ? { value: result.value ?? null } : { error: result.error }) })
+     runner.emitter.on('tool', onTool)
+     try {
+      runner.context.messages.clear()
+      runner.context.messages.add({ role: 'user', content: declared.input })
+      const result = await runner.generate({ signal: context.signal })
+      for (const receipt of receipts) await context.evidence.append({ event: 'tool', goal: declared.id, value: receipt })
+      await context.evidence.append({ event: 'answered', goal: declared.id, value: result.content })
+      return { value: result.content, partial: result.partial }
+     } finally { runner.emitter.off('tool', onTool) }
+    },
+    async close() {
+     runner.emitter.destroy()
+     runner.context.tools.destroy()
+     await client.disconnect()
+    },
+   }
+  } }
+ },
+ grade(input) { return input.manifest.schedule.flatMap(trial => input.rubric.criteria.filter(criterion => criterion.scenario === trial.scenario).map(criterion => { const rows = input.evidence[trial.id] ?? []; const index = rows.findIndex(row => row.event === 'answered' && row.goal === criterion.goal); return { trial: trial.id, criterion: criterion.id, verdict: index < 0 ? 'unknown' : 'achieved', method: criterion.method, reason: 'Retained answer observation', references: index < 0 ? [] : ['trials/' + trial.id + '/evidence.jsonl#' + (index + 1)] } })) }
+} }
+`
+
+/** Writes a mechanism consumer whose subject is the admitted MCP core client and whose runtime is the admitted Agent.
+ *
+ * The profile declares a provider without a judge and a room without a recap.
+ * @param scratch - The owned temporary consumer.
+ * @param endpoint - The parent-owned MCP endpoint, passed through explicit profile settings.
+ * @param origin - The parent-owned Ollama protocol origin.
+ */
+export function writeStudyMCP(scratch: ScratchInterface, endpoint: string, origin: string): void {
+	const limit = { duration: 5000, calls: 1, tokens: 4096, bytes: 1048576 }
+	const profile = {
+		name: 'local',
+		agent: resolveStudyEntry('@orkestrel/agent'),
+		subject: resolveStudyEntry('@orkestrel/mcp'),
+		roots: collectStudyRoots(['@orkestrel/agent', '@orkestrel/mcp', '@orkestrel/ollama']),
+		bounds: {
+			request: limit,
+			goal: { ...limit, duration: 20000, calls: 8, tokens: 65536, bytes: 4194304 },
+			trial: { ...limit, duration: 60000, calls: 32, tokens: 262144, bytes: 16777216 },
+			series: { ...limit, duration: 90000, calls: 64, tokens: 524288, bytes: 33554432 },
+		},
+		room: { context: 8192, output: 512, safety: 64, think: false },
+		provider: {
+			entry: resolveStudyEntry('@orkestrel/ollama'),
+			url: origin,
+			model: 'model',
+			digest: { model: 'a'.repeat(64) },
+		},
+		settings: { endpoint },
+	}
+	scratch.write(
+		'studies/orders/study.json',
+		JSON.stringify({
+			...buildStudyDefinition(),
+			name: 'orders',
+			purpose: 'mechanism',
+			driver: 'mcp',
+			scenarios: ['lookups'],
+			arms: ['remote'],
+			order: [['remote']],
+			rubric: 'rubric.json',
+		}),
+	)
+	scratch.write(
+		'studies/orders/rubric.json',
+		JSON.stringify({
+			version: '1',
+			criteria: STUDY_MCP_GOALS.map((goal): StudyCriterion => ({
+				id: `${goal}-answered`,
+				scenario: 'lookups',
+				goal,
+				method: 'trace',
+				critical: false,
+				assertion: { observation: 'answered' },
+			})),
+		}),
+	)
+	scratch.write('studies/mcp/profiles/local.json', JSON.stringify(profile))
+	scratch.write(
+		'studies/mcp/scenarios/lookups.json',
+		JSON.stringify({
+			id: 'lookups',
+			goals: STUDY_MCP_GOALS.map((goal) => ({ id: goal, input: `Where is order-1 (${goal})?` })),
+		}),
+	)
+	scratch.write('studies/mcp/index.ts', STUDY_MCP_ADAPTER)
+}
