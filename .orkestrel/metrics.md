@@ -29,6 +29,12 @@ identified these paths; root checked the current implementation directly:
   before exposing an attempted/unexecuted metric; do not infer it from timing or message text.
 - `src/core/helpers.ts` derives score lower/upper from unknown outcomes. Keep that distinction
   explicit when reporting a single repetition.
+- Agent's `studies/memory/helpers.ts` requires an entirely successful attempt for every
+  per-goal operational judgment. The 2026-10-15 Compaction diagnostic therefore reports96
+  unsuccessful criteria despite21 completed goals and one real attempted failure. This is the
+  consumer grader's whole-attempt policy, separate from Study's affected-observation counts.
+  Give per-goal completion and whole-trajectory qualification distinct meanings before changing
+  that grading surface; preserve existing grading identities.
 
 Preserve old sealed artifacts. Decide the versioned observation contract and its persistence
 before changing reporting. These findings do not change the raw candidate-3 result: Records

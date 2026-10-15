@@ -1,3 +1,33 @@
+# Cushioned Compaction decision on 2026-10-15
+
+Retain candidate-3 Records, 96/96 complete, without replay. The repaired provisional Compaction
+attempt ended with 21 complete goals, one attempted failure, and 74 unexecuted goals. Its strict
+gauge check rejected actual prompt 10425 against projection 10423; reserved room was 11776.
+This is prediction underestimation, not observed context overflow. The original run stays rejected.
+See Agent/.orkestrel/agent/compaction.md for the seal, request evidence, and grading limitations.
+
+Root accepts the bounded Opus recommendation from session 9e296610-1580-407e-a999-8e3f9defe3c2:
+one Compaction-only successor adds a declared 512-token prediction cushion, distinct from physical
+safety. Keep scale 0.9784397854197346 and base overhead 414.49493933313806; effective overhead
+is 926.49493933313806. Keep context 20480, output 8192, safety 512, recap 2048, and thinking off.
+This margin was selected after failure; it is not a calibrated error guarantee or coefficient refit.
+
+The absolute deadline remains 2026-10-15T07:15:45.568Z. At launch require at least 6396760 ms
+plus 60000 ms cleanup remaining. Retain request/goal and call/token/byte limits. No retry,
+recovery, extension, Records execution, or further GPU rerun follows a launch-gate or run failure.
+Acceptance keeps complete-horizon, strict projection/usage/room checks, and exercised pressure
+with a nonempty summary and successful summary-bearing responses. Actual near-room reporting
+still uses [10598.4,11776]; the uncushioned admission threshold is separately 11264.
+
+Offline development replay covers 44 retained requests, reproduces the +2 failure without the
+cushion, and covers all retained actual prompts with it. One agent request would newly require
+compaction. The reader passes 30 controls, including +513 refusal. Freeze those artifacts before
+inference. Reused data supplies no held-out validation, and Full calibration stays inconclusive.
+
+The successor project/output are Agent/tmp/studies/compaction-cushion-project and
+Agent/tmp/studies/compaction-cushion. Their launch declaration and Agent/tmp/units/compaction-cushion
+receipts establish execution state. The following protocol documents the rejected predecessor.
+
 # Prospective Compaction qualification at 2026-10-15 04:10 UTC
 
 The repaired seams passed independent Astra review and final Agent/Study gates on 2026-10-15.
