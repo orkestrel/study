@@ -324,10 +324,12 @@ describe('StudyAgentSummary', () => {
 		const sink = createStudySinkFixture()
 		fixture.trace.start('write')
 		const pending = fixture.summary.summarize(STUDY_SUMMARY_MESSAGES, controller.signal)
-		const settled = expect(pending).rejects.toThrow()
-		await waitForCondition('summary request sent', () => fixture.wire.requests.length === 1)
-		controller.abort(new Error('Stopped mid-flight'))
-		await settled
+		await Promise.all([
+			expect(pending).rejects.toThrow(Error),
+			waitForCondition('summary request sent', () => fixture.wire.requests.length === 1).then(() =>
+				controller.abort(new Error('Stopped mid-flight')),
+			),
+		])
 		await fixture.trace.flush(sink.sink)
 		expect(sink.rows.map((row) => row.event)).toEqual(['context'])
 	})

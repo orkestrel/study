@@ -142,7 +142,7 @@ describe('readStudyAgentMessages', () => {
 
 	it('refuses a non-array collection and each malformed member', () => {
 		for (const value of [undefined, 'messages', { length: 0 }])
-			expect(() => readStudyAgentMessages(value), String(value)).toThrow('not an array')
+			expect(() => readStudyAgentMessages(value)).toThrow('not an array')
 		for (const member of [
 			null,
 			'text',
@@ -152,6 +152,6 @@ describe('readStudyAgentMessages', () => {
 			{ role: 'user', content: 2 },
 			{ role: 'tool', content: 'x', call: 3 },
 		])
-			expect(() => readStudyAgentMessages([member]), String(member)).toThrow('fields are invalid')
+			expect(() => readStudyAgentMessages([member])).toThrow('fields are invalid')
 	})
 })

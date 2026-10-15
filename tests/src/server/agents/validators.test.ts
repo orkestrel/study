@@ -9,12 +9,12 @@ import {
 describe('isStudyAgentResponse', () => {
 	it('accepts every bounded response, including the exact text, call and identifier limits', () => {
 		for (const response of STUDY_SCRIPT_VALID_RESPONSES)
-			expect(isStudyAgentResponse(response), JSON.stringify(response)).toBe(true)
+			expect(isStudyAgentResponse(response)).toBe(true)
 	})
 
 	it('refuses each malformed, unbounded, non-JSON or hostile response', () => {
 		for (const response of STUDY_SCRIPT_INVALID_RESPONSES)
-			expect(isStudyAgentResponse(response), String(response)).toBe(false)
+			expect(isStudyAgentResponse(response)).toBe(false)
 	})
 
 	it('sets no size limit on content, calls or the consumed call identifier', () => {

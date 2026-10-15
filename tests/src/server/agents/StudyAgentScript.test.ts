@@ -194,7 +194,7 @@ describe('StudyAgentScript', () => {
 
 	it('requires an explicit nonnegative safe integer byte bound', () => {
 		for (const bytes of [-1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1])
-			expect(() => new StudyAgentScript({ bytes }), String(bytes)).toThrow('byte bound')
+			expect(() => new StudyAgentScript({ bytes })).toThrow('byte bound')
 		expect(new StudyAgentScript({ bytes: 0 }).name).toBe('scripted-study')
 	})
 
