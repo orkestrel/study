@@ -1,4 +1,13 @@
-# Compaction successor authorized on 2026-10-15
+# Production-compaction research on 2026-10-15
+
+The user's comparability check withdrew the unlaunched sections:2 treatment. Agent's
+`.orkestrel/agent/rolling.md` records primary sources and the accepted Opus design opinion.
+The replacement is one-pass rolling text compaction with a protected recent exchange, not
+a vendor-harness replica. No successor is running. Preserve Records and captured runtimes;
+the changed Agent core needs an isolated build before a new freeze. Never execute the
+provisional compaction-cap wrappers. Study's accepted implementation remains unchanged.
+
+# Prior Compaction authorization on 2026-10-15, superseded by the research decision
 
 The user authorized a separate Compaction-only rerun with bounded recap growth after the
 terminal reading that follows. Prepare that treatment through the existing Conversation
