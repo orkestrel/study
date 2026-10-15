@@ -28,10 +28,36 @@ import type {
 	StudyStoreFixture,
 } from './src/core/engines/types.js'
 import type { StudyExecutionCase } from './src/server/stores/types.js'
+import type {
+	JudgeInterface,
+	JudgeRequest,
+	LedgerGauge,
+	Message,
+	ProviderDelta,
+	ProviderRequest,
+	ProviderResult,
+	ProviderStreamOptions,
+	ThinkingReplay,
+} from '@orkestrel/agent'
+import type {
+	AgentObserverFixture,
+	AgentRefusalFixture,
+	OllamaFetchFixture,
+	OllamaReplyFixture,
+	OllamaRequestFixture,
+	OllamaRowFixture,
+	ProviderStreamFixture,
+	StudyLatchFixture,
+} from './src/core/agents/types.js'
+import type { StudyAgentReading, StudyAgentRuntime } from '../src/core/agents/types.js'
+import { AgentError, estimateRequest, isAgentError, measureRequest } from '@orkestrel/agent'
+import { isRecord, parseJSON } from '@orkestrel/contract'
+import { createOllama, createOllamaJudge } from '@orkestrel/ollama'
 import { createRecorder } from '@orkestrel/test'
 import { vi } from 'vitest'
 import { StudyControl, StudyMeter, StudyScope } from '../src/core/engines/index.js'
 import { buildStudySchedule } from '../src/core/helpers.js'
+import { StudyAgentObserver } from '../src/core/agents/StudyAgentObserver.js'
 
 /** Evaluates a distinct copy of the real study error module, tagged the way captured loading tags an import.
  * @param label - The copy's tag; equal labels share one evaluation.
@@ -755,3 +781,321 @@ export const STUDY_CUSTODY_MUTATIONS = Object.freeze([
 	'wrong-horizon',
 	'partial-evidence',
 ])
+
+/** Names an origin no fixture contacts; an injected fetch boundary answers every request to it. */
+export const STUDY_OLLAMA_ORIGIN = 'http://127.0.0.1:11434'
+
+/** Supplies the exact Ollama `options` an agent chat fixture sends. */
+export const STUDY_OLLAMA_OPTIONS = Object.freeze({
+	num_ctx: 32768,
+	num_predict: 512,
+	temperature: 0,
+	seed: 0,
+})
+
+/** Supplies one streamed content row that a held response sends before it stays open. */
+export const STUDY_OLLAMA_PARTIAL_ROW = `${JSON.stringify({ model: 'model', done: false, message: { role: 'assistant', content: 'par' } })}\n`
+
+/** Supplies one complete request's messages. */
+export const STUDY_AGENT_MESSAGES: readonly Message[] = Object.freeze<Message>([
+	{ id: 'm1', role: 'user', content: 'Count the orders' },
+])
+
+/** Supplies one complete request's advertised tool. */
+export const STUDY_AGENT_TOOLS: NonNullable<ProviderRequest['tools']> = Object.freeze([
+	Object.freeze({
+		name: 'lookup',
+		description: 'Reads a record',
+		parameters: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+	}),
+])
+
+/** Supplies one complete request's per-call option. */
+export const STUDY_AGENT_OPTIONS: ProviderStreamOptions = Object.freeze({ think: false })
+
+/** Supplies a gauge whose projection is the same for every estimate between 0 and 1e9: ceil(100 + 1e-9 * estimate). */
+export const STUDY_AGENT_GAUGE: LedgerGauge = Object.freeze({ scale: 1e-9, overhead: 100 })
+
+/** Supplies the projection STUDY_AGENT_GAUGE gives any fixture request, written as arithmetic rather than derived from the helper. */
+export const STUDY_AGENT_PROJECTION = 101
+
+/** Supplies terminal rows that report a prompt above STUDY_AGENT_PROJECTION, which every policy must return unchanged. */
+export const STUDY_AGENT_MISSES: readonly OllamaRowFixture[] = Object.freeze([
+	Object.freeze({ prompt: 102 }),
+	Object.freeze({ prompt: 136 }),
+])
+
+/** Supplies terminal rows carrying no usable prompt count, which only an enforced policy refuses. */
+export const STUDY_AGENT_REFUSALS: readonly AgentRefusalFixture[] = Object.freeze([
+	Object.freeze({ name: 'unknown counts', row: Object.freeze({ unknown: true }) }),
+	Object.freeze({ name: 'a zero prompt count', row: Object.freeze({ prompt: 0 }) }),
+])
+
+/** Supplies the failure an enforced policy attaches to an unusable return. */
+export const STUDY_AGENT_USAGE_FAILURE = Object.freeze({
+	cause: 'infrastructure',
+	message: 'Gauged request returned no usable prompt count',
+	role: 'agent',
+})
+
+/** Supplies one classification request a real judge answers. */
+export const STUDY_JUDGE_REQUEST: JudgeRequest = Object.freeze<JudgeRequest>({
+	state: 'Order 1 shipped on Monday',
+	questions: { shipped: { form: 'noul' } },
+})
+
+/** Builds one inert Ollama chat terminal row consumed by the real provider.
+ * @param options - Content, finish, usage, calls, and raw extra fields; `fields` are spread last.
+ * @returns A newline-terminated protocol row.
+ */
+export function buildOllamaRow(options: OllamaRowFixture = {}): string {
+	return `${JSON.stringify({ model: 'model', done: true, done_reason: options.reason ?? 'stop', message: { role: 'assistant', content: options.content ?? 'Receipt retained.', ...(options.calls === undefined ? {} : { tool_calls: options.calls }) }, ...(options.unknown === true ? {} : { prompt_eval_count: options.prompt ?? 10, eval_count: options.completion ?? 2 }), ...options.fields })}\n`
+}
+
+/** Builds a streamed protocol reply: one nonterminal row per content part, then a terminal row with the reply's counts.
+ * @param parts - Content chunks in delta order.
+ * @param options - Terminal row overrides; its content is ignored.
+ * @returns Newline-delimited protocol rows.
+ */
+export function buildOllamaStream(
+	parts: readonly string[],
+	options: OllamaRowFixture = {},
+): string {
+	const rows = parts.map(
+		(content) =>
+			`${JSON.stringify({ model: 'model', done: false, message: { role: 'assistant', content } })}\n`,
+	)
+	return rows.join('') + buildOllamaRow({ ...options, content: '' })
+}
+
+/** Builds the protocol answer a raw judge generate request receives: a one-token `length` finish with top logprobs.
+ * @param options - Raw extra fields spread last.
+ * @returns One JSON document.
+ */
+export function buildOllamaJudgeRow(options: Readonly<Record<string, JSONValue>> = {}): string {
+	return JSON.stringify({
+		model: 'judge',
+		done: true,
+		done_reason: 'length',
+		response: 'Yes',
+		prompt_eval_count: 10,
+		eval_count: 1,
+		logprobs: [
+			{
+				token: 'Yes',
+				logprob: -0.01,
+				top_logprobs: ['Yes', 'No', 'A', 'B'].map((token) => ({
+					token,
+					logprob: token === 'Yes' ? -0.01 : -8,
+				})),
+			},
+		],
+		...options,
+	})
+}
+
+/** Reads the protocol answer a fixture gives a path no queued reply claims.
+ * @param path - The requested path.
+ * @returns The default inventory, metadata, judge, or chat answer.
+ */
+export function readOllamaDefault(path: string): string {
+	if (path === '/api/tags')
+		return JSON.stringify({
+			models: [
+				{ name: 'model', digest: 'a'.repeat(64) },
+				{ name: 'judge', digest: 'b'.repeat(64) },
+			],
+		})
+	if (path === '/api/show')
+		return JSON.stringify({
+			model_info: { 'general.architecture': 'fixture', 'fixture.context_length': 32768 },
+		})
+	if (path === '/api/generate') return buildOllamaJudgeRow()
+	return buildOllamaRow()
+}
+
+/** Creates a protocol-faithful fetch boundary that answers queued replies by path and records each request's exact bytes.
+ * @param replies - Queued replies for matching request paths.
+ * @returns The fetch function, the received requests, and the unserved replies.
+ */
+export function createOllamaFetch(replies: readonly OllamaReplyFixture[] = []): OllamaFetchFixture {
+	const queue = [...replies]
+	const requests: OllamaRequestFixture[] = []
+	return {
+		fetch: async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+			const path = new URL(input instanceof Request ? input.url : input).pathname
+			requests.push({ path, body: typeof init?.body === 'string' ? init.body : '' })
+			const signal = init?.signal ?? undefined
+			signal?.throwIfAborted()
+			const supplied = queue[0]?.path === path ? queue.shift() : undefined
+			const bytes = new TextEncoder().encode(supplied?.body ?? readOllamaDefault(path))
+			return new Response(
+				new ReadableStream<Uint8Array>({
+					start(controller): void {
+						controller.enqueue(bytes)
+						// A held response ends only as native fetch ends an aborted body: with the signal's reason.
+						if (supplied?.open !== true) controller.close()
+						else if (signal !== undefined)
+							signal.addEventListener('abort', () => controller.error(signal.reason), {
+								once: true,
+							})
+					},
+				}),
+				{ status: supplied?.status ?? 200 },
+			)
+		},
+		requests,
+		replies: queue,
+	}
+}
+
+/** Drains a provider stream, keeping both the yielded deltas and the returned result.
+ * @param stream - The generator to drain.
+ * @returns Deltas in yield order and the assembled result.
+ */
+export async function readProviderStream(
+	stream: AsyncGenerator<ProviderDelta, ProviderResult>,
+): Promise<ProviderStreamFixture> {
+	const deltas: ProviderDelta[] = []
+	let next = await stream.next()
+	while (!next.done) {
+		deltas.push(next.value)
+		next = await stream.next()
+	}
+	return { deltas, result: next.value }
+}
+
+/** Reads a retained evidence value as a record, refusing any other shape.
+ * @param value - The retained value.
+ * @returns The same value as a record.
+ */
+export function requireStudyRecord(value: unknown): Readonly<Record<string, unknown>> {
+	if (!isRecord(value)) throw new Error('Expected a retained record')
+	return value
+}
+
+/** Reads the exact tool receipts a chat request body carries, in message order.
+ * @param body - The encoded chat request.
+ * @returns The content of every `tool` message.
+ */
+export function readOllamaToolResults(body: string): readonly string[] {
+	const value = parseJSON(body)
+	if (!isRecord(value) || !Array.isArray(value.messages)) throw new Error('Invalid chat request')
+	const receipts: string[] = []
+	for (const message of value.messages) {
+		if (!isRecord(message)) throw new Error('Invalid chat message')
+		if (message.role !== 'tool') continue
+		if (typeof message.content !== 'string') throw new Error('Invalid tool receipt')
+		receipts.push(message.content)
+	}
+	return receipts
+}
+
+/** Builds one inert chat terminal row that asks for the `lookup` tool.
+ * @param options - Usage and finish overrides; its content and calls are replaced.
+ * @returns A newline-terminated protocol row.
+ */
+export function buildOllamaCall(options: OllamaRowFixture = {}): string {
+	return buildOllamaRow({
+		...options,
+		content: '',
+		calls: [{ function: { name: 'lookup', arguments: { id: 'order-1' } } }],
+	})
+}
+
+/** Supplies the admitted Agent capability set from the actual development Agent exports.
+ * @returns The actual estimator, measurer and nominal guard.
+ */
+export function createAgentRuntime(): StudyAgentRuntime {
+	return { estimateRequest, measureRequest, isAgentError }
+}
+
+/** Creates the window refusal the Agent raises through its actual error class.
+ * @param message - The refusal text.
+ * @returns The actual `WINDOW` error instance.
+ */
+export function createAgentWindowError(message = 'Context window exhausted'): AgentError {
+	return new AgentError('WINDOW', message)
+}
+
+/** Wraps a real published Ollama provider in the observer and records every reading it takes.
+ * @param wire - The fetch boundary the real provider sends through.
+ * @param gauge - The explicit gauge; undefined prices nothing.
+ * @param enforced - If `true`, the observer refuses an unusable prompt count; if `false`, it refuses nothing.
+ * @param replay - The replay policy the real provider is constructed with; omitted keeps its default.
+ * @returns The observer, its delegate, and the recorded readings and requests.
+ */
+export function createAgentObserver(
+	wire: OllamaFetchFixture,
+	gauge: LedgerGauge | undefined,
+	enforced: boolean,
+	replay?: ThinkingReplay,
+): AgentObserverFixture {
+	const inner = createOllama({
+		model: 'model',
+		url: STUDY_OLLAMA_ORIGIN,
+		think: false,
+		fetch: wire.fetch,
+		...(replay === undefined ? {} : { replay }),
+		options: STUDY_OLLAMA_OPTIONS,
+	})
+	const readings: StudyAgentReading[] = []
+	const requests: ProviderRequest[] = []
+	const observer = new StudyAgentObserver({
+		provider: inner,
+		runtime: createAgentRuntime(),
+		gauge,
+		enforced,
+		record: (reading, request) => {
+			readings.push(reading)
+			requests.push(request)
+		},
+	})
+	return { observer, inner, readings, requests }
+}
+
+/** Supplies the exact Ollama `options` a one-token judge fixture sends. */
+export const STUDY_JUDGE_OPTIONS = Object.freeze({
+	num_ctx: 32768,
+	num_predict: 1,
+	temperature: 1,
+	seed: 0,
+})
+
+/** Creates a real published Ollama judge that sends through the supplied fetch boundary.
+ * @param url - The daemon origin.
+ * @param fetch - The transport every judge request goes through.
+ * @returns The real judge.
+ */
+export function createOllamaJudgeFixture(
+	url: string,
+	fetch: typeof globalThis.fetch,
+): JudgeInterface {
+	return createOllamaJudge({
+		model: 'judge',
+		system: 'Answer the question about the state.',
+		url,
+		fetch,
+		options: STUDY_JUDGE_OPTIONS,
+	})
+}
+
+/** Creates a failure owner that records every check and failure and refuses with a supplied value.
+ * @param refusal - Wraps the value every check throws, which may itself be undefined or null; absent lets work continue.
+ * @returns The recorded owner.
+ */
+export function createStudyLatch(refusal?: { readonly error: unknown }): StudyLatchFixture {
+	const checks = createRecorder<readonly []>()
+	const failures = createRecorder<readonly [unknown]>()
+	return {
+		checks,
+		failures,
+		check(): void {
+			checks.handler()
+			if (refusal !== undefined) throw refusal.error
+		},
+		fail(error: unknown): void {
+			failures.handler(error)
+		},
+	}
+}

@@ -111,6 +111,12 @@ Keep grading criteria outside public goal input. Grade retained observations and
 
 Call `gradeStudyEvidence` from an adapter's grade method to traverse the declared schedule and criteria. The traversal validates the manifest, rubric, attempts, evidence, and every declared goal when called directly, so a public grading helper keeps that validation. It calls the supplied `StudyGradeFunction` for every trial and criterion of that trial's scenario, in schedule then rubric order, and a trial without a retained attempt still receives a judgment with no attempt and no evidence. The predicate returns the verdict, method, reason, and `StudyReference` citations. The traversal renders each citation as a retained path, with a one-based position for an evidence row, and refuses a citation of a trial that was not retained or a row that does not exist. Domain predicates, whole-attempt or per-goal success, and expected refusals remain in the consumer.
 
+## Agent instrumentation
+
+An Agent-backed consumer passes the admitted Agent namespace to the shared instrumentation, which imports Agent types only and constructs nothing from an installed Agent copy. Request measurements, the nominal Agent error, and daemon timing keep the types their owning Agent and Ollama packages export; Study declares no copy of them. The `StudyAgentObserver` class delegates every provider call unchanged and records one size reading before each dispatch. The gauge is explicit: without one, a reading carries no projection. The enforced option selects the usage policy separately from observation, so a passive reading refuses no return. The `StudyAgentJudge` class binds a real judge to a `StudyLatchInterface` owner, so a caught classification failure stays visible to the study.
+
+The `StudyOllamaTransport` class admits each Ollama wire request through the goal's meter, reads each response under the declared byte and duration limits, accounts actual usage before any policy refusal, and retains the first operational failure with its identity. Each model role declares its wire policy: the exact Ollama options object, the think allowance, the strict truncate and shift fields, and whether a length finish is the declared completion. The transport supplies no default policy, refuses an undeclared role, and keeps unreported usage unknown.
+
 ## Native command
 
 Install the package in the consumer workspace, then run the study executable from that workspace. The selected declaration lives at studies/<name>/study.json. Its driver field selects a bundle at studies/<driver>/ containing scenarios/<scenario>.json, profiles/<profile>.json, the adapter module, and the declared rubric path. The profile defaults to local. JSON declarations use the public definition, scenario, profile, and rubric contracts.
@@ -204,6 +210,13 @@ The following declarations describe this concept.
 | `StudyAdapterInterface`          | interface | Defines the consumer's domain checks, driver construction, and retained-evidence grading. |
 | `StudyAdjudication`              | interface | Holds retained observations and independent criteria for a grading operation.             |
 | `StudyAdmissionInterface`        | interface | Admits requests against enclosing limits before an adapter dispatches them.               |
+| `StudyAgentDispatch`             | interface | Holds the trial-local canonical dispatch identity a wire request joins to.                |
+| `StudyAgentJudge`                | class     | Latches a real judge's failure before an enclosing runtime can treat it as absent.        |
+| `StudyAgentObserver`             | class     | Reads each Agent request's size before delegating it unchanged to the real provider.      |
+| `StudyAgentObserverOptions`      | interface | Holds the observing provider's delegate, measurement seam and explicit policies.          |
+| `StudyAgentReading`              | interface | Holds one dispatched request's explicit size reading.                                     |
+| `StudyAgentRecordHandler`        | type      | Receives one reading and the exact pre-encoding request it measured.                      |
+| `StudyAgentRuntime`              | interface | Holds the admitted Agent namespace capabilities the shared instrumentation invokes.       |
 | `StudyArtifactIdentity`          | interface | Holds the separately bound instrument and selected module inventory identities.           |
 | `StudyArtifactModules`           | interface | Holds actual namespaces loaded only during worker execution.                              |
 | `StudyArtifactOptions`           | interface | Holds the trusted instrument and caller-selected built artifact locations.                |
@@ -255,6 +268,7 @@ The following declarations describe this concept.
 | `StudyJudgment`                  | interface | Holds an evidence-backed verdict; missing evidence stays unknown.                         |
 | `StudyLabelRequest`              | interface | Holds an imported-label grading request.                                                  |
 | `StudyLabels`                    | interface | Holds imported semantic judgments and their accountable origin.                           |
+| `StudyLatchInterface`            | interface | Retains the first operational failure of instrumented work and refuses work after it.     |
 | `StudyLaunchOptions`             | interface | Selects the native command entry and the caller's consumer root.                          |
 | `StudyLaunchResult`              | interface | Retains the bounded command exit and captured output.                                     |
 | `StudyLauncher`                  | class     | Supervises finite command trees and binds offline check to execution.                     |
@@ -265,6 +279,15 @@ The following declarations describe this concept.
 | `StudyMeterInterface`            | interface | Owns request admission and the goal's terminal lifecycle.                                 |
 | `StudyMeterOptions`              | interface | Supplies the request allowance and all enclosing admission scopes.                        |
 | `StudyObservation`               | interface | Holds the retained outcome of a scheduled goal.                                           |
+| `StudyOllamaActivity`            | interface | Holds one active goal's accounting and attribution.                                       |
+| `StudyOllamaModel`               | interface | Pins one served model identity the inventory verifies.                                    |
+| `StudyOllamaPolicy`              | interface | Declares one model role's exact wire policy.                                              |
+| `StudyOllamaRequest`             | interface | Holds validated wire dispatch facts without retaining payload text.                       |
+| `StudyOllamaRole`                | type      | Names the model roles an Ollama study transport dispatches under a declared policy.       |
+| `StudyOllamaTerminal`            | interface | Holds a validated terminal's finish reason and actual usage, unknown when unreported.     |
+| `StudyOllamaTransport`           | class     | Admits and accounts Ollama wire requests under declared policies and latches failure.     |
+| `StudyOllamaTransportOptions`    | interface | Holds the Ollama study transport's immutable configuration.                               |
+| `StudyOllamaWire`                | interface | Tracks one owned HTTP response until its end or cancellation.                             |
 | `StudyOperation`                 | type      | Names the bounded transport's domain operations.                                          |
 | `StudyPacketBundle`              | interface | Holds exact neutral public packet bytes and private mapping bytes.                        |
 | `StudyPacketEntry`               | interface | Holds one neutral semantic grading input without treatment or model identifiers.          |
@@ -321,6 +344,11 @@ The following declarations describe this concept.
 | `StudyUsage`                     | interface | Holds actual request measurements; absent token usage remains unknown.                    |
 | `StudyValidation`                | interface | Holds declarations for domain validation before agent, subject or provider execution.     |
 | `StudyWorker`                    | class     | Executes one verified trial behind parent-authorized admission and custody.               |
+| `buildStudyAgentDispatch`        | function  | Builds the evidence join of a wire request to its canonical dispatch.                     |
+| `buildStudyAgentParts`           | function  | Projects a request's structural components onto plain JSON without storing a total.       |
+| `buildStudyAgentRevision`        | function  | Builds a request revision by hashing its canonical rendering exactly as rendered.         |
+| `buildStudyOllamaRaw`            | function  | Builds a reading of the raw prompt text an encoded request body carries, as sent.         |
+| `buildStudyOllamaTiming`         | function  | Builds the JSON evidence form of a timing observation with raw nanoseconds and counts.    |
 | `buildStudyPacket`               | function  | Builds deterministic public semantic inputs and a separately retained private map.        |
 | `buildStudyPacketLinks`          | function  | Builds neutral semantic identities for the complete eligible sealed horizon.              |
 | `buildStudyReference`            | function  | Renders a citation of one retained trial file or evidence row.                            |
@@ -348,6 +376,7 @@ The following declarations describe this concept.
 | `hashStudyBytes`                 | function  | Computes the lowercase SHA-256 identity of exact bytes or UTF-8 text.                     |
 | `isArtifactError`                | function  | Narrows a caught value to an artifact refusal.                                            |
 | `isStudyAdapter`                 | function  | Checks whether a factory returned the complete consumer adapter contract.                 |
+| `isStudyAgentRuntime`            | function  | Checks whether a namespace exposes the Agent capabilities the instrumentation invokes.    |
 | `isStudyBounds`                  | function  | Checks whether nested scopes admit no larger allowance than their parent.                 |
 | `isStudyCause`                   | const     | Checks whether a value names an operational ending.                                       |
 | `isStudyCharge`                  | function  | Checks a request's declared role and finite cost ceilings.                                |
@@ -395,10 +424,17 @@ The following declarations describe this concept.
 | `parseStudyProfile`              | function  | Parses a profile into an independent frozen validated snapshot.                           |
 | `parseStudyRubric`               | function  | Parses a rubric into an independent frozen validated snapshot.                            |
 | `parseStudyScenario`             | function  | Parses a scenario into an independent frozen validated snapshot.                          |
+| `projectStudyAgentRequest`       | function  | Prices a runtime estimate through an explicit gauge.                                      |
 | `readArtifact`                   | function  | Reads a bounded regular file only through its canonical absolute path.                    |
 | `readStudyAdapter`               | function  | Reads a complete adapter from an admitted module namespace.                               |
 | `readStudyBytes`                 | function  | Reads bounded regular-file bytes without following a symbolic link.                       |
 | `readStudyFailure`               | function  | Reads an operational error without inventing a task verdict.                              |
+| `readStudyOllamaDigest`          | function  | Reads the pinned serving digest of an admitted request's model.                           |
+| `readStudyOllamaFailure`         | function  | Reads a native Ollama error member as the attributable failure it names, without usage.   |
+| `readStudyOllamaRequest`         | function  | Reads exact outbound Ollama facts and refuses a request outside its declared policy.      |
+| `readStudyOllamaSupport`         | function  | Reads the declared model context ceiling without claiming daemon allocation.              |
+| `readStudyOllamaTerminal`        | function  | Reads one Ollama response row without inventing absent usage.                             |
+| `readStudyOllamaTiming`          | function  | Reads daemon timing from a terminal row without letting an observation fail the request.  |
 | `readStudyResult`                | function  | Inspects custody bytes offline and verifies complete execution before grading.            |
 | `resolveStudyInstrument`         | function  | Resolves the actual host package from its trusted executable entry.                       |
 | `resolveStudyPath`               | function  | Resolves a portable relative artifact path strictly inside its selected directory.        |
@@ -406,9 +442,14 @@ The following declarations describe this concept.
 | `scanStudyExecution`             | function  | Scans regular execution files while refusing unknown directories and linked paths.        |
 | `terminateStudyChild`            | function  | Terminates the recorded native process tree under a finite cleanup allowance.             |
 | `toStudyWire`                    | function  | Projects optional domain fields into the JSON wire representation.                        |
+| `translateStudyAgentError`       | function  | Translates only a nominal Agent window refusal into the attributable capacity failure.    |
 | `translateStudyPacketLabels`     | function  | Translates bound neutral imported labels through the sealed semantic horizon.             |
+| `validateStudyAgentUsage`        | function  | Checks that a successful provider call reported a usable actual prompt count.             |
 | `validateStudyEvidenceBytes`     | function  | Validates complete evidence lines and per-goal encoded evidence bounds.                   |
 | `validateStudyInputs`            | function  | Validates grading coverage and request room against the declared study inputs.            |
+| `validateStudyOllamaCompletion`  | function  | Checks terminal policy after the actual wire cost has been retained.                      |
+| `validateStudyOllamaInventory`   | function  | Verifies that each pinned name resolves to one inventory entry with its pinned digest.    |
+| `validateStudyOllamaRoles`       | function  | Validates declared role policies against the pinned inventory before any dispatch.        |
 | `validateStudyRuntime`           | function  | Refuses a profile that omits the actual host runtime's declared dependency bytes.         |
 | `writeStudyBytes`                | function  | Writes an exclusive regular record and synchronizes it before reporting success.          |
 
@@ -452,6 +493,23 @@ The declaration exposes these methods.
 | Method  | Summary                                                                               |
 | ------- | ------------------------------------------------------------------------------------- |
 | `admit` | Resolves admission before dispatch; local meters may return the ticket synchronously. |
+
+#### `StudyAgentJudge`
+
+The declaration exposes these methods.
+
+| Method | Summary                                                                                   |
+| ------ | ----------------------------------------------------------------------------------------- |
+| `ask`  | Refuses dispatch after a retained failure and retains a thrown failure with its identity. |
+
+#### `StudyAgentObserver`
+
+The declaration exposes these methods.
+
+| Method     | Summary                                               |
+| ---------- | ----------------------------------------------------- |
+| `generate` | Records one reading, then awaits the real generation. |
+| `stream`   | Records one reading, then relays the real stream.     |
 
 #### `StudyArtifacts`
 
@@ -561,6 +619,15 @@ The declaration exposes these methods.
 | `read`  | Reads an immutable grading version and verifies every bound artifact byte.    |
 | `write` | Retains a deterministic grading version or verifies identical existing bytes. |
 
+#### `StudyLatchInterface`
+
+The declaration exposes these methods.
+
+| Method  | Summary                                                                   |
+| ------- | ------------------------------------------------------------------------- |
+| `check` | Refuses work after a retained failure or cancellation.                    |
+| `fail`  | Retains an operational failure even when an enclosing runtime catches it. |
+
 #### `StudyLauncher`
 
 The declaration exposes these methods.
@@ -586,6 +653,19 @@ The declaration exposes these methods.
 | ------- | ------------------------------------------------------------------------------------- |
 | `admit` | Resolves admission before dispatch; local meters may return the ticket synchronously. |
 | `close` | Refuses unfinished requests before closing a goal's admission boundary.               |
+
+#### `StudyOllamaTransport`
+
+The declaration exposes these methods.
+
+| Method    | Summary                                                                                |
+| --------- | -------------------------------------------------------------------------------------- |
+| `check`   | Refuses work after any retained failure or cancellation.                               |
+| `close`   | Cancels every outstanding native reader and permanently closes the transport.          |
+| `fail`    | Retains an operational failure even when an inner runtime catches it.                  |
+| `fetch`   | Dispatches exactly one admitted request with bounded streaming reads.                  |
+| `prepare` | Binds subsequent wire requests to one live goal.                                       |
+| `verify`  | Checks every pinned serving identity through admitted inventory and metadata requests. |
 
 #### `StudyProcessDriver`
 
@@ -1470,8 +1550,20 @@ isStudyCustodySeal({}) // false
 Supply the argument tuple from each helper's signature.
 
 ```ts
-import { failureToStudyError, readStudyFailure } from '@orkestrel/study'
 import {
+	buildStudyAgentDispatch,
+	buildStudyAgentParts,
+	failureToStudyError,
+	isStudyAgentRuntime,
+	projectStudyAgentRequest,
+	readStudyFailure,
+	translateStudyAgentError,
+	validateStudyAgentUsage,
+} from '@orkestrel/study'
+import {
+	buildStudyAgentRevision,
+	buildStudyOllamaRaw,
+	buildStudyOllamaTiming,
 	collectStudyEntries,
 	computeStudyInstrumentDigest,
 	computeStudyProfileDigest,
@@ -1487,13 +1579,32 @@ import {
 	isStudyTrial,
 	readArtifact,
 	readStudyAdapter,
+	readStudyOllamaDigest,
+	readStudyOllamaFailure,
+	readStudyOllamaRequest,
+	readStudyOllamaSupport,
+	readStudyOllamaTerminal,
+	readStudyOllamaTiming,
 	resolveStudyInstrument,
 	terminateStudyChild,
+	validateStudyOllamaCompletion,
+	validateStudyOllamaInventory,
+	validateStudyOllamaRoles,
 	validateStudyRuntime,
 } from '@orkestrel/study/server'
 
 declare const collectStudyEntriesArguments: Parameters<typeof collectStudyEntries>
 collectStudyEntries(...collectStudyEntriesArguments)
+declare const buildStudyAgentDispatchArguments: Parameters<typeof buildStudyAgentDispatch>
+buildStudyAgentDispatch(...buildStudyAgentDispatchArguments)
+declare const buildStudyAgentPartsArguments: Parameters<typeof buildStudyAgentParts>
+buildStudyAgentParts(...buildStudyAgentPartsArguments)
+declare const buildStudyAgentRevisionArguments: Parameters<typeof buildStudyAgentRevision>
+buildStudyAgentRevision(...buildStudyAgentRevisionArguments)
+declare const buildStudyOllamaRawArguments: Parameters<typeof buildStudyOllamaRaw>
+buildStudyOllamaRaw(...buildStudyOllamaRawArguments)
+declare const buildStudyOllamaTimingArguments: Parameters<typeof buildStudyOllamaTiming>
+buildStudyOllamaTiming(...buildStudyOllamaTimingArguments)
 declare const computeStudyInstrumentDigestArguments: Parameters<typeof computeStudyInstrumentDigest>
 computeStudyInstrumentDigest(...computeStudyInstrumentDigestArguments)
 declare const computeStudyProfileDigestArguments: Parameters<typeof computeStudyProfileDigest>
@@ -1508,6 +1619,8 @@ declare const failureToStudyErrorArguments: Parameters<typeof failureToStudyErro
 failureToStudyError(...failureToStudyErrorArguments)
 declare const isArtifactErrorArguments: Parameters<typeof isArtifactError>
 isArtifactError(...isArtifactErrorArguments)
+declare const isStudyAgentRuntimeArguments: Parameters<typeof isStudyAgentRuntime>
+isStudyAgentRuntime(...isStudyAgentRuntimeArguments)
 declare const isStudyChargeArguments: Parameters<typeof isStudyCharge>
 isStudyCharge(...isStudyChargeArguments)
 declare const isStudyEvidenceArguments: Parameters<typeof isStudyEvidence>
@@ -1520,16 +1633,42 @@ declare const isStudyProcessFailureArguments: Parameters<typeof isStudyProcessFa
 isStudyProcessFailure(...isStudyProcessFailureArguments)
 declare const isStudyTrialArguments: Parameters<typeof isStudyTrial>
 isStudyTrial(...isStudyTrialArguments)
+declare const projectStudyAgentRequestArguments: Parameters<typeof projectStudyAgentRequest>
+projectStudyAgentRequest(...projectStudyAgentRequestArguments)
 declare const readArtifactArguments: Parameters<typeof readArtifact>
 readArtifact(...readArtifactArguments)
 declare const readStudyAdapterArguments: Parameters<typeof readStudyAdapter>
 readStudyAdapter(...readStudyAdapterArguments)
 declare const readStudyFailureArguments: Parameters<typeof readStudyFailure>
 readStudyFailure(...readStudyFailureArguments)
+declare const readStudyOllamaDigestArguments: Parameters<typeof readStudyOllamaDigest>
+readStudyOllamaDigest(...readStudyOllamaDigestArguments)
+declare const readStudyOllamaFailureArguments: Parameters<typeof readStudyOllamaFailure>
+readStudyOllamaFailure(...readStudyOllamaFailureArguments)
+declare const readStudyOllamaRequestArguments: Parameters<typeof readStudyOllamaRequest>
+readStudyOllamaRequest(...readStudyOllamaRequestArguments)
+declare const readStudyOllamaSupportArguments: Parameters<typeof readStudyOllamaSupport>
+readStudyOllamaSupport(...readStudyOllamaSupportArguments)
+declare const readStudyOllamaTerminalArguments: Parameters<typeof readStudyOllamaTerminal>
+readStudyOllamaTerminal(...readStudyOllamaTerminalArguments)
+declare const readStudyOllamaTimingArguments: Parameters<typeof readStudyOllamaTiming>
+readStudyOllamaTiming(...readStudyOllamaTimingArguments)
 declare const resolveStudyInstrumentArguments: Parameters<typeof resolveStudyInstrument>
 resolveStudyInstrument(...resolveStudyInstrumentArguments)
 declare const terminateStudyChildArguments: Parameters<typeof terminateStudyChild>
 terminateStudyChild(...terminateStudyChildArguments)
+declare const translateStudyAgentErrorArguments: Parameters<typeof translateStudyAgentError>
+translateStudyAgentError(...translateStudyAgentErrorArguments)
+declare const validateStudyAgentUsageArguments: Parameters<typeof validateStudyAgentUsage>
+validateStudyAgentUsage(...validateStudyAgentUsageArguments)
+declare const validateStudyOllamaCompletionArguments: Parameters<
+	typeof validateStudyOllamaCompletion
+>
+validateStudyOllamaCompletion(...validateStudyOllamaCompletionArguments)
+declare const validateStudyOllamaInventoryArguments: Parameters<typeof validateStudyOllamaInventory>
+validateStudyOllamaInventory(...validateStudyOllamaInventoryArguments)
+declare const validateStudyOllamaRolesArguments: Parameters<typeof validateStudyOllamaRoles>
+validateStudyOllamaRoles(...validateStudyOllamaRolesArguments)
 declare const validateStudyRuntimeArguments: Parameters<typeof validateStudyRuntime>
 validateStudyRuntime(...validateStudyRuntimeArguments)
 ```
@@ -1590,6 +1729,32 @@ import type { StudyAdmissionInterface } from '@orkestrel/study'
 declare const instance: StudyAdmissionInterface
 declare const admit: Parameters<StudyAdmissionInterface['admit']>
 instance.admit(...admit)
+```
+
+### Call StudyAgentJudge methods
+
+Supply an instance of the declared contract.
+
+```ts
+import type { StudyAgentJudge } from '@orkestrel/study'
+
+declare const instance: StudyAgentJudge
+declare const ask: Parameters<StudyAgentJudge['ask']>
+instance.ask(...ask)
+```
+
+### Call StudyAgentObserver methods
+
+Supply an instance of the declared contract.
+
+```ts
+import type { StudyAgentObserver } from '@orkestrel/study'
+
+declare const instance: StudyAgentObserver
+declare const generate: Parameters<StudyAgentObserver['generate']>
+instance.generate(...generate)
+declare const stream: Parameters<StudyAgentObserver['stream']>
+instance.stream(...stream)
 ```
 
 ### Call StudyArtifacts methods
@@ -1760,6 +1925,20 @@ declare const write: Parameters<StudyGradings['write']>
 instance.write(...write)
 ```
 
+### Call StudyLatchInterface methods
+
+Supply an instance of the declared contract.
+
+```ts
+import type { StudyLatchInterface } from '@orkestrel/study'
+
+declare const instance: StudyLatchInterface
+declare const check: Parameters<StudyLatchInterface['check']>
+instance.check(...check)
+declare const fail: Parameters<StudyLatchInterface['fail']>
+instance.fail(...fail)
+```
+
 ### Call StudyLauncher methods
 
 Supply an instance of the declared contract.
@@ -1798,6 +1977,28 @@ declare const admit: Parameters<StudyMeterInterface['admit']>
 instance.admit(...admit)
 declare const close: Parameters<StudyMeterInterface['close']>
 instance.close(...close)
+```
+
+### Call StudyOllamaTransport methods
+
+Supply an instance of the declared contract.
+
+```ts
+import type { StudyOllamaTransport } from '@orkestrel/study/server'
+
+declare const instance: StudyOllamaTransport
+declare const check: Parameters<StudyOllamaTransport['check']>
+instance.check(...check)
+declare const close: Parameters<StudyOllamaTransport['close']>
+instance.close(...close)
+declare const fail: Parameters<StudyOllamaTransport['fail']>
+instance.fail(...fail)
+declare const fetch: Parameters<StudyOllamaTransport['fetch']>
+instance.fetch(...fetch)
+declare const prepare: Parameters<StudyOllamaTransport['prepare']>
+instance.prepare(...prepare)
+declare const verify: Parameters<StudyOllamaTransport['verify']>
+instance.verify(...verify)
 ```
 
 ### Call StudyProcessDriver methods

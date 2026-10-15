@@ -52,6 +52,22 @@ import {
 	buildStudyPacketLinks,
 	readStudyResult,
 } from '../src/server/stores/helpers.js'
+import type { ProviderInterface } from '@orkestrel/agent'
+import type { StudyAgentDispatch } from '../src/core/agents/types.js'
+import type { StudyOllamaRole, StudyOllamaTransportOptions } from '../src/server/ollama/types.js'
+import type { JSONValue } from '@orkestrel/contract'
+import type { OllamaReplyFixture, OllamaRequestFixture } from './src/core/agents/types.js'
+import type {
+	OllamaContextFixture,
+	OllamaFailureFixture,
+	OllamaServerFixture,
+	OllamaStatusFailureFixture,
+	OllamaStreamFailureFixture,
+	OllamaTransportFixture,
+} from './src/server/ollama/types.js'
+import { createOllama, extractTiming } from '@orkestrel/ollama'
+import { StudyOllamaTransport } from '../src/server/ollama/StudyOllamaTransport.js'
+import { createServer } from 'node:http'
 import {
 	buildCompactCustodyManifest,
 	buildCustodyAttempt,
@@ -60,6 +76,13 @@ import {
 	buildStudyDefinition,
 	buildStudyProfile,
 	buildStudyScenario,
+	buildOllamaRow,
+	buildOllamaStream,
+	createStudyMeterFixture,
+	readOllamaDefault,
+	STUDY_JUDGE_OPTIONS,
+	STUDY_OLLAMA_OPTIONS,
+	STUDY_OLLAMA_PARTIAL_ROW,
 } from './setupStudy.js'
 
 /** Supplies the validation request a task sends to its adapter child. */
@@ -921,3 +944,409 @@ export function createStudyAdapter() { return {
 `,
 	)
 }
+
+/** Starts a loopback Ollama protocol fixture on an ephemeral port that answers queued replies by path.
+ * @param replies - Queued replies for matching request paths; other paths receive the default answer.
+ * @returns The fixture origin, the exact received requests, the unserved replies, and its close.
+ */
+export async function createOllamaServer(
+	replies: readonly OllamaReplyFixture[] = [],
+): Promise<OllamaServerFixture> {
+	const queue = [...replies]
+	const requests: OllamaRequestFixture[] = []
+	const server = createServer(async (request, response) => {
+		const chunks: Buffer[] = []
+		for await (const chunk of request)
+			chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+		const path = request.url ?? ''
+		requests.push({ path, body: Buffer.concat(chunks).toString('utf8') })
+		const supplied = queue[0]?.path === path ? queue.shift() : undefined
+		const body = supplied?.body ?? readOllamaDefault(path)
+		response.writeHead(supplied?.status ?? 200)
+		if (supplied?.open === true) response.write(body)
+		else response.end(body)
+	})
+	await new Promise<void>((resolveListen, reject) => {
+		server.once('error', reject)
+		server.listen(0, '127.0.0.1', resolveListen)
+	})
+	const address = server.address()
+	if (address === null || typeof address === 'string')
+		throw new Error('Missing Ollama fixture address')
+	return {
+		url: `http://127.0.0.1:${address.port}`,
+		requests,
+		replies: queue,
+		close: () =>
+			new Promise<void>((resolveClose, reject) => {
+				server.closeAllConnections()
+				server.close((error) => (error === undefined ? resolveClose() : reject(error)))
+			}),
+	}
+}
+
+/** Builds the transport configuration the fixture server serves: agent, summary, and a one-token judge.
+ * @param url - The fixture origin.
+ * @param change - Members replacing the defaults.
+ * @returns A complete transport configuration.
+ */
+export function buildOllamaTransportOptions(
+	url: string,
+	change: Partial<StudyOllamaTransportOptions> = {},
+): StudyOllamaTransportOptions {
+	return {
+		url,
+		room: { context: 32768, safety: 128 },
+		limit: { duration: 2000, bytes: 1048576 },
+		models: {
+			model: { name: 'model', digest: 'a'.repeat(64) },
+			judge: { name: 'judge', digest: 'b'.repeat(64) },
+		},
+		roles: {
+			agent: {
+				model: 'model',
+				options: STUDY_OLLAMA_OPTIONS,
+				think: false,
+				strict: false,
+				length: false,
+			},
+			summary: {
+				model: 'model',
+				options: { ...STUDY_OLLAMA_OPTIONS, num_predict: 256 },
+				think: false,
+				strict: false,
+				length: false,
+			},
+			judge: {
+				model: 'judge',
+				options: STUDY_JUDGE_OPTIONS,
+				think: false,
+				strict: false,
+				length: true,
+			},
+		},
+		signal: new AbortController().signal,
+		observe: false,
+		timing: extractTiming,
+		...change,
+	}
+}
+
+/** Creates real goal accounting and an append-only evidence recorder sized for the fixture transport.
+ * @param signal - The goal's cancellation.
+ * @returns The context, its evidence, the real meter, and one cleanup boundary.
+ */
+export function createOllamaContext(signal = new AbortController().signal): OllamaContextFixture {
+	const meter = createStudyMeterFixture(
+		{
+			request: { duration: 2000, calls: 1, tokens: 32640, bytes: 1048576 },
+			goal: { duration: 15000, calls: 64, tokens: 8388608, bytes: 268435456 },
+			trial: { duration: 15000, calls: 64, tokens: 8388608, bytes: 268435456 },
+			series: { duration: 15000, calls: 64, tokens: 8388608, bytes: 268435456 },
+		},
+		signal,
+	)
+	const evidence: StudyEvidence[] = []
+	return {
+		context: {
+			signal,
+			meter: meter.meter,
+			evidence: {
+				append: async (row) => {
+					evidence.push(row)
+				},
+			},
+		},
+		evidence,
+		meter,
+		usage: () =>
+			meter.meter.usage.map(({ role, calls, tokens, bytes }) => ({ role, calls, tokens, bytes })),
+		close: () => meter.close(),
+	}
+}
+
+/** Creates a transport over a fresh loopback fixture and prepares it for one goal with real accounting.
+ * @param replies - The fixture's queued replies.
+ * @param change - Transport configuration members replacing the defaults.
+ * @param checkpoint - The goal's retained public view; undefined retains neither it nor request bodies.
+ * @returns The server, goal accounting, prepared transport, and one cleanup boundary.
+ */
+export async function createOllamaTransportFixture(
+	replies: readonly OllamaReplyFixture[] = [],
+	change: Partial<StudyOllamaTransportOptions> = {},
+	checkpoint?: JSONValue,
+): Promise<OllamaTransportFixture> {
+	const server = await createOllamaServer(replies)
+	const goal = createOllamaContext()
+	try {
+		const transport = new StudyOllamaTransport(buildOllamaTransportOptions(server.url, change))
+		transport.prepare({ goal: 'first', context: goal.context, checkpoint })
+		return {
+			server,
+			goal,
+			transport,
+			close: async () => {
+				await transport.close()
+				goal.close()
+				await server.close()
+			},
+		}
+	} catch (error) {
+		goal.close()
+		await server.close()
+		throw error
+	}
+}
+
+/** Creates a real published Ollama provider whose every request goes through the transport under one role.
+ * @param transport - The admitting transport.
+ * @param url - The fixture origin.
+ * @param role - The responsibility each request is admitted under. Default: agent.
+ * @param dispatch - The canonical dispatch each request joins.
+ * @returns The real provider.
+ */
+export function createOllamaTransportProvider(
+	transport: StudyOllamaTransport,
+	url: string,
+	role: Exclude<StudyOllamaRole, 'judge'> = 'agent',
+	dispatch?: StudyAgentDispatch,
+): ProviderInterface {
+	return createOllama({
+		model: 'model',
+		url,
+		think: false,
+		timeout: 2000,
+		options:
+			role === 'agent' ? STUDY_OLLAMA_OPTIONS : { ...STUDY_OLLAMA_OPTIONS, num_predict: 256 },
+		fetch: (input: string | URL | Request, init?: RequestInit) =>
+			transport.fetch(role, input, init, dispatch),
+	})
+}
+
+/** Supplies the human message of the live Ollama 0.40.3 context refusal. */
+export const STUDY_OLLAMA_NATIVE_MESSAGE =
+	'request (8204 tokens) exceeds the available context size (2048 tokens), try increasing it'
+
+/** Supplies the structured error that live refusal carried. */
+export const STUDY_OLLAMA_NATIVE_ERROR = Object.freeze({
+	code: 400,
+	message: STUDY_OLLAMA_NATIVE_MESSAGE,
+	type: 'exceed_context_size_error',
+	n_prompt_tokens: 8204,
+	n_ctx: 2048,
+})
+
+/** Supplies the exact outer body recorded from that live refusal: `error` is a string that holds the structured JSON, not a nested object. */
+export const STUDY_OLLAMA_NATIVE_BODY =
+	'{"error":"{\\"error\\":{\\"code\\":400,\\"message\\":\\"request (8204 tokens) exceeds the available context size (2048 tokens), try increasing it\\",\\"type\\":\\"exceed_context_size_error\\",\\"n_prompt_tokens\\":8204,\\"n_ctx\\":2048}}"}'
+
+/** Supplies native error values and the failure each must read as, with the substrings its readable reason must keep. */
+export const STUDY_OLLAMA_FAILURE_CASES: readonly OllamaFailureFixture[] = Object.freeze([
+	{
+		name: 'a structured error object',
+		value: { error: STUDY_OLLAMA_NATIVE_ERROR },
+		code: 'CAPACITY',
+		reason: [STUDY_OLLAMA_NATIVE_MESSAGE, 'exceed_context_size_error'],
+	},
+	{
+		name: 'the exact live string-wrapped body',
+		value: parseJSON(STUDY_OLLAMA_NATIVE_BODY),
+		code: 'CAPACITY',
+		reason: [STUDY_OLLAMA_NATIVE_MESSAGE, 'exceed_context_size_error'],
+	},
+	{
+		name: 'the exact live string-wrapped body on HTTP 400',
+		value: parseJSON(STUDY_OLLAMA_NATIVE_BODY),
+		status: 400,
+		code: 'CAPACITY',
+		reason: [STUDY_OLLAMA_NATIVE_MESSAGE, 'exceed_context_size_error', 'HTTP 400'],
+	},
+	{
+		name: 'a string holding the bare error object',
+		value: { error: JSON.stringify(STUDY_OLLAMA_NATIVE_ERROR) },
+		code: 'CAPACITY',
+		reason: [STUDY_OLLAMA_NATIVE_MESSAGE, 'exceed_context_size_error'],
+	},
+	{
+		name: 'an object that wraps the error object once',
+		value: { error: { error: STUDY_OLLAMA_NATIVE_ERROR } },
+		code: 'CAPACITY',
+		reason: [STUDY_OLLAMA_NATIVE_MESSAGE],
+	},
+	{
+		name: 'an error object without a code',
+		value: { error: { ...STUDY_OLLAMA_NATIVE_ERROR, code: undefined } },
+		code: 'CAPACITY',
+		reason: [STUDY_OLLAMA_NATIVE_MESSAGE],
+	},
+	{
+		name: 'plain text that mentions the context',
+		value: { error: 'the prompt exceeds the available context size' },
+		code: 'FAULT',
+		reason: ['the prompt exceeds the available context size'],
+	},
+	{
+		name: 'context text under another native type',
+		value: { error: { ...STUDY_OLLAMA_NATIVE_ERROR, type: 'invalid_request_error' } },
+		code: 'FAULT',
+		reason: [STUDY_OLLAMA_NATIVE_MESSAGE, 'invalid_request_error'],
+	},
+	{
+		name: 'a type that only resembles the capacity type',
+		value: { error: { ...STUDY_OLLAMA_NATIVE_ERROR, type: 'exceed_context_size_errors' } },
+		code: 'FAULT',
+		reason: [STUDY_OLLAMA_NATIVE_MESSAGE, 'exceed_context_size_errors'],
+	},
+	{
+		name: 'the capacity type in another case',
+		value: { error: { ...STUDY_OLLAMA_NATIVE_ERROR, type: 'Exceed_Context_Size_Error' } },
+		code: 'FAULT',
+		reason: [STUDY_OLLAMA_NATIVE_MESSAGE],
+	},
+	{
+		name: 'an error object without a type',
+		value: { error: { ...STUDY_OLLAMA_NATIVE_ERROR, type: undefined } },
+		code: 'FAULT',
+		reason: [STUDY_OLLAMA_NATIVE_MESSAGE],
+	},
+	{
+		name: 'a prompt count equal to the context',
+		value: { error: { ...STUDY_OLLAMA_NATIVE_ERROR, n_prompt_tokens: 2048 } },
+		code: 'FAULT',
+		reason: [STUDY_OLLAMA_NATIVE_MESSAGE],
+	},
+	{
+		name: 'a zero context count',
+		value: { error: { ...STUDY_OLLAMA_NATIVE_ERROR, n_ctx: 0 } },
+		code: 'FAULT',
+		reason: [STUDY_OLLAMA_NATIVE_MESSAGE],
+	},
+	{
+		name: 'a fractional prompt count',
+		value: { error: { ...STUDY_OLLAMA_NATIVE_ERROR, n_prompt_tokens: 8204.5 } },
+		code: 'FAULT',
+		reason: [STUDY_OLLAMA_NATIVE_MESSAGE],
+	},
+	{
+		name: 'a prompt count written as text',
+		value: { error: { ...STUDY_OLLAMA_NATIVE_ERROR, n_prompt_tokens: '8204' } },
+		code: 'FAULT',
+		reason: [STUDY_OLLAMA_NATIVE_MESSAGE],
+	},
+	{
+		name: 'a NaN context count',
+		value: { error: { ...STUDY_OLLAMA_NATIVE_ERROR, n_ctx: Number.NaN } },
+		code: 'FAULT',
+		reason: [STUDY_OLLAMA_NATIVE_MESSAGE],
+	},
+	{
+		name: 'an infinite prompt count',
+		value: { error: { ...STUDY_OLLAMA_NATIVE_ERROR, n_prompt_tokens: Number.POSITIVE_INFINITY } },
+		code: 'FAULT',
+		reason: [STUDY_OLLAMA_NATIVE_MESSAGE],
+	},
+	{
+		name: 'an error code other than 400',
+		value: { error: { ...STUDY_OLLAMA_NATIVE_ERROR, code: 500 } },
+		code: 'FAULT',
+		reason: [STUDY_OLLAMA_NATIVE_MESSAGE],
+	},
+	{
+		name: 'the live body on another HTTP status',
+		value: parseJSON(STUDY_OLLAMA_NATIVE_BODY),
+		status: 500,
+		code: 'FAULT',
+		reason: [STUDY_OLLAMA_NATIVE_MESSAGE, 'HTTP 500'],
+	},
+	{
+		name: 'a string that wraps a string that wraps the error',
+		value: {
+			error: JSON.stringify({ error: JSON.stringify({ error: STUDY_OLLAMA_NATIVE_ERROR }) }),
+		},
+		code: 'FAULT',
+		reason: ['Ollama error'],
+	},
+	{
+		name: 'a numeric error member',
+		value: { error: 7 },
+		code: 'FAULT',
+		reason: ['Malformed Ollama error'],
+	},
+	{
+		name: 'a null error member',
+		value: { error: null },
+		code: 'FAULT',
+		reason: ['Malformed Ollama error'],
+	},
+	{
+		name: 'a blank error string',
+		value: { error: '  ' },
+		code: 'FAULT',
+		reason: ['Malformed Ollama error'],
+	},
+	{
+		name: 'an empty error object on HTTP 500',
+		value: { error: {} },
+		status: 500,
+		code: 'FAULT',
+		reason: ['Malformed Ollama HTTP 500 error'],
+	},
+])
+
+/** Supplies values that carry no `error` member and so read as no failure at all. */
+export const STUDY_OLLAMA_NO_FAILURES: readonly unknown[] = Object.freeze([
+	undefined,
+	null,
+	'error',
+	['error'],
+	{},
+	{ done: true },
+	{ model: 'model', done: false, message: { role: 'assistant', content: 'error' } },
+])
+
+/** Supplies 200 response bodies a 2048-byte wire allowance must refuse while reading, with the failure each latches. */
+export const STUDY_OLLAMA_STREAM_FAILURES: readonly OllamaStreamFailureFixture[] = Object.freeze([
+	{
+		name: 'the response byte allowance',
+		body: buildOllamaStream(['x'.repeat(4096)]),
+		message: 'Ollama wire byte allowance exceeded',
+		cause: 'capacity',
+	},
+	{
+		name: 'malformed usage',
+		body: buildOllamaRow({ fields: { eval_count: -1 } }),
+		message: 'Malformed Ollama usage',
+		cause: 'infrastructure',
+	},
+	{
+		name: 'a native context error row',
+		body: `${STUDY_OLLAMA_PARTIAL_ROW}${STUDY_OLLAMA_NATIVE_BODY}\n`,
+		message: STUDY_OLLAMA_NATIVE_MESSAGE,
+		cause: 'capacity',
+	},
+])
+
+/** Supplies non-2xx responses a 2048-byte wire allowance reads once, with the failure each throws. */
+export const STUDY_OLLAMA_STATUS_FAILURES: readonly OllamaStatusFailureFixture[] = Object.freeze([
+	{
+		name: 'the live context refusal on HTTP 400',
+		status: 400,
+		body: STUDY_OLLAMA_NATIVE_BODY,
+		code: 'CAPACITY',
+		message: 'exceed_context_size_error',
+	},
+	{
+		name: 'an unparsable body on HTTP 500',
+		status: 500,
+		body: 'daemon unavailable',
+		code: 'FAULT',
+		message: 'Ollama HTTP response refused: 500',
+	},
+	{
+		name: 'an oversized body on HTTP 500',
+		status: 500,
+		body: 'x'.repeat(4096),
+		code: 'CAPACITY',
+		message: 'Ollama wire byte allowance exceeded',
+	},
+])
