@@ -37,9 +37,15 @@ and successful smaller summary-bearing requests. Without pressure, report inconc
 Report positive prediction residuals separately; they cannot reject this successor. Near-room
 coverage and phase/component costs are descriptive. No quality or speed result is established yet.
 
-Parallel preparation: tmp/units/compaction-room-reading* owns the terminal qualification/cost
-reader; tmp/units/retained-label-population* owns bounded Sol labeling of retained Records.
-Both require root acceptance. The accepted 096 pilot is already complete and must never be
+Root accepted tmp/units/compaction-room-reading.ts after 36 CPU controls and frozen inventory
+verification. Run its documented terminal command only after the series closes. It preserves
+the first failure, unknown usage, unexecuted cascades and separate component/phase measurements.
+
+Retained Records labeling is running with 2 GPT-6.1 Sol high workers. Canonical child PID 30568,
+journal Agent/tmp/codex/retained-label-population-series.jsonl, fixed deadline
+2026-10-15T13:29:26.969Z. Each child has 132 seconds; any failure stops new scheduling, with no
+retry or model substitution. Results and prospective custody are under Agent/tmp/studies with
+the retained-label-population prefix. The accepted 096 pilot is reused and must never be
 relabeled. No labels have been imported. The following sections are historical, superseded
 where they describe a stopped daemon, adaptive estimation, or a ban on this authorized successor.
 
