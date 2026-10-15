@@ -1,3 +1,18 @@
+# Final-user summary qualification started on 2026-10-15
+
+At 19:37 UTC, Agent `7bd2a44` began a separate Compaction-only attempt in
+`tmp/studies/compaction-task`. It moves the unchanged summary instruction to the final user
+turn, as the Agent guide specifies. Actual Opus selected the repair; Sonnet implemented it.
+The regression failed before repair and passed after it; wrong placement and removal controls
+fail, and 159 service tests pass. Real render-only checks cover assistant-tail and rolling-recap
+inputs without generated tokens. None of these proofs establishes model quality.
+
+The attempt keeps the frozen workload, rubric, model digests, gauge and room; one trajectory,
+zero retries, trial limit 160 minutes. The fixed execute deadline is 22:25 UTC; the dedicated
+daemon covers cleanup until 22:35 UTC. Runtime/project/results and earlier failures remain
+separate and immutable. Records stays sealed and labeled at 96/96, with no rerun or replay.
+Agent's handoff carries exact custody, fingerprint, process identities and the reader status.
+
 # Compaction content qualification failed on 2026-10-15
 
 The accepted promotion's Compaction trial completed 10 products, then failed at goal 11

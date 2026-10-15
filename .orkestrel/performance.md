@@ -21,8 +21,11 @@ in Agent's `tmp/studies/compaction-content-3` failed at goal 11 after 10 complet
 2026-10-15. An empty recap triggered the content guard; 85 goals remained unexecuted. The
 261007 ms execute exited 1, uncapped. Its sealed usage records 10604 prompt tokens, 1 completion
 token and finish `stop` for the failed summary, not a context or output-limit refusal.
-Agent's study adapter request framing is under repair after an Opus decision and real
-render-only checks. The failure is retained; no performance screen has started. The Records
+Agent's study adapter request framing is repaired at `7bd2a44` after an Opus decision, real
+render-only checks, discriminating regression/mutations and 159 passing service tests. A
+separate Compaction-only qualification began at 19:37 UTC in `tmp/studies/compaction-task`,
+with the same model, gauge, room, workload, rubric and limits. Its fixed deadline is 22:25 UTC.
+The earlier failure is retained; no performance screen has started. The Records
 96/96 result is retained, with no rerun or replay. See [series evidence](series.md).
 
 The rolling Compaction attempt closed 96/96, but qualification rejected 8 empty recaps among
