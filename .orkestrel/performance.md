@@ -1,5 +1,12 @@
 # Records, Agent, and Study performance
 
+The user limited the successor execution to Compaction on 2026-10-15. Retain candidate-3
+Records at its original build and seal; do not rerun it to collect checkpoints or timing fields.
+This instruction supersedes the Records checkpoint collection proposed later in this document.
+The observation implementation passed review and package gates, and Compaction executes with
+those observations under the protocol in `series.md`. Records replay that depends on missing
+exact request checkpoints remains unavailable. No optimization or speed gain is accepted.
+
 The user requested this investigation on 2026-10-14 and authorized Fable 5.1 to settle the proposal on 2026-10-15. Adopt observation-only timing as the first implementation unit, with Agent requests as the first measurement priority. No optimization candidate is admitted for implementation yet. Scaffold's `quality.md` requires realistic workloads, predeclared sample counts and worthwhile differences, uncertainty, negative controls, and host-load readings. Production changes wait for those measurements.
 
 ## Close the failed qualification before another model run
