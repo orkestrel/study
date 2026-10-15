@@ -24,8 +24,10 @@ token and finish `stop` for the failed summary, not a context or output-limit re
 Agent's study adapter request framing is repaired at `7bd2a44` after an Opus decision, real
 render-only checks, discriminating regression/mutations and 159 passing service tests. A
 separate Compaction-only qualification began at 19:37 UTC in `tmp/studies/compaction-task`,
-with the same model, gauge, room, workload, rubric and limits. Its fixed deadline is 22:25 UTC.
-The earlier failure is retained; no performance screen has started. The Records
+with the same model, gauge, room, workload, rubric and limits. It stopped at 20:14 UTC after
+78 complete products: goal 79 exhausted the 2048-token summary output allowance, leaving 17
+goals unexecuted. The 2216817 ms execute exited 1 uncapped; the terminal reader and public
+report reject qualification. No performance screen has started. The Records
 96/96 result is retained, with no rerun or replay. See [series evidence](series.md).
 
 The rolling Compaction attempt closed 96/96, but qualification rejected 8 empty recaps among

@@ -1,3 +1,16 @@
+# Final-user summary qualification failed on 2026-10-15
+
+Compaction sealed at 20:14 UTC with 78 complete products. Goal 79, `ev-20-3`, exhausted the
+summary's 2048-token output allowance: prompt 10408, completion 2048, finish `length`, context
+20480. The remaining 17 goals were unexecuted. Seven preceding recaps were nonempty; no
+context-window or deadline failure was observed. Execute exited 1 uncapped after 2216817 ms.
+The independent reader and public operational report reject qualification. Seal:
+`80d29d82f5ad72e6e86fd5874a83a47c0234f5302bc603b29244cb1b24ef3c56`.
+Semantic labels are absent. Records remains sealed and labeled at 96/96, with no rerun or
+replay. The owned daemon was stopped after terminal reading; no successor was launched.
+Agent's handoff records the command receipts, captured-project cwd requirement and preserved
+artifacts. The following launch record is historical.
+
 # Final-user summary qualification started on 2026-10-15
 
 At 19:37 UTC, Agent `7bd2a44` began a separate Compaction-only attempt in
