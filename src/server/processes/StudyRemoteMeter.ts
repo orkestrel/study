@@ -101,9 +101,7 @@ export class StudyRemoteMeter implements StudyRemoteMeterInterface {
 		const work = this.#options.channel
 			.request(
 				operation,
-				toStudyWire(
-					operation === 'finish' ? { id, usage: accepted } : { id, failure: accepted },
-				),
+				toStudyWire(operation === 'finish' ? { id, usage: accepted } : { id, failure: accepted }),
 			)
 			.then(
 				() => {
@@ -115,6 +113,7 @@ export class StudyRemoteMeter implements StudyRemoteMeterInterface {
 			)
 		this.#pending.add(work)
 		void work.finally(() => this.#pending.delete(work))
-		if (operation === 'fail' && isStudyProcessFailure(accepted)) this.#options.control.fail(accepted)
+		if (operation === 'fail' && isStudyProcessFailure(accepted))
+			this.#options.control.fail(accepted)
 	}
 }
