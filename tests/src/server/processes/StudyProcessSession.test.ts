@@ -60,10 +60,17 @@ process.on('message', frame => {
 			const frames = (scratch.read('frames.ndjson') ?? '')
 				.split('\n')
 				.filter((line) => line !== '')
-				.map((line): unknown => JSON.parse(line))
-				.filter(isStudyFrame)
+				.map((line) => {
+					const frame: unknown = JSON.parse(line)
+					if (!isStudyFrame(frame)) throw new Error('Fixture received an invalid Study frame')
+					return frame
+				})
 			expect(frames.map((frame) => frame.operation)).toEqual(['open', 'abort', 'close'])
-			expect(frames[0]?.value).toMatchObject(toStudyWire(declared))
+			expect(frames[0]?.value).toMatchObject({
+				trial: toStudyWire(declared.trial),
+				profile: toStudyWire(declared.profile),
+				identity: toStudyWire(declared.identity),
+			})
 			expect(foreign.signal.aborted).toBe(false)
 		} finally {
 			controller.abort()
@@ -90,13 +97,17 @@ process.on('message', frame => {
 		const before = process.getActiveResourcesInfo().filter((type) => /pipe/i.test(type)).length
 		try {
 			await expect(
-				new StudyDeadline({ duration: 4000, label: 'orphaned session start' }).wait(session.start()),
+				new StudyDeadline({ duration: 4000, label: 'orphaned session start' }).wait(
+					session.start(),
+				),
 			).rejects.toBeDefined()
 			const receipt = requireValue(readStudyOrphan(scratch))
 			expect(isRunning(receipt.root)).toBe(false)
 			expect(isRunning(receipt.leaf)).toBe(true)
 			await expect(
-				new StudyDeadline({ duration: 4000, label: 'orphaned session close' }).wait(session.close()),
+				new StudyDeadline({ duration: 4000, label: 'orphaned session close' }).wait(
+					session.close(),
+				),
 			).resolves.toBeUndefined()
 			expect(isRunning(receipt.leaf)).toBe(true)
 			await waitForCondition(
@@ -131,11 +142,15 @@ process.on('message', frame => {
 		})
 		try {
 			await expect(
-				new StudyDeadline({ duration: 4000, label: 'ordinary session start' }).wait(session.start()),
+				new StudyDeadline({ duration: 4000, label: 'ordinary session start' }).wait(
+					session.start(),
+				),
 			).rejects.toBeDefined()
 			const started = performance.now()
 			await expect(
-				new StudyDeadline({ duration: 4000, label: 'ordinary session close' }).wait(session.close()),
+				new StudyDeadline({ duration: 4000, label: 'ordinary session close' }).wait(
+					session.close(),
+				),
 			).resolves.toBeUndefined()
 			expect(performance.now() - started).toBeLessThan(STUDY_DRAIN_DURATION)
 		} finally {

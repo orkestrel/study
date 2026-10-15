@@ -215,7 +215,10 @@ process.on('message', frame => {
 			)
 			const outbound = channel.request('goal', { held: true })
 			const refused = expect(outbound).rejects.toMatchObject({
-				failure: { cause: 'infrastructure', message: 'Out-of-order or excessive study IPC request' },
+				failure: {
+					cause: 'infrastructure',
+					message: 'Out-of-order or excessive study IPC request',
+				},
 			})
 			peer.child.send({ control: 'start' })
 			await waitForCondition('accepted handlers are active', () => active === STUDY_PENDING_LIMIT, {
@@ -225,7 +228,10 @@ process.on('message', frame => {
 			await waitForAbort(channel.signal)
 			expect(active).toBe(STUDY_PENDING_LIMIT)
 			expect(channel.signal.reason).toMatchObject({
-				failure: { cause: 'infrastructure', message: 'Out-of-order or excessive study IPC request' },
+				failure: {
+					cause: 'infrastructure',
+					message: 'Out-of-order or excessive study IPC request',
+				},
 			})
 			await refused
 			gate.resolve()

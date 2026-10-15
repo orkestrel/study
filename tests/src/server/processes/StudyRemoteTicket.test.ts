@@ -35,7 +35,14 @@ describe('StudyRemoteTicket', () => {
 		expect(() => ticket.finish(usage)).toThrow(/settled more than once/)
 		expect(original.calls).toEqual([
 			['finish', usage],
-			['fail', { cause: 'infrastructure', message: 'Worker ticket settled more than once', role: undefined }],
+			[
+				'fail',
+				{
+					cause: 'infrastructure',
+					message: 'Worker ticket settled more than once',
+					role: undefined,
+				},
+			],
 		])
 		expect(replacement.count).toBe(0)
 	})

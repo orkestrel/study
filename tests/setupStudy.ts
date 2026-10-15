@@ -214,7 +214,9 @@ export function createStudyMeterFixture(
  * @param options - Optional goal execution and a promise that delays each open result.
  * @returns The driver with open, execute, and close observations.
  */
-export function createStudyDriverFixture(options: StudyDriverFixtureOptions = {}): StudyDriverFixture {
+export function createStudyDriverFixture(
+	options: StudyDriverFixtureOptions = {},
+): StudyDriverFixture {
 	const opened = createRecorder<readonly [StudyTrial]>()
 	const executed = createRecorder<readonly [string]>()
 	const closed = createRecorder<readonly [string]>()

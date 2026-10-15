@@ -7,10 +7,7 @@ export const STUDY_PENDING_LIMIT = 64
 /** Limits combined worker stdout and stderr before termination. */
 export const STUDY_LOG_BYTES = 64 * 1024
 
-/** Bounds inherited output handles after native exit as a cleanup limit.
- *
- * Adopted from the bounded Process precedent; it is not a measured speedup.
- */
+/** Bounds how long inherited output handles stay open after native exit, in milliseconds. */
 export const STUDY_DRAIN_DURATION = 1000
 
 /** Attributes an expired process handshake or cleanup deadline. */

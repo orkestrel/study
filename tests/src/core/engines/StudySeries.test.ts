@@ -30,14 +30,14 @@ describe('StudySeries', () => {
 			['write', 'read'],
 			['write', 'read'],
 		])
-		expect(attempts.flatMap((attempt) => attempt.observations.map((entry) => entry.product))).toEqual(
-			[
-				{ value: 'write', partial: false },
-				{ value: 'read', partial: false },
-				{ value: 'write', partial: false },
-				{ value: 'read', partial: false },
-			],
-		)
+		expect(
+			attempts.flatMap((attempt) => attempt.observations.map((entry) => entry.product)),
+		).toEqual([
+			{ value: 'write', partial: false },
+			{ value: 'read', partial: false },
+			{ value: 'write', partial: false },
+			{ value: 'read', partial: false },
+		])
 		const ids = manifest.schedule.map((trial) => [trial.id])
 		expect(driver.opened.calls.map(([trial]) => [trial.id])).toEqual(ids)
 		expect(custody.started.calls.map(([trial]) => [trial.id])).toEqual(ids)
@@ -75,7 +75,10 @@ describe('StudySeries', () => {
 			expect(attempts.map((attempt) => attempt.trial.id)).toEqual(
 				manifest.schedule.map((trial) => trial.id),
 			)
-			expect(attempts.map((attempt) => attempt.failure?.cause)).toEqual(['interrupted', 'interrupted'])
+			expect(attempts.map((attempt) => attempt.failure?.cause)).toEqual([
+				'interrupted',
+				'interrupted',
+			])
 			const [first, second] = attempts
 			expect(first?.observations.map((observation) => observation.goal)).toEqual(['write', 'read'])
 			expect(first?.observations[0]?.product).toBeUndefined()
@@ -119,7 +122,10 @@ describe('StudySeries', () => {
 			opening.resolve()
 			const attempts = await task
 			expect(attempts).toHaveLength(2)
-			expect(attempts.map((attempt) => attempt.failure?.cause)).toEqual(['interrupted', 'interrupted'])
+			expect(attempts.map((attempt) => attempt.failure?.cause)).toEqual([
+				'interrupted',
+				'interrupted',
+			])
 			expect(
 				attempts.every((attempt) =>
 					attempt.observations.every(

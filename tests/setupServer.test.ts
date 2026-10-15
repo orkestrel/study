@@ -1,11 +1,15 @@
 import { requireValue, waitForCondition, waitForEvent } from '@orkestrel/test'
 import { createScratch, isRunning } from '@orkestrel/test/server'
-import { execFileSync, fork } from 'node:child_process'
+import { execFileSync, fork, spawnSync } from 'node:child_process'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { isRecord } from '@orkestrel/contract'
+import { isStudyBounds } from '../src/core/validators.js'
 import { buildStudyRubric } from './setupStudy.js'
 import {
+	STUDY_CHECK_FINGERPRINT,
+	STUDY_LAUNCHER_PID,
 	buildCustodyGrading,
 	buildCustodyLabels,
 	buildCustodyPacketLabels,
@@ -14,10 +18,14 @@ import {
 	createArtifactWorker,
 	createStudyPeer,
 	executeStudyCLI,
+	readStudyCommands,
 	readStudyOrphan,
+	readStudyPid,
 	releaseStudyPid,
 	retainStudyFixture,
+	writeStudyCheckEntry,
 	writeStudyConsumer,
+	writeStudyLauncherEntry,
 	writeStudyOrphan,
 } from './setupServer.js'
 
@@ -119,10 +127,14 @@ describe('study server fixtures', () => {
 			)
 			root.send({ start: true })
 			await exited
-			await waitForCondition('orphan receipt exists', () => readStudyOrphan(scratch) !== undefined, {
-				budget: 3000,
-				interval: 10,
-			})
+			await waitForCondition(
+				'orphan receipt exists',
+				() => readStudyOrphan(scratch) !== undefined,
+				{
+					budget: 3000,
+					interval: 10,
+				},
+			)
 			const receipt = requireValue(readStudyOrphan(scratch))
 			leaf = receipt.leaf
 			expect(receipt.root).toBe(root.pid)
@@ -135,6 +147,51 @@ describe('study server fixtures', () => {
 			scratch.destroy()
 		}
 	}, 15000)
+	it('records the pid and command of a launcher entry and exits with the body outcome', () => {
+		const scratch = createScratch()
+		try {
+			const entry = writeStudyLauncherEntry(scratch, 20000, "finish(7, 'answer')")
+			expect(readStudyCommands(scratch)).toEqual([])
+			const result = spawnSync(process.execPath, [entry, 'study-command', 'check', 'files'], {
+				encoding: 'utf8',
+				timeout: 10000,
+				windowsHide: true,
+			})
+			expect(result.status).toBe(7)
+			expect(result.stdout).toBe('answer')
+			expect(readStudyPid(scratch, STUDY_LAUNCHER_PID)).toBe(result.pid)
+			expect(readStudyCommands(scratch)).toEqual(['check files'])
+		} finally {
+			scratch.destroy()
+		}
+	})
+	it('answers check with a valid reply at the requested duration and exits 0 for another command', () => {
+		const scratch = createScratch()
+		try {
+			const entry = writeStudyCheckEntry(scratch, 86400000)
+			const checked = spawnSync(process.execPath, [entry, 'study-command', 'check', 'files'], {
+				encoding: 'utf8',
+				timeout: 10000,
+				windowsHide: true,
+			})
+			const reply: unknown = JSON.parse(checked.stdout)
+			expect(checked.status).toBe(0)
+			expect(isRecord(reply) && isStudyBounds(reply.bounds) && reply.bounds.series.duration).toBe(
+				86400000,
+			)
+			expect(isRecord(reply) && reply.fingerprint).toBe(STUDY_CHECK_FINGERPRINT)
+			const executed = spawnSync(process.execPath, [entry, 'study-command', 'execute', 'files'], {
+				encoding: 'utf8',
+				timeout: 10000,
+				windowsHide: true,
+			})
+			expect(executed.status).toBe(0)
+			expect(executed.stdout).toBe('')
+			expect(readStudyCommands(scratch)).toEqual(['check files', 'execute files'])
+		} finally {
+			scratch.destroy()
+		}
+	})
 	it('returns a sealed real-files fixture with complete grades and explicit supplied label provenance', async () => {
 		const scratch = createScratch()
 		try {

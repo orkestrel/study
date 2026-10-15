@@ -3,16 +3,14 @@ import { createScratch, isRunning } from '@orkestrel/test/server'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { StudyDeadline } from '../../../../src/core/engines/StudyDeadline.js'
-import { STUDY_LOG_BYTES, STUDY_TASK_DURATION } from '../../../../src/server/processes/constants.js'
+import { STUDY_LOG_BYTES } from '../../../../src/server/processes/constants.js'
 import { StudyTask } from '../../../../src/server/processes/StudyTask.js'
 import {
-	buildStudyDefinition,
-	buildStudyProfile,
-	buildStudyRubric,
-	buildStudyScenario,
-} from '../../../setupStudy.js'
-import {
 	STUDY_TASK_INSTRUMENT,
+	STUDY_TASK_INVALID_DURATIONS,
+	STUDY_TASK_RESPONSES,
+	STUDY_TASK_STOPS,
+	buildStudyTaskRequest,
 	createStudyTaskFixture,
 	readStudyOrphan,
 	readStudyPid,
@@ -20,19 +18,11 @@ import {
 	writeStudyOrphan,
 } from '../../../setupServer.js'
 
-const request = {
-	operation: 'validate' as const,
-	input: {
-		definition: buildStudyDefinition(),
-		scenarios: [buildStudyScenario(), buildStudyScenario('second')],
-		rubric: buildStudyRubric(),
-		profile: buildStudyProfile(),
-	},
-}
+const request = buildStudyTaskRequest()
 
 describe('StudyTask', () => {
 	it('refuses a non-finite, non-positive or excessive deadline before spawning', () => {
-		for (const duration of [0, STUDY_TASK_DURATION + 1, Number.NaN]) {
+		for (const duration of STUDY_TASK_INVALID_DURATIONS) {
 			const scratch = createScratch()
 			try {
 				const fixture = createStudyTaskFixture(scratch, 'valid', duration)
@@ -47,20 +37,15 @@ describe('StudyTask', () => {
 	})
 
 	it('verifies the adapter response and stops the child for valid, malformed, repeated and oversized output', async () => {
-		const cases = [
-			{ mode: 'valid', expected: undefined },
-			{ mode: 'malformed', expected: 'Adapter response is malformed' },
-			{ mode: 'repeated', expected: 'Adapter response is oversized or repeated' },
-			{ mode: 'combined-output', expected: 'Adapter output exceeds the log allowance' },
-		] as const
-		for (const { mode, expected } of cases) {
+		for (const { mode, expected } of STUDY_TASK_RESPONSES) {
 			const scratch = createScratch()
 			let pid: number | undefined
 			try {
 				const fixture = createStudyTaskFixture(scratch, mode, 5000)
-				const result = new StudyDeadline({ duration: 8000, label: 'direct StudyTask response' }).wait(
-					fixture.task.execute(request, new AbortController().signal),
-				)
+				const result = new StudyDeadline({
+					duration: 8000,
+					label: 'direct StudyTask response',
+				}).wait(fixture.task.execute(request, new AbortController().signal))
 				if (expected === undefined)
 					await expect(result).resolves.toEqual({ instrument: STUDY_TASK_INSTRUMENT, value: true })
 				else await expect(result).rejects.toMatchObject({ code: 'FAULT', message: expected })
@@ -70,11 +55,10 @@ describe('StudyTask', () => {
 				})
 				pid = requireValue(readStudyPid(scratch, fixture.pid))
 				const recorded = pid
-				await waitForCondition(
-					'recorded StudyTask child stopped',
-					() => !isRunning(recorded),
-					{ budget: 3000, interval: 10 },
-				)
+				await waitForCondition('recorded StudyTask child stopped', () => !isRunning(recorded), {
+					budget: 3000,
+					interval: 10,
+				})
 			} finally {
 				await releaseStudyPid(pid)
 				scratch.destroy()
@@ -84,7 +68,7 @@ describe('StudyTask', () => {
 	}, 40000)
 
 	it('enforces its deadline and the caller abort with child cleanup', async () => {
-		for (const mode of ['deadline', 'abort'] as const) {
+		for (const mode of STUDY_TASK_STOPS) {
 			const scratch = createScratch()
 			const controller = new AbortController()
 			let pid: number | undefined
@@ -110,11 +94,10 @@ describe('StudyTask', () => {
 						),
 					).rejects.toBe('caller abort')
 				}
-				await waitForCondition(
-					'recorded StudyTask child stopped',
-					() => !isRunning(recorded),
-					{ budget: 3000, interval: 10 },
-				)
+				await waitForCondition('recorded StudyTask child stopped', () => !isRunning(recorded), {
+					budget: 3000,
+					interval: 10,
+				})
 			} finally {
 				controller.abort()
 				await releaseStudyPid(pid)

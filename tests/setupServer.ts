@@ -4,6 +4,7 @@ import { isInteger, isRecord } from '@orkestrel/contract'
 import { isRunning } from '@orkestrel/test/server'
 import type { StudyGrading, StudyLabels, StudyManifest, StudyRubric } from '../src/core/types.js'
 import type { StudySealedResult } from '../src/server/stores/types.js'
+import type { StudyTaskRequest } from '../src/server/processes/types.js'
 import type {
 	StudyOrphanReceipt,
 	StudyPeerFixture,
@@ -14,6 +15,7 @@ import { waitForCondition, waitForEvent } from '@orkestrel/test'
 import { execFile, fork } from 'node:child_process'
 import { join, relative, resolve } from 'node:path'
 import { isBuiltin } from 'node:module'
+import { pathToFileURL } from 'node:url'
 import { build } from 'vite'
 import { srcBin, srcCore } from '../vite.config.js'
 import { outputBoundary } from '../configs/helpers.js'
@@ -27,6 +29,7 @@ import {
 	isStudyTrial,
 } from '../src/server/processes/validators.js'
 import { StudyTask } from '../src/server/processes/StudyTask.js'
+import { STUDY_TASK_DURATION } from '../src/server/processes/constants.js'
 import { StudyResults } from '../src/server/stores/StudyResults.js'
 import {
 	buildStudyPacket,
@@ -41,6 +44,19 @@ import {
 	buildStudyProfile,
 	buildStudyScenario,
 } from './setupStudy.js'
+
+/** Supplies the validation request a task sends to its adapter child. */
+export function buildStudyTaskRequest(): StudyTaskRequest {
+	return {
+		operation: 'validate',
+		input: {
+			definition: buildStudyDefinition(),
+			scenarios: [buildStudyScenario(), buildStudyScenario('second')],
+			rubric: buildStudyRubric(),
+			profile: buildStudyProfile(),
+		},
+	}
+}
 
 /** Supplies every exported process guard for hostile-boundary proofs. */
 export const STUDY_PROCESS_GUARDS = Object.freeze([
@@ -122,6 +138,20 @@ export function createStudyPeer(scratch: ScratchInterface, source: string): Stud
 /** Supplies the instrument identity a valid fixture adapter answers with. */
 export const STUDY_TASK_INSTRUMENT = 'a'.repeat(64)
 
+/** Exercises the task's duration refusals before any process starts. */
+export const STUDY_TASK_INVALID_DURATIONS = [0, STUDY_TASK_DURATION + 1, Number.NaN] as const
+
+/** Pairs adapter response populations with their expected operational refusal. */
+export const STUDY_TASK_RESPONSES = [
+	{ mode: 'valid', expected: undefined },
+	{ mode: 'malformed', expected: 'Adapter response is malformed' },
+	{ mode: 'repeated', expected: 'Adapter response is oversized or repeated' },
+	{ mode: 'combined-output', expected: 'Adapter output exceeds the log allowance' },
+] as const
+
+/** Exercises native deadline and caller-cancellation termination. */
+export const STUDY_TASK_STOPS = ['deadline', 'abort'] as const
+
 /** Writes a finite adapter and binds a task to it, recording the adapter pid on its first request.
  * @param scratch - The owned temporary resource holding the adapter and its pid record.
  * @param mode - How the adapter answers; a held adapter never answers.
@@ -155,8 +185,9 @@ process.on('message', () => {
 
 /** Writes a finite root that leaves a detached leaf holding its inherited output after the root exits.
  *
- * On its first IPC message the root spawns the leaf with inherited stdout and stderr and an IPC
- * readiness handshake; only after readiness does it record both pids atomically and exit.
+ * The root exits on its own deadline when no IPC message arrives. On its first IPC message it
+ * spawns the leaf with inherited stdout and stderr and an IPC readiness handshake; only after
+ * readiness does it record both pids atomically and exit.
  * @param scratch - The owned temporary resource holding the scripts and the pid receipt.
  * @param lifetime - The leaf's natural lifetime in milliseconds.
  * @returns The absolute root entry path.
@@ -172,6 +203,7 @@ process.send({ ready: true })`,
 		'orphan-root.cjs',
 		`const { spawn } = require('node:child_process')
 const fs = require('node:fs')
+setTimeout(() => process.exit(0), 20000)
 process.once('message', () => {
  const leaf = spawn(process.execPath, [${JSON.stringify(leaf)}], { detached: true, stdio: ['ignore', 'inherit', 'inherit', 'ipc'], windowsHide: true })
  leaf.once('message', () => {
@@ -220,6 +252,112 @@ export async function releaseStudyPid(pid: number | undefined): Promise<void> {
 		budget: 3000,
 		interval: 10,
 	})
+}
+
+/** Names the scratch file where a launcher entry records its pid. */
+export const STUDY_LAUNCHER_PID = 'launcher-pid.txt'
+
+/** Names the scratch file where a launcher entry appends each command it receives. */
+export const STUDY_LAUNCHER_LOG = 'launcher-commands.log'
+
+/** Supplies the execution fingerprint a fixture check answers with. */
+export const STUDY_CHECK_FINGERPRINT = 'a'.repeat(64)
+
+/** Selects a finite offline command in launcher fixtures. */
+export const STUDY_CHECK_ARGUMENTS = ['check', 'files', '--profile', 'local'] as const
+
+/** Selects the supervised execution path in launcher fixtures. */
+export const STUDY_EXECUTE_ARGUMENTS = ['execute', 'files', '--profile', 'local'] as const
+
+/** Writes a finite command entry that records its pid and command before running a body.
+ *
+ * The body runs after the records and sees `command`, the first command token, and
+ * `finish(code, text)`, which clears the natural deadline, writes the optional text, and exits.
+ * @param scratch - The owned temporary resource holding the entry and its records.
+ * @param lifetime - The entry's natural lifetime in milliseconds.
+ * @param body - The CommonJS statements the entry runs; an empty body holds until its lifetime ends.
+ * @returns The absolute entry path.
+ */
+export function writeStudyLauncherEntry(
+	scratch: ScratchInterface,
+	lifetime: number,
+	body: string,
+): string {
+	const pid = join(scratch.path, STUDY_LAUNCHER_PID)
+	return scratch.write(
+		'launcher-entry.cjs',
+		`const fs = require('node:fs')
+const command = process.argv[3]
+const lifetime = setTimeout(() => process.exit(0), ${String(lifetime)})
+function finish(code, text) { clearTimeout(lifetime); if (text === undefined) process.exit(code); else process.stdout.write(text, () => process.exit(code)) }
+fs.appendFileSync(${JSON.stringify(join(scratch.path, STUDY_LAUNCHER_LOG))}, process.argv.slice(3).join(' ') + '\\n')
+fs.writeFileSync(${JSON.stringify(`${pid}.tmp`)}, String(process.pid))
+fs.renameSync(${JSON.stringify(`${pid}.tmp`)}, ${JSON.stringify(pid)})
+${body}
+`,
+	)
+}
+
+/** Writes a finite command entry that answers check with a valid reply and exits 0 for any command.
+ * @param scratch - The owned temporary resource holding the entry and its records.
+ * @param duration - The series duration, in milliseconds, the check reply declares.
+ * @returns The absolute entry path.
+ */
+export function writeStudyCheckEntry(scratch: ScratchInterface, duration: number): string {
+	const bounds = buildStudyProfile().bounds
+	const reply = JSON.stringify({
+		bounds: { ...bounds, series: { ...bounds.series, duration } },
+		fingerprint: STUDY_CHECK_FINGERPRINT,
+	})
+	return writeStudyLauncherEntry(
+		scratch,
+		20000,
+		`finish(0, command === 'check' ? ${JSON.stringify(reply)} : undefined)`,
+	)
+}
+
+/** Reads the commands a launcher entry received, in arrival order.
+ * @param scratch - The owned temporary resource holding the entry's records.
+ * @returns Each received command as its space-joined tokens.
+ */
+export function readStudyCommands(scratch: ScratchInterface): readonly string[] {
+	return (scratch.read(STUDY_LAUNCHER_LOG) ?? '').split(/\r\n|\n/).filter((line) => line !== '')
+}
+
+/** Writes an isolated wrapper that interrupts a built launcher once its command entry is ready.
+ *
+ * The wrapper emits the interruption inside its own process, waits for the entry's pid record
+ * through a directory watch, and prints the launcher's exit code.
+ * @param scratch - The owned temporary resource holding the wrapper and the entry's records.
+ * @param library - The built server library entry that exports the launcher.
+ * @param entry - The command entry the launcher supervises.
+ * @param tokens - The public command tokens the launcher executes.
+ * @returns The absolute wrapper path.
+ */
+export function writeStudyInterruptor(
+	scratch: ScratchInterface,
+	library: string,
+	entry: string,
+	tokens: readonly string[],
+): string {
+	return scratch.write(
+		'interruptor.mjs',
+		`import { existsSync, watch } from 'node:fs'
+import { StudyLauncher } from ${JSON.stringify(pathToFileURL(library).href)}
+const ready = new Promise((resolve) => {
+ const watcher = watch(${JSON.stringify(scratch.path)}, () => {
+  if (!existsSync(${JSON.stringify(join(scratch.path, STUDY_LAUNCHER_PID))})) return
+  watcher.close()
+  resolve()
+ })
+})
+const running = new StudyLauncher({ root: ${JSON.stringify(scratch.path)}, entry: ${JSON.stringify(entry)} }).execute(${JSON.stringify(tokens)})
+await ready
+process.emit('SIGINT')
+const code = await running
+process.stdout.write(String(code) + '\\n', () => process.exit(0))
+`,
+	)
 }
 
 /**
