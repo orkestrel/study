@@ -1,8 +1,22 @@
-# Compaction content qualification is running
+# Compaction content qualification failed on 2026-10-15
 
-At 2026-10-15 19:05 UTC, the accepted promotion began its Compaction-only qualification.
-The trial limit is 160 minutes and the execution deadline is 21:51 UTC. Records remains
-retained at 96/96. See [the active successor](#compaction-content-successor-on-2026-10-15)
+The accepted promotion's Compaction trial completed 10 products, then failed at goal 11
+(`ev-03-3`) on an empty recap. The guard preserved its text, sources and usage and stopped
+without retry; 85 goals remain unexecuted. Execute exited 1, uncapped, after 261007 ms.
+Result `6ae6b4cc-833b-4227-9d27-ff57546ff54e`, seal
+`89604d36913afad1c9e8687c310e9056fcef95a04b123313c6a6e984d6dacc41`, stays in Agent's
+`tmp/studies/compaction-content-3`. Public grading/reporting and the independent reader agree
+that qualification failed. No generation is running. Records remains retained at 96/96.
+
+The wire reports 10604 prompt tokens, 1 completion token and finish `stop`, within context
+20480 and recap output 2048. Agent's study adapter ends the request on an old assistant answer.
+Pinned Ollama render-only checks confirm that this requests continuation, while the prescribed
+final user summary task opens a fresh reply. Opus selected moving the existing instruction,
+with its text unchanged; Sonnet owns the bounded repair and proof. This is a distinct future
+treatment, not a rewrite of the failed result. The source evidence does not establish the cause
+of every earlier blank recap. Agent's handoff carries the proof and successor freeze state.
+
+See [the retained successor](#compaction-content-successor-on-2026-10-15)
 for the frozen runtime and [promotion acceptance](promotion.md#acceptance) for package gates.
 The following entries preserve the preceding attempts and their decisions.
 

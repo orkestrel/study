@@ -16,10 +16,14 @@ passed 257 tests; setup passed 28. Agent's consumer migration passed its 158 ser
 and is integrated. Root accepted the promotion at Study `019f5ce` and Agent `8a9087b` after
 the independent audit, the repair controls, the focused MCP review and the host gates; see
 [promotion acceptance](promotion.md#acceptance) for the measurements. No version bump or
-publication accompanies the acceptance. No speedup is accepted. Compaction qualification
-started at 2026-10-15 19:05 UTC in Agent's `tmp/studies/compaction-content-3`, from a physical
-copy of the accepted build. Its trial limit is 160 minutes, with a fixed outer deadline of
-21:51 UTC. The Records 96/96 result is retained, with no rerun or replay.
+publication accompanies the acceptance. No speedup is accepted. The Compaction qualification
+in Agent's `tmp/studies/compaction-content-3` failed at goal 11 after 10 complete products on
+2026-10-15. An empty recap triggered the content guard; 85 goals remained unexecuted. The
+261007 ms execute exited 1, uncapped. Its sealed usage records 10604 prompt tokens, 1 completion
+token and finish `stop` for the failed summary, not a context or output-limit refusal.
+Agent's study adapter request framing is under repair after an Opus decision and real
+render-only checks. The failure is retained; no performance screen has started. The Records
+96/96 result is retained, with no rerun or replay. See [series evidence](series.md).
 
 The rolling Compaction attempt closed 96/96, but qualification rejected 8 empty recaps among
 12. The verified retained reading attributes 676819.806 ms to Agent prefill: 25.29% of Agent
