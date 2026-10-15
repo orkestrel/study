@@ -12,7 +12,10 @@ import { isStudyBounds } from '../src/core/validators.js'
 import { buildStudyRubric } from './setupStudy.js'
 import {
 	STUDY_CHECK_FINGERPRINT,
+	STUDY_HOSTILE_REFERENCES,
 	STUDY_LAUNCHER_PID,
+	buildStudyEvidenceRow,
+	buildStudySparseEvidence,
 	admitStudyLibrary,
 	answerStudyMCP,
 	collectStudyRoots,
@@ -396,5 +399,26 @@ describe('study server fixtures', () => {
 		expect(sumStudyCalls(observation, 'agent')).toBe(3)
 		expect(sumStudyCalls(observation, 'tool')).toBe(1)
 		expect(sumStudyCalls(observation, 'judge')).toBe(0)
+	})
+	it('builds a saved write-goal evidence row carrying the supplied value', () => {
+		expect(buildStudyEvidenceRow('a')).toEqual({ event: 'saved', goal: 'write', value: 'a' })
+		expect(buildStudyEvidenceRow('b')).not.toBe(buildStudyEvidenceRow('b'))
+	})
+	it('builds sparse evidence with absent positions, not undefined elements, and keeps later indices', () => {
+		const { lone, tail, interior } = buildStudySparseEvidence()
+		const explicit: readonly unknown[] = [undefined]
+		expect(0 in explicit).toBe(true)
+		expect([lone.length, tail.length, interior.length]).toEqual([1, 2, 3])
+		expect(0 in lone).toBe(false)
+		expect([0 in tail, 1 in tail]).toEqual([true, false])
+		expect([0 in interior, 1 in interior, 2 in interior]).toEqual([true, false, true])
+		expect(tail[0]).toEqual(buildStudyEvidenceRow('a'))
+		expect(interior[0]).toEqual(buildStudyEvidenceRow('a'))
+		expect(interior[2]).toEqual(buildStudyEvidenceRow('c'))
+		expect(buildStudySparseEvidence().lone).not.toBe(lone)
+	})
+	it('lists the hostile reference values a typed caller cannot supply', () => {
+		expect(STUDY_HOSTILE_REFERENCES).toEqual([null, undefined, 'evidence', 1, []])
+		expect(Object.isFrozen(STUDY_HOSTILE_REFERENCES)).toBe(true)
 	})
 })

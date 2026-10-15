@@ -69,7 +69,11 @@ import type {
 	OllamaStrictRolesFixture,
 	OllamaTransportFixture,
 } from './src/server/ollama/types.js'
-import type { StudyMCPAnswer, StudyMCPFixture } from './src/server/adapters/types.js'
+import type {
+	StudyMCPAnswer,
+	StudyMCPFixture,
+	StudySparseEvidence,
+} from './src/server/adapters/types.js'
 import { createOllama, extractTiming } from '@orkestrel/ollama'
 import { createMCPLegacy, createMCPServer } from '@orkestrel/mcp'
 import { createMCPRoutes } from '@orkestrel/mcp/server'
@@ -715,6 +719,38 @@ export function createStudyAttemptGrade(): StudyGradeFunction {
 				}
 	}
 }
+
+/**
+ * Builds one retained saved-evidence row of the declared write goal.
+ * @param value - The observed value the row carries
+ * @returns The retained evidence row
+ */
+export function buildStudyEvidenceRow(value: string): StudyEvidence {
+	return { event: 'saved', goal: 'write', value }
+}
+
+/**
+ * Builds typed evidence arrays whose retained positions are absent rather than undefined rows.
+ * @returns A lone absent slot, an absent tail after one row, and an absent interior between two rows
+ */
+export function buildStudySparseEvidence(): StudySparseEvidence {
+	const lone = new Array<StudyEvidence>(1)
+	const tail = new Array<StudyEvidence>(2)
+	tail[0] = buildStudyEvidenceRow('a')
+	const interior = new Array<StudyEvidence>(3)
+	interior[0] = buildStudyEvidenceRow('a')
+	interior[2] = buildStudyEvidenceRow('c')
+	return { lone, tail, interior }
+}
+
+/** Values a hostile untyped caller may supply where a grading reference record belongs. */
+export const STUDY_HOSTILE_REFERENCES: readonly unknown[] = Object.freeze([
+	null,
+	undefined,
+	'evidence',
+	1,
+	[],
+])
 
 /**
  * Builds an inert predicate shaped like the tools consumer's grading policy.

@@ -46,6 +46,7 @@ export function readStudyAdapter(namespace: unknown): StudyAdapterInterface {
  * ```
  */
 export function buildStudyReference(target: StudyGradeTarget, reference: StudyReference): string {
+	if (!isRecord(reference)) throw new StudyError('EVIDENCE', 'Grading reference must be a record')
 	if (target.attempt === undefined)
 		throw new StudyError('EVIDENCE', 'Grading reference names a trial that was not retained')
 	if (reference.file !== 'attempt' && reference.file !== 'evidence')
@@ -57,7 +58,8 @@ export function buildStudyReference(target: StudyGradeTarget, reference: StudyRe
 		reference.file !== 'evidence' ||
 		!Number.isSafeInteger(reference.row) ||
 		reference.row < 0 ||
-		reference.row >= target.evidence.length
+		reference.row >= target.evidence.length ||
+		!isStudyCustodyEvidence(target.evidence[reference.row])
 	)
 		throw new StudyError('EVIDENCE', 'Grading reference names a retained row that does not exist')
 	return `${path}#${reference.row + 1}`
@@ -106,7 +108,8 @@ export function gradeStudyEvidence(
 	if (
 		!isRecord(evidence) ||
 		!Object.entries(evidence).every(
-			([id, rows]) => known.has(id) && isArray(rows) && rows.every(isStudyCustodyEvidence),
+			([id, rows]) =>
+				known.has(id) && isArray(rows) && Array.from(rows).every(isStudyCustodyEvidence),
 		)
 	)
 		throw new StudyError('EVIDENCE', 'Invalid or foreign grading evidence')

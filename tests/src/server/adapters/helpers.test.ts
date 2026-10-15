@@ -4,14 +4,17 @@ import { createRecorder, requireValue } from '@orkestrel/test'
 import { createScratch } from '@orkestrel/test/server'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { StudyError } from '../../../../src/core/errors.js'
+import { isStudyError, StudyError } from '../../../../src/core/errors.js'
 import { buildStudyReference, gradeStudyEvidence } from '../../../../src/server/adapters/helpers.js'
 import {
 	buildStudyAdjudication,
+	buildStudyEvidenceRow,
+	buildStudySparseEvidence,
 	createStudyAttemptGrade,
 	createStudyRowGrade,
 	readStudyAdjudication,
 	retainStudyFixture,
+	STUDY_HOSTILE_REFERENCES,
 	STUDY_PREDICATE_RUBRIC,
 } from '../../../setupServer.js'
 import {
@@ -379,5 +382,107 @@ describe('buildStudyReference', () => {
 		expect(() =>
 			buildStudyReference({ ...target, attempt: undefined }, { file: 'attempt' }),
 		).toThrow(/not retained/)
+	})
+
+	it('refuses a row whose retained slot is absent and keeps later citations unshifted', () => {
+		const { lone, tail, interior } = buildStudySparseEvidence()
+		expect(buildStudyReference({ ...target, evidence: tail }, { file: 'evidence', row: 0 })).toBe(
+			'trials/r1-s1-a1/evidence.jsonl#1',
+		)
+		expect(
+			buildStudyReference({ ...target, evidence: interior }, { file: 'evidence', row: 2 }),
+		).toBe('trials/r1-s1-a1/evidence.jsonl#3')
+		const absent = [
+			[{ ...target, evidence: lone }, 0],
+			[{ ...target, evidence: tail }, 1],
+			[{ ...target, evidence: interior }, 1],
+		] as const
+		for (const [sparse, row] of absent)
+			expect(() => buildStudyReference(sparse, { file: 'evidence', row })).toThrow(
+				expect.objectContaining({
+					code: 'EVIDENCE',
+					message: expect.stringMatching(/does not exist/),
+				}),
+			)
+	})
+
+	it('keeps whole-file references valid without a row, including over empty evidence', () => {
+		const empty = { ...target, evidence: [] }
+		expect(buildStudyReference(empty, { file: 'evidence' })).toBe('trials/r1-s1-a1/evidence.jsonl')
+		expect(buildStudyReference(empty, { file: 'attempt' })).toBe('trials/r1-s1-a1/attempt.json')
+		expect(() => buildStudyReference(empty, { file: 'evidence', row: 0 })).toThrow(
+			/row that does not exist/,
+		)
+	})
+
+	it('refuses a reference that is not a record with a study refusal rather than a raw TypeError', () => {
+		for (const hostile of STUDY_HOSTILE_REFERENCES) {
+			const args = [target, hostile]
+			let caught: unknown
+			try {
+				Reflect.apply(buildStudyReference, undefined, args)
+			} catch (error) {
+				caught = error
+			}
+			expect(isStudyError(caught)).toBe(true)
+			expect(caught).toMatchObject({ code: 'EVIDENCE' })
+		}
+	})
+})
+
+describe('gradeStudyEvidence sparse evidence', () => {
+	const manifest = buildCompactCustodyManifest()
+	const [first, second] = manifest.schedule
+
+	it('refuses evidence with a hole at the tail, the interior, or a lone slot without renumbering', () => {
+		const { lone, tail, interior } = buildStudySparseEvidence()
+		const grade = createStudyRowGrade()
+		const inputs = [lone, tail, interior].map((sparse) =>
+			buildStudyAdjudication(undefined, undefined, { [requireValue(first).id]: sparse }),
+		)
+		for (const input of inputs)
+			expect(() => gradeStudyEvidence(input, grade)).toThrow(
+				expect.objectContaining({
+					code: 'EVIDENCE',
+					message: expect.stringMatching(/Invalid or foreign grading evidence/),
+				}),
+			)
+	})
+
+	it('still cites a valid dense row as #1 and accepts empty evidence', () => {
+		const denseInput = buildStudyAdjudication(undefined, undefined, {
+			[requireValue(first).id]: [buildStudyEvidenceRow('a')],
+			[requireValue(second).id]: [],
+		})
+		const emptyInput = buildStudyAdjudication(undefined, undefined, {
+			[requireValue(first).id]: [],
+		})
+		const dense = gradeStudyEvidence(denseInput, createStudyAttemptGrade())
+		expect(dense.find((judgment) => judgment.criterion === 'first-saved')?.references).toEqual([
+			'trials/r1-s1-a1/evidence.jsonl#1',
+		])
+		const empty = gradeStudyEvidence(emptyInput, createStudyRowGrade())
+		expect(empty.every((judgment) => judgment.verdict === 'unknown')).toBe(true)
+	})
+
+	it('refuses non-record references from a predicate with a study refusal', () => {
+		const base = buildStudyAdjudication()
+		for (const hostile of STUDY_HOSTILE_REFERENCES) {
+			const reading = {
+				verdict: 'unknown',
+				method: 'state',
+				reason: 'Hostile',
+				references: [hostile],
+			}
+			const args = [base, () => reading]
+			let caught: unknown
+			try {
+				Reflect.apply(gradeStudyEvidence, undefined, args)
+			} catch (error) {
+				caught = error
+			}
+			expect(isStudyError(caught)).toBe(true)
+			expect(caught).toMatchObject({ code: 'EVIDENCE' })
+		}
 	})
 })

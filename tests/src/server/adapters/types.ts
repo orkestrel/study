@@ -1,3 +1,12 @@
+import type { StudyEvidence } from '../../../../src/core/types.js'
+
+/** Holds evidence arrays with absent retained positions. */
+export interface StudySparseEvidence {
+	readonly lone: readonly StudyEvidence[]
+	readonly tail: readonly StudyEvidence[]
+	readonly interior: readonly StudyEvidence[]
+}
+
 /** Answers one fixture chat request from its exact bytes, or declines so the default answer applies. */
 export type StudyMCPAnswer = (path: string, body: string) => string | undefined
 
