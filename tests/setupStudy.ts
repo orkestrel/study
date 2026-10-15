@@ -4,14 +4,25 @@ import type {
 	StudyCriterion,
 	StudyDefinition,
 	StudyGrading,
+	StudyDriverInterface,
 	StudyJudgment,
 	StudyManifest,
+	StudyProduct,
 	StudyProfile,
 	StudyRubric,
 	StudyScenario,
+	StudySessionInterface,
+	StudySinkInterface,
+	StudyStoreInterface,
 	StudyTrial,
 } from '../src/core/types.js'
-import type { StudyMeterFixture } from './src/core/engines/types.js'
+import type {
+	StudyDriverFixture,
+	StudyDriverFixtureOptions,
+	StudyMeterFixture,
+	StudyStoreFixture,
+} from './src/core/engines/types.js'
+import { createRecorder } from '@orkestrel/test'
 import { StudyControl, StudyMeter, StudyScope } from '../src/core/engines/index.js'
 import { buildStudySchedule } from '../src/core/helpers.js'
 
@@ -197,6 +208,52 @@ export function createStudyMeterFixture(
 			control.close()
 		},
 	})
+}
+
+/** Creates a consumer-side driver whose sessions are fresh per open and whose calls are recorded.
+ * @param options - Optional goal execution and a promise that delays each open result.
+ * @returns The driver with open, execute, and close observations.
+ */
+export function createStudyDriverFixture(options: StudyDriverFixtureOptions = {}): StudyDriverFixture {
+	const opened = createRecorder<readonly [StudyTrial]>()
+	const executed = createRecorder<readonly [string]>()
+	const closed = createRecorder<readonly [string]>()
+	const driver: StudyDriverInterface = {
+		async open(trial): Promise<StudySessionInterface> {
+			opened.handler(trial)
+			if (options.opening !== undefined) await options.opening
+			return {
+				async execute(goal, context): Promise<StudyProduct> {
+					executed.handler(goal.id)
+					return options.execute === undefined
+						? { value: goal.id, partial: false }
+						: options.execute(goal, context)
+				},
+				async close(): Promise<void> {
+					closed.handler(trial.id)
+				},
+			}
+		},
+	}
+	return Object.freeze({ driver, opened, executed, closed })
+}
+
+/** Creates an in-memory custody consumer that records starts and terminal attempts.
+ * @returns The store with start and finish observations.
+ */
+export function createStudyStoreFixture(): StudyStoreFixture {
+	const started = createRecorder<readonly [StudyTrial]>()
+	const attempts = createRecorder<readonly [StudyAttempt]>()
+	const store: StudyStoreInterface = {
+		async start(trial): Promise<StudySinkInterface> {
+			started.handler(trial)
+			return { async append(): Promise<void> {} }
+		},
+		async finish(attempt): Promise<void> {
+			attempts.handler(attempt)
+		},
+	}
+	return Object.freeze({ store, started, attempts })
 }
 
 /**

@@ -3,6 +3,8 @@ import { createScratch } from '@orkestrel/test/server'
 import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { StudySeries } from '../../../../src/core/engines/index.js'
+import type { StudyProduct } from '../../../../src/core/types.js'
 import { StudyResults } from '../../../../src/server/stores/StudyResults.js'
 import { encodeStudyJSON } from '../../../../src/server/helpers.js'
 import { readStudyResult } from '../../../../src/server/stores/helpers.js'
@@ -11,6 +13,7 @@ import {
 	buildCompactCustodyManifest,
 	buildCustodyAttempt,
 	buildCustodyManifest,
+	createStudyDriverFixture,
 	STUDY_CUSTODY_MUTATIONS,
 } from '../../../setupStudy.js'
 
@@ -223,6 +226,97 @@ describe('StudyResults', () => {
 			await expect(
 				sink.append({ event: 'saved', goal: 'write', value: false }),
 			).rejects.toMatchObject({ code: 'CUSTODY' })
+			await expect(results.seal()).rejects.toMatchObject({ code: 'CUSTODY' })
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('seals fulfilled capacity attempts when a driver product exceeds the series output limit', async () => {
+		const scratch = createScratch()
+		try {
+			const manifest = {
+				...buildCompactCustodyManifest(),
+				bounds: {
+					request: { duration: 1000, calls: 1, tokens: 1000, bytes: 1024 },
+					goal: { duration: 2000, calls: 2, tokens: 2000, bytes: 4096 },
+					trial: { duration: 4000, calls: 4, tokens: 4000, bytes: 8192 },
+					series: { duration: 32000, calls: 32, tokens: 32000, bytes: 16384 },
+				},
+			}
+			const directory = join(scratch.path, 'result')
+			const results = new StudyResults({ directory, manifest })
+			await results.create()
+			const oversized = 'x'.repeat(manifest.bounds.series.bytes + 1)
+			const driver = createStudyDriverFixture({
+				execute: async (): Promise<StudyProduct> => ({ value: oversized, partial: false }),
+			})
+			const attempts = await new StudySeries({
+				manifest,
+				driver: driver.driver,
+				store: results,
+				signal: new AbortController().signal,
+			}).execute()
+			expect(attempts).toHaveLength(manifest.schedule.length)
+			const first = attempts[0]
+			expect(first?.failure?.cause).toBe('capacity')
+			expect(first?.observations[0]?.product).toBeUndefined()
+			expect(first?.observations[0]?.failure?.cause).toBe('capacity')
+			expect(first?.observations[1]?.product).toBeUndefined()
+			expect(first?.observations[1]?.failure?.message).toMatch(/^Goal unexecuted/)
+			for (const attempt of attempts.slice(1))
+				expect(
+					attempt.observations.every(
+						(observation) =>
+							observation.product === undefined &&
+							observation.failure?.message.startsWith('Goal unexecuted') === true,
+					),
+				).toBe(true)
+			const seal = await results.seal()
+			const reading = await readStudyResult(directory)
+			expect(reading.status).toBe('sealed')
+			if (reading.status !== 'sealed') throw new Error('Missing seal')
+			expect(reading.seal.id).toBe(seal.id)
+			expect(reading.attempts.map((attempt) => attempt.trial.id)).toEqual(
+				manifest.schedule.map((trial) => trial.id),
+			)
+			expect(reading.attempts[0]?.observations[0]?.product).toBeUndefined()
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('forwards a genuine terminal custody capacity rejection through the series and stays unsealed', async () => {
+		const scratch = createScratch()
+		try {
+			const manifest = {
+				...buildCompactCustodyManifest(),
+				bounds: {
+					request: { duration: 1000, calls: 1, tokens: 1000, bytes: 64 },
+					goal: { duration: 2000, calls: 2, tokens: 2000, bytes: 1200 },
+					trial: { duration: 4000, calls: 4, tokens: 4000, bytes: 2300 },
+					series: { duration: 32000, calls: 32, tokens: 32000, bytes: 2300 },
+				},
+			}
+			const directory = join(scratch.path, 'result')
+			const results = new StudyResults({ directory, manifest })
+			await results.create()
+			const driver = createStudyDriverFixture({
+				execute: async (): Promise<StudyProduct> => ({ value: 'x'.repeat(1100), partial: false }),
+			})
+			await expect(
+				new StudySeries({
+					manifest,
+					driver: driver.driver,
+					store: results,
+					signal: new AbortController().signal,
+				}).execute(),
+			).rejects.toMatchObject({ code: 'CUSTODY' })
+			const trial = manifest.schedule[0]
+			if (trial === undefined) throw new Error('Missing trial')
+			expect(scratch.has(`result/execution/trials/${trial.id}/attempt.json`)).toBe(false)
+			expect(scratch.has('result/seal.json')).toBe(false)
+			expect((await readStudyResult(directory)).status).toBe('interrupted')
 			await expect(results.seal()).rejects.toMatchObject({ code: 'CUSTODY' })
 		} finally {
 			scratch.destroy()

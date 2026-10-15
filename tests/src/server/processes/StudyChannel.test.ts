@@ -1,3 +1,4 @@
+import { createRecorder } from '@orkestrel/test'
 import { createScratch } from '@orkestrel/test/server'
 import { describe, expect, it } from 'vitest'
 import { StudyChannel } from '../../../../src/server/processes/StudyChannel.js'
@@ -80,4 +81,57 @@ describe('StudyChannel', () => {
 			scratch.destroy()
 		}
 	})
+
+	it('keeps its selected endpoint and handlers after the caller replaces the options', async () => {
+		const firstScratch = createScratch()
+		const secondScratch = createScratch()
+		const first = createStudyPeer(
+			firstScratch,
+			`process.on('message', frame => {
+				if (frame.operation !== 'goal') return
+				process.send({version:1,id:1,operation:'admit',value:{}})
+				process.send({version:1,id:frame.id,operation:'reply',value:'original'})
+			})`,
+		)
+		const second = createStudyPeer(
+			secondScratch,
+			`process.on('message', frame => {
+				if (frame.operation !== 'goal') return
+				process.send({version:1,id:1,operation:'admit',value:{}})
+				process.send({version:1,id:frame.id,operation:'reply',value:'replacement'})
+			})`,
+		)
+		const original = createRecorder<readonly [string]>()
+		const replacement = createRecorder<readonly [string]>()
+		const options = {
+			endpoint: first.child,
+			handle: async (operation: string) => {
+				original.handler(operation)
+				return true
+			},
+			abort: () => undefined,
+		}
+		const channel = new StudyChannel(options)
+		try {
+			options.endpoint = second.child
+			options.handle = async (operation: string) => {
+				replacement.handler(operation)
+				return true
+			}
+			const result = await new StudyDeadline({ duration: 2000, label: STUDY_PROCESS_LABEL }).wait(
+				channel.request('goal', { public: 'input' }),
+			)
+			expect(result).toBe('original')
+			expect(original.calls).toEqual([['admit']])
+			expect(replacement.count).toBe(0)
+			expect(first.child.listenerCount('message')).toBe(1)
+			channel.close()
+			expect(first.child.listenerCount('message')).toBe(0)
+		} finally {
+			channel.close()
+			await Promise.allSettled([first.close(), second.close()])
+			firstScratch.destroy()
+			secondScratch.destroy()
+		}
+	}, 15000)
 })

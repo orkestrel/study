@@ -3,8 +3,81 @@ import {
 	buildCompactCustodyManifest,
 	buildCustodyAttempt,
 	buildCustodyManifest,
+	createStudyDriverFixture,
 	createStudyMeterFixture,
+	createStudyStoreFixture,
 } from './setupStudy.js'
+
+describe('study boundary fixtures', () => {
+	it('opens a fresh session per call and records every driver boundary call', async () => {
+		const fixture = createStudyDriverFixture()
+		const manifest = buildCompactCustodyManifest()
+		const trial = manifest.schedule[0]
+		const goal = manifest.scenarios[0]?.goals[0]
+		if (trial === undefined || goal === undefined) throw new Error('Missing fixture declaration')
+		const signal = new AbortController().signal
+		const first = await fixture.driver.open(trial, signal)
+		const second = await fixture.driver.open(trial, signal)
+		expect(first).not.toBe(second)
+		expect(fixture.opened.calls).toEqual([[trial], [trial]])
+		const meter = createStudyMeterFixture()
+		try {
+			const evidence = await createStudyStoreFixture().store.start(trial)
+			const context = { signal, meter: meter.meter, evidence }
+			expect(await first.execute(goal, context)).toEqual({ value: goal.id, partial: false })
+		} finally {
+			meter.close()
+		}
+		await first.close()
+		expect(fixture.executed.calls).toEqual([[goal.id]])
+		expect(fixture.closed.calls).toEqual([[trial.id]])
+	})
+	it('awaits the supplied opening promise and runs the supplied execution', async () => {
+		const resolvers = Promise.withResolvers<void>()
+		const fixture = createStudyDriverFixture({
+			opening: resolvers.promise,
+			execute: async () => ({ value: 'custom', partial: true }),
+		})
+		const manifest = buildCompactCustodyManifest()
+		const trial = manifest.schedule[0]
+		const goal = manifest.scenarios[0]?.goals[0]
+		if (trial === undefined || goal === undefined) throw new Error('Missing fixture declaration')
+		const signal = new AbortController().signal
+		const opening = fixture.driver.open(trial, signal)
+		let settled = false
+		void opening.then(() => {
+			settled = true
+		})
+		await Promise.resolve()
+		expect(fixture.opened.count).toBe(1)
+		expect(settled).toBe(false)
+		resolvers.resolve()
+		const session = await opening
+		const meter = createStudyMeterFixture()
+		try {
+			const evidence = await createStudyStoreFixture().store.start(trial)
+			expect(await session.execute(goal, { signal, meter: meter.meter, evidence })).toEqual({
+				value: 'custom',
+				partial: true,
+			})
+		} finally {
+			meter.close()
+		}
+		expect(fixture.executed.calls).toEqual([[goal.id]])
+	})
+	it('records started trials and finished attempts without replicating custody', async () => {
+		const fixture = createStudyStoreFixture()
+		const manifest = buildCompactCustodyManifest()
+		const trial = manifest.schedule[0]
+		if (trial === undefined) throw new Error('Missing fixture trial')
+		const sink = await fixture.store.start(trial)
+		await expect(sink.append({ event: 'saved', goal: 'write', value: 1 })).resolves.toBeUndefined()
+		const attempt = buildCustodyAttempt(manifest, trial)
+		await fixture.store.finish(attempt)
+		expect(fixture.started.calls).toEqual([[trial]])
+		expect(fixture.attempts.calls).toEqual([[attempt]])
+	})
+})
 
 describe('study meter fixture lifecycle', () => {
 	it('owns its primitive lifetimes and closes admission without cancelling completed work', () => {
