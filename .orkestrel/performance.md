@@ -8,8 +8,12 @@ moves reusable observation and transport accounting out of Agent's consumer. Run
 and shared grading/settlement are integrated at `717dc7b` and `dbce00b`; instrumentation is
 integrated at `00269ee` after independent checks (104 core, 233 server and 8 guide tests).
 Its first-failure mutation produced 3 failures and restored to 7 passing cases. Integrated
-verification and the Agent consumer migration remain underway. This is implementation
-progress, not a measured speedup.
+verification passed core/server/bin typechecks, scoped format/lint, 118 core tests, 256
+server tests, 23 setup tests, 8 guide tests and an isolated build at `c28acbc`. The real
+MCP consumption proof is integrated at `2359ac5`: changed tool results and a remote refusal
+traverse the captured Agent worker with their accounting intact. Its independent server gate
+passed 257 tests; setup passed 28. Agent's consumer migration remains under verification.
+This is implementation progress, not a measured speedup.
 
 The rolling Compaction attempt closed 96/96, but qualification rejected 8 empty recaps among
 12. The verified retained reading attributes 676819.806 ms to Agent prefill: 25.29% of Agent
@@ -18,6 +22,33 @@ of summary request wall and 17.71% of attempt wall. Agent and summary loading to
 6487.786 ms, under 1% of attempt wall. These observations prioritize prompt-processing research
 over warmup for this run; they do not establish an optimization or qualify a quality baseline.
 The empty outputs affect the cost population, and historical host load is not fully known.
+
+The retained context reader joins all 132 request estimates by goal, canonical request ID,
+ordinal and revision, then reconciles the disjoint components. Message content accounts for
+629105 of 653788 Agent estimate units (96.22%) and 123259 of 125790 summary estimate units
+(97.99%). Provider prompt tokens remain separate: 680373 and 126509 respectively. Agent
+quarter content shares range from 95.10% to 96.79%, and summary shares from 96.86% to 98.34%.
+
+The origin reader further partitions message content by the capture's recorded positional
+annotations. Agent history accounts for 476575 units (75.75% of its content), arrivals for
+78990 (12.56%), and prior recaps for 43029 (6.84%). Summary history accounts for 103490
+units (83.96%), arrivals for 14704 (11.93%), and prior recaps for 3960 (3.21%). Instructions,
+input and tool-result text account for the remainder. No unknown or mixed origin was recorded.
+This partition reconciles to message content alone; it is not another additive dimension of
+request size and does not independently prove the labels from the message text.
+
+All 132 request joins and the fixed quarter groups reconcile to the earlier component
+projection. Changed custody, missing or duplicate context, missing provenance, duplicate
+message identity, changed request identity and changed recap identity controls reject with
+their expected errors. Strict typechecking and execution passed. See Agent
+`tmp/units/rolling-origin-correction-report.md` and `rolling-origin-read-projection-v2.json`.
+The readings identify history as a context-reduction research target, not a measured saving.
+
+Changed-custody, missing-component and malformed-component controls were rejected. See Agent
+`tmp/units/rolling-context-read-report.md` and `rolling-context-read-projection-v3.json`.
+These measurements describe the rejected run. They establish neither causal wall savings
+nor task quality, and do not authorize replay of Records. The candidate gates and paired
+acceptance threshold in this protocol still apply.
 
 The metadata-only verifier binds the reader, seal, attempt and evidence digests, checks every
 Agent request body and snapshot at the fixed checkpoint positions, and passes changed-custody
