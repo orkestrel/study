@@ -1,3 +1,48 @@
+# Actual-capacity Compaction run on 2026-10-15
+
+The user selected unchanged estimation with prediction misses recorded as diagnostics. Root
+accepted Agent e390d2e and Ollama f2a94d6 after independent Astra/Opus review, prescribed fixes,
+mutation proof and final gates. Actual room/output failures, native refusals, missing usage,
+operational failures and exhausted bounds still stop at the first failure. No retries or rescue.
+Estimator, affine coefficients, 512-token cushion, compaction admission and room remain unchanged.
+
+Only Compaction is running. Retain candidate-3 Records at 96/96; never rerun or replay it.
+Old attempts and their verdicts remain immutable. This successor changes the failure policy
+and opts Compaction into native truncate:false/shift:false; it is disclosed development evidence.
+
+Project: Agent/tmp/studies/compaction-room-project. Output: Agent/tmp/studies/compaction-room.
+The immutable launch.json binds fingerprint
+d25f68bbdf3b124a3b3de83466fc7ee6a93d2fae575d4d7a2c7a60307b717669 and absolute deadline
+2026-10-15T13:50:20.202Z (09:50 EDT). Trial/series allowance is 8064424 ms, with 60000 ms
+launcher cleanup. The launcher uses the remaining absolute allowance; never reset or extend it.
+One attempt, 96 goals, zero retries. Request duration remains 360000 ms, goal duration 900000 ms.
+
+Root launch: node tmp/units/compaction-room-launch.ts, already executed; do not execute again.
+Canonical child PID 65956. Execution journal/errors: Agent/tmp/codex/compaction-room-series.jsonl
+and .err. The journal writes its result at termination; live evidence is
+execution/trials/r1-s1-a1/evidence.jsonl under the output. Event observer PID 45800 writes
+Agent/tmp/units/compaction-room-watch.jsonl and exits at terminal state or its bound. It never
+controls execution. Dedicated daemon PID 65196 remains on 11435 under its original 6-hour cap
+ending around 16:57 UTC. User daemon 11434 is untouched.
+
+Do not build, install, format or edit captured source/runtime while this execution is live.
+Temporary readers and cloud labeling may proceed independently. Root acceptance and all gate,
+review, live-proof and instrument hashes are in Agent/tmp/units/context-repair-acceptance.json.
+The stage, freeze and launch wrappers checked the full captured runtime, unchanged workload,
+rubrics and historical Records custody before launch. Retain these artifacts through grading.
+
+Qualification requires all goals complete, known positive prompt usage and unique canonical/wire
+joins, actual room/output compliance, and exercised compaction pressure with nonempty summary
+and successful smaller summary-bearing requests. Without pressure, report inconclusive.
+Report positive prediction residuals separately; they cannot reject this successor. Near-room
+coverage and phase/component costs are descriptive. No quality or speed result is established yet.
+
+Parallel preparation: tmp/units/compaction-room-reading* owns the terminal qualification/cost
+reader; tmp/units/retained-label-population* owns bounded Sol labeling of retained Records.
+Both require root acceptance. The accepted 096 pilot is already complete and must never be
+relabeled. No labels have been imported. The following sections are historical, superseded
+where they describe a stopped daemon, adaptive estimation, or a ban on this authorized successor.
+
 # Compaction terminal outcome on 2026-10-15
 
 Agent's `usage.md` records the completed official Ollama API review and prospective admission
