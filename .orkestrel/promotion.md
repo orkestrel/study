@@ -256,3 +256,16 @@ publish the owning Agent/Ollama additions before Study can depend on them public
 The Compaction run subsequently closed 96/96 without an operational failure, but its
 qualification rejected 8 empty recaps among 12 completions. Agent `7067bc1` records the
 sealed outcome. Promotion changes neither that result nor the nonempty-fold criterion.
+
+Runtime selection is integrated at `717dc7b`. Settlement and grading traversal are integrated
+at `dbce00b`, including explicit active-role attribution and the canonical dependency fixture.
+The repaired settlement unit passed independent core/server typechecks, scoped format/lint,
+13 focused core tests, 24 focused server tests, 72 core project tests, 162 server project tests,
+and 8 guide tests. Integration is not campaign acceptance; consumer migration and the final
+audit remain required.
+
+Opus instrumentation returned after 1763940 ms, exit 0, uncapped. Its CLI lacked a shell,
+so root does not accept its proof claims. A bounded Sonnet successor uses the owning current
+Agent/Ollama public types, real runtime proofs and first-failure retention for arbitrary thrown
+values. Its worktree alone now resolves the staged development dependencies. Native verification
+follows before integration. The frozen series installation remains unchanged.

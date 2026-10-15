@@ -1,5 +1,35 @@
 # Records, Agent, and Study performance
 
+## Current implementation and retained reading
+
+Observation is implemented: Agent request components, classifier/cache readings, Ollama
+load/prefill/decode timing, request correlation and selected exact inputs. The Study promotion
+moves reusable observation and transport accounting out of Agent's consumer. Runtime selection
+and shared grading/settlement are integrated at `717dc7b` and `dbce00b`; instrumentation is
+under independent verification. This is implementation progress, not a measured speedup.
+
+The rolling Compaction attempt closed 96/96, but qualification rejected 8 empty recaps among
+12. The verified retained reading attributes 676819.806 ms to Agent prefill: 25.29% of Agent
+request wall and 19.92% of the 3398495 ms attempt. Summary prefill is 601988.864 ms: 85.05%
+of summary request wall and 17.71% of attempt wall. Agent and summary loading together took
+6487.786 ms, under 1% of attempt wall. These observations prioritize prompt-processing research
+over warmup for this run; they do not establish an optimization or qualify a quality baseline.
+The empty outputs affect the cost population, and historical host load is not fully known.
+
+The metadata-only verifier binds the reader, seal, attempt and evidence digests, checks every
+Agent request body and snapshot at the fixed checkpoint positions, and passes changed-custody
+and missing-timing controls. All 12 positions have their captured inputs. Evidence lives in
+Agent `tmp/units/rolling-performance-read-v5-report.md` and its projection. Input presence
+does not admit model replay before the qualification prerequisite. The sealed identity is
+`3bf2316f53f28af8a49d2894b93d24e2e35804176091892ab80ea485c5719426`.
+
+The next quality repair rejects blank recap content before history replacement, retaining
+the attempted text and cost with a distinct `content` failure. It changes no prompt or budget
+and adds no retry. The completed result remains rejected. Records remains sealed and labeled;
+no replay is selected. The paired speed and quality thresholds below remain unchanged.
+
+## Retained protocol and prior readings
+
 The user limited the successor execution to Compaction on 2026-10-15. Retain candidate-3
 Records at its original build and seal; do not rerun it to collect checkpoints or timing fields.
 This instruction supersedes the Records checkpoint collection proposed later in this document.
