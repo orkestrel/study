@@ -1,3 +1,20 @@
+# Compaction terminal outcome on 2026-10-15
+
+Agent's `usage.md` records the completed official Ollama API review and prospective admission
+repair. Actual response counts are already collected; the failed upper-bound prediction is
+distinct from exceeding reserved prompt room. No runtime repair or successor launch follows
+from changing this interpretation. The old results retain their frozen verdicts.
+Sol synthetic labeling controls passed, and the full-history Records pilot completed; no labels
+have been imported and no population labeling has launched. The GPU daemon is stopped.
+
+The cushioned Compaction successor is rejected:24 complete goals, one attempted failure at
+goal25, and71 unexecuted. Prompt10738 exceeded cushioned projection10703 by35 while remaining
+below reserved room11776. Launcher exit1, uncapped971634ms. The frozen reader validated
+custody and preserved the failure. See Agent/.orkestrel/agent/qualification.md.
+The declared stop rule ends GPU execution. Records remains its original sealed96/96 result;
+no Records rerun or replay occurred. Retained-product grading and cost analysis may continue.
+The following protocol is historical; its deadline has elapsed and is not extended.
+
 # Cushioned Compaction decision on 2026-10-15
 
 Retain candidate-3 Records, 96/96 complete, without replay. The repaired provisional Compaction
