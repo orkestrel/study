@@ -5,7 +5,9 @@ import { extractTiming } from '@orkestrel/ollama'
 import { StudyError } from '../../../../src/core/errors.js'
 import { readStudyFailure } from '../../../../src/core/engines/helpers.js'
 import {
+	buildStudyOllamaModels,
 	buildStudyOllamaRaw,
+	buildStudyOllamaSettings,
 	buildStudyOllamaTiming,
 	readStudyOllamaDigest,
 	readStudyOllamaFailure,
@@ -17,7 +19,11 @@ import {
 	validateStudyOllamaInventory,
 	validateStudyOllamaRoles,
 } from '../../../../src/server/ollama/helpers.js'
-import { STUDY_OLLAMA_OPTIONS, STUDY_OLLAMA_ORIGIN } from '../../../setupStudy.js'
+import {
+	STUDY_OLLAMA_OPTIONS,
+	STUDY_OLLAMA_ORIGIN,
+	STUDY_OLLAMA_PROVIDER,
+} from '../../../setupStudy.js'
 import {
 	STUDY_OLLAMA_FAILURE_CASES,
 	STUDY_OLLAMA_NO_FAILURES,
@@ -49,6 +55,73 @@ const judgeRequest: StudyOllamaRequest = {
 	output: 1,
 	length: true,
 }
+
+describe('buildStudyOllamaModels', () => {
+	it('pins the model and the judge when both are declared', () => {
+		expect(buildStudyOllamaModels(STUDY_OLLAMA_PROVIDER)).toEqual({
+			model: { name: 'model', digest: 'a'.repeat(64) },
+			judge: { name: 'judge', digest: 'b'.repeat(64) },
+		})
+	})
+
+	it('pins the model alone when the provider declares no judge', () => {
+		const models = buildStudyOllamaModels({
+			...STUDY_OLLAMA_PROVIDER,
+			judge: undefined,
+			digest: { model: STUDY_OLLAMA_PROVIDER.digest.model, judge: undefined },
+		})
+		expect(models).toEqual({ model: { name: 'model', digest: 'a'.repeat(64) } })
+		expect(Object.keys(models)).toEqual(['model'])
+	})
+
+	it('pins no judge when its digest is missing', () => {
+		const models = buildStudyOllamaModels({
+			...STUDY_OLLAMA_PROVIDER,
+			digest: { model: STUDY_OLLAMA_PROVIDER.digest.model, judge: undefined },
+		})
+		expect(Object.keys(models)).toEqual(['model'])
+	})
+
+	it('pins no judge when its name is missing', () => {
+		expect(
+			Object.keys(buildStudyOllamaModels({ ...STUDY_OLLAMA_PROVIDER, judge: undefined })),
+		).toEqual(['model'])
+	})
+})
+
+describe('buildStudyOllamaSettings', () => {
+	it('adds both native fields as false for a strict policy', () => {
+		const settings = buildStudyOllamaSettings({ ...agentPolicy, strict: true })
+		expect(settings.truncate).toBe(false)
+		expect(settings.shift).toBe(false)
+		expect(Object.keys(settings)).toEqual(['model', 'options', 'think', 'truncate', 'shift'])
+	})
+
+	it('omits both native keys for a policy that is not strict', () => {
+		const settings = buildStudyOllamaSettings({ ...agentPolicy, strict: false })
+		expect('truncate' in settings).toBe(false)
+		expect('shift' in settings).toBe(false)
+		expect(Object.keys(settings)).toEqual(['model', 'options', 'think'])
+	})
+
+	it('keeps a false think flag and the policy model', () => {
+		const settings = buildStudyOllamaSettings({ ...agentPolicy, think: false })
+		expect(settings.think).toBe(false)
+		expect(settings.model).toBe(agentPolicy.model)
+		expect(buildStudyOllamaSettings({ ...agentPolicy, think: true }).think).toBe(true)
+	})
+
+	it('carries the options object by identity with its key order', () => {
+		const settings = buildStudyOllamaSettings(agentPolicy)
+		expect(settings.options).toBe(agentPolicy.options)
+		expect(Object.keys(requireValue(settings.options))).toEqual(Object.keys(STUDY_OLLAMA_OPTIONS))
+	})
+
+	it('projects no length allowance', () => {
+		expect('length' in buildStudyOllamaSettings({ ...agentPolicy, length: true })).toBe(false)
+		expect('length' in buildStudyOllamaSettings(judgePolicy)).toBe(false)
+	})
+})
 
 describe('readStudyOllamaFailure', () => {
 	it.each(STUDY_OLLAMA_FAILURE_CASES)('reads $name as $code', ({ value, status, code, reason }) => {

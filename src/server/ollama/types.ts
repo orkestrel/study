@@ -1,5 +1,5 @@
 import type { JSONValue } from '@orkestrel/contract'
-import type { OllamaTiming, extractTiming } from '@orkestrel/ollama'
+import type { OllamaOptions, OllamaTiming, extractTiming } from '@orkestrel/ollama'
 import type {
 	StudyContext,
 	StudyLimit,
@@ -35,6 +35,17 @@ export interface StudyOllamaPolicy {
 	readonly strict: boolean
 	readonly length: boolean
 }
+
+/**
+ * Holds the Ollama provider options one role's declared policy determines.
+ * @remarks
+ * `truncate` and `shift` are present, and `false`, only when the policy is strict; the policy's
+ * `length` allowance is transport-only and projects nothing.
+ */
+export type StudyOllamaSettings = Pick<
+	OllamaOptions,
+	'model' | 'think' | 'options' | 'truncate' | 'shift'
+>
 
 /** Pins one served model identity the inventory verifies. */
 export interface StudyOllamaModel {

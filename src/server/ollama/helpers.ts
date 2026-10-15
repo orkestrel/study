@@ -1,8 +1,10 @@
 import type { JSONValue } from '@orkestrel/contract'
 import type { OllamaTiming } from '@orkestrel/ollama'
-import type { StudyRole, StudyRoom } from '../../core/types.js'
+import type { StudyProvider, StudyRole, StudyRoom } from '../../core/types.js'
 import type {
+	StudyOllamaPolicy,
 	StudyOllamaRequest,
+	StudyOllamaSettings,
 	StudyOllamaTerminal,
 	StudyOllamaTransportOptions,
 } from './types.js'
@@ -16,6 +18,40 @@ import {
 	parseJSON,
 } from '@orkestrel/contract'
 import { StudyError } from '../../core/errors.js'
+
+/**
+ * Declares the pinned serving identities the Ollama transport verifies, keyed by the label their inventory evidence carries.
+ * @param provider - Declared serving identities
+ * @returns The model pin, plus the judge pin when the provider declares both the judge name and its digest
+ */
+export function buildStudyOllamaModels(
+	provider: StudyProvider,
+): StudyOllamaTransportOptions['models'] {
+	return {
+		model: { name: provider.model, digest: provider.digest.model },
+		...(provider.judge === undefined || provider.digest.judge === undefined
+			? {}
+			: { judge: { name: provider.judge, digest: provider.digest.judge } }),
+	}
+}
+
+/**
+ * Builds the provider options one role's declared wire policy determines.
+ * @remarks
+ * The policy's `options` object keeps its identity and key order. A strict policy adds `truncate`
+ * and `shift` as `false`; any other policy omits both keys. The `length` allowance is read by the
+ * transport and projects nothing.
+ * @param policy - The role's declared wire policy
+ * @returns The model, think flag, options object, and the strict native fields when declared
+ */
+export function buildStudyOllamaSettings(policy: StudyOllamaPolicy): StudyOllamaSettings {
+	return {
+		model: policy.model,
+		options: policy.options,
+		think: policy.think,
+		...(policy.strict ? { truncate: false, shift: false } : {}),
+	}
+}
 
 /**
  * Validates declared role policies against the pinned inventory before any dispatch.

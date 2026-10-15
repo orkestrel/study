@@ -8,12 +8,27 @@ import {
 	buildStudyOperationAttempts,
 	buildStudyProfile,
 	buildStudySettingsProfile,
+	buildOllamaReplies,
+	buildStudyAgentOrigins,
+	createStudyAgentSummary,
+	createStudyAgentTrace,
 	createStudyDriverFixture,
 	createStudyMeterFixture,
+	buildStudyScriptResponse,
+	createStudyScriptFixture,
+	createStudyScriptMeter,
+	createStudySinkFixture,
 	createStudyStoreFixture,
 	importStudyErrorCopy,
+	readOllamaMessages,
 	STUDY_EXECUTION_CASES,
+	STUDY_OLLAMA_PROVIDER,
 	STUDY_PROFILE_SETTINGS,
+	STUDY_SCRIPT_CALL,
+	STUDY_SCRIPT_INVALID_RESPONSES,
+	STUDY_SCRIPT_MANY_CALLS,
+	STUDY_SCRIPT_VALID_RESPONSES,
+	STUDY_SUMMARY_MESSAGES,
 } from './setupStudy.js'
 import { StudyError } from '../src/core/errors.js'
 
@@ -227,5 +242,147 @@ describe('study declaration fixtures', () => {
 			expect(profile.settings).toBe(settings)
 			expect({ ...profile, settings: undefined }).toEqual(base)
 		}
+	})
+})
+
+describe('study agent trace fixtures', () => {
+	const row = { event: 'lookup', goal: 'write', value: { id: 'order-1' } }
+
+	it('records accepted rows in order and runs its hook before each append', async () => {
+		const seen: string[] = []
+		const fixture = createStudySinkFixture({ during: () => seen.push('hook') })
+		await fixture.sink.append(row)
+		await fixture.sink.append({ ...row, event: 'summary' })
+		expect(fixture.rows.map(({ event }) => event)).toEqual(['lookup', 'summary'])
+		expect(seen).toEqual(['hook', 'hook'])
+	})
+
+	it('refuses exactly the named row with the supplied error and keeps the others', async () => {
+		const refusal = new Error('Custody refused')
+		const fixture = createStudySinkFixture({ refuse: { error: refusal, row: 1 } })
+		await fixture.sink.append(row)
+		await expect(fixture.sink.append({ ...row, event: 'summary' })).rejects.toBe(refusal)
+		await fixture.sink.append({ ...row, event: 'arrival' })
+		expect(fixture.rows.map(({ event }) => event)).toEqual(['lookup', 'arrival'])
+	})
+
+	it('builds a trace over a recorded latch that refuses with the supplied value', () => {
+		const free = createStudyAgentTrace(true)
+		free.latch.check()
+		expect(free.latch.checks.count).toBe(1)
+		expect(free.trace.goal).toBe(undefined)
+		const failure = new Error('Latched')
+		const refused = createStudyAgentTrace(false, { error: failure })
+		expect(() => refused.latch.check()).toThrow(failure)
+		expect(refused.latch.checks.count).toBe(1)
+	})
+
+	it('builds a summary whose real provider answers the queued wire reply and whose signal defaults live', async () => {
+		const fixture = createStudyAgentSummary({
+			replies: buildOllamaReplies('Queued recap'),
+			observe: false,
+			limit: 1000,
+		})
+		fixture.trace.start('write')
+		await expect(fixture.summary.summarize(STUDY_SUMMARY_MESSAGES, undefined)).resolves.toBe(
+			'Queued recap',
+		)
+		expect(fixture.wire.requests.map(({ path }) => path)).toEqual(['/api/chat'])
+		expect(fixture.latch.checks.count).toBe(2)
+	})
+
+	it('joins every message to its own id and reads wire messages back in order', () => {
+		expect(buildStudyAgentOrigins(STUDY_SUMMARY_MESSAGES)).toEqual([
+			{ origin: 'history', source: 'h1' },
+			{ origin: 'history', source: 'h2' },
+		])
+		const body = JSON.stringify({
+			messages: [
+				{ role: 'user', content: 'One' },
+				{ role: 'assistant', content: 'Two' },
+			],
+		})
+		expect(readOllamaMessages(body)).toEqual([
+			{ role: 'user', content: 'One' },
+			{ role: 'assistant', content: 'Two' },
+		])
+		expect(() => readOllamaMessages('{"messages":[{"role":"user"}]}')).toThrow(
+			'Invalid chat message',
+		)
+		expect(() => readOllamaMessages('{}')).toThrow('Invalid chat request')
+	})
+})
+
+describe('study script fixtures', () => {
+	it('builds a complete empty response and applies only the supplied changes', () => {
+		expect(buildStudyScriptResponse()).toEqual({
+			content: '',
+			calls: [],
+			consume: undefined,
+			cancel: undefined,
+			tokens: undefined,
+			bytes: undefined,
+		})
+		expect(buildStudyScriptResponse({ content: 'done', cancel: true })).toMatchObject({
+			content: 'done',
+			cancel: true,
+			calls: [],
+		})
+	})
+
+	it('supplies disjoint valid and invalid response populations and a call population beyond any consumer bound', () => {
+		expect(STUDY_SCRIPT_VALID_RESPONSES.length).toBeGreaterThan(0)
+		expect(STUDY_SCRIPT_INVALID_RESPONSES.length).toBeGreaterThan(0)
+		for (const response of STUDY_SCRIPT_VALID_RESPONSES)
+			expect(STUDY_SCRIPT_INVALID_RESPONSES).not.toContain(response)
+		expect(STUDY_SCRIPT_MANY_CALLS.every((call) => call === STUDY_SCRIPT_CALL)).toBe(true)
+		expect(STUDY_SCRIPT_MANY_CALLS.length).toBeGreaterThan(8)
+	})
+
+	it('builds a plan over the real meter whose sink records rows and whose workload is separate from the meter', async () => {
+		const meter = createStudyScriptMeter(500, 50)
+		try {
+			const fixture = createStudyScriptFixture(meter, [buildStudyScriptResponse()])
+			expect(fixture.plan.goal).toBe('script')
+			expect(fixture.plan.responses).toHaveLength(1)
+			expect(fixture.plan.workload).toBe(fixture.workload)
+			expect(fixture.workload.signal).not.toBe(meter.control.signal)
+			await fixture.plan.context.evidence.append({ event: 'probe', goal: 'script', value: 1 })
+			expect(fixture.rows.calls).toEqual([[{ event: 'probe', goal: 'script', value: 1 }]])
+			const ticket = await fixture.plan.context.meter.admit({
+				role: 'agent',
+				tokens: 50,
+				bytes: 500,
+			})
+			expect(ticket.settled).toBe(false)
+			ticket.finish({ role: 'agent', calls: 1, tokens: 50, bytes: 500, duration: 0 })
+			expect(ticket.settled).toBe(true)
+		} finally {
+			meter.close()
+		}
+	})
+
+	it('sizes every enclosing scope for the requested number of full-size requests', async () => {
+		const meter = createStudyScriptMeter(500, 50, 2)
+		try {
+			const first = await meter.meter.admit({ role: 'agent', tokens: 1, bytes: 500 })
+			const second = await meter.meter.admit({ role: 'agent', tokens: 1, bytes: 500 })
+			first.finish({ role: 'agent', calls: 1, tokens: 1, bytes: 500, duration: 0 })
+			second.finish({ role: 'agent', calls: 1, tokens: 1, bytes: 500, duration: 0 })
+			// The two settled requests fill the scope allowance, so a third reservation is refused.
+			expect(() => meter.meter.admit({ role: 'agent', tokens: 1, bytes: 500 })).toThrow(
+				'cannot admit',
+			)
+		} finally {
+			meter.close()
+		}
+	})
+
+	it('pins the declared serving identities of the Ollama provider fixture', () => {
+		expect(STUDY_OLLAMA_PROVIDER).toMatchObject({
+			model: 'model',
+			judge: 'judge',
+			digest: { model: 'a'.repeat(64), judge: 'b'.repeat(64) },
+		})
 	})
 })

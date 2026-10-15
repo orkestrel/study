@@ -24,8 +24,26 @@ await new GuideCommand({
 	const { createScratch } = await import('@orkestrel/test/server')
 	const { join } = await import('node:path')
 	const { writeFile } = await import('node:fs/promises')
-	const { buildCustodyManifest, buildCustodyAttempt, buildStudyRubric } =
-		await import('./setupStudy.js')
+	const {
+		STUDY_AGENT_MESSAGES,
+		STUDY_AGENT_PROJECTION,
+		STUDY_OLLAMA_OPTIONS,
+		STUDY_OLLAMA_PROVIDER,
+		STUDY_SCRIPT_MANY_CALLS,
+		STUDY_SCRIPT_MESSAGES,
+		STUDY_SUMMARY_MESSAGES,
+		buildCustodyManifest,
+		buildCustodyAttempt,
+		buildOllamaReplies,
+		buildStudyRubric,
+		buildStudyScriptResponse,
+		createStudyAgentSummary,
+		createStudyAgentTrace,
+		createStudyScriptFixture,
+		createStudyScriptMeter,
+		createStudySinkFixture,
+		readOllamaMessages,
+	} = await import('./setupStudy.js')
 	const { retainStudyFixture, buildCustodyGrading } = await import('./setupServer.js')
 	const { realpathSync } = await import('node:fs')
 
@@ -140,6 +158,143 @@ await new GuideCommand({
 			out: undefined,
 			expected: undefined,
 		})
+	})
+
+	it('executes the Agent helper examples against their claimed values', () => {
+		const { buildStudyAgentReadings, isStudyAgentResponse, readStudyAgentMessages } = server
+		expect(readStudyAgentMessages([{ id: 'm1', role: 'user', content: 'Hi' }])).toEqual([
+			{ role: 'user', content: 'Hi' },
+		])
+		expect(readStudyAgentMessages(STUDY_SCRIPT_MESSAGES)).toEqual([
+			{ role: 'user', content: 'Count the orders' },
+			{ role: 'tool', content: 'actual-result', call: 'actual-call' },
+		])
+		expect(() => readStudyAgentMessages('none')).toThrow(core.StudyError)
+		expect(isStudyAgentResponse({ content: 'done', calls: [] })).toBe(true)
+		expect(isStudyAgentResponse({ content: '', calls: STUDY_SCRIPT_MANY_CALLS })).toBe(true)
+		expect(isStudyAgentResponse({ content: 'done', calls: [], extra: true })).toBe(false)
+		expect(buildStudyAgentReadings({})).toBeNull()
+		expect(
+			buildStudyAgentReadings({
+				readings: [
+					{ key: 'a', phase: 'ask', outcome: 'ok', duration: 3 },
+					{ key: 'b', phase: 'ask', outcome: 'ok' },
+					{ key: 'c' },
+				],
+			}),
+		).toEqual([
+			{ key: 'a', phase: 'ask', outcome: 'ok', duration: 3 },
+			{ key: 'b', phase: 'ask', outcome: 'ok', duration: null },
+		])
+	})
+
+	it('pins Ollama models and projects a role policy onto provider options', () => {
+		const { buildStudyOllamaModels, buildStudyOllamaSettings } = server
+		const policy = {
+			model: 'model',
+			options: STUDY_OLLAMA_OPTIONS,
+			think: false,
+			strict: true,
+			length: false,
+		}
+		expect(buildStudyOllamaModels(STUDY_OLLAMA_PROVIDER)).toEqual({
+			model: { name: 'model', digest: 'a'.repeat(64) },
+			judge: { name: 'judge', digest: 'b'.repeat(64) },
+		})
+		const unjudged = {
+			...STUDY_OLLAMA_PROVIDER,
+			digest: { model: 'a'.repeat(64), judge: undefined },
+		}
+		expect(Object.keys(buildStudyOllamaModels(unjudged))).toEqual(['model'])
+		expect(buildStudyOllamaSettings(policy)).toEqual({
+			model: 'model',
+			options: STUDY_OLLAMA_OPTIONS,
+			think: false,
+			truncate: false,
+			shift: false,
+		})
+		expect(buildStudyOllamaSettings(policy).options).toBe(STUDY_OLLAMA_OPTIONS)
+		expect(Object.keys(buildStudyOllamaSettings({ ...policy, strict: false }))).toEqual([
+			'model',
+			'options',
+			'think',
+		])
+	})
+
+	it('retains a trace goal rows without observation and ends the goal on flush', async () => {
+		const { trace } = createStudyAgentTrace(false)
+		const sink = createStudySinkFixture()
+		trace.append('note', 'dropped')
+		trace.start('count')
+		trace.record({ estimate: 1, projected: undefined }, { messages: STUDY_AGENT_MESSAGES })
+		trace.append('note', 'kept')
+		const active = trace.goal // 'count'
+		await trace.flush(sink.sink)
+		expect(active).toBe('count')
+		expect(trace.goal).toBeUndefined()
+		expect(sink.rows).toEqual([{ event: 'note', goal: 'count', value: 'kept' }])
+		const refusing = createStudySinkFixture({ refuse: { error: new Error('Full'), row: 0 } })
+		trace.start('again')
+		trace.append('note', 'lost')
+		await expect(trace.flush(refusing.sink)).rejects.toThrow('Full')
+		expect(trace.goal).toBeUndefined()
+	})
+
+	it('refuses a summary projection that reaches the limit before any request and sends the canonical array below it', async () => {
+		const options = { replies: buildOllamaReplies('Recap'), observe: false }
+		const refused = createStudyAgentSummary({ ...options, limit: STUDY_AGENT_PROJECTION })
+		refused.trace.start('write')
+		await expect(
+			refused.summary.summarize(STUDY_SUMMARY_MESSAGES, undefined),
+		).rejects.toMatchObject({ code: 'CAPACITY' })
+		expect(refused.wire.requests).toEqual([])
+		const admitted = createStudyAgentSummary({ ...options, limit: STUDY_AGENT_PROJECTION + 1 })
+		admitted.trace.start('write')
+		await expect(admitted.summary.summarize(STUDY_SUMMARY_MESSAGES, undefined)).resolves.toBe(
+			'Recap',
+		)
+		expect(readOllamaMessages(admitted.wire.requests[0]?.body ?? '').slice(-3)).toEqual([
+			{ role: 'user', content: 'First arrival' },
+			{ role: 'assistant', content: 'First answer' },
+			{ role: 'user', content: 'Fold the conversation.' },
+		])
+		const idle = createStudyAgentSummary({ ...options, limit: STUDY_AGENT_PROJECTION + 1 })
+		await expect(idle.summary.summarize(STUDY_SUMMARY_MESSAGES, undefined)).rejects.toMatchObject({
+			code: 'FAULT',
+		})
+		const blank = createStudyAgentSummary({
+			replies: buildOllamaReplies('  '),
+			observe: false,
+			limit: STUDY_AGENT_PROJECTION + 1,
+		})
+		const sink = createStudySinkFixture()
+		blank.trace.start('write')
+		await expect(blank.summary.summarize(STUDY_SUMMARY_MESSAGES, undefined)).rejects.toMatchObject({
+			code: 'FAULT',
+		})
+		await blank.trace.flush(sink.sink)
+		expect(sink.rows.map((row) => row.event)).toEqual(['summary'])
+	})
+
+	it('serves a scripted response from an owned snapshot under an explicit byte bound', async () => {
+		const { StudyAgentScript } = server
+		expect(() => new StudyAgentScript({ bytes: -1 })).toThrow(core.StudyError)
+		expect(() => new StudyAgentScript({ bytes: 1.5 })).toThrow(core.StudyError)
+		const meter = createStudyScriptMeter()
+		try {
+			const call = { id: 'call-1', name: 'lookup', arguments: { id: 'order-1' } }
+			const fixture = createStudyScriptFixture(meter, [
+				buildStudyScriptResponse({ content: 'looking', calls: [call] }),
+			])
+			const script = new StudyAgentScript({ bytes: 512 })
+			script.prepare(fixture.plan)
+			call.arguments.id = 'changed'
+			const result = await script.generate(STUDY_SCRIPT_MESSAGES, meter.control.signal)
+			expect(result.content).toBe('looking')
+			expect(result.tools?.[0]?.arguments).toEqual({ id: 'order-1' })
+		} finally {
+			meter.close()
+		}
 	})
 
 	it('inspects captured package bytes without executing them and refuses drift', async () => {

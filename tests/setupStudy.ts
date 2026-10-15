@@ -1,11 +1,13 @@
 import type { JSONValue } from '@orkestrel/contract'
 import type {
 	StudyAttempt,
+	StudyProvider,
 	StudyBounds,
 	StudyCriterion,
 	StudyDefinition,
 	StudyGrading,
 	StudyDriverInterface,
+	StudyEvidence,
 	StudyFailure,
 	StudyJudgment,
 	StudyManifest,
@@ -49,6 +51,17 @@ import type {
 	ProviderStreamFixture,
 	StudyLatchFixture,
 } from './src/core/agents/types.js'
+import type {
+	StudyAgentSummaryFixture,
+	StudyAgentSummaryFixtureOptions,
+	StudyAgentTraceFixture,
+	StudySinkFixture,
+	StudyScriptFixture,
+	StudySinkFixtureOptions,
+	StudyOllamaMessageFixture,
+} from './src/server/agents/types.js'
+import type { StudyAgentResponse } from '../src/server/agents/types.js'
+import type { ToolCall } from '@orkestrel/tool'
 import type { StudyAgentReading, StudyAgentRuntime } from '../src/core/agents/types.js'
 import { AgentError, estimateRequest, isAgentError, measureRequest } from '@orkestrel/agent'
 import { isRecord, parseJSON } from '@orkestrel/contract'
@@ -58,6 +71,8 @@ import { vi } from 'vitest'
 import { StudyControl, StudyMeter, StudyScope } from '../src/core/engines/index.js'
 import { buildStudySchedule } from '../src/core/helpers.js'
 import { StudyAgentObserver } from '../src/core/agents/StudyAgentObserver.js'
+import { StudyAgentSummary } from '../src/server/agents/StudyAgentSummary.js'
+import { StudyAgentTrace } from '../src/server/agents/StudyAgentTrace.js'
 
 /** Evaluates a distinct copy of the real study error module, tagged the way captured loading tags an import.
  * @param label - The copy's tag; equal labels share one evaluation.
@@ -1098,4 +1113,257 @@ export function createStudyLatch(refusal?: { readonly error: unknown }): StudyLa
 			failures.handler(error)
 		},
 	}
+}
+
+/** Supplies the summary instruction the summary proofs append as the final user turn. */
+export const STUDY_SUMMARY_INSTRUCTION: Message = Object.freeze<Message>({
+	id: 'summary-instruction',
+	role: 'user',
+	content: 'Fold the conversation.',
+})
+
+/** Supplies the folded conversation the summary proofs summarize. */
+export const STUDY_SUMMARY_MESSAGES: readonly Message[] = Object.freeze<readonly Message[]>([
+	{ id: 'h1', role: 'user', content: 'First arrival' },
+	{ id: 'h2', role: 'assistant', content: 'First answer' },
+])
+
+/** Joins every message to the declared `history` origin and its own id, as an inert consumer origin handler.
+ * @param messages - The measured request's messages.
+ * @returns One origin entry per message in order.
+ */
+export function buildStudyAgentOrigins(messages: readonly Message[]): JSONValue {
+	return messages.map((message) => ({ origin: 'history', source: message.id }))
+}
+
+/** Creates a custody sink that records accepted rows and can refuse one row or run a hook on every append.
+ * @param options - Optional refusal and append hook.
+ * @returns The sink and its accepted rows.
+ */
+export function createStudySinkFixture(options: StudySinkFixtureOptions = {}): StudySinkFixture {
+	const rows: StudyEvidence[] = []
+	let appended = 0
+	const sink: StudySinkInterface = {
+		async append(evidence): Promise<void> {
+			options.during?.()
+			const row = appended++
+			if (options.refuse !== undefined && options.refuse.row === row) throw options.refuse.error
+			rows.push(evidence)
+		},
+	}
+	return { sink, rows }
+}
+
+/** Creates a real trace over the actual Agent runtime and a recorded failure owner.
+ * @param observe - If `true`, the trace retains measurement rows; if `false`, it retains none.
+ * @param refusal - Wraps the value the latch's check throws; absent lets work continue.
+ * @returns The trace and its latch.
+ */
+export function createStudyAgentTrace(
+	observe: boolean,
+	refusal?: { readonly error: unknown },
+): StudyAgentTraceFixture {
+	const latch = createStudyLatch(refusal)
+	const trace = new StudyAgentTrace({
+		runtime: createAgentRuntime(),
+		latch,
+		observe,
+		origins: buildStudyAgentOrigins,
+	})
+	return { trace, latch }
+}
+
+/** Creates a real summary over a real Ollama provider on a protocol-faithful wire, with the gauge that prices every fixture request at the declared projection.
+ * @param options - Queued wire replies, observation switch, limit, and optional cancellation and latch refusal.
+ * @returns The summary, its trace and latch, and the wire.
+ */
+export function createStudyAgentSummary(
+	options: StudyAgentSummaryFixtureOptions,
+): StudyAgentSummaryFixture {
+	const wire = createOllamaFetch(options.replies)
+	const { trace, latch } = createStudyAgentTrace(options.observe, options.refusal)
+	const summary = new StudyAgentSummary({
+		provider: createAgentObserver(wire, undefined, false).inner,
+		runtime: createAgentRuntime(),
+		trace,
+		latch,
+		gauge: STUDY_AGENT_GAUGE,
+		limit: options.limit,
+		instruction: STUDY_SUMMARY_INSTRUCTION,
+		signal: options.signal ?? new AbortController().signal,
+	})
+	return { summary, trace, latch, wire }
+}
+
+/** Builds the one queued chat reply that answers a summary with the supplied content and a usable prompt count.
+ * @param content - The reply content.
+ * @returns A single reply for the chat path.
+ */
+export function buildOllamaReplies(content: string): readonly OllamaReplyFixture[] {
+	return [{ path: '/api/chat', body: buildOllamaRow({ content, prompt: 9 }) }]
+}
+
+/** Reads the chat messages a request body carries, in order.
+ * @param body - The encoded chat request.
+ * @returns The role and content of every message.
+ */
+export function readOllamaMessages(body: string): readonly StudyOllamaMessageFixture[] {
+	const value = parseJSON(body)
+	if (!isRecord(value) || !Array.isArray(value.messages)) throw new Error('Invalid chat request')
+	return value.messages.map((message): StudyOllamaMessageFixture => {
+		if (
+			!isRecord(message) ||
+			typeof message.role !== 'string' ||
+			typeof message.content !== 'string'
+		)
+			throw new Error('Invalid chat message')
+		return { role: message.role, content: message.content }
+	})
+}
+
+/** Supplies the declared Ollama serving identities the transport helper proofs pin. */
+export const STUDY_OLLAMA_PROVIDER: StudyProvider = Object.freeze({
+	entry: 'provider.js',
+	url: STUDY_OLLAMA_ORIGIN,
+	model: 'model',
+	judge: 'judge',
+	digest: Object.freeze({ model: 'a'.repeat(64), judge: 'b'.repeat(64) }),
+})
+
+/** Supplies a conversation whose tool message answers the call `actual-call`. */
+export const STUDY_SCRIPT_MESSAGES: readonly Message[] = Object.freeze<readonly Message[]>([
+	{ id: 'm1', role: 'user', content: 'Count the orders' },
+	{ id: 'm2', role: 'tool', content: 'actual-result', call: 'actual-call' },
+])
+
+/** Supplies the projection a script retains for STUDY_SCRIPT_MESSAGES, written as a literal rather than derived. */
+export const STUDY_SCRIPT_REQUEST: readonly JSONValue[] = Object.freeze([
+	{ role: 'user', content: 'Count the orders' },
+	{ role: 'tool', content: 'actual-result', call: 'actual-call' },
+])
+
+/** Supplies one inert tool call a scripted response requests. */
+export const STUDY_SCRIPT_CALL: ToolCall = Object.freeze({
+	id: 'call-1',
+	name: 'lookup',
+	arguments: Object.freeze({ id: 'order-1' }),
+})
+
+/** Supplies more calls than any one consumer's workload bound, which the generic guard must still accept. */
+export const STUDY_SCRIPT_MANY_CALLS: readonly ToolCall[] = Object.freeze(
+	Array.from({ length: 16 }, () => STUDY_SCRIPT_CALL),
+)
+
+/** Supplies responses the scripted response guard must accept. */
+export const STUDY_SCRIPT_VALID_RESPONSES: readonly unknown[] = Object.freeze([
+	{ content: 'done', calls: [] },
+	buildStudyScriptResponse(),
+	buildStudyScriptResponse({
+		content: 'looking',
+		calls: [STUDY_SCRIPT_CALL],
+		consume: 'call-0',
+		cancel: true,
+		tokens: 0,
+		bytes: 0,
+	}),
+	{ content: 'x'.repeat(4096), calls: [] },
+	{ content: '', calls: STUDY_SCRIPT_MANY_CALLS },
+	{ content: '', calls: [], consume: 'c'.repeat(256) },
+])
+
+/** Supplies responses the scripted response guard must refuse, one violated rule each. */
+export const STUDY_SCRIPT_INVALID_RESPONSES: readonly unknown[] = Object.freeze([
+	null,
+	undefined,
+	'done',
+	[],
+	{ calls: [] },
+	{ content: 'x' },
+	{ content: 'x', calls: [], extra: true },
+	{ content: 1, calls: [] },
+	{ content: '', calls: 'none' },
+	{ content: '', calls: [{ id: 'call-1', name: 'lookup' }] },
+	{ content: '', calls: [{ id: 'call-1', name: 'lookup', arguments: [] }] },
+	{ content: '', calls: [{ id: 'call-1', name: 'lookup', arguments: { value: Number.NaN } }] },
+	{ content: '', calls: [], consume: '' },
+	{ content: '', calls: [], consume: 1 },
+	{ content: '', calls: [], cancel: 'yes' },
+	{ content: '', calls: [], tokens: -1 },
+	{ content: '', calls: [], tokens: 1.5 },
+	{ content: '', calls: [], tokens: '1' },
+	{ content: '', calls: [], bytes: Number.MAX_SAFE_INTEGER + 1 },
+	{ content: '', calls: [], bytes: Number.NaN },
+])
+
+/**
+ * Builds one inert scripted response with every control undefined.
+ * @param change - The members that differ from the empty response
+ * @returns The complete response
+ */
+export function buildStudyScriptResponse(
+	change: Partial<StudyAgentResponse> = {},
+): StudyAgentResponse {
+	return {
+		content: '',
+		calls: [],
+		consume: undefined,
+		cancel: undefined,
+		tokens: undefined,
+		bytes: undefined,
+		...change,
+	}
+}
+
+/**
+ * Creates the real meter fixture with one shared allowance at every scope and one call per request.
+ * @param bytes - The byte allowance at the request and every enclosing scope; Default: 1000
+ * @param tokens - The token allowance at the request and every enclosing scope; Default: 100
+ * @param requests - The number of full-size requests each enclosing scope can reserve; Default: 1
+ * @returns The owned control, scopes and meter with cleanup
+ */
+export function createStudyScriptMeter(
+	bytes = 1000,
+	tokens = 100,
+	requests = 1,
+): StudyMeterFixture {
+	const limit = { duration: 1000, calls: 4, tokens, bytes }
+	const scope = { ...limit, bytes: bytes * requests }
+	return createStudyMeterFixture({
+		request: { ...limit, calls: 1 },
+		goal: scope,
+		trial: scope,
+		series: scope,
+	})
+}
+
+/**
+ * Builds a scripted plan over a real meter whose evidence sink records every appended row.
+ * @param meter - The real meter fixture the plan admits through
+ * @param responses - The declared inert responses in serving order
+ * @returns The plan, the recorded rows and the separate workload controller
+ */
+export function createStudyScriptFixture(
+	meter: StudyMeterFixture,
+	responses: readonly StudyAgentResponse[],
+): StudyScriptFixture {
+	const rows = createRecorder<readonly [StudyEvidence]>()
+	const workload = new AbortController()
+	return Object.freeze({
+		rows,
+		workload,
+		plan: {
+			responses,
+			goal: 'script',
+			workload,
+			context: {
+				signal: meter.control.signal,
+				meter: meter.meter,
+				evidence: {
+					async append(row: StudyEvidence): Promise<void> {
+						rows.handler(row)
+					},
+				},
+			},
+		},
+	})
 }
