@@ -18,16 +18,16 @@ export class StudyChannel {
 	#error: (error: Error) => void
 
 	/** Subscribes to one native IPC endpoint.
-	 * @param options - Native endpoint and owning domain handlers.
+	 * @param options - Native endpoint and owning domain handlers; the bag is snapshotted while selected collaborators keep their identity.
 	 */
 	constructor(options: StudyChannelOptions) {
-		this.#options = options
+		this.#options = { ...options }
 		this.#message = this.#onMessage.bind(this)
 		this.#disconnect = this.#onDisconnect.bind(this)
 		this.#error = this.close.bind(this)
-		options.endpoint.on('message', this.#message)
-		options.endpoint.on('disconnect', this.#disconnect)
-		options.endpoint.on('error', this.#error)
+		this.#options.endpoint.on('message', this.#message)
+		this.#options.endpoint.on('disconnect', this.#disconnect)
+		this.#options.endpoint.on('error', this.#error)
 	}
 
 	get signal(): AbortSignal {

@@ -8,10 +8,10 @@ export class StudyRemoteTicket implements StudyTicket {
 	#settled = false
 
 	/** Owns the parent's ticket identity and composed cancellation.
-	 * @param options - Transported ticket state and settlement callback.
+	 * @param options - Transported ticket state and settlement callback, snapshotted at construction.
 	 */
 	constructor(options: StudyRemoteTicketOptions) {
-		this.#options = options
+		this.#options = { ...options }
 	}
 	get signal(): AbortSignal {
 		return this.#options.signal

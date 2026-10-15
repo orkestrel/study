@@ -1,3 +1,4 @@
+import type { StudyUsage } from '../../../../src/core/types.js'
 import type { StudyRemoteTicketOptions } from '../../../../src/server/processes/types.js'
 import { createRecorder } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
@@ -16,13 +17,13 @@ describe('StudyRemoteTicket', () => {
 		const aborts = createRecorder<readonly [Event]>()
 		ticket.signal.addEventListener('abort', aborts.handler)
 		expect(ticket.signal).toBe(selected.signal)
-		const usage: { role: 'tool'; calls: number; tokens: number; bytes: number; duration: number } = {
+		const usage = {
 			role: 'tool',
 			calls: 1,
 			tokens: 1,
 			bytes: 1,
 			duration: 1,
-		}
+		} satisfies StudyUsage
 		ticket.finish(usage)
 		expect(original.calls).toEqual([['finish', usage]])
 		expect(replacement.count).toBe(0)

@@ -42,11 +42,12 @@ export class StudyProcessSession implements StudySessionInterface {
 	#deadline: ReturnType<typeof setTimeout> | undefined
 
 	/** Owns one trial's process lifecycle without starting host work.
-	 * @param options - Public trial and immutable process configuration.
+	 * @param options - Public trial and process configuration; the configuration is snapshotted while the borrowed signal keeps its identity.
 	 */
 	constructor(options: StudyProcessSessionOptions) {
-		this.#options = options
-		this.#control = new StudyControl(options.signal)
+		const { signal, ...configuration } = options
+		this.#options = { ...structuredClone(configuration), signal }
+		this.#control = new StudyControl(signal)
 	}
 
 	/** Starts the child and verifies its artifact-bound readiness. */

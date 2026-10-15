@@ -218,6 +218,7 @@ export class StudySeries {
 			scope.check()
 			const bytes = new TextEncoder().encode(JSON.stringify(product.value)).byteLength
 			if (bytes > bounds.goal.bytes || outputs.some((budget) => bytes > budget.remaining)) {
+				product = undefined
 				control.fail({
 					cause: 'capacity',
 					message: 'Study product exceeded its output allowance',

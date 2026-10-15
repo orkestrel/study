@@ -16,10 +16,10 @@ import { StudyLauncher } from './StudyLauncher.js'
 export class StudyCLI {
 	#options: StudyLaunchOptions
 	/** Owns the installed executable path and consumer working directory.
-	 * @param options - Exact runtime entry and consumer root.
+	 * @param options - Exact runtime entry and consumer root, snapshotted at construction.
 	 */
 	constructor(options: StudyLaunchOptions) {
-		this.#options = options
+		this.#options = { ...options }
 	}
 	/** Executes one route with truthful public exit semantics.
 	 * @param arguments_ - Native command arguments.

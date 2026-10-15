@@ -1,3 +1,4 @@
+import type { StudyUsage } from '../../../../src/core/types.js'
 import { createScratch } from '@orkestrel/test/server'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -122,8 +123,13 @@ process.on('message', frame => {
 		const deadline = new StudyDeadline({ duration: 2000, label: STUDY_PROCESS_LABEL })
 		try {
 			const ticket = await deadline.wait(meter.admit({ role: 'tool', tokens: 1, bytes: 1 }))
-			const usage: { role: 'tool'; calls: number; tokens: number; bytes: number; duration: number } =
-				{ role: 'tool', calls: 1, tokens: 3, bytes: 5, duration: 7 }
+			const usage = {
+				role: 'tool',
+				calls: 1,
+				tokens: 3,
+				bytes: 5,
+				duration: 7,
+			} satisfies StudyUsage
 			ticket.finish(usage)
 			usage.tokens = 99
 			expect(meter.usage).toEqual([])

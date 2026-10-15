@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { StudyDeadline } from '../../../../src/core/engines/StudyDeadline.js'
 import { STUDY_PROCESS_LABEL } from '../../../../src/server/processes/constants.js'
 import { StudyProcessSession } from '../../../../src/server/processes/StudyProcessSession.js'
+import { toStudyWire } from '../../../../src/server/processes/helpers.js'
+import { isStudyFrame } from '../../../../src/server/processes/validators.js'
 import { buildCustodyManifest, buildStudyManifest, buildStudyProfile } from '../../../setupStudy.js'
 
 describe('StudyProcessSession', () => {
@@ -33,9 +35,11 @@ process.on('message', frame => {
 			trial: { id: 'trial-original', scenario: 'first', arm: 'small', repetition: 0 },
 			signal: controller.signal,
 		}
-		const declared = JSON.parse(
-			JSON.stringify({ trial: options.trial, profile: options.profile, identity: options.identity }),
-		)
+		const declared = structuredClone({
+			trial: options.trial,
+			profile: options.profile,
+			identity: options.identity,
+		})
 		const session = new StudyProcessSession(options)
 		try {
 			options.trial.id = 'trial-mutated'
@@ -47,14 +51,13 @@ process.on('message', frame => {
 			await deadline.wait(session.start())
 			controller.abort()
 			await deadline.wait(session.close())
-			const frames: Array<{ operation: string; value: unknown }> = (
-				scratch.read('frames.ndjson') ?? ''
-			)
+			const frames = (scratch.read('frames.ndjson') ?? '')
 				.split('\n')
 				.filter((line) => line !== '')
-				.map((line) => JSON.parse(line))
+				.map((line): unknown => JSON.parse(line))
+				.filter(isStudyFrame)
 			expect(frames.map((frame) => frame.operation)).toEqual(['open', 'abort', 'close'])
-			expect(frames[0]?.value).toMatchObject(declared)
+			expect(frames[0]?.value).toMatchObject(toStudyWire(declared))
 			expect(foreign.signal.aborted).toBe(false)
 		} finally {
 			controller.abort()

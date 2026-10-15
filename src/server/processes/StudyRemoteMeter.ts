@@ -19,10 +19,10 @@ export class StudyRemoteMeter implements StudyRemoteMeterInterface {
 	#closed = false
 
 	/** Owns one goal's transported tickets without local budget decisions.
-	 * @param options - Parent transport and shared worker failure control.
+	 * @param options - Parent transport and shared worker failure control, snapshotted at construction.
 	 */
 	constructor(options: StudyRemoteMeterOptions) {
-		this.#options = options
+		this.#options = { ...options }
 	}
 	get signal(): AbortSignal {
 		return this.#options.control.signal
@@ -97,15 +97,17 @@ export class StudyRemoteMeter implements StudyRemoteMeterInterface {
 				this.#options.control.failure ?? createStudyProcessFailure('Worker settlement failed'),
 			)
 		}
+		const accepted = Object.freeze({ ...value })
 		const work = this.#options.channel
 			.request(
 				operation,
-				toStudyWire(operation === 'finish' ? { id, usage: value } : { id, failure: value }),
+				toStudyWire(
+					operation === 'finish' ? { id, usage: accepted } : { id, failure: accepted },
+				),
 			)
 			.then(
 				() => {
-					if (operation === 'finish' && isStudyUsage(value))
-						this.#usage.push(Object.freeze({ ...value }))
+					if (operation === 'finish' && isStudyUsage(accepted)) this.#usage.push(accepted)
 				},
 				(error: unknown) => {
 					this.#options.control.fail(readStudyFailure(error))
@@ -113,6 +115,6 @@ export class StudyRemoteMeter implements StudyRemoteMeterInterface {
 			)
 		this.#pending.add(work)
 		void work.finally(() => this.#pending.delete(work))
-		if (operation === 'fail' && isStudyProcessFailure(value)) this.#options.control.fail(value)
+		if (operation === 'fail' && isStudyProcessFailure(accepted)) this.#options.control.fail(accepted)
 	}
 }
