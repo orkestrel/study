@@ -1,3 +1,4 @@
+import type { JSONValue } from '@orkestrel/contract'
 import type {
 	StudyAttempt,
 	StudyBounds,
@@ -141,7 +142,38 @@ export function buildStudyProfile(): StudyProfile {
 		room: { context: 512, output: 32, safety: 16, recap: 32, think: false },
 		provider: undefined,
 		qualification: undefined,
+		settings: undefined,
 	}
+}
+
+/** Supplies driver settings that Study must own and bind without interpreting. */
+export const STUDY_PROFILE_SETTINGS: ReadonlyArray<Readonly<Record<string, JSONValue>>> =
+	Object.freeze([
+		{},
+		{ flag: true },
+		{ gauge: { scale: 1.25, steps: [1, 2, { deep: null }], label: 'calibrated' } },
+	])
+
+/** Supplies settings values that the profile guard and parser must refuse. */
+export const STUDY_PROFILE_INVALID_SETTINGS: readonly unknown[] = Object.freeze([
+	[],
+	['flag'],
+	'flag',
+	1,
+	true,
+	null,
+	{ flag: undefined },
+	{ flag: Number.NaN },
+	{ flag: () => true },
+	{ flag: new Date(0) },
+	{ flag: 1n },
+])
+
+/** Returns a profile carrying the supplied driver settings. */
+export function buildStudySettingsProfile(
+	settings: Readonly<Record<string, JSONValue>>,
+): StudyProfile {
+	return { ...buildStudyProfile(), settings }
 }
 
 /** Returns a complete sealed declaration with its real schedule. */

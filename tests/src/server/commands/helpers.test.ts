@@ -1,8 +1,15 @@
 import { createScratch } from '@orkestrel/test/server'
 import { appendFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { buildCustodyManifest, buildStudyRubric } from '../../../setupStudy.js'
+import {
+	buildCustodyManifest,
+	buildStudyRubric,
+	buildStudySettingsProfile,
+	STUDY_PROFILE_SETTINGS,
+} from '../../../setupStudy.js'
+import { parseStudyProfile } from '../../../../src/core/parsers.js'
+import { computeStudyProfileDigest } from '../../../../src/server/processes/helpers.js'
 import { buildCustodyGrading, retainStudyFixture } from '../../../setupServer.js'
 import {
 	collectStudyEvidence,
@@ -91,6 +98,28 @@ describe('study command helpers', () => {
 				series: { ...manifest.bounds.series, duration: manifest.bounds.series.duration + 1 },
 			}),
 		).not.toBe(first)
+	})
+
+	it('changes the admitted profile identity and execution fingerprint when only driver settings change', () => {
+		const manifest = buildCustodyManifest()
+		const root = resolve('study-root')
+		const profiles = [
+			buildStudyProfile(),
+			...STUDY_PROFILE_SETTINGS.map(buildStudySettingsProfile),
+			buildStudyProfile(),
+		]
+		const sealed = profiles.map((profile) => {
+			const source = parseStudyProfile(JSON.parse(JSON.stringify(profile)))
+			const admitted = resolveStudyProfile(root, source)
+			const identity = { ...manifest.identity, profile: computeStudyProfileDigest(admitted) }
+			return {
+				profile: identity.profile,
+				fingerprint: computeStudyCommandFingerprint(identity, admitted.bounds, manifest.definition),
+			}
+		})
+		expect(sealed.pop()).toEqual(sealed[0])
+		expect(new Set(sealed.map(({ profile }) => profile)).size).toBe(sealed.length)
+		expect(new Set(sealed.map(({ fingerprint }) => fingerprint)).size).toBe(sealed.length)
 	})
 
 	it('retains the declared denominator, semantic unknowns, separate repetitions and unknown actual usage', async () => {

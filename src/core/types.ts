@@ -85,6 +85,8 @@ export interface StudyProfile {
 	readonly room: StudyRoom
 	readonly provider: StudyProvider | undefined
 	readonly qualification: string | undefined
+	/** Holds driver-owned JSON; the driver owns its interpretation and Study only validates and owns the object. */
+	readonly settings: Readonly<Record<string, JSONValue>> | undefined
 }
 
 /** Holds a scheduled trajectory, with a fresh state for each repetition and arm. */

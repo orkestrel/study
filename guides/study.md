@@ -8,7 +8,7 @@ The host-independent engine is exported from `@orkestrel/study`; custody and nat
 
 Declare the question, purpose, arms, scenarios, repetition order, and rubric before execution. Each repetition row names every arm exactly once. The engine opens fresh state for each trial and retains state between that trial's ordered goals. It executes the declared schedule once; retries are disabled.
 
-The request meter reserves token and byte ceilings before an adapter dispatches work. Request, goal, trial, and series limits bound enclosing work. Missing actual usage remains unknown and consumes the admitted ceiling. Capacity, infrastructure, deadline, and interruption are operational outcomes; a product never awards its own task verdict.
+The request meter reserves token and byte ceilings before an adapter dispatches work. Request, goal, trial, and series limits bound enclosing work. Missing actual usage remains unknown and consumes the admitted ceiling. Capacity, infrastructure, deadline, and interruption are operational outcomes; a product never awards its own task verdict. An error that carries a failure keeps that attribution; a study error without one reads as capacity for the `CAPACITY` code and as deadline for the `DEADLINE` code, and every other rejection reads as infrastructure.
 
 A product that exceeds its goal, trial, or series output allowance is omitted from custody with a capacity failure. Previously admitted products remain retained, and the remaining horizon is explicitly unexecuted. A genuine custody write or metadata-capacity failure still rejects execution and leaves the result unsealed.
 
@@ -104,6 +104,8 @@ Keep grading criteria outside public goal input. Grade retained observations and
 ## Native command
 
 Install the package in the consumer workspace, then run the study executable from that workspace. The selected declaration lives at studies/<name>/study.json. Its driver field selects a bundle at studies/<driver>/ containing scenarios/<scenario>.json, profiles/<profile>.json, the adapter module, and the declared rubric path. The profile defaults to local. JSON declarations use the public definition, scenario, profile, and rubric contracts.
+
+A profile may carry an optional settings object of JSON values. The selected driver owns its interpretation; Study only validates the object, keeps an independent frozen copy, and refuses arrays, primitives, non-JSON values, and cycles. Settings are part of the resolved profile bytes, so changing one value changes the profile identity and the execution fingerprint. A profile without settings keeps the identity it had before the field existed.
 
 The command supports explicit operations with operation-specific flags. Every flag takes a value and can appear once.
 

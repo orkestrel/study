@@ -1,4 +1,8 @@
-import { buildStudyProfile } from '../../../setupStudy.js'
+import {
+	buildStudyProfile,
+	buildStudySettingsProfile,
+	STUDY_PROFILE_SETTINGS,
+} from '../../../setupStudy.js'
 import {
 	createStudyPeer,
 	readStudyOrphan,
@@ -67,6 +71,21 @@ describe('process helpers', () => {
 			message: 'lost',
 			role: undefined,
 		})
+	})
+	it('binds driver settings into the profile digest and keeps absent settings off the wire', () => {
+		const base = buildStudyProfile()
+		const omitted = { ...base }
+		Reflect.deleteProperty(omitted, 'settings')
+		expect(JSON.stringify(toStudyWire(base))).not.toContain('settings')
+		expect(JSON.stringify(toStudyWire(omitted))).toBe(JSON.stringify(toStudyWire(base)))
+		expect(computeStudyProfileDigest(omitted)).toBe(computeStudyProfileDigest(base))
+		const digests = [base, ...STUDY_PROFILE_SETTINGS.map(buildStudySettingsProfile)].map(
+			computeStudyProfileDigest,
+		)
+		expect(new Set(digests).size).toBe(digests.length)
+		const gauge = buildStudySettingsProfile({ gauge: { scale: 1.25 } })
+		const changed = buildStudySettingsProfile({ gauge: { scale: 1.5 } })
+		expect(computeStudyProfileDigest(changed)).not.toBe(computeStudyProfileDigest(gauge))
 	})
 	it('binds the runtime entry and adapter inventory in an ordered JSON pair', () => {
 		const entry = 'a'.repeat(64)

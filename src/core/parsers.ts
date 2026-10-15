@@ -72,11 +72,12 @@ export function parseStudyScenario(value: unknown): StudyScenario {
 export function parseStudyProfile(value: unknown): StudyProfile {
 	try {
 		if (!isStudyProfile(value)) throw new StudyError('CONFIG', 'Invalid study profile')
-		const { provider, qualification, ...required } = value
+		const { provider, qualification, settings, ...required } = value
 		const snapshot = cloneJSONValue({
 			...required,
 			...(provider === undefined ? {} : { provider }),
 			...(qualification === undefined ? {} : { qualification }),
+			...(settings === undefined ? {} : { settings }),
 		})
 		if (isStudyProfile(snapshot)) return snapshot
 	} catch {

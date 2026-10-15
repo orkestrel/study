@@ -304,7 +304,7 @@ export function isStudyProfile(value: unknown): value is StudyProfile {
 			matchesStudyKeys(
 				value,
 				['name', 'subject', 'roots', 'bounds', 'room'],
-				['provider', 'qualification'],
+				['provider', 'qualification', 'settings'],
 			) &&
 			isStudyName(value.name) &&
 			isArray(value.roots) &&
@@ -316,7 +316,8 @@ export function isStudyProfile(value: unknown): value is StudyProfile {
 			isStudyBounds(value.bounds) &&
 			isStudyRoom(value.room) &&
 			(value.provider === undefined || isStudyProvider(value.provider)) &&
-			(value.qualification === undefined || isNonEmptyString(value.qualification))
+			(value.qualification === undefined || isNonEmptyString(value.qualification)) &&
+			(value.settings === undefined || (isRecord(value.settings) && isJSONValue(value.settings)))
 		)
 	})
 }

@@ -4,9 +4,12 @@ import {
 	buildCustodyAttempt,
 	buildCustodyManifest,
 	buildStudyCapacityManifest,
+	buildStudyProfile,
+	buildStudySettingsProfile,
 	createStudyDriverFixture,
 	createStudyMeterFixture,
 	createStudyStoreFixture,
+	STUDY_PROFILE_SETTINGS,
 } from './setupStudy.js'
 
 describe('study boundary fixtures', () => {
@@ -132,5 +135,16 @@ describe('study declaration fixtures', () => {
 		expect(() => buildCustodyAttempt(first, { ...trial, scenario: 'foreign' })).toThrow(
 			'no scenario',
 		)
+	})
+	it('builds settings profiles that differ from the base only by their settings', () => {
+		const base = buildStudyProfile()
+		expect(base.settings).toBeUndefined()
+		const distinct = new Set(STUDY_PROFILE_SETTINGS.map((settings) => JSON.stringify(settings)))
+		expect(distinct.size).toBe(STUDY_PROFILE_SETTINGS.length)
+		for (const settings of STUDY_PROFILE_SETTINGS) {
+			const profile = buildStudySettingsProfile(settings)
+			expect(profile.settings).toBe(settings)
+			expect({ ...profile, settings: undefined }).toEqual(base)
+		}
 	})
 })

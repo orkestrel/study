@@ -31,6 +31,9 @@ import {
 	buildStudyProfile,
 	buildStudyRubric,
 	buildStudyScenario,
+	buildStudySettingsProfile,
+	STUDY_PROFILE_INVALID_SETTINGS,
+	STUDY_PROFILE_SETTINGS,
 } from '../../setupStudy.js'
 
 it('accepts only portable bounded names, digest identities and valid canonical timestamps', () => {
@@ -147,6 +150,40 @@ it('requires positive room, finite bounds and credential-free HTTP origins', () 
 	expect(isStudyProfile({ ...profile, roots: [] })).toBe(false)
 	expect(isStudyProfile({ ...profile, roots: ['dist', 'dist'] })).toBe(false)
 	expect(isStudyProfile({ ...profile, roots: [' '] })).toBe(false)
+})
+
+it('admits absent or JSON-object driver settings and refuses every other shape', () => {
+	const profile = buildStudyProfile()
+	const omitted = { ...profile }
+	Reflect.deleteProperty(omitted, 'settings')
+	expect(Object.hasOwn(omitted, 'settings')).toBe(false)
+	expect(isStudyProfile(omitted)).toBe(true)
+	expect(isStudyProfile({ ...profile, settings: undefined })).toBe(true)
+	for (const settings of STUDY_PROFILE_SETTINGS)
+		expect(isStudyProfile(buildStudySettingsProfile(settings))).toBe(true)
+	for (const settings of STUDY_PROFILE_INVALID_SETTINGS)
+		expect(isStudyProfile({ ...profile, settings })).toBe(false)
+	const cycle: Record<string, unknown> = {}
+	cycle.self = cycle
+	const hostile = Object.defineProperty({}, 'flag', {
+		enumerable: true,
+		get: () => {
+			throw new Error('read')
+		},
+	})
+	const foreign = new Proxy(
+		{},
+		{
+			getPrototypeOf: () => {
+				throw new Error('prototype')
+			},
+		},
+	)
+	expect(isStudyProfile({ ...profile, settings: cycle })).toBe(false)
+	expect(isStudyProfile({ ...profile, settings: hostile })).toBe(false)
+	expect(isStudyProfile({ ...profile, settings: foreign })).toBe(false)
+	expect(isStudyProfile({ ...profile, setting: {} })).toBe(false)
+	expect(isStudyProfile({ ...profile, settings: {}, typo: true })).toBe(false)
 })
 
 it('requires unique rubric criteria and attributable evidence-supported judgments', () => {
