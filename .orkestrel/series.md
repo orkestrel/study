@@ -86,3 +86,40 @@ increase or deadline reset. Performance replay remains its separately accepted 6
 The reused endurance workload has informed these repairs. Describe its quality reading as
 development evidence; calibration holdout does not make endurance an untouched benchmark.
 
+## Reduced execution and retained grading
+
+At 2026-10-15 03:51 UTC, the separate Full calibration diagnostic started from
+Agent/tmp/studies/calibration-project with a fixed outer deadline of 04:33:40 UTC, including
+preparation and cleanup. Its fingerprint is
+bc4aa3c8572167affb8fbc414e0f99b69daac5ab8334dfbd31ba75f6d5aa08a6. The repeated-input
+controls and training/held-out split remain as specified earlier. Qualification is pending.
+
+After a qualified calibration, freeze one Compaction-only capacity execution over the
+96-goal workload. Set trial and series duration to 9600000 ms, with 4096 calls, 8000000 tokens,
+and 1073741824 bytes; retain the existing request and goal limits. The launch allowance is
+9660000 ms, including cleanup. Candidate-3 Compaction consumed 2432074 ms through its failure
+at goal 64; this reduced ceiling leaves room for the complete trajectory and compaction work
+without carrying the earlier two-arm allowance forward. It is a limit, not a completion-time
+prediction. Freeze its absolute deadline and verify the dedicated daemon lifetime before launch.
+
+Grade retained products through the supported separate grading operation. Freeze the existing
+endurance semantic rubric's exact byte identity before Compaction inference. Use it for both
+the retained candidate-3 Records products and the successor Compaction products. Each execution
+keeps its original capacity purpose, seal, and build identity; an added grading does not turn
+it into a quality-purpose execution. This replaces a redundant second generation run. Do not
+start another Records or Compaction execution solely to obtain semantic judgments.
+
+Report incomplete execution and semantic quality separately, including unknown judgments and
+unserved goals. A failed qualification still receives its honest terminal report and may be
+graded descriptively; it admits no optimization or quality-valid comparison claim. The repaired
+Compaction instrument differs from historical Records, so the cross-arm result is development
+evidence, not an isolated causal estimate of the repair or a speedup.
+
+The integrated code review is recorded in Agent/.orkestrel/agent/series-audit-verdict.md.
+Native Astra and actual Opus confirmed the code claims; pinned Ollama v0.40.3 source resolved
+the remaining prompt-count question. Cached prompt tokens are included in the public total;
+do not add the cached breakdown again. Live repeated-input controls remain required.
+Agent and Study passed format, lint, typecheck, build, and full default tests at Agent3f7c2bd
+and Studyec988a9. The additional memory consumer tests passed112. No Fable, rescue policy,
+model-visible measurements, version bump, or publication was introduced.
+
