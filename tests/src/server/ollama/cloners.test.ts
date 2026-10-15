@@ -1,0 +1,129 @@
+import { describe, expect, it } from 'vitest'
+import { captureError, requireValue } from '@orkestrel/test'
+import {
+	buildStudyOllamaOptions,
+	buildStudyOllamaSnapshot,
+} from '../../../../src/server/ollama/cloners.js'
+import { STUDY_OLLAMA_ORIGIN } from '../../../setupStudy.js'
+import { buildOllamaTransportOptions } from '../../../setupServer.js'
+
+const options = buildOllamaTransportOptions(STUDY_OLLAMA_ORIGIN)
+const agentPolicy = requireValue(options.roles.agent)
+const chat = `${STUDY_OLLAMA_ORIGIN}/api/chat`
+
+describe('buildStudyOllamaOptions', () => {
+	it('owns frozen copies of every data member and leaves the caller objects mutable', () => {
+		const owned = buildStudyOllamaOptions(options)
+		expect(owned).toEqual(options)
+		expect(owned.signal).toBe(options.signal)
+		expect(owned.timing).toBe(options.timing)
+		const members = [
+			owned,
+			owned.room,
+			owned.limit,
+			owned.models,
+			owned.models.model,
+			owned.roles,
+			owned.roles.agent,
+			owned.roles.agent?.options,
+		]
+		for (const member of members) expect(Object.isFrozen(member)).toBe(true)
+		expect(owned.room).not.toBe(options.room)
+		expect(owned.models.model).not.toBe(options.models.model)
+		expect(owned.roles.agent).not.toBe(options.roles.agent)
+		expect(owned.roles.agent?.options).not.toBe(options.roles.agent?.options)
+		expect(Object.isFrozen(options.room)).toBe(false)
+		expect(Object.isFrozen(options.roles.agent)).toBe(false)
+	})
+
+	it('is unaffected by later changes to the caller objects and omits an undefined policy', () => {
+		const caller = {
+			...options,
+			room: { ...options.room },
+			roles: { agent: { ...agentPolicy, options: { ...agentPolicy.options } } },
+		}
+		Reflect.set(caller.roles, 'summary', undefined)
+		const owned = buildStudyOllamaOptions(caller)
+		Reflect.set(caller.room, 'context', 1)
+		Reflect.set(caller.roles.agent, 'strict', true)
+		Reflect.set(caller.roles.agent.options, 'num_predict', 1)
+		expect(owned.room.context).toBe(options.room.context)
+		expect(owned.roles.agent?.strict).toBe(false)
+		expect(owned.roles.agent?.options).toEqual(agentPolicy.options)
+		expect('summary' in owned.roles).toBe(false)
+	})
+
+	it('reads each caller member once', () => {
+		const reads = { room: 0, strict: 0 }
+		const caller = { ...options, room: { ...options.room }, roles: { agent: { ...agentPolicy } } }
+		Object.defineProperty(caller, 'room', {
+			enumerable: true,
+			get: () => {
+				reads.room += 1
+				return options.room
+			},
+		})
+		Object.defineProperty(caller.roles.agent, 'strict', {
+			enumerable: true,
+			get: () => {
+				reads.strict += 1
+				return false
+			},
+		})
+		buildStudyOllamaOptions(caller)
+		expect(reads).toEqual({ room: 1, strict: 1 })
+	})
+})
+
+describe('buildStudyOllamaSnapshot', () => {
+	it('owns the URL spelling, settings, headers, and dispatch while keeping the signal live', () => {
+		const url = new URL(chat)
+		const headers = new Headers({ 'content-type': 'application/json' })
+		const signal = new AbortController().signal
+		const init = { method: 'POST', body: '{}', headers, signal }
+		const dispatch = { id: 1, revision: 'f'.repeat(64) }
+		const snapshot = buildStudyOllamaSnapshot(url, init, dispatch)
+		url.pathname = '/outside'
+		Reflect.set(init, 'body', 'changed')
+		headers.set('content-type', 'text/plain')
+		Reflect.set(dispatch, 'id', 2)
+		expect(snapshot.url).toBe(chat)
+		expect(snapshot.init?.body).toBe('{}')
+		expect(snapshot.init?.signal).toBe(signal)
+		expect(new Headers(snapshot.init?.headers).get('content-type')).toBe('application/json')
+		expect(snapshot.dispatch).toEqual({ id: 1, revision: 'f'.repeat(64) })
+	})
+
+	it('reads the caller headers once and clones them from the copied settings', () => {
+		let reads = 0
+		const init: RequestInit = { method: 'POST' }
+		Object.defineProperty(init, 'headers', {
+			enumerable: true,
+			get: () => {
+				reads += 1
+				return { 'x-study-owned': 'original' }
+			},
+		})
+		const snapshot = buildStudyOllamaSnapshot(chat, init, undefined)
+		expect(reads).toBe(1)
+		expect(new Headers(snapshot.init?.headers).get('x-study-owned')).toBe('original')
+	})
+
+	it('keeps a string spelling and absent settings absent', () => {
+		expect(buildStudyOllamaSnapshot(chat, undefined, undefined)).toEqual({
+			url: chat,
+			init: undefined,
+			dispatch: undefined,
+		})
+	})
+
+	it('refuses a Request input with CONFIG', () => {
+		const outcome = captureError(() =>
+			buildStudyOllamaSnapshot(new Request(chat), undefined, undefined),
+		)
+		expect(outcome).toMatchObject({
+			code: 'CONFIG',
+			message: 'Ollama transport requires explicit URL requests',
+		})
+	})
+})

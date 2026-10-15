@@ -4,6 +4,7 @@ import type {
 	StudyEvidence,
 	StudyUsage,
 } from '../../../../src/core/types.js'
+import type { StudyOllamaPolicy } from '../../../../src/server/ollama/types.js'
 import type { StudyOllamaTransport } from '../../../../src/server/ollama/StudyOllamaTransport.js'
 import type { StudyMeterFixture } from '../../core/engines/types.js'
 import type { OllamaReplyFixture, OllamaRequestFixture } from '../../core/agents/types.js'
@@ -12,9 +13,16 @@ import type { OllamaReplyFixture, OllamaRequestFixture } from '../../core/agents
 export interface OllamaServerFixture {
 	readonly url: string
 	readonly requests: readonly OllamaRequestFixture[]
+	/** Holds the incoming `x-study-owned` header value for each received request. */
+	readonly owned: ReadonlyArray<string | undefined>
 	/** Holds the queued replies the fixture has not served. */
 	readonly replies: readonly OllamaReplyFixture[]
 	close(): Promise<void>
+}
+
+/** Holds caller-owned strict role declarations a test mutates after construction. */
+export interface OllamaStrictRolesFixture {
+	readonly agent: StudyOllamaPolicy
 }
 
 /** Holds real goal accounting with append-only evidence and one cleanup boundary. */

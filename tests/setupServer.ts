@@ -66,6 +66,7 @@ import type {
 	OllamaServerFixture,
 	OllamaStatusFailureFixture,
 	OllamaStreamFailureFixture,
+	OllamaStrictRolesFixture,
 	OllamaTransportFixture,
 } from './src/server/ollama/types.js'
 import type { StudyMCPAnswer, StudyMCPFixture } from './src/server/adapters/types.js'
@@ -966,6 +967,7 @@ export async function createOllamaServer(
 ): Promise<OllamaServerFixture> {
 	const queue = [...replies]
 	const requests: OllamaRequestFixture[] = []
+	const owned: Array<string | undefined> = []
 	const server = createServer(async (request, response) => {
 		const chunks: Buffer[] = []
 		for await (const chunk of request)
@@ -973,6 +975,8 @@ export async function createOllamaServer(
 		const path = request.url ?? ''
 		const text = Buffer.concat(chunks).toString('utf8')
 		requests.push({ path, body: text })
+		const header = request.headers['x-study-owned']
+		owned.push(typeof header === 'string' ? header : undefined)
 		const supplied = queue[0]?.path === path ? queue.shift() : undefined
 		const body = supplied?.body ?? answer?.(path, text) ?? readOllamaDefault(path)
 		response.writeHead(supplied?.status ?? 200)
@@ -989,6 +993,7 @@ export async function createOllamaServer(
 	return {
 		url: `http://127.0.0.1:${address.port}`,
 		requests,
+		owned,
 		replies: queue,
 		close: () =>
 			new Promise<void>((resolveClose, reject) => {
@@ -1042,6 +1047,29 @@ export function buildOllamaTransportOptions(
 		observe: false,
 		timing: extractTiming,
 		...change,
+	}
+}
+
+/** Supplies the exact encoded agent chat body the default transport policy admits. */
+export const STUDY_OLLAMA_CHAT_BODY = JSON.stringify({
+	model: 'model',
+	stream: true,
+	think: false,
+	options: STUDY_OLLAMA_OPTIONS,
+})
+
+/** Builds fresh mutable caller role declarations whose agent policy is strict.
+ * @returns Role declarations a test may mutate after construction without sharing state.
+ */
+export function buildOllamaStrictRoles(): OllamaStrictRolesFixture {
+	return {
+		agent: {
+			model: 'model',
+			options: { ...STUDY_OLLAMA_OPTIONS },
+			think: false,
+			strict: true,
+			length: false,
+		},
 	}
 }
 

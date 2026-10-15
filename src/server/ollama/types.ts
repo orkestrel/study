@@ -63,6 +63,19 @@ export interface StudyOllamaTransportOptions {
 	readonly timing: typeof extractTiming
 }
 
+/**
+ * Holds one outbound request's facts as owned at admission.
+ * @remarks
+ * `url` is the caller's URL spelling and `init` carries a copy of the caller's accepted settings
+ * with owned headers; the caller's `signal` keeps its live identity. `dispatch` is a copy of the
+ * caller's canonical dispatch. Later caller mutation changes none of them.
+ */
+export interface StudyOllamaSnapshot {
+	readonly url: string
+	readonly init: RequestInit | undefined
+	readonly dispatch: StudyAgentDispatch | undefined
+}
+
 /** Holds one active goal's accounting and attribution. */
 export interface StudyOllamaActivity {
 	readonly goal: string

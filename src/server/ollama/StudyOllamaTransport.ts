@@ -11,6 +11,7 @@ import { isRecord, parseJSON } from '@orkestrel/contract'
 import { StudyError } from '../../core/errors.js'
 import { readStudyFailure } from '../../core/engines/helpers.js'
 import { buildStudyAgentDispatch } from '../../core/agents/helpers.js'
+import { buildStudyOllamaOptions, buildStudyOllamaSnapshot } from './cloners.js'
 import {
 	buildStudyOllamaRaw,
 	buildStudyOllamaTiming,
@@ -41,8 +42,9 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 	 * @param options - Origin, room, request limit, pinned inventory, role policies, and cancellation.
 	 */
 	constructor(options: StudyOllamaTransportOptions) {
-		validateStudyOllamaRoles(options.roles, options.models)
-		this.#options = { ...options }
+		const owned = buildStudyOllamaOptions(options)
+		validateStudyOllamaRoles(owned.roles, owned.models)
+		this.#options = owned
 	}
 
 	/** Binds subsequent wire requests to one live goal.
@@ -116,7 +118,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 	 * @param role - The accountable responsibility.
 	 * @param input - The exact configured URL.
 	 * @param init - The native fetch settings.
-	 * @param dispatch - The immutable canonical dispatch the caller measured for this request; it joins the observation rows and never changes the request.
+	 * @param original - The immutable canonical dispatch the caller measured for this request; it joins the observation rows and never changes the request.
 	 * @returns A validated streaming response.
 	 * @throws StudyError - Thrown with the recognized provider failure or a role-attributed `FAULT` for a non-2xx response, after its bounded body was read and its request accounted once.
 	 */
@@ -124,7 +126,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		role: StudyRole,
 		input: string | URL | Request,
 		init?: RequestInit,
-		dispatch?: StudyAgentDispatch,
+		original?: StudyAgentDispatch,
 	): Promise<Response> {
 		this.check()
 		const activity = this.#activity
@@ -132,7 +134,9 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 			throw new StudyError('FAULT', 'Model dispatch outside an active goal')
 		let wire: StudyOllamaWire | undefined
 		try {
-			const request = readStudyOllamaRequest(this.#options, role, input, init)
+			// Everything the request depends on is owned before the first await; the caller's originals are never read again.
+			const { url, init: settings, dispatch } = buildStudyOllamaSnapshot(input, init, original)
+			const request = readStudyOllamaRequest(this.#options, role, url, settings)
 			const limit = this.#options.limit
 			if (request.bytes >= limit.bytes)
 				throw new StudyError('CAPACITY', 'Encoded request consumes the response byte allowance')
@@ -150,7 +154,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				activity.context.meter.signal,
 				ticket.signal,
 				AbortSignal.timeout(limit.duration),
-				...(init?.signal === undefined || init.signal === null ? [] : [init.signal]),
+				...(settings?.signal === undefined || settings.signal === null ? [] : [settings.signal]),
 			])
 			try {
 				signal.throwIfAborted()
@@ -163,12 +167,14 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 						model: request.model ?? null,
 						options: { ...request.options },
 						bytes: request.bytes,
-						...(this.#options.observe ? this.#dispatch(activity, request, id, init, dispatch) : {}),
+						...(this.#options.observe
+							? this.#dispatch(activity, request, id, settings, dispatch)
+							: {}),
 					},
 				})
 				signal.throwIfAborted()
 				const sent = performance.now()
-				const response = await globalThis.fetch(input, { ...init, signal, redirect: 'error' })
+				const response = await globalThis.fetch(url, { ...settings, signal, redirect: 'error' })
 				if (response.body === null)
 					throw new StudyError('FAULT', `Ollama HTTP response refused: ${response.status}`)
 				const opened: StudyOllamaWire = {

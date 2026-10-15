@@ -368,9 +368,14 @@ describe('study server fixtures', () => {
 				body: JSON.stringify({ messages: [{ role: 'tool', content: 'delayed Friday' }] }),
 			})
 			expect(await chat.text()).toContain('Order status: delayed Friday')
-			const tags = await fetch(`${peer.url}/api/tags`, { method: 'POST', body: '{}' })
+			const tags = await fetch(`${peer.url}/api/tags`, {
+				method: 'POST',
+				body: '{}',
+				headers: { 'x-study-owned': 'recorded' },
+			})
 			expect(await tags.text()).toContain('"models"')
 			expect(peer.requests.map((request) => request.path)).toEqual(['/api/chat', '/api/tags'])
+			expect(peer.owned).toEqual([undefined, 'recorded'])
 		} finally {
 			await peer.close()
 		}

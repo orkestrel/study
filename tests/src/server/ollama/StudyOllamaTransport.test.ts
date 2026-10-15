@@ -16,20 +16,16 @@ import {
 	requireStudyRecord,
 } from '../../../setupStudy.js'
 import {
+	STUDY_OLLAMA_CHAT_BODY,
 	STUDY_OLLAMA_STREAM_FAILURES,
 	STUDY_OLLAMA_STATUS_FAILURES,
+	buildOllamaStrictRoles,
 	buildOllamaTransportOptions,
 	createOllamaTransportFixture,
 	createOllamaTransportProvider,
 } from '../../../setupServer.js'
 
 const encoder = new TextEncoder()
-const chatBody = JSON.stringify({
-	model: 'model',
-	stream: true,
-	think: false,
-	options: STUDY_OLLAMA_OPTIONS,
-})
 
 describe('StudyOllamaTransport', () => {
 	it('completes an admitted stream, accounts it once, and retains dispatch and wire evidence', async () => {
@@ -185,7 +181,7 @@ describe('StudyOllamaTransport', () => {
 				limit: { duration: 2000, bytes: 2048 },
 			})
 			try {
-				const init = { method: 'POST', body: chatBody }
+				const init = { method: 'POST', body: STUDY_OLLAMA_CHAT_BODY }
 				const outcome = await fixture.transport
 					.fetch('agent', `${fixture.server.url}/api/chat`, init)
 					.then(
@@ -289,6 +285,203 @@ describe('StudyOllamaTransport', () => {
 		} finally {
 			await fixture.close()
 		}
+	})
+
+	describe('configuration ownership', () => {
+		const strictLabel = 'Ollama transport must disable native truncation and shifting'
+
+		it.each(['strict flag', 'model', 'nested options', 'role'] as const)(
+			'keeps a strict policy refusing an omitted truncate and shift after the caller changes its %s',
+			async (axis) => {
+				const roles = buildOllamaStrictRoles()
+				const fixture = await createOllamaTransportFixture([], { roles })
+				try {
+					const changes = {
+						'strict flag': () => Reflect.set(roles.agent, 'strict', false),
+						model: () => Reflect.set(roles.agent, 'model', 'judge'),
+						'nested options': () => Reflect.set(roles.agent.options, 'num_predict', 1),
+						role: () => Reflect.set(roles, 'agent', undefined),
+					}
+					changes[axis]()
+					const provider = createOllamaTransportProvider(fixture.transport, fixture.server.url)
+					await provider.generate(STUDY_AGENT_MESSAGES, new AbortController().signal).then(
+						() => undefined,
+						() => undefined,
+					)
+					expect(captureError(() => fixture.transport.check())).toMatchObject({
+						code: 'CONFIG',
+						message: strictLabel,
+					})
+					expect(fixture.goal.usage()).toEqual([])
+					expect(fixture.server.requests).toEqual([])
+				} finally {
+					await fixture.close()
+				}
+			},
+		)
+
+		it('keeps an originally non-strict policy working after the caller makes it strict', async () => {
+			const roles = buildOllamaStrictRoles()
+			Reflect.set(roles.agent, 'strict', false)
+			const fixture = await createOllamaTransportFixture(
+				[{ path: '/api/chat', body: buildOllamaStream(['ok'], { prompt: 1, completion: 1 }) }],
+				{ roles },
+			)
+			try {
+				Reflect.set(roles.agent, 'strict', true)
+				const provider = createOllamaTransportProvider(fixture.transport, fixture.server.url)
+				const result = await provider.generate(STUDY_AGENT_MESSAGES, new AbortController().signal)
+				expect(result.content).toBe('ok')
+				expect(fixture.server.requests).toHaveLength(1)
+				expect(() => fixture.transport.check()).not.toThrow()
+			} finally {
+				await fixture.close()
+			}
+		})
+
+		it('keeps the declared request bounds after the caller shrinks its limit and room', async () => {
+			const limit = { duration: 2000, bytes: 1048576 }
+			const room = { context: 32768, safety: 128 }
+			const fixture = await createOllamaTransportFixture(
+				[{ path: '/api/chat', body: buildOllamaStream(['ok'], { prompt: 1, completion: 1 }) }],
+				{ limit, room },
+			)
+			try {
+				Reflect.set(limit, 'bytes', 1)
+				Reflect.set(limit, 'duration', 1)
+				Reflect.set(room, 'safety', 32768)
+				const provider = createOllamaTransportProvider(fixture.transport, fixture.server.url)
+				const result = await provider.generate(STUDY_AGENT_MESSAGES, new AbortController().signal)
+				expect(result.content).toBe('ok')
+				expect(() => fixture.transport.check()).not.toThrow()
+			} finally {
+				await fixture.close()
+			}
+		})
+
+		it('verifies the pinned inventory the caller declared after the caller changes its models', async () => {
+			const models = {
+				model: { name: 'model', digest: 'a'.repeat(64) },
+				judge: { name: 'judge', digest: 'b'.repeat(64) },
+			}
+			const fixture = await createOllamaTransportFixture([], { models })
+			try {
+				Reflect.set(models.model, 'digest', 'c'.repeat(64))
+				Reflect.set(models.judge, 'name', 'other')
+				Reflect.set(models, 'extra', { name: 'extra', digest: 'd'.repeat(64) })
+				await fixture.transport.verify()
+				const inventory = fixture.goal.evidence.find((row) => row.event === 'inventory')
+				expect(inventory?.value).toEqual({ model: 'a'.repeat(64), judge: 'b'.repeat(64) })
+			} finally {
+				await fixture.close()
+			}
+		})
+	})
+
+	describe('dispatch ownership', () => {
+		it.each(['path', 'origin', 'body', 'headers', 'dispatch'] as const)(
+			'sends and records the admitted request after the caller changes its %s before the meter answers',
+			async (axis) => {
+				const reply = buildOllamaStream(['ok'], { prompt: 1, completion: 1 })
+				const fixture = await createOllamaTransportFixture(
+					[{ path: '/api/chat', body: reply }],
+					{ observe: true },
+					{ view: 'selected goal' },
+				)
+				try {
+					const url = new URL(`${fixture.server.url}/api/chat`)
+					const headers = new Headers({
+						'content-type': 'application/json',
+						'x-study-owned': 'original',
+					})
+					const init = { method: 'POST', body: STUDY_OLLAMA_CHAT_BODY, headers }
+					const dispatch = { id: 1, revision: 'f'.repeat(64) }
+					const pending = fixture.transport.fetch('agent', url, init, dispatch)
+					const changes = {
+						path: () => {
+							url.pathname = '/outside'
+						},
+						origin: () => {
+							url.port = '1'
+						},
+						body: () =>
+							Reflect.set(
+								init,
+								'body',
+								JSON.stringify({
+									model: 'judge',
+									stream: true,
+									think: false,
+									options: STUDY_OLLAMA_OPTIONS,
+								}),
+							),
+						headers: () => headers.set('x-study-owned', 'changed'),
+						dispatch: () => {
+							Reflect.set(dispatch, 'id', 99)
+							Reflect.set(dispatch, 'revision', '0'.repeat(64))
+						},
+					}
+					changes[axis]()
+					const response = await pending
+					await response.text()
+					expect(fixture.server.requests).toEqual([
+						{ path: '/api/chat', body: STUDY_OLLAMA_CHAT_BODY },
+					])
+					expect(fixture.server.owned).toEqual(['original'])
+					const [sent, wire] = fixture.goal.evidence.map((row) => requireStudyRecord(row.value))
+					expect(sent).toMatchObject({
+						role: 'agent',
+						path: '/api/chat',
+						model: 'model',
+						bytes: encoder.encode(STUDY_OLLAMA_CHAT_BODY).byteLength,
+						canonical: 1,
+						revision: 'f'.repeat(64),
+						body: STUDY_OLLAMA_CHAT_BODY,
+					})
+					expect(wire).toMatchObject({ canonical: 1, revision: 'f'.repeat(64) })
+				} finally {
+					await fixture.close()
+				}
+			},
+		)
+
+		it('still cancels an admitted request through the caller signal and sends nothing', async () => {
+			const fixture = await createOllamaTransportFixture()
+			try {
+				const controller = new AbortController()
+				const init = { method: 'POST', body: STUDY_OLLAMA_CHAT_BODY, signal: controller.signal }
+				const pending = fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, init)
+				controller.abort(new Error('Caller cancelled'))
+				const outcome = await pending.then(
+					() => undefined,
+					(error: unknown) => error,
+				)
+				expect(outcome).toBeInstanceOf(Error)
+				expect(outcome).toHaveProperty('message', 'Caller cancelled')
+				expect(fixture.server.requests).toEqual([])
+			} finally {
+				await fixture.close()
+			}
+		})
+
+		it('still refuses a Request input before admission', async () => {
+			const fixture = await createOllamaTransportFixture()
+			try {
+				const input = new Request(`${fixture.server.url}/api/chat`)
+				const outcome = await fixture.transport.fetch('agent', input).then(
+					() => undefined,
+					(error: unknown) => error,
+				)
+				expect(outcome).toMatchObject({
+					code: 'CONFIG',
+					message: 'Ollama transport requires explicit URL requests',
+				})
+				expect(fixture.goal.usage()).toEqual([])
+				expect(fixture.server.requests).toEqual([])
+			} finally {
+				await fixture.close()
+			}
+		})
 	})
 
 	it('cancels an open response on close, fails its ticket, and refuses later work', async () => {
