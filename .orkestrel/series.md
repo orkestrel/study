@@ -1,3 +1,11 @@
+# Compaction content qualification is running
+
+At 2026-10-15 19:05 UTC, the accepted promotion began its Compaction-only qualification.
+The trial limit is 160 minutes and the execution deadline is 21:51 UTC. Records remains
+retained at 96/96. See [the active successor](#compaction-content-successor-on-2026-10-15)
+for the frozen runtime and [promotion acceptance](promotion.md#acceptance) for package gates.
+The following entries preserve the preceding attempts and their decisions.
+
 # Rolling Compaction qualification rejected on 2026-10-15
 
 The rolling run completed 96 goals and exited 0, uncapped, after 3402443 ms. Its predeclared
@@ -359,4 +367,21 @@ do not add the cached breakdown again. Live repeated-input controls remain requi
 Agent and Study passed format, lint, typecheck, build, and full default tests at Agent3f7c2bd
 and Studyec988a9. The additional memory consumer tests passed112. No Fable, rescue policy,
 model-visible measurements, version bump, or publication was introduced.
+
+# Compaction content successor on 2026-10-15
+
+The accepted instrumentation promotion is recorded in [promotion acceptance](promotion.md#acceptance).
+Compaction qualification started at 19:05 UTC from Agent's physical
+`tmp/studies/compaction-content-3-runtime/project` and writes
+`tmp/studies/compaction-content-3`. The runtime is a separate copy of Study `019f5ce` and the
+previously frozen Agent/Ollama builds. The trial limit is 160 minutes, with a fixed execution
+deadline of 21:51 UTC and dedicated daemon shutdown at 22:02 UTC. Records remains retained,
+96/96, and is excluded from the schedule. No retries or automatic deadline extensions.
+
+The candidate retains the calibrated gauge, workload, model identities, context 20480,
+output 8192, recap 2048, and thinking off. It records attempted summary text and cost before
+refusing blank recap content. The real offline check passed before inference. Runtime
+custody and exact project membership checks reject extra or changed files. Agent's
+`.orkestrel/agent/handoff.md` carries process IDs, journals, fingerprints, and terminal steps.
+Qualification and semantic grading are still pending; no performance improvement is accepted.
 

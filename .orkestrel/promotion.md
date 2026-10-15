@@ -4,7 +4,7 @@ The 2026-10-15 review recommends promoting reusable Agent instrumentation from A
 authored studies into Study. Agent is the common runtime for studies; the package under
 study owns its workload, treatment choices, tools, and grading criteria. This document
 records the accepted extraction and its implementation. The user authorized promotion on
-2026-10-15. Implementation is in progress.
+2026-10-15. Root accepted the promotion on 2026-10-15; see § Acceptance.
 
 The review covers Agent `c3e0f41`, Study `a37cc37`, the authored `studies/` file census,
 their proofs under `tests/studies/`, Study's execution and custody contracts, and the
@@ -309,3 +309,76 @@ The unchanged core Conversation proof previously passed 87 tests. Disabling blan
 refusal or moving its evidence after refusal each failed the intended two tests;
 restoration passed four cases, with exact source restoration, in 6987 ms uncapped.
 This closes consumer integration, not the independent campaign audit or final gates.
+
+## Acceptance
+
+Root accepts the promotion at Study `019f5ce` and Agent `8a9087b` after the original
+independent Astra and actual Opus audit, the prescribed repair controls, the focused
+independent actual Opus MCP review, and the host gates. The MCP owner repair is integrated at
+MCP `b0e9d7f` (equivalents of `ee14ce6` and `ec91c9e`); its final verified tree is `f9fffad`.
+No version bump or publication accompanies the acceptance. This record closes the audit;
+the superseded verdict remains in git history.
+
+### Repairs and controls
+
+- F4: Study owns nested transport configuration and takes synchronous outbound URL, init, and
+  header snapshots before any await, and retains the caller's signal and callback identity.
+  Removing configuration ownership failed 7 cases; sending the original URL and init failed 4;
+  live headers failed 1. Exact restoration passed. The joint F4 and F6 controls exited 0
+  uncapped in 21016 ms.
+- F6: grading refuses sparse evidence, a missing referenced actual row, and malformed
+  references with `EVIDENCE`. Dense empty evidence, whole-file citations, and stable indices
+  remain valid. Each removed guard failed its intended case and the restoration passed.
+- F5: `MCPToolError` and its guard distinguish a remote `isError` tool refusal from an
+  operational error. The Study fixture settles the expected refusal, records an
+  infrastructure failure attributed to the tool for HTTP 503, reset, invalid result, and
+  timeout, and rethrows. It
+  adds no retry and no model call. The real Agent, MCP, and Study CLI run exited 1 with no
+  product and no second model request for operational failures, while an expected refusal
+  stays visible to Agent. Treating every error as expected failed its case, as did treating
+  every error as operational; restoration passed, exit 0 uncapped in 27713 ms. A reset, an
+  invalid result, or a held fault can reach the existing timeout, so no claim of immediate
+  failure is made.
+- Blank recap: Agent retains the attempted text and cost and then records the content failure,
+  without changing substantive summary bytes and without a retry. Agent consumer: 158 tests
+  plus setup 23 and tools 3, and Conversation 87 as before. Disabling the guard and moving the
+  evidence order each failed 2 intended cases; restoration passed 4 in 6987 ms.
+
+### Review
+
+Actual Opus focused session `61002050-f88e-4575-aa4e-234072567bc5` held the behavior after
+mandatory authority follow-through. Its literal code-field finding is fixed with `as const`
+under the literal-field exception. Root removed a redundant constructor under
+`no-useless-constructor`: the inherited `Error` constructor accepts the optional message and
+options, and the MCP call always supplies a message. Abbreviated reviewer citations were
+lookup hints; root verified the decision-bearing code directly.
+
+### Gates
+
+- Study at `019f5ce`: format, lint, check, and build passed. An initial run under parallel load
+  failed 5 timing-sensitive cases, and that evidence is retained. The affected files alone
+  passed 5 and 22. Then source 431, policy 119 with 1 skip, config 229 with 1 skip, setup 32,
+  and guides 8 passed, overall 97408 ms uncapped. No source and no timeout allowance changed.
+- Discovery represented all 50 authored files; distribution was collected separately. The
+  authored release distribution gate then passed 10 with no skips in 22161 ms uncapped, and a
+  real npm tarball installs its registry dependencies. It proves shipping, import, type, and
+  error identity. It does not prove the semantics of the promoted APIs against old registry
+  builds.
+- MCP at `f9fffad`: format, lint, check, build, and test passed in a physical-install
+  worktree, 2239 passed and 5 skipped across 46 files, 139511 ms uncapped. The earlier linked
+  worktree showed browser import failures that a physical `npm ci` did not; no exact cause is
+  asserted. The standard API Extractor and build notices and the distribution `DEP0190` shell
+  warning are retained.
+
+### Remaining limit
+
+The Study integration proofs use staged Agent and Ollama development artifacts. Loading the
+runtime packages from npm passes, but the promoted timing and request APIs need owner releases
+before an installed consumer can expose this capability through Study. No claim is made of npm
+availability or publish readiness for the unpublished owner APIs.
+
+### Routing
+
+Claude Sonnet wrote, Opus judged, and Haiku ran exact lookups. The host executed the gates
+because Claude Bash was unavailable, and no gate is claimed as a Claude run. No Fable was
+scheduled.

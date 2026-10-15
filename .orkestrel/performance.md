@@ -13,8 +13,13 @@ server tests, 23 setup tests, 8 guide tests and an isolated build at `c28acbc`. 
 MCP consumption proof is integrated at `2359ac5`: changed tool results and a remote refusal
 traverse the captured Agent worker with their accounting intact. Its independent server gate
 passed 257 tests; setup passed 28. Agent's consumer migration passed its 158 service tests
-and is integrated; the independent campaign audit and final gates remain pending.
-This is implementation progress, not a measured speedup.
+and is integrated. Root accepted the promotion at Study `019f5ce` and Agent `8a9087b` after
+the independent audit, the repair controls, the focused MCP review and the host gates; see
+[promotion acceptance](promotion.md#acceptance) for the measurements. No version bump or
+publication accompanies the acceptance. No speedup is accepted. Compaction qualification
+started at 2026-10-15 19:05 UTC in Agent's `tmp/studies/compaction-content-3`, from a physical
+copy of the accepted build. Its trial limit is 160 minutes, with a fixed outer deadline of
+21:51 UTC. The Records 96/96 result is retained, with no rerun or replay.
 
 The rolling Compaction attempt closed 96/96, but qualification rejected 8 empty recaps among
 12. The verified retained reading attributes 676819.806 ms to Agent prefill: 25.29% of Agent
