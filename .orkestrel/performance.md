@@ -12,7 +12,8 @@ verification passed core/server/bin typechecks, scoped format/lint, 118 core tes
 server tests, 23 setup tests, 8 guide tests and an isolated build at `c28acbc`. The real
 MCP consumption proof is integrated at `2359ac5`: changed tool results and a remote refusal
 traverse the captured Agent worker with their accounting intact. Its independent server gate
-passed 257 tests; setup passed 28. Agent's consumer migration remains under verification.
+passed 257 tests; setup passed 28. Agent's consumer migration passed its 158 service tests
+and is integrated; the independent campaign audit and final gates remain pending.
 This is implementation progress, not a measured speedup.
 
 The rolling Compaction attempt closed 96/96, but qualification rejected 8 empty recaps among
@@ -59,7 +60,9 @@ does not admit model replay before the qualification prerequisite. The sealed id
 
 The quality repair rejects blank recap content before history replacement, retaining the
 attempted text and cost with a distinct `content` failure. Study's cause and propagation proof
-are integrated at `fa7d1ea`; the Agent guard awaits verification against the combined build.
+are integrated at `fa7d1ea`; the Agent guard passed the combined consumer suite. Removing
+the guard or recording evidence after refusal each failed the intended empty/whitespace
+cases, and restoring the source passed the selected tests.
 It changes no prompt or budget and adds no retry. The completed result remains rejected.
 Records remains sealed and labeled; no replay is selected. The paired speed and quality
 thresholds below remain unchanged.

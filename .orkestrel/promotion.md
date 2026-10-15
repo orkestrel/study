@@ -292,3 +292,20 @@ Current public MCP 0.0.38, Tool 0.0.19, Router 0.0.17 and Server 0.0.23 are decl
 dependencies at `c28acbc`. No source unit changes Agent's captured installed Study copy.
 Consumer removal, the real MCP proof, independent campaign audit and final gates remain
 required before acceptance. No performance improvement or model-quality result is claimed.
+
+The real MCP consumption proof is integrated at `2359ac5`. Sonnet session
+`d8c4be16-0332-4ee5-8ca0-af2b9cff3301` repaired the fixture through bounded successors;
+the last accounting correction took 20140 ms. Native verification passed root tsc,
+scoped format/lint, the actual MCP composition, 28 setup tests, 257 server tests and 119
+policy tests with one applicability skip. Server execution took 65.64 seconds uncapped.
+Expected remote tool refusals return through Agent while accounting settles once.
+
+Agent's consumer migration is integrated after the Sonnet session's 114883 ms runtime
+correction, a root helper rename and the measured complete inventory correction. The
+existing profile proof rejected omitted SQLite/IndexedDB runtime roots; adding their
+declared paths closed it. Native verification passed root tsc, scoped format/lint, 23
+setup tests, 3 tools integration tests and all 158 service tests in 56695 ms uncapped.
+The unchanged core Conversation proof previously passed 87 tests. Disabling blank-recap
+refusal or moving its evidence after refusal each failed the intended two tests;
+restoration passed four cases, with exact source restoration, in 6987 ms uncapped.
+This closes consumer integration, not the independent campaign audit or final gates.
