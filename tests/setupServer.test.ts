@@ -20,6 +20,7 @@ import {
 	answerStudyMCP,
 	collectStudyRoots,
 	createMCPFixture,
+	createMCPProxy,
 	createOllamaServer,
 	resolveStudyEntry,
 	resolveStudyPackage,
@@ -362,6 +363,34 @@ describe('study server fixtures', () => {
 			await server.close()
 		}
 		await expect(fetch(server.url, { method: 'POST', body: '{}' })).rejects.toThrow('fetch failed')
+	})
+	it('forwards discovery through the MCP proxy and interferes only with tool calls, then releases its port', async () => {
+		for (const interference of ['status', 'reset', 'held', 'invalid', 'error'] as const) {
+			const server = await createMCPFixture(['unreached'])
+			const proxy = await createMCPProxy(server.url, interference)
+			const client = createMCPClient({
+				transport: new HTTPClientTransport({ url: proxy.url, timeout: 300 }),
+				timeout: 300,
+			})
+			try {
+				await client.connect()
+				expect((await client.tools()).map((tool) => tool.name)).toEqual(['lookup'])
+				const refused = await client.call('lookup', { id: 'a' }).then(
+					() => undefined,
+					(error: unknown) => error,
+				)
+				expect(refused).toBeInstanceOf(Error)
+				expect(proxy.intercepted).toHaveLength(1)
+				expect(server.calls).toEqual([])
+				expect(server.methods.filter((method) => method === 'tools/call')).toEqual([])
+				expect(server.methods).toContain('tools/list')
+			} finally {
+				await client.disconnect()
+				await proxy.close()
+				await server.close()
+			}
+			await expect(fetch(proxy.url, { method: 'POST', body: '{}' })).rejects.toThrow('fetch failed')
+		}
 	})
 	it('lets an Ollama peer answer from request bytes without disturbing queued or default replies', async () => {
 		const peer = await createOllamaServer([], answerStudyMCP)

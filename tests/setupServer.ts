@@ -72,6 +72,8 @@ import type {
 import type {
 	StudyMCPAnswer,
 	StudyMCPFixture,
+	StudyMCPInterference,
+	StudyMCPProxy,
 	StudySparseEvidence,
 } from './src/server/adapters/types.js'
 import { createOllama, extractTiming } from '@orkestrel/ollama'
@@ -1542,6 +1544,75 @@ export async function createMCPFixture(
 	}
 }
 
+/** Starts a loopback proxy in front of an MCP endpoint that forwards every request except `tools/call`.
+ * @param target - The real MCP endpoint every other request is forwarded to.
+ * @param interference - How each `tools/call` fails; none reaches the target.
+ * @returns The proxy endpoint, the interfered request ids and one bounded teardown.
+ */
+export async function createMCPProxy(
+	target: string,
+	interference: StudyMCPInterference,
+): Promise<StudyMCPProxy> {
+	const intercepted: unknown[] = []
+	const proxy = createServer(async (request, response) => {
+		const chunks: Buffer[] = []
+		for await (const chunk of request)
+			chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+		const body = Buffer.concat(chunks).toString('utf8')
+		const message = parseJSON(body)
+		if (isRecord(message) && message.method === 'tools/call') {
+			intercepted.push(message.id)
+			if (interference === 'reset') request.socket.destroy()
+			else if (interference === 'status') {
+				response.writeHead(503, { 'content-type': 'text/plain' })
+				response.end('Unavailable')
+			} else if (interference !== 'held') {
+				response.writeHead(200, { 'content-type': 'application/json' })
+				response.end(
+					JSON.stringify(
+						interference === 'invalid'
+							? { jsonrpc: '2.0', id: message.id, result: 7 }
+							: {
+									jsonrpc: '2.0',
+									id: message.id,
+									error: { code: -32000, message: 'Remote unavailable' },
+								},
+					),
+				)
+			}
+			return
+		}
+		const headers = new Headers()
+		for (const [name, value] of Object.entries(request.headers))
+			if (value !== undefined && name !== 'host' && name !== 'content-length')
+				headers.set(name, Array.isArray(value) ? value.join(', ') : value)
+		const reply = await fetch(target, {
+			method: request.method ?? 'POST',
+			headers,
+			...(request.method === 'GET' || request.method === 'HEAD' ? {} : { body }),
+		})
+		response.writeHead(reply.status, {
+			'content-type': reply.headers.get('content-type') ?? 'application/json',
+		})
+		response.end(await reply.text())
+	})
+	await new Promise<void>((ready, reject) => {
+		proxy.once('error', reject)
+		proxy.listen(0, '127.0.0.1', ready)
+	})
+	const address = proxy.address()
+	if (address === null || typeof address === 'string') throw new Error('Missing MCP proxy address')
+	return {
+		url: `http://127.0.0.1:${address.port}/mcp`,
+		intercepted,
+		close: () =>
+			new Promise<void>((done, reject) => {
+				proxy.closeAllConnections()
+				proxy.close((error) => (error === undefined ? done() : reject(error)))
+			}),
+	}
+}
+
 /** Answers a chat request as a deterministic Ollama protocol peer: it asks for `lookup` until the last message is a tool receipt, then answers from that receipt.
  * @param path - The requested path.
  * @param body - The exact request bytes.
@@ -1602,13 +1673,21 @@ export const STUDY_MCP_ADAPTER = `export function createStudyAdapter() { return 
      runner.context.tools.add({ name: remote.name, description: remote.description, parameters: remote.parameters, execute: async (args, context) => {
       const ticket = await goal.meter.admit({ role: 'tool', tokens: 0, bytes: 4096 })
       const started = performance.now()
-      let bytes
       try {
        const value = await remote.execute(args, context)
-       bytes = Buffer.byteLength(JSON.stringify(value) ?? '')
+       const bytes = Buffer.byteLength(JSON.stringify(value) ?? '')
+       ticket.finish({ role: 'tool', calls: 1, tokens: undefined, bytes, duration: Math.ceil(performance.now() - started) })
        return value
-      } finally {
-       if (!ticket.settled && !ticket.signal.aborted) ticket.finish({ role: 'tool', calls: 1, tokens: undefined, bytes, duration: Math.ceil(performance.now() - started) })
+      } catch (error) {
+       if (ticket.settled || ticket.signal.aborted) throw error
+       try {
+        if (subject.isMCPToolError(error)) ticket.finish({ role: 'tool', calls: 1, tokens: undefined, bytes: undefined, duration: Math.ceil(performance.now() - started) })
+        else ticket.fail({ cause: 'infrastructure', message: String(error?.message ?? error), role: 'tool' })
+       } catch (settlement) {
+        if (!ticket.settled && !ticket.signal.aborted) ticket.fail({ cause: 'infrastructure', message: String(settlement?.message ?? settlement), role: 'tool' })
+        throw settlement
+       }
+       throw error
       }
      } })
    } catch (error) {

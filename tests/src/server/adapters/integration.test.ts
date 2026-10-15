@@ -7,6 +7,7 @@ import {
 	answerStudyMCP,
 	buildStudyCLI,
 	createMCPFixture,
+	createMCPProxy,
 	createOllamaServer,
 	executeStudyCLI,
 	readStudyAdjudication,
@@ -110,4 +111,53 @@ describe('admitted Agent over the admitted MCP core client', () => {
 			await destroyScratch(consumer)
 		}
 	}, 60000)
+
+	it.each(['status', 'reset', 'held', 'invalid', 'error'] as const)(
+		'keeps a %s tool-call failure an infrastructure failure of the tool role and never answers from it',
+		async (interference) => {
+			const consumer = createScratch({
+				parent: resolve('tmp/units'),
+				prefix: 'runtime-mcp-failure-',
+			})
+			const server = await createMCPFixture([])
+			const proxy = await createMCPProxy(server.url, interference)
+			try {
+				const peer = await createOllamaServer([], answerStudyMCP)
+				try {
+					writeStudyMCP(consumer, proxy.url, peer.url)
+					const executed = await executeStudyCLI(entry, consumer.path, ['execute', 'orders'])
+					const output = parseJSON(executed.output.split(/\r\n|\n/)[0] ?? '')
+					if (!isRecord(output) || typeof output.path !== 'string')
+						throw new Error(`Missing result: ${executed.output}`)
+					const sealed = await readStudyResult(output.path)
+					if (sealed.status !== 'sealed') throw new Error('Execution did not seal')
+					const [attempt] = sealed.attempts
+					if (attempt === undefined) throw new Error('Missing attempt')
+					expect(executed.code).toBe(1)
+					expect(attempt.failure).toMatchObject({ cause: 'infrastructure', role: 'tool' })
+					// The first goal's single interfered call is the only one: no retry and no later goal.
+					expect(proxy.intercepted).toHaveLength(1)
+					expect(server.calls).toEqual([])
+					expect(
+						attempt.observations.filter((observation) => observation.product !== undefined),
+					).toEqual([])
+					expect(peer.requests.filter((request) => request.path === '/api/chat')).toHaveLength(1)
+					const adjudication = await readStudyAdjudication(sealed)
+					const rows = adjudication.evidence[attempt.trial.id] ?? []
+					expect(rows.filter((row) => row.event === 'answered')).toEqual([])
+				} finally {
+					await peer.close()
+				}
+			} finally {
+				await proxy.close()
+				await server.close()
+				await destroyScratch(consumer)
+			}
+			await expect(fetch(proxy.url, { method: 'POST', body: '{}' })).rejects.toThrow('fetch failed')
+			await expect(fetch(server.url, { method: 'POST', body: '{}' })).rejects.toThrow(
+				'fetch failed',
+			)
+		},
+		60000,
+	)
 })
