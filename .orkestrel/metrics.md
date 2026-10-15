@@ -1,5 +1,11 @@
 # Measurements after strict qualification
 
+The attempted/unexecuted accounting repair is accepted at Study `065f2aa`; package-owned
+format counters and compatibility branches were removed. The defect map in this document
+records the earlier findings, not unfinished implementation. Optional model-visible metadata
+and recovery remain separate treatments. See Agent's
+[handoff](../../agent/.orkestrel/agent/handoff.md) for accepted source and execution status.
+
 This cross-package follow-up does not block the current series repair. Ship exact request
 components and refused-admission evidence first. Keep host measurements outside model context.
 Recovery and model-visible metadata require separate frozen treatments; neither is enabled in

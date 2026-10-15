@@ -1,5 +1,12 @@
 # Records, Agent, and Study performance
 
+For execution state and accepted source, see Agent's
+[handoff](../../agent/.orkestrel/agent/handoff.md). The 2026-10-15 22:04 UTC
+`compaction-output` qualification uses recap 4096 and the accepted Study extraction at
+`422d549`; earlier 2048-room and stopped/running entries in this document are historical.
+The measurement gates and conditional candidate decisions remain in force. Records remains
+sealed and labeled without replay, and no optimization or speedup is accepted.
+
 ## Current implementation and retained reading
 
 Observation is implemented: Agent request components, classifier/cache readings, Ollama
