@@ -236,3 +236,23 @@ Claude Sonnet liveness passed with READY, session 177aaed5-f512-474e-accc-20fcf8
 4574 ms, exit 0, uncapped. The user explicitly requested Claude models for this work,
 overriding the usual Codex engine mapping. Implementation caps allow 30 minutes: the prior
 Opus review took 430581 ms, plus source changes, scoped proof commands, and slack.
+
+Sonnet runtime session `b99ab9e4-332b-405f-a63c-9c6072d7dd3d` returned source and tests
+after 546386 ms, exit 0, uncapped. Sonnet settlement session
+`1b75e024-5e5c-4684-9312-e351100abf28` returned after 682243 ms, exit 0, uncapped.
+Neither CLI session exposed Bash despite the requested tools flag, so neither ran its
+checks. Native Luna verifiers execute the scoped commands independently; the Claude
+writers remain responsible for implementation. Opus instrumentation session
+`ff34c1ee-0018-41a8-96b6-ce8a138ae391` is still writing. These are dispatch readings,
+not acceptance.
+
+Published Agent 0.0.30 and Ollama 0.0.23 lack the current request-measurement and timing
+APIs. Isolated verification uses copies of the accepted development artifacts under
+`tmp/studies/promotion-dependencies`, with source paths and declaration hashes recorded
+in its custody file. Copying leaves the frozen originals unchanged. This proves current
+development consumption, not installation of those APIs from npm. Release ordering must
+publish the owning Agent/Ollama additions before Study can depend on them publicly.
+
+The Compaction run subsequently closed 96/96 without an operational failure, but its
+qualification rejected 8 empty recaps among 12 completions. Agent `7067bc1` records the
+sealed outcome. Promotion changes neither that result nor the nonempty-fold criterion.
