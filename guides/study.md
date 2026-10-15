@@ -1550,6 +1550,23 @@ import { isStudyCustodySeal } from '@orkestrel/study/server'
 isStudyCustodySeal({}) // false
 ```
 
+### Own transport inputs
+
+Copy declared configuration and mutable request headers before asynchronous admission.
+
+```ts
+import type { StudyOllamaTransportOptions } from '@orkestrel/study/server'
+import { buildStudyOllamaOptions, buildStudyOllamaSnapshot } from '@orkestrel/study/server'
+
+declare const configured: StudyOllamaTransportOptions
+const owned = buildStudyOllamaOptions(configured)
+const headers = new Headers({ 'x-request': 'original' })
+const request = buildStudyOllamaSnapshot(new URL('/api/chat', owned.url), { headers }, undefined)
+headers.set('x-request', 'changed')
+new Headers(request.init?.headers).get('x-request') // 'original'
+owned.signal === configured.signal // true
+```
+
 ### Helper calls
 
 Supply the argument tuple from each helper's signature.
