@@ -16,6 +16,9 @@ export class StudyRemoteTicket implements StudyTicket {
 	get signal(): AbortSignal {
 		return this.#options.signal
 	}
+	get settled(): boolean {
+		return this.#settled
+	}
 
 	/** Sends actual usage for authoritative parent settlement.
 	 * @param usage - Actual measured request usage.

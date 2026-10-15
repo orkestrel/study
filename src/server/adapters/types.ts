@@ -1,5 +1,6 @@
 import type {
 	StudyAttempt,
+	StudyCriterion,
 	StudyDefinition,
 	StudyDriverInterface,
 	StudyEvidence,
@@ -8,6 +9,7 @@ import type {
 	StudyProfile,
 	StudyRubric,
 	StudyScenario,
+	StudyTrial,
 } from '../../core/types.js'
 
 /** Holds declarations for domain validation before agent, subject or provider execution. */
@@ -34,6 +36,37 @@ export interface StudyAdjudication {
 	readonly attempts: readonly StudyAttempt[]
 	readonly evidence: Readonly<Record<string, readonly StudyEvidence[]>>
 }
+
+/** Names a retained file of one trial that a judgment cites. */
+export type StudyReferenceFile = 'attempt' | 'evidence'
+
+/** Cites a retained trial file, or one evidence row of it by its zero-based position. */
+export interface StudyReference {
+	readonly file: StudyReferenceFile
+	/** Selects one retained evidence row; the cited string carries its one-based position. Valid only for the evidence file. */
+	readonly row?: number
+}
+
+/** Holds one declared trial and criterion pair with its retained observations. */
+export interface StudyGradeTarget {
+	readonly trial: StudyTrial
+	readonly criterion: StudyCriterion
+	/** Holds the retained terminal record, or undefined when the trial was never retained. */
+	readonly attempt: StudyAttempt | undefined
+	/** Holds the trial's retained evidence rows in append order; empty when the trial was never retained. */
+	readonly evidence: readonly StudyEvidence[]
+}
+
+/** Holds a consumer predicate's reading of one target, citing only retained files and rows. */
+export interface StudyGradeReading {
+	readonly verdict: StudyJudgment['verdict']
+	readonly method: StudyJudgment['method']
+	readonly reason: string
+	readonly references: readonly StudyReference[]
+}
+
+/** Reads one declared target against the consumer's domain predicate. */
+export type StudyGradeFunction = (target: StudyGradeTarget) => StudyGradeReading
 
 /** Defines the consumer's domain checks, driver construction, and retained-evidence grading.
  * @remarks

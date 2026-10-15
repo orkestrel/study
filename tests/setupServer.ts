@@ -4,11 +4,14 @@ import { isArray, isInteger, isRecord, parseJSON } from '@orkestrel/contract'
 import { isRunning } from '@orkestrel/test/server'
 import type {
 	StudyAttempt,
+	StudyCriterion,
+	StudyEvidence,
 	StudyGrading,
 	StudyLabels,
 	StudyManifest,
 	StudyRubric,
 } from '../src/core/types.js'
+import type { StudyAdjudication, StudyGradeFunction } from '../src/server/adapters/types.js'
 import type { StudySealedResult } from '../src/server/stores/types.js'
 import type {
 	StudyProcessSessionOptions,
@@ -42,6 +45,7 @@ import {
 } from '../src/server/processes/validators.js'
 import { StudyTask } from '../src/server/processes/StudyTask.js'
 import { STUDY_TASK_DURATION } from '../src/server/processes/constants.js'
+import { collectStudyEvidence } from '../src/server/commands/helpers.js'
 import { StudyResults } from '../src/server/stores/StudyResults.js'
 import {
 	buildStudyPacket,
@@ -49,6 +53,7 @@ import {
 	readStudyResult,
 } from '../src/server/stores/helpers.js'
 import {
+	buildCompactCustodyManifest,
 	buildCustodyAttempt,
 	buildCustodyManifest,
 	buildStudyRubric,
@@ -437,27 +442,64 @@ export function buildCustodyPacketLabels(
 	}
 }
 
+/** Supplies the one evidence row a retained fixture trial holds by default. */
+export const STUDY_FIXTURE_ROWS: readonly StudyEvidence[] = Object.freeze([
+	{ event: 'saved', goal: 'write', value: 'remember' },
+])
+
 /**
  * Retains a complete fixture through the real append-only execution store.
  * @param directory - The nonexistent result directory inside an owned scratch resource
  * @param manifest - The execution declaration; Default: a fresh custody manifest
+ * @param rows - The evidence rows appended to every trial in order; Default: one saved write row
  * @returns The independently verified sealed execution
  */
 export async function retainStudyFixture(
 	directory: string,
 	manifest: StudyManifest = buildCustodyManifest(),
+	rows: readonly StudyEvidence[] = STUDY_FIXTURE_ROWS,
 ): Promise<StudySealedResult> {
 	const results = new StudyResults({ directory, manifest })
 	await results.create()
 	for (const trial of manifest.schedule) {
 		const sink = await results.start(trial)
-		await sink.append({ event: 'saved', goal: 'write', value: 'remember' })
+		for (const row of rows) await sink.append(row)
 		await results.finish(buildCustodyAttempt(manifest, trial))
 	}
 	await results.seal()
 	const reading = await readStudyResult(directory)
 	if (reading.status !== 'sealed') throw new Error('Fixture execution did not seal')
 	return reading
+}
+
+/**
+ * Builds the grading input over an inert declaration, its attempts and its evidence.
+ * @param manifest - The declaration; Default: the compact custody manifest
+ * @param attempts - The retained terminal records; Default: one complete record per scheduled trial
+ * @param evidence - The retained rows keyed by trial; Default: none
+ * @returns The adjudication paired with the predicate rubric
+ */
+export function buildStudyAdjudication(
+	manifest: StudyManifest = buildCompactCustodyManifest(),
+	attempts: readonly StudyAttempt[] = manifest.schedule.map((trial) =>
+		buildCustodyAttempt(manifest, trial),
+	),
+	evidence: Readonly<Record<string, readonly StudyEvidence[]>> = {},
+): StudyAdjudication {
+	return { manifest, rubric: STUDY_PREDICATE_RUBRIC, attempts, evidence }
+}
+
+/**
+ * Reads the grading input of a sealed execution through the real custody evidence reader.
+ * @param result - The independently verified sealed execution
+ * @returns The adjudication over its retained attempts and evidence rows
+ */
+export async function readStudyAdjudication(result: StudySealedResult): Promise<StudyAdjudication> {
+	return buildStudyAdjudication(
+		result.manifest,
+		result.attempts,
+		await collectStudyEvidence(result),
+	)
 }
 
 /**
@@ -548,6 +590,128 @@ export function buildCustodyLabels(result: StudySealedResult, labeler = 'human-v
 				references: [`trials/${trial.id}/attempt.json`],
 			},
 		],
+	}
+}
+
+/** Supplies a rubric whose criteria exercise a whole-attempt predicate, a retained-row predicate and a semantic label for each scenario. */
+export const STUDY_PREDICATE_RUBRIC: StudyRubric = Object.freeze({
+	version: '1',
+	criteria: Object.freeze(
+		['first', 'second'].flatMap((scenario): readonly StudyCriterion[] => [
+			{
+				id: `${scenario}-operational`,
+				scenario,
+				goal: 'write',
+				method: 'state',
+				critical: true,
+				assertion: { observation: 'operational' },
+			},
+			{
+				id: `${scenario}-saved`,
+				scenario,
+				goal: 'write',
+				method: 'trace',
+				critical: false,
+				assertion: { observation: 'saved', equals: 'remember' },
+			},
+			{
+				id: `${scenario}-read`,
+				scenario,
+				goal: 'read',
+				method: 'semantic',
+				critical: false,
+				assertion: { relevant: true },
+			},
+		]),
+	),
+})
+
+/**
+ * Builds an inert predicate shaped like the memory consumer's grading policy.
+ * @returns A predicate that requires whole-attempt success for the operational assertion, cites the first matching row for an event assertion, and leaves semantic criteria unknown
+ */
+export function createStudyAttemptGrade(): StudyGradeFunction {
+	return ({ criterion, attempt, evidence }) => {
+		if (criterion.method === 'semantic')
+			return {
+				verdict: 'unknown',
+				method: 'human',
+				reason: 'Requires an independent blind semantic label',
+				references: [],
+			}
+		const assertion = criterion.assertion
+		const observation = attempt?.observations.find((entry) => entry.goal === criterion.goal)
+		if (attempt === undefined || observation === undefined || !isRecord(assertion))
+			return {
+				verdict: 'unknown',
+				method: criterion.method,
+				reason: 'No retained observation for the declared mechanism',
+				references: [],
+			}
+		const complete = observation.failure === undefined && observation.product !== undefined
+		if (assertion.observation === 'operational')
+			return {
+				verdict: complete && attempt.failure === undefined ? 'achieved' : 'unsuccessful',
+				method: criterion.method,
+				reason: 'Retained observable mechanism evidence',
+				references: [{ file: 'attempt' }],
+			}
+		const row = evidence.findIndex(
+			(entry) => entry.goal === criterion.goal && entry.event === assertion.observation,
+		)
+		if (row >= 0)
+			return {
+				verdict: 'achieved',
+				method: criterion.method,
+				reason: 'Retained observable mechanism evidence',
+				references: [{ file: 'evidence', row }],
+			}
+		return complete
+			? {
+					verdict: 'unsuccessful',
+					method: criterion.method,
+					reason: 'Retained observable mechanism evidence',
+					references: [{ file: 'attempt' }, { file: 'evidence' }],
+				}
+			: {
+					verdict: 'unknown',
+					method: criterion.method,
+					reason: 'No retained observation for the declared mechanism',
+					references: [],
+				}
+	}
+}
+
+/**
+ * Builds an inert predicate shaped like the tools consumer's grading policy.
+ * @returns A predicate that reads the latest retained row of a goal's declared event against the criterion's expected value, and leaves unretained trials unknown
+ */
+export function createStudyRowGrade(): StudyGradeFunction {
+	return ({ criterion, evidence }) => {
+		const assertion = criterion.assertion
+		if (criterion.method === 'semantic' || !isRecord(assertion))
+			return {
+				verdict: 'unknown',
+				method: 'human',
+				reason: 'Requires an independent blind semantic label',
+				references: [],
+			}
+		let row: number | undefined
+		for (const [index, entry] of evidence.entries())
+			if (entry.goal === criterion.goal && entry.event === assertion.observation) row = index
+		if (row === undefined)
+			return {
+				verdict: 'unknown',
+				method: criterion.method,
+				reason: 'No retained observation for the declared predicate',
+				references: [],
+			}
+		return {
+			verdict: evidence[row]?.value === assertion.equals ? 'achieved' : 'unsuccessful',
+			method: criterion.method,
+			reason: 'Retained observation is compared with the independent predicate',
+			references: [{ file: 'evidence', row }],
+		}
 	}
 }
 

@@ -16,6 +16,8 @@ A product that exceeds its goal, trial, or series output allowance is omitted fr
 
 Each observation and attempt records an explicit execution fact. An observation is executed when the engine dispatched its goal to the session, and unexecuted when it fills the horizon after a terminal failure; an unexecuted observation holds a failure and no product, usage, or duration. An attempt is executed when it entered trial execution without an inherited terminal series failure, including a failure before the driver opened, so the fact does not claim that the driver was opened. Executed goals form a prefix of the horizon, and an executed goal that fails ends it. Both facts are required booleans, never inferred from a product, usage, duration, or failure message, and custody refuses an attempt that omits one or contradicts them. A terminal attempt holds a failure whenever a goal failed or went unexecuted. Study carries no format counter; the artifact inventory records the exact implementation fingerprints, and the definition, rubric, and label versions are caller-authored metadata that identify supplied content.
 
+A ticket reports `settled` from its own settlement, never from `signal.aborted`: a worker ticket whose signal aborted is unsettled locally because the parent owns that failure. After work escapes, call `failStudyTicket` with the caught value. It leaves a ticket that already settled or aborted untouched, so no request is accounted twice. Otherwise it fails the ticket once with the reading `readStudyFailure` gives the value; an optional role replaces any role that reading carries, and without one the carried role, then the ticket's admitted role, applies. A refusal thrown by the ticket's own settlement propagates. A consumer that must account known bytes when an operation throws, or finish an expected refusal, keeps that choice in its own code.
+
 The driver receives a borrowed admission interface and an evidence sink. The concrete engine owns the meter's closing lifecycle. Native workers await parent admission and acknowledge request settlement; each trial runs in a fresh child. Trusted adapters can access native resources, so process supervision is not a hostile-code sandbox.
 
 Execution custody creates a result directory exclusively, appends evidence, retains terminal attempts, and seals only a complete scheduled population. A result without a seal remains interrupted. Offline reading verifies the seal's exact file inventory and digests. Changed execution bytes refuse custody verification.
@@ -106,6 +108,8 @@ artifacts.verify()
 An authored consumer module exports a factory named createStudyAdapter. The factory returns an adapter with validation, driver construction, and retained-evidence grading. Validation receives generic declarations before agent, subject, or provider modules execute. During validation, an import edge that reaches the selected agent, subject, or provider entry, directly or through another module, refuses the check; other admitted modules still load. A driver receives admitted module namespaces, its execution profile, and exclusive scratch resources.
 
 Keep grading criteria outside public goal input. Grade retained observations and evidence independently of execution. Return unknown judgments when evidence is unavailable; preserve the criterion's declared method. Adapter code runs as trusted instrumentation in bounded child work and is not a security sandbox.
+
+Call `gradeStudyEvidence` from an adapter's grade method to traverse the declared schedule and criteria. The traversal validates the manifest, rubric, attempts, evidence, and every declared goal when called directly, so a public grading helper keeps that validation. It calls the supplied `StudyGradeFunction` for every trial and criterion of that trial's scenario, in schedule then rubric order, and a trial without a retained attempt still receives a judgment with no attempt and no evidence. The predicate returns the verdict, method, reason, and `StudyReference` citations. The traversal renders each citation as a retained path, with a one-based position for an evidence row, and refuses a citation of a trial that was not retained or a row that does not exist. Domain predicates, whole-attempt or per-goal success, and expected refusals remain in the consumer.
 
 ## Native command
 
@@ -238,7 +242,10 @@ The following declarations describe this concept.
 | `StudyFile`                      | interface | Holds the exact byte identity of one execution file.                                      |
 | `StudyFrame`                     | interface | Holds a correlated JSON request, reply or cancellation notification.                      |
 | `StudyGoal`                      | interface | Holds a declared goal's public input without its grading truth.                           |
+| `StudyGradeFunction`             | type      | Reads one declared target against the consumer's domain predicate.                        |
+| `StudyGradeReading`              | interface | Holds a consumer predicate's reading of one target, citing only retained files and rows.  |
 | `StudyGradeRequest`              | interface | Holds an offline predicate grading request.                                               |
+| `StudyGradeTarget`               | interface | Holds one declared trial and criterion pair with its retained observations.               |
 | `StudyGrading`                   | interface | Holds a grading identity that cannot replace or mutate execution bytes.                   |
 | `StudyGradingContext`            | interface | Holds artifacts already verified inside a selected immutable grading directory.           |
 | `StudyGradingOptions`            | interface | Holds imported grading artifacts independently of execution.                              |
@@ -272,6 +279,8 @@ The following declarations describe this concept.
 | `StudyProfile`                   | interface | Holds execution settings independently of scenario and grading declarations.              |
 | `StudyProvider`                  | interface | Holds caller-selected provider artifacts and model identities.                            |
 | `StudyPurpose`                   | type      | Names the evidence a study can establish.                                                 |
+| `StudyReference`                 | interface | Cites a retained trial file, or one evidence row of it by its zero-based position.        |
+| `StudyReferenceFile`             | type      | Names a retained file of one trial that a judgment cites.                                 |
 | `StudyRemoteMeter`               | class     | Waits for authoritative parent admission and drains acknowledged settlements.             |
 | `StudyRemoteMeterInterface`      | interface | Owns transported admission, parent cancellation, and settlement drainage.                 |
 | `StudyRemoteMeterOptions`        | interface | Holds the worker meter's parent-authorized transport and failure latch.                   |
@@ -314,6 +323,7 @@ The following declarations describe this concept.
 | `StudyWorker`                    | class     | Executes one verified trial behind parent-authorized admission and custody.               |
 | `buildStudyPacket`               | function  | Builds deterministic public semantic inputs and a separately retained private map.        |
 | `buildStudyPacketLinks`          | function  | Builds neutral semantic identities for the complete eligible sealed horizon.              |
+| `buildStudyReference`            | function  | Renders a citation of one retained trial file or evidence row.                            |
 | `buildStudySchedule`             | function  | Builds a bounded schedule from explicit repetition rows and declared scenarios.           |
 | `checkStudyDirectory`            | function  | Refuses symbolic links and non-directory ancestors before custody operations.             |
 | `collectStudyEntries`            | function  | Collects the executable entries a profile selects, each canonical path once.              |
@@ -332,7 +342,9 @@ The following declarations describe this concept.
 | `decodeStudyJSON`                | function  | Decodes strict UTF-8 custody bytes and parses their JSON text.                            |
 | `drainStudyChild`                | function  | Releases inherited output handles a bounded time after native exit.                       |
 | `encodeStudyJSON`                | function  | Encodes deterministic JSON bytes without synthesizing execution metadata.                 |
+| `failStudyTicket`                | function  | Records an error that escaped admitted work as the failure of its ticket.                 |
 | `failureToStudyError`            | function  | Converts an operational reading to its throwable boundary.                                |
+| `gradeStudyEvidence`             | function  | Grades every declared trial and criterion pair through the consumer's predicate.          |
 | `hashStudyBytes`                 | function  | Computes the lowercase SHA-256 identity of exact bytes or UTF-8 text.                     |
 | `isArtifactError`                | function  | Narrows a caught value to an artifact refusal.                                            |
 | `isStudyAdapter`                 | function  | Checks whether a factory returned the complete consumer adapter contract.                 |
@@ -1091,6 +1103,46 @@ Use the exported declaration with its documented arguments.
 import { isStudyAdapter } from '@orkestrel/study/server'
 
 isStudyAdapter({}) // false
+```
+
+### Fail an escaped request
+
+Use the exported declaration with its documented arguments.
+
+```ts
+import type { StudyTicket } from '@orkestrel/study'
+import { failStudyTicket } from '@orkestrel/study'
+
+declare const ticket: StudyTicket
+
+failStudyTicket(ticket, new Error('Provider refused'), 'tool')
+```
+
+### Cite a retained evidence row
+
+Use the exported declaration with its documented arguments.
+
+```ts
+import type { StudyGradeTarget } from '@orkestrel/study/server'
+import { buildStudyReference } from '@orkestrel/study/server'
+
+declare const target: StudyGradeTarget
+
+buildStudyReference(target, { file: 'evidence', row: 0 }) // 'trials/r1-s1-a1/evidence.jsonl#1'
+```
+
+### Grade retained evidence with a consumer predicate
+
+Use the exported declaration with its documented arguments.
+
+```ts
+import type { StudyAdjudication, StudyGradeFunction } from '@orkestrel/study/server'
+import { gradeStudyEvidence } from '@orkestrel/study/server'
+
+declare const input: StudyAdjudication
+declare const grade: StudyGradeFunction
+
+gradeStudyEvidence(input, grade)
 ```
 
 ### resolveStudyPath

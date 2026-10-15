@@ -17,6 +17,10 @@ describe('src core entry', () => {
 		}
 	})
 
+	it('exposes ticket failure settlement through the package entry', () => {
+		expect(entry.failStudyTicket).toBeTypeOf('function')
+	})
+
 	it('exposes the shared bounded wait and product guard through the package entry', async () => {
 		const deadline = new entry.StudyDeadline({ duration: 1000, label: 'Custody or cleanup' })
 		expect(await deadline.wait(Promise.resolve('closed'))).toBe('closed')

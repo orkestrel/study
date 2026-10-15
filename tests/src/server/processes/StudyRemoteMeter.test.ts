@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { StudyControl } from '../../../../src/core/engines/StudyControl.js'
 import { StudyDeadline } from '../../../../src/core/engines/StudyDeadline.js'
+import { failStudyTicket } from '../../../../src/core/engines/helpers.js'
 import { STUDY_PROCESS_LABEL } from '../../../../src/server/processes/constants.js'
 import { StudyChannel } from '../../../../src/server/processes/StudyChannel.js'
 import { StudyRemoteMeter } from '../../../../src/server/processes/StudyRemoteMeter.js'
@@ -137,6 +138,48 @@ process.on('message', frame => {
 			const original = { role: 'tool', calls: 1, tokens: 3, bytes: 5, duration: 7 }
 			expect(meter.usage).toEqual([original])
 			expect(JSON.parse(readFileSync(join(scratch.path, 'receipt.json'), 'utf8'))).toEqual(original)
+		} finally {
+			channel.close()
+			control.close()
+			await peer.close()
+			scratch.destroy()
+		}
+	}, 15000)
+
+	it('leaves a parent-aborted ticket to the parent without local settlement or a second accounting', async () => {
+		const scratch = createScratch()
+		const peer = createStudyPeer(
+			scratch,
+			`const fs = require('node:fs'), path = require('node:path')
+process.on('message', frame => {
+	fs.appendFileSync(path.join(__dirname, 'receipt.log'), frame.operation + '\\n')
+	process.send({id:frame.id,operation:'reply',value:frame.operation === 'admit' ? {id:frame.value.id} : true})
+})`,
+		)
+		const channel = new StudyChannel({
+			endpoint: peer.child,
+			handle: async () => true,
+			abort: () => undefined,
+		})
+		const control = new StudyControl()
+		const meter = new StudyRemoteMeter({ channel, control })
+		const deadline = new StudyDeadline({ duration: 2000, label: STUDY_PROCESS_LABEL })
+		try {
+			const ticket = await deadline.wait(meter.admit({ role: 'tool', tokens: 1, bytes: 1 }))
+			const failure = {
+				cause: 'deadline',
+				message: 'Parent deadline expired',
+				role: 'tool',
+			} as const
+			meter.abort(1, failure)
+			expect(ticket.signal.aborted).toBe(true)
+			expect(ticket.settled).toBe(false)
+			failStudyTicket(ticket, new Error('Work escaped after the parent aborted'))
+			expect(ticket.settled).toBe(false)
+			expect(control.failure).toEqual(failure)
+			await expect(deadline.wait(meter.close())).rejects.toMatchObject({ failure })
+			expect(meter.usage).toEqual([])
+			expect(readFileSync(join(scratch.path, 'receipt.log'), 'utf8')).toBe('admit\n')
 		} finally {
 			channel.close()
 			control.close()

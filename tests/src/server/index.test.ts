@@ -8,6 +8,10 @@ describe('src server entry', () => {
 		expect(entry).toHaveProperty('readStudyResult')
 		expect(entry).toHaveProperty('buildStudyPacket')
 	})
+	it('exposes the shared retained-evidence grading traversal and its citation renderer', () => {
+		expect(entry.gradeStudyEvidence).toBeTypeOf('function')
+		expect(entry.buildStudyReference).toBeTypeOf('function')
+	})
 	it('exposes the environment-root byte identity and JSON custody codec', () => {
 		const bytes = entry.encodeStudyJSON({ id: 1 })
 		expect(entry.decodeStudyJSON(bytes)).toEqual({ id: 1 })

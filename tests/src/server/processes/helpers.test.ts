@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest'
 import { requireValue, waitForEvent } from '@orkestrel/test'
 import { createScratch, isRunning } from '@orkestrel/test/server'
 import { fork } from 'node:child_process'
+import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { STUDY_DRAIN_DURATION } from '../../../../src/server/processes/constants.js'
 import {
@@ -47,7 +48,7 @@ describe('process helpers', () => {
 			)
 			validateStudyRuntime(scratch.path, [
 				scratch.path,
-				resolve('node_modules/@orkestrel/contract'),
+				realpathSync(resolve('node_modules/@orkestrel/contract')),
 			])
 			scratch.write(
 				'package.json',

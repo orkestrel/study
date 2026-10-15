@@ -33,6 +33,9 @@ export class StudyRequest implements StudyTicket {
 	get signal(): AbortSignal {
 		return this.#signal
 	}
+	get settled(): boolean {
+		return this.#settled
+	}
 
 	/** Retains actual measurements and refuses invalid or excessive charges.
 	 * @param usage - Measurements attributed to exactly this request.

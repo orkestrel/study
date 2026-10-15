@@ -152,6 +152,8 @@ export interface StudyUsage {
 /** Holds one admitted request until its actual charge is recorded. */
 export interface StudyTicket {
 	readonly signal: AbortSignal
+	/** Reports whether this ticket already recorded its own settlement; an aborted signal does not establish it. */
+	readonly settled: boolean
 	/** Records actual measurements for one admitted request.
 	 * @param usage - The request's measured charges.
 	 * @returns Nothing after settlement.

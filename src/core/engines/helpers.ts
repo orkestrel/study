@@ -1,4 +1,4 @@
-import type { StudyFailure } from '../types.js'
+import type { StudyFailure, StudyRole, StudyTicket } from '../types.js'
 import { isError } from '@orkestrel/contract'
 import { isStudyError, StudyError } from '../errors.js'
 
@@ -31,4 +31,31 @@ export function readStudyFailure(error: unknown): StudyFailure {
 		message: isError(error) ? error.message : 'Study operation rejected without an Error',
 		role: undefined,
 	}
+}
+
+/**
+ * Records an error that escaped admitted work as the failure of its ticket.
+ * @param ticket - The admitted request whose work escaped
+ * @param error - The caught value, read through `readStudyFailure`
+ * @param role - The responsibility that replaces any role the reading carries; Default: the carried role, else the ticket's admitted role
+ * @remarks
+ * A ticket that already settled or whose signal aborted is left untouched, because its owner
+ * already holds the failure. A remote ticket's aborted signal does not mean it settled locally,
+ * so the parent's ownership is respected rather than inferred as local settlement. A refusal
+ * thrown by the ticket's own settlement propagates.
+ * @throws Thrown when the ticket's settlement refuses the failure.
+ * @example Fail an escaped request
+ * ```ts
+ * import type { StudyTicket } from '@orkestrel/study'
+ * import { failStudyTicket } from '@orkestrel/study'
+ *
+ * declare const ticket: StudyTicket
+ *
+ * failStudyTicket(ticket, new Error('Provider refused'), 'tool')
+ * ```
+ */
+export function failStudyTicket(ticket: StudyTicket, error: unknown, role?: StudyRole): void {
+	if (ticket.settled || ticket.signal.aborted) return
+	const failure = readStudyFailure(error)
+	ticket.fail(role === undefined ? failure : { ...failure, role })
 }
