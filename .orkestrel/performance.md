@@ -67,6 +67,64 @@ It changes no prompt or budget and adds no retry. The completed result remains r
 Records remains sealed and labeled; no replay is selected. The paired speed and quality
 thresholds below remain unchanged.
 
+## Generation and runner attribution, 2026-10-15
+
+History's share of estimated message content is not its share of elapsed time. The rejected
+rolling attempt records 102945 Agent completion tokens across 120 requests and
+1988482.027 ms of Ollama decode time, 58.51% of attempt wall. Decode is the largest measured
+phase in that run. These are backend counters, not time spent executing the Agent package.
+Do not infer that Records or summarization is the sole bottleneck from the context partition.
+
+Separate the amount of requested work from the rate at which the runner executes it:
+
+| Owner | Question | Evidence required |
+| --- | --- | --- |
+| Agent and strategy | Are long responses, repeated turns, or avoidable auxiliary calls increasing total work? | Per-goal call and output-token counts, finish reasons, actual tool/summary turns, and blinded quality. Preserve output room while diagnosing. |
+| Ollama provider | Are usage, timing, finish reasons, cancellation, and errors retained correctly? | Terminal wire fields beside the public provider projection; unavailable fields remain unknown. |
+| Ollama runner and host | Is generation limited by memory capacity, bandwidth, computation, caching, or contention? | Model placement, context allocation, residency, cached prompt count, phase durations and observed host load correlated with each request. |
+| Study and consumer | Are admission, evidence, worker preparation, or grading adding material delay? | Monotonic spans at their own boundaries, with overlapping spans kept separate. Client wall minus backend time remains unattributed until measured. |
+
+The retained daemon log reports 33/33 layers on CUDA0, a 2515.44 MiB CUDA model buffer,
+a 497.31 MiB CUDA_Host model buffer, a 640 MiB CUDA KV buffer, a 50.25 MiB recurrent-state
+buffer, context 20480, and one slot. It also records backend startup warmup and an enabled
+prompt cache. These records establish allocation and configuration for that runner, not the
+absence of memory pressure or actual prefix reuse. See Agent
+`tmp/codex/compaction-rolling-daemon.err` and `tmp/units/model-residency-read-report.md`.
+The host buffer must not be omitted when describing placement; the layer count alone is
+not a complete memory profile. No historical GPU bandwidth or competing-work trace exists.
+
+The captured provider sends `keep_alive: '5m'` on normal Agent, summary, and judge requests.
+Compaction constructs Agent and summary providers with the same model identity; it does not
+construct the Records judge. Session cleanup aborts and closes local resources without an
+explicit model-unload call. No explicit preload request occurs in the inspected session.
+Backend startup warmup is distinct from application preloading. Model residency is distinct
+from prompt-prefix reuse; inspect the documented `prompt_eval_cached_count` field where
+present rather than infer reuse from a shared provider or model name. See
+[Ollama usage metrics](https://docs.ollama.com/api/usage).
+
+One Ollama daemon can keep several models resident when memory permits. Its per-model
+request concurrency is a separate limit; see [Ollama concurrency](https://docs.ollama.com/faq).
+The pinned [Ollama 0.40.3 scheduler](https://github.com/ollama/ollama/blob/v0.40.3/server/sched.go#L478-L490)
+forces the active Qwen 3.5 architecture to one parallel request slot. Its zero maximum-loaded
+setting chooses an automatic model limit, not one model. Adding a daemon supplies no extra
+VRAM and is not an admitted performance treatment. Combined model loading consumed under
+1% of the rejected Compaction attempt, so preloading alone does not meet this run's candidate gate.
+
+Keep generation allowance at 8192, context at 20480, recap allowance at 2048, and the
+prospective finite run bound while observing the successor Compaction attempt. Do not shorten
+answers or change the estimator to manufacture a speedup. Diagnose blank recap output as a
+separate quality failure; the guard records and rejects it but does not identify its model cause.
+The first comparison remains whole-trajectory wall and quality under the retained protocol.
+Records is not rerun to fill the missing diagnostic evidence.
+
+The scheduling research maps revision-bound background filing, exact pending joins,
+independent judge batching, and incremental summaries to the existing classifier and
+conversation barriers. These remain conditional candidates. In particular, shared work must
+retain question/state identity, and a stale summary must never replace a changed conversation.
+Source examples establish feasible designs, not gains on this host. Root independently checked
+the Ollama usage, concurrency, and pinned scheduler sources; the broader research report is
+`tmp/units/memory-scheduling-research-report.md` and is not accepted performance evidence.
+
 ## Retained protocol and prior readings
 
 The user limited the successor execution to Compaction on 2026-10-15. Retain candidate-3
