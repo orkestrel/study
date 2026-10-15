@@ -1,4 +1,19 @@
-# Rolling Compaction running on 2026-10-15
+# Rolling Compaction qualification rejected on 2026-10-15
+
+The rolling run completed 96 goals and exited 0, uncapped, after 3402443 ms. Its predeclared
+qualification reader rejected 8 empty recap completions among 12. Preserve result
+`883013ed-ae9a-4af4-a1ff-153490d73d95`, seal
+`3bf2316f53f28af8a49d2894b93d24e2e35804176091892ab80ea485c5719426`.
+Operational completion is not a qualified baseline. No successor is running.
+
+The prospective consumer repair retains exact summary evidence and accounted usage before
+refusing blank content. Study's `content` failure cause and propagation proof are integrated
+at `fa7d1ea`; Agent's guard awaits verification against the combined development artifact.
+No prompt, budget, retry or old result changes. Records stays sealed and labeled at 96/96,
+without rerun or replay. Agent's handoff and this repository's promotion/performance records
+carry the parallel work. The entries below retain historical deadlines and decisions.
+
+# Rolling Compaction launch on 2026-10-15
 
 Agent `7a2e29a` implements the vendor-informed one-pass rolling treatment after actual
 Sonnet implementation, independent actual Opus review, mutation proofs and green gates.

@@ -269,3 +269,26 @@ so root does not accept its proof claims. A bounded Sonnet successor uses the ow
 Agent/Ollama public types, real runtime proofs and first-failure retention for arbitrary thrown
 values. Its worktree alone now resolves the staged development dependencies. Native verification
 follows before integration. The frozen series installation remains unchanged.
+
+Instrumentation is integrated at `00269ee`. Sonnet successor session
+`6b8286e2-7601-43ca-907b-0195073dff64` completed in 299324 ms, exit 0, uncapped.
+Independent verification passed core/server types, scoped lint/format, 104 core tests,
+233 server tests and 8 guide tests. Fixture corrections use each judge's own identity,
+Ollama's terminal timing contract and the canonical dependency path. Disabling first-failure
+retention caused 3 collected failures; restoring it passed 7 selected tests. The root
+reconciled shared guide and setup imports without changing the returned mechanism.
+
+Study's distinct `content` cause is integrated at `fa7d1ea`. Its real StudySeries proof
+retains already-settled usage and propagates the failure to unexecuted goals without retry.
+Independent core 79, server 166, setup 13, bin 24 and guide 8 tests passed, with scoped
+type/lint/format checks. Agent's blank-recap guard remains in its isolated repair worktree
+until the combined consumer can be verified.
+
+Sonnet consumer migration session `1ef2c16e-eda2-4750-a03f-3b0593753397` works in Agent's
+`tmp/worktrees/promotion-consumer`. Sonnet MCP proof session
+`d8c4be16-0332-4ee5-8ca0-af2b9cff3301` works in `tmp/worktrees/promotion-mcp` here.
+Native Luna verifies the integrated sources and builds only `tmp/worktrees/promotion-integrated`.
+Current public MCP 0.0.38, Tool 0.0.19, Router 0.0.17 and Server 0.0.23 are declared test
+dependencies at `c28acbc`. No source unit changes Agent's captured installed Study copy.
+Consumer removal, the real MCP proof, independent campaign audit and final gates remain
+required before acceptance. No performance improvement or model-quality result is claimed.

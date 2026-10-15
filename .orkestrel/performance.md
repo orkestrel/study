@@ -6,7 +6,10 @@ Observation is implemented: Agent request components, classifier/cache readings,
 load/prefill/decode timing, request correlation and selected exact inputs. The Study promotion
 moves reusable observation and transport accounting out of Agent's consumer. Runtime selection
 and shared grading/settlement are integrated at `717dc7b` and `dbce00b`; instrumentation is
-under independent verification. This is implementation progress, not a measured speedup.
+integrated at `00269ee` after independent checks (104 core, 233 server and 8 guide tests).
+Its first-failure mutation produced 3 failures and restored to 7 passing cases. Integrated
+verification and the Agent consumer migration remain underway. This is implementation
+progress, not a measured speedup.
 
 The rolling Compaction attempt closed 96/96, but qualification rejected 8 empty recaps among
 12. The verified retained reading attributes 676819.806 ms to Agent prefill: 25.29% of Agent
@@ -23,10 +26,12 @@ Agent `tmp/units/rolling-performance-read-v5-report.md` and its projection. Inpu
 does not admit model replay before the qualification prerequisite. The sealed identity is
 `3bf2316f53f28af8a49d2894b93d24e2e35804176091892ab80ea485c5719426`.
 
-The next quality repair rejects blank recap content before history replacement, retaining
-the attempted text and cost with a distinct `content` failure. It changes no prompt or budget
-and adds no retry. The completed result remains rejected. Records remains sealed and labeled;
-no replay is selected. The paired speed and quality thresholds below remain unchanged.
+The quality repair rejects blank recap content before history replacement, retaining the
+attempted text and cost with a distinct `content` failure. Study's cause and propagation proof
+are integrated at `fa7d1ea`; the Agent guard awaits verification against the combined build.
+It changes no prompt or budget and adds no retry. The completed result remains rejected.
+Records remains sealed and labeled; no replay is selected. The paired speed and quality
+thresholds below remain unchanged.
 
 ## Retained protocol and prior readings
 
