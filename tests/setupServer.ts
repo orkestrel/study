@@ -1,9 +1,16 @@
 import type { StudyLaunchResult } from '../src/server/launchers/types.js'
 import type { ScratchInterface } from '@orkestrel/test/server'
+import { isInteger, isRecord } from '@orkestrel/contract'
+import { isRunning } from '@orkestrel/test/server'
 import type { StudyGrading, StudyLabels, StudyManifest, StudyRubric } from '../src/core/types.js'
 import type { StudySealedResult } from '../src/server/stores/types.js'
-import type { StudyPeerFixture } from './src/server/processes/types.js'
-import { waitForEvent } from '@orkestrel/test'
+import type {
+	StudyOrphanReceipt,
+	StudyPeerFixture,
+	StudyTaskFixture,
+	StudyTaskMode,
+} from './src/server/processes/types.js'
+import { waitForCondition, waitForEvent } from '@orkestrel/test'
 import { execFile, fork } from 'node:child_process'
 import { join, relative, resolve } from 'node:path'
 import { isBuiltin } from 'node:module'
@@ -19,6 +26,7 @@ import {
 	isStudyProcessFailure,
 	isStudyTrial,
 } from '../src/server/processes/validators.js'
+import { StudyTask } from '../src/server/processes/StudyTask.js'
 import { StudyResults } from '../src/server/stores/StudyResults.js'
 import {
 	buildStudyPacket,
@@ -108,6 +116,109 @@ export function createStudyPeer(scratch: ScratchInterface, source: string): Stud
 			child.kill()
 			await exited
 		},
+	})
+}
+
+/** Supplies the instrument identity a valid fixture adapter answers with. */
+export const STUDY_TASK_INSTRUMENT = 'a'.repeat(64)
+
+/** Writes a finite adapter and binds a task to it, recording the adapter pid on its first request.
+ * @param scratch - The owned temporary resource holding the adapter and its pid record.
+ * @param mode - How the adapter answers; a held adapter never answers.
+ * @param duration - The task deadline in milliseconds.
+ * @returns The task and the scratch path of the recorded pid.
+ */
+export function createStudyTaskFixture(
+	scratch: ScratchInterface,
+	mode: StudyTaskMode,
+	duration: number,
+): StudyTaskFixture {
+	const instrument = JSON.stringify(STUDY_TASK_INSTRUMENT)
+	const entry = scratch.write(
+		`adapter-${mode}.cjs`,
+		`const fs = require('node:fs')
+setTimeout(() => process.exit(0), 20000)
+process.on('message', () => {
+ fs.writeFileSync(${JSON.stringify(join(scratch.path, 'task-pid.txt'))}, String(process.pid))
+ const mode = ${JSON.stringify(mode)}
+ if (mode === 'valid') process.send({instrument:${instrument},value:true})
+ if (mode === 'malformed') process.send({instrument:'invalid',value:true})
+ if (mode === 'repeated') { process.send({instrument:${instrument},value:true}); process.send({instrument:${instrument},value:'second'}) }
+ if (mode === 'combined-output') { process.stdout.write('x'.repeat(40000)); process.stderr.write('y'.repeat(40000)) }
+})`,
+	)
+	return Object.freeze({
+		task: new StudyTask({ entry, root: resolve('.'), adapter: entry, roots: [], duration }),
+		pid: 'task-pid.txt',
+	})
+}
+
+/** Writes a finite root that leaves a detached leaf holding its inherited output after the root exits.
+ *
+ * On its first IPC message the root spawns the leaf with inherited stdout and stderr and an IPC
+ * readiness handshake; only after readiness does it record both pids atomically and exit.
+ * @param scratch - The owned temporary resource holding the scripts and the pid receipt.
+ * @param lifetime - The leaf's natural lifetime in milliseconds.
+ * @returns The absolute root entry path.
+ */
+export function writeStudyOrphan(scratch: ScratchInterface, lifetime: number): string {
+	const leaf = scratch.write(
+		'orphan-leaf.cjs',
+		`setTimeout(() => process.exit(0), ${String(lifetime)})
+process.send({ ready: true })`,
+	)
+	const receipt = scratch.ensure('orphan')
+	return scratch.write(
+		'orphan-root.cjs',
+		`const { spawn } = require('node:child_process')
+const fs = require('node:fs')
+process.once('message', () => {
+ const leaf = spawn(process.execPath, [${JSON.stringify(leaf)}], { detached: true, stdio: ['ignore', 'inherit', 'inherit', 'ipc'], windowsHide: true })
+ leaf.once('message', () => {
+  fs.writeFileSync(${JSON.stringify(join(receipt, 'pids.tmp'))}, JSON.stringify({ root: process.pid, leaf: leaf.pid }))
+  fs.renameSync(${JSON.stringify(join(receipt, 'pids.tmp'))}, ${JSON.stringify(join(receipt, 'pids.json'))})
+  process.exit(0)
+ })
+})`,
+	)
+}
+
+/** Reads the pid a fixture process recorded.
+ * @param scratch - The owned temporary resource.
+ * @param path - The scratch path of the pid record.
+ * @returns The recorded pid, or undefined before a valid record exists.
+ */
+export function readStudyPid(scratch: ScratchInterface, path: string): number | undefined {
+	const pid = Number(scratch.read(path))
+	return Number.isSafeInteger(pid) && pid > 0 ? pid : undefined
+}
+
+/** Reads the atomic receipt of a fixture orphan.
+ * @param scratch - The owned temporary resource holding the receipt.
+ * @returns Both recorded pids, or undefined before the receipt exists.
+ */
+export function readStudyOrphan(scratch: ScratchInterface): StudyOrphanReceipt | undefined {
+	const text = scratch.read('orphan/pids.json')
+	if (text === undefined) return undefined
+	const value: unknown = JSON.parse(text)
+	if (!isRecord(value) || !isInteger(value.root) || !isInteger(value.leaf)) return undefined
+	return { root: value.root, leaf: value.leaf }
+}
+
+/** Kills exactly one recorded fixture process and awaits its exit.
+ * @param pid - The recorded pid; absent when nothing was recorded.
+ */
+export async function releaseStudyPid(pid: number | undefined): Promise<void> {
+	if (pid === undefined || !isRunning(pid)) return
+	try {
+		// Fixture processes record their own pid and spawn no descendants of their own.
+		process.kill(pid, 'SIGKILL')
+	} catch {
+		// The process may have exited between the liveness read and the kill.
+	}
+	await waitForCondition(`recorded fixture process ${String(pid)} stopped`, () => !isRunning(pid), {
+		budget: 3000,
+		interval: 10,
 	})
 }
 

@@ -167,6 +167,7 @@ The following declarations describe this concept.
 | `STUDY_COMMAND_HELP`             | const     | Defines the complete public CLI reference shared by help and grammar diagnostics.         |
 | `STUDY_COMMAND_OPERATION`        | const     | Names the command route beneath the native supervisor.                                    |
 | `STUDY_CUSTODY_BYTES`            | const     | Limits untrusted metadata before JSON parsing or file allocation.                         |
+| `STUDY_DRAIN_DURATION`           | const     | Bounds inherited output handles after native exit as a cleanup limit.                     |
 | `STUDY_FRAME_BYTES`              | const     | Limits each serialized IPC envelope, including its JSON framing.                          |
 | `STUDY_GOALS`                    | const     | Caps a declared scenario horizon before execution.                                        |
 | `STUDY_LAUNCH_BYTES`             | const     | Bounds combined supervised command output to 16 MiB before terminating the tree.          |
@@ -314,6 +315,7 @@ The following declarations describe this concept.
 | `containsArtifact`               | function  | Checks strict lexical containment under a selected directory.                             |
 | `createStudyProcessFailure`      | function  | Creates attributable protocol infrastructure failure.                                     |
 | `decodeStudyJSON`                | function  | Decodes strict UTF-8 custody bytes and parses their JSON text.                            |
+| `drainStudyChild`                | function  | Releases inherited output handles a bounded time after native exit.                       |
 | `encodeStudyJSON`                | function  | Encodes deterministic JSON bytes without synthesizing execution metadata.                 |
 | `failureToStudyError`            | function  | Converts an operational reading to its throwable boundary.                                |
 | `hashStudyBytes`                 | function  | Computes the lowercase SHA-256 identity of exact bytes or UTF-8 text.                     |
@@ -697,6 +699,8 @@ The declaration exposes these methods.
 | Method    | Summary                                                        |
 | --------- | -------------------------------------------------------------- |
 | `execute` | Executes one validation or grading operation in a fresh child. |
+
+Task and trial children settle on their close event, which waits for inherited output handles. After a child's native exit those handles are destroyed once `STUDY_DRAIN_DURATION` (1 second) elapses, so a descendant that holds the output cannot leave the parent unsettled. A task still rejects for a missing complete response, and a session still rejects its start and fulfills its close. This releases only the parent's read handles: a descendant that survives an exited root is outside discoverable-tree cleanup and is neither found nor terminated. Linux behavior is unverified.
 
 #### `StudyTaskWorker`
 
@@ -1372,6 +1376,7 @@ import {
 	computeStudyProfileDigest,
 	containsArtifact,
 	createStudyProcessFailure,
+	drainStudyChild,
 	isArtifactError,
 	isStudyCharge,
 	isStudyEvidence,
@@ -1394,6 +1399,8 @@ declare const containsArtifactArguments: Parameters<typeof containsArtifact>
 containsArtifact(...containsArtifactArguments)
 declare const createStudyProcessFailureArguments: Parameters<typeof createStudyProcessFailure>
 createStudyProcessFailure(...createStudyProcessFailureArguments)
+declare const drainStudyChildArguments: Parameters<typeof drainStudyChild>
+drainStudyChild(...drainStudyChildArguments)
 declare const failureToStudyErrorArguments: Parameters<typeof failureToStudyError>
 failureToStudyError(...failureToStudyErrorArguments)
 declare const isArtifactErrorArguments: Parameters<typeof isArtifactError>

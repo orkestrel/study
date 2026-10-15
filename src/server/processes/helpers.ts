@@ -8,6 +8,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { StudyError } from '../../core/errors.js'
 import { hashStudyBytes } from '../helpers.js'
+import { STUDY_DRAIN_DURATION } from './constants.js'
 
 /** Projects optional domain fields into the JSON wire representation.
  * @param value - An owned domain value with optional undefined fields.
@@ -95,11 +96,27 @@ export function validateStudyRuntime(instrument: string, roots: readonly string[
 	}
 }
 
+/** Releases inherited output handles a bounded time after native exit.
+ *
+ * A descendant that outlives an exited root is outside discoverable-tree cleanup; this only stops the parent from waiting on its pipes.
+ * @param child - A newly spawned child, subscribed before native exit.
+ */
+export function drainStudyChild(child: ChildProcess): void {
+	let timer: ReturnType<typeof setTimeout> | undefined
+	child.once('exit', () => {
+		timer = setTimeout(() => {
+			child.stdout?.destroy()
+			child.stderr?.destroy()
+		}, STUDY_DRAIN_DURATION)
+	})
+	child.once('close', () => clearTimeout(timer))
+}
+
 /** Terminates the recorded native process tree under a finite cleanup allowance.
  * @param child - The exclusively owned child process.
  */
 export function terminateStudyChild(child: ChildProcess): void {
-	if (child.pid === undefined) return
+	if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return
 	try {
 		if (process.platform === 'win32')
 			execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {

@@ -1,10 +1,18 @@
 import { buildStudyProfile } from '../../../setupStudy.js'
-import { createStudyPeer } from '../../../setupServer.js'
-import { describe, expect, it } from 'vitest'
-import { requireValue } from '@orkestrel/test'
-import { createScratch, isRunning } from '@orkestrel/test/server'
-import { resolve } from 'node:path'
 import {
+	createStudyPeer,
+	readStudyOrphan,
+	releaseStudyPid,
+	writeStudyOrphan,
+} from '../../../setupServer.js'
+import { describe, expect, it } from 'vitest'
+import { requireValue, waitForEvent } from '@orkestrel/test'
+import { createScratch, isRunning } from '@orkestrel/test/server'
+import { fork } from 'node:child_process'
+import { resolve } from 'node:path'
+import { STUDY_DRAIN_DURATION } from '../../../../src/server/processes/constants.js'
+import {
+	drainStudyChild,
 	computeStudyInstrumentDigest,
 	computeStudyProfileDigest,
 	createStudyProcessFailure,
@@ -84,4 +92,33 @@ describe('process helpers', () => {
 			scratch.destroy()
 		}
 	})
+	it('closes a drained child after native exit while its detached leaf holds inherited output', async () => {
+		const scratch = createScratch()
+		try {
+			const child = fork(writeStudyOrphan(scratch, 20000), [], {
+				execArgv: [],
+				silent: true,
+				windowsHide: true,
+			})
+			drainStudyChild(child)
+			const closed = waitForEvent(
+				(listener: () => void) => {
+					child.once('close', listener)
+					return () => {
+						child.off('close', listener)
+					}
+				},
+				'drained orphan root close',
+				{ budget: STUDY_DRAIN_DURATION + 4000 },
+			)
+			child.send({ start: true })
+			await closed
+			const receipt = requireValue(readStudyOrphan(scratch))
+			expect(isRunning(receipt.root)).toBe(false)
+			expect(isRunning(receipt.leaf)).toBe(true)
+		} finally {
+			await releaseStudyPid(readStudyOrphan(scratch)?.leaf)
+			scratch.destroy()
+		}
+	}, 15000)
 })

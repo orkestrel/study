@@ -1,10 +1,16 @@
-import { createScratch } from '@orkestrel/test/server'
+import { requireValue, waitForCondition } from '@orkestrel/test'
+import { createScratch, isRunning } from '@orkestrel/test/server'
+import { performance } from 'node:perf_hooks'
 import { describe, expect, it } from 'vitest'
 import { StudyDeadline } from '../../../../src/core/engines/StudyDeadline.js'
-import { STUDY_PROCESS_LABEL } from '../../../../src/server/processes/constants.js'
+import {
+	STUDY_DRAIN_DURATION,
+	STUDY_PROCESS_LABEL,
+} from '../../../../src/server/processes/constants.js'
 import { StudyProcessSession } from '../../../../src/server/processes/StudyProcessSession.js'
 import { toStudyWire } from '../../../../src/server/processes/helpers.js'
 import { isStudyFrame } from '../../../../src/server/processes/validators.js'
+import { readStudyOrphan, releaseStudyPid, writeStudyOrphan } from '../../../setupServer.js'
 import { buildCustodyManifest, buildStudyManifest, buildStudyProfile } from '../../../setupStudy.js'
 
 describe('StudyProcessSession', () => {
@@ -65,4 +71,77 @@ process.on('message', frame => {
 			scratch.destroy()
 		}
 	}, 20000)
+
+	it('closes an exited worker whose detached leaf holds inherited output before the leaf expires', async () => {
+		const scratch = createScratch()
+		const controller = new AbortController()
+		const manifest = buildCustodyManifest()
+		const session = new StudyProcessSession({
+			entry: writeStudyOrphan(scratch, 20000),
+			root: scratch.path,
+			directory: scratch.ensure('trials'),
+			adapter: scratch.path,
+			driver: 'memory',
+			profile: { ...buildStudyProfile(), bounds: manifest.bounds, roots: ['dist'] },
+			identity: { ...manifest.identity },
+			trial: requireValue(manifest.schedule[0]),
+			signal: controller.signal,
+		})
+		const before = process.getActiveResourcesInfo().filter((type) => /pipe/i.test(type)).length
+		try {
+			await expect(
+				new StudyDeadline({ duration: 4000, label: 'orphaned session start' }).wait(session.start()),
+			).rejects.toBeDefined()
+			const receipt = requireValue(readStudyOrphan(scratch))
+			expect(isRunning(receipt.root)).toBe(false)
+			expect(isRunning(receipt.leaf)).toBe(true)
+			await expect(
+				new StudyDeadline({ duration: 4000, label: 'orphaned session close' }).wait(session.close()),
+			).resolves.toBeUndefined()
+			expect(isRunning(receipt.leaf)).toBe(true)
+			await waitForCondition(
+				'inherited worker pipes released while the leaf lives',
+				() =>
+					process.getActiveResourcesInfo().filter((type) => /pipe/i.test(type)).length <= before,
+				{ budget: 3000, interval: 10 },
+			)
+			expect(isRunning(receipt.leaf)).toBe(true)
+		} finally {
+			await releaseStudyPid(readStudyOrphan(scratch)?.leaf)
+			controller.abort()
+			await session.close().catch(() => undefined)
+			scratch.destroy()
+		}
+	}, 25000)
+
+	it('closes an ordinary exited worker without waiting for the drain bound', async () => {
+		const scratch = createScratch()
+		const controller = new AbortController()
+		const manifest = buildCustodyManifest()
+		const session = new StudyProcessSession({
+			entry: scratch.write('exit.cjs', "process.on('message', () => process.exit(0))"),
+			root: scratch.path,
+			directory: scratch.ensure('trials'),
+			adapter: scratch.path,
+			driver: 'memory',
+			profile: { ...buildStudyProfile(), bounds: manifest.bounds, roots: ['dist'] },
+			identity: { ...manifest.identity },
+			trial: requireValue(manifest.schedule[0]),
+			signal: controller.signal,
+		})
+		try {
+			await expect(
+				new StudyDeadline({ duration: 4000, label: 'ordinary session start' }).wait(session.start()),
+			).rejects.toBeDefined()
+			const started = performance.now()
+			await expect(
+				new StudyDeadline({ duration: 4000, label: 'ordinary session close' }).wait(session.close()),
+			).resolves.toBeUndefined()
+			expect(performance.now() - started).toBeLessThan(STUDY_DRAIN_DURATION)
+		} finally {
+			controller.abort()
+			await session.close().catch(() => undefined)
+			scratch.destroy()
+		}
+	}, 15000)
 })

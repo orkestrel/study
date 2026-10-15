@@ -1,6 +1,6 @@
-import { waitForEvent } from '@orkestrel/test'
-import { createScratch } from '@orkestrel/test/server'
-import { execFileSync } from 'node:child_process'
+import { requireValue, waitForCondition, waitForEvent } from '@orkestrel/test'
+import { createScratch, isRunning } from '@orkestrel/test/server'
+import { execFileSync, fork } from 'node:child_process'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -14,8 +14,11 @@ import {
 	createArtifactWorker,
 	createStudyPeer,
 	executeStudyCLI,
+	readStudyOrphan,
+	releaseStudyPid,
 	retainStudyFixture,
 	writeStudyConsumer,
+	writeStudyOrphan,
 } from './setupServer.js'
 
 describe('study server fixtures', () => {
@@ -95,6 +98,43 @@ describe('study server fixtures', () => {
 			scratch.destroy()
 		}
 	})
+	it('leaves a live detached leaf after its root exits and cleans only the recorded leaf', async () => {
+		const scratch = createScratch()
+		let leaf: number | undefined
+		try {
+			const root = fork(writeStudyOrphan(scratch, 20000), [], {
+				execArgv: [],
+				silent: true,
+				windowsHide: true,
+			})
+			const exited = waitForEvent(
+				(listener: () => void) => {
+					root.once('exit', listener)
+					return () => {
+						root.off('exit', listener)
+					}
+				},
+				'orphan root exit',
+				{ budget: 5000 },
+			)
+			root.send({ start: true })
+			await exited
+			await waitForCondition('orphan receipt exists', () => readStudyOrphan(scratch) !== undefined, {
+				budget: 3000,
+				interval: 10,
+			})
+			const receipt = requireValue(readStudyOrphan(scratch))
+			leaf = receipt.leaf
+			expect(receipt.root).toBe(root.pid)
+			expect(isRunning(receipt.root)).toBe(false)
+			expect(isRunning(receipt.leaf)).toBe(true)
+			await releaseStudyPid(receipt.leaf)
+			expect(isRunning(receipt.leaf)).toBe(false)
+		} finally {
+			await releaseStudyPid(leaf)
+			scratch.destroy()
+		}
+	}, 15000)
 	it('returns a sealed real-files fixture with complete grades and explicit supplied label provenance', async () => {
 		const scratch = createScratch()
 		try {

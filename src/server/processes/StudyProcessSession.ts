@@ -20,7 +20,7 @@ import {
 import { StudyError } from '../../core/errors.js'
 import { isStudyProduct, isStudyUsage } from '../../core/validators.js'
 import { STUDY_LOG_BYTES, STUDY_PROCESS_LABEL, STUDY_WORKER_OPERATION } from './constants.js'
-import { createStudyProcessFailure, toStudyWire } from './helpers.js'
+import { createStudyProcessFailure, drainStudyChild, toStudyWire } from './helpers.js'
 import { StudyChannel } from './StudyChannel.js'
 import { isStudyCharge, isStudyEvidence, isStudyProcessFailure } from './validators.js'
 
@@ -68,6 +68,7 @@ export class StudyProcessSession implements StudySessionInterface {
 			windowsHide: true,
 			detached: process.platform !== 'win32',
 		})
+		drainStudyChild(child)
 		this.#child = child
 		this.#deadline = setTimeout(() => {
 			this.#control.fail({

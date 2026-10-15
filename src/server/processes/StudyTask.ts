@@ -9,7 +9,7 @@ import {
 	STUDY_TASK_DURATION,
 	STUDY_TASK_OPERATION,
 } from './constants.js'
-import { terminateStudyChild, toStudyWire } from './helpers.js'
+import { drainStudyChild, terminateStudyChild, toStudyWire } from './helpers.js'
 
 /** Bounds adapter evaluation by an independent native parent timer. */
 export class StudyTask {
@@ -43,6 +43,7 @@ export class StudyTask {
 				detached: process.platform !== 'win32',
 				serialization: 'json',
 			})
+			drainStudyChild(child)
 			let failure: unknown
 			let result: StudyTaskResult | undefined
 			let logs = 0
