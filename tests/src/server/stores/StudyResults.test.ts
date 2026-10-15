@@ -276,8 +276,7 @@ describe('StudyResults', () => {
 				if (first === undefined) throw new Error('Missing first observation')
 				expect(first.failure?.cause).toBe(cause)
 				expect(attempts[0]?.failure?.cause).toBe(cause)
-				if (product === undefined) expect(first.product).toBeUndefined()
-				else expect(first.product).toEqual(product)
+				expect(first.product).toEqual(product)
 				expect(attempts.map((attempt) => attempt.trial.id)).toEqual(
 					manifest.schedule.map((trial) => trial.id),
 				)

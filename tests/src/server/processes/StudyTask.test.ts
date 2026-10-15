@@ -45,9 +45,11 @@ describe('StudyTask', () => {
 					duration: 8000,
 					label: 'direct StudyTask response',
 				}).wait(fixture.task.execute(request, new AbortController().signal))
-				if (expected === undefined)
-					await expect(result).resolves.toEqual({ instrument: STUDY_TASK_INSTRUMENT, value: true })
-				else await expect(result).rejects.toMatchObject({ code: 'FAULT', message: expected })
+				expect(await Promise.allSettled([result])).toMatchObject([
+					expected === undefined
+						? { status: 'fulfilled', value: { instrument: STUDY_TASK_INSTRUMENT, value: true } }
+						: { status: 'rejected', reason: { code: 'FAULT', message: expected } },
+				])
 				await waitForCondition('StudyTask child recorded its pid', () => scratch.has(fixture.pid), {
 					budget: 3000,
 					interval: 10,
@@ -73,25 +75,27 @@ describe('StudyTask', () => {
 			try {
 				const fixture = createStudyTaskFixture(scratch, 'hold', mode === 'deadline' ? 5000 : 30000)
 				const result = fixture.task.execute(request, controller.signal)
-				void result.catch(() => undefined)
+				const settled = Promise.allSettled([result])
 				await waitForCondition('StudyTask child recorded its pid', () => scratch.has(fixture.pid), {
 					budget: 4000,
 					interval: 10,
 				})
 				pid = requireValue(readStudyPid(scratch, fixture.pid))
 				const recorded = pid
-				if (mode === 'deadline')
-					await expect(
-						new StudyDeadline({ duration: 10000, label: 'direct StudyTask deadline' }).wait(result),
-					).rejects.toMatchObject({ code: 'FAULT', message: 'Adapter deadline exceeded' })
-				else {
-					controller.abort('caller abort')
-					await expect(
-						new StudyDeadline({ duration: 4000, label: 'direct StudyTask caller abort' }).wait(
-							result,
-						),
-					).rejects.toBe('caller abort')
-				}
+				if (mode === 'abort') controller.abort('caller abort')
+				const outcomes = await new StudyDeadline({
+					duration: mode === 'deadline' ? 10000 : 4000,
+					label: `direct StudyTask ${mode}`,
+				}).wait(settled)
+				expect(outcomes).toMatchObject([
+					{
+						status: 'rejected',
+						reason:
+							mode === 'deadline'
+								? { code: 'FAULT', message: 'Adapter deadline exceeded' }
+								: 'caller abort',
+					},
+				])
 				await waitForCondition('recorded StudyTask child stopped', () => !isRunning(recorded), {
 					budget: 3000,
 					interval: 10,
