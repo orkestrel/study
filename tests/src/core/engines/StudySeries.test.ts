@@ -4,6 +4,7 @@ import { StudySeries } from '../../../../src/core/engines/index.js'
 import type { StudyProduct } from '../../../../src/core/types.js'
 import {
 	buildCompactCustodyManifest,
+	buildStudyCapacityManifest,
 	createStudyDriverFixture,
 	createStudyStoreFixture,
 } from '../../../setupStudy.js'
@@ -146,15 +147,12 @@ describe('StudySeries', () => {
 	})
 
 	it('reports capacity and omits the product when one goal exceeds the goal output limit', async () => {
-		const manifest = {
-			...buildCompactCustodyManifest(),
-			bounds: {
-				request: { duration: 1000, calls: 1, tokens: 1000, bytes: 16 },
-				goal: { duration: 2000, calls: 2, tokens: 2000, bytes: 64 },
-				trial: { duration: 4000, calls: 4, tokens: 4000, bytes: 4096 },
-				series: { duration: 32000, calls: 32, tokens: 32000, bytes: 65536 },
-			},
-		}
+		const manifest = buildStudyCapacityManifest({
+			request: 16,
+			goal: 64,
+			trial: 4096,
+			series: 65536,
+		})
 		const driver = createStudyDriverFixture({
 			execute: async (goal): Promise<StudyProduct> => ({
 				value: goal.id === 'write' ? 'ok' : 'x'.repeat(100),
@@ -179,15 +177,12 @@ describe('StudySeries', () => {
 	})
 
 	it('reports capacity and omits the product when cumulative goals exceed the trial output limit', async () => {
-		const manifest = {
-			...buildCompactCustodyManifest(),
-			bounds: {
-				request: { duration: 1000, calls: 1, tokens: 1000, bytes: 16 },
-				goal: { duration: 2000, calls: 2, tokens: 2000, bytes: 100 },
-				trial: { duration: 4000, calls: 4, tokens: 4000, bytes: 150 },
-				series: { duration: 32000, calls: 32, tokens: 32000, bytes: 65536 },
-			},
-		}
+		const manifest = buildStudyCapacityManifest({
+			request: 16,
+			goal: 100,
+			trial: 150,
+			series: 65536,
+		})
 		const driver = createStudyDriverFixture({
 			execute: async (): Promise<StudyProduct> => ({ value: 'a'.repeat(80), partial: false }),
 		})
@@ -207,15 +202,12 @@ describe('StudySeries', () => {
 	})
 
 	it('reports capacity and omits the product when cumulative trials exceed the series output limit', async () => {
-		const manifest = {
-			...buildCompactCustodyManifest(),
-			bounds: {
-				request: { duration: 1000, calls: 1, tokens: 1000, bytes: 16 },
-				goal: { duration: 2000, calls: 2, tokens: 2000, bytes: 100 },
-				trial: { duration: 4000, calls: 4, tokens: 4000, bytes: 200 },
-				series: { duration: 32000, calls: 32, tokens: 32000, bytes: 200 },
-			},
-		}
+		const manifest = buildStudyCapacityManifest({
+			request: 16,
+			goal: 100,
+			trial: 200,
+			series: 200,
+		})
 		const driver = createStudyDriverFixture({
 			execute: async (): Promise<StudyProduct> => ({ value: 'a'.repeat(80), partial: false }),
 		})

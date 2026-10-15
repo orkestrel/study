@@ -10,7 +10,12 @@ import {
 import { StudyProcessSession } from '../../../../src/server/processes/StudyProcessSession.js'
 import { toStudyWire } from '../../../../src/server/processes/helpers.js'
 import { isStudyFrame } from '../../../../src/server/processes/validators.js'
-import { readStudyOrphan, releaseStudyPid, writeStudyOrphan } from '../../../setupServer.js'
+import {
+	buildStudySessionOptions,
+	readStudyOrphan,
+	releaseStudyPid,
+	writeStudyOrphan,
+} from '../../../setupServer.js'
 import { buildCustodyManifest, buildStudyManifest, buildStudyProfile } from '../../../setupStudy.js'
 
 describe('StudyProcessSession', () => {
@@ -82,18 +87,9 @@ process.on('message', frame => {
 	it('closes an exited worker whose detached leaf holds inherited output before the leaf expires', async () => {
 		const scratch = createScratch()
 		const controller = new AbortController()
-		const manifest = buildCustodyManifest()
-		const session = new StudyProcessSession({
-			entry: writeStudyOrphan(scratch, 20000),
-			root: scratch.path,
-			directory: scratch.ensure('trials'),
-			adapter: scratch.path,
-			driver: 'memory',
-			profile: { ...buildStudyProfile(), bounds: manifest.bounds, roots: ['dist'] },
-			identity: { ...manifest.identity },
-			trial: requireValue(manifest.schedule[0]),
-			signal: controller.signal,
-		})
+		const session = new StudyProcessSession(
+			buildStudySessionOptions(scratch, writeStudyOrphan(scratch, 20000), controller.signal),
+		)
 		const before = process.getActiveResourcesInfo().filter((type) => /pipe/i.test(type)).length
 		try {
 			await expect(
@@ -128,18 +124,13 @@ process.on('message', frame => {
 	it('closes an ordinary exited worker without waiting for the drain bound', async () => {
 		const scratch = createScratch()
 		const controller = new AbortController()
-		const manifest = buildCustodyManifest()
-		const session = new StudyProcessSession({
-			entry: scratch.write('exit.cjs', "process.on('message', () => process.exit(0))"),
-			root: scratch.path,
-			directory: scratch.ensure('trials'),
-			adapter: scratch.path,
-			driver: 'memory',
-			profile: { ...buildStudyProfile(), bounds: manifest.bounds, roots: ['dist'] },
-			identity: { ...manifest.identity },
-			trial: requireValue(manifest.schedule[0]),
-			signal: controller.signal,
-		})
+		const session = new StudyProcessSession(
+			buildStudySessionOptions(
+				scratch,
+				scratch.write('exit.cjs', "process.on('message', () => process.exit(0))"),
+				controller.signal,
+			),
+		)
 		try {
 			await expect(
 				new StudyDeadline({ duration: 4000, label: 'ordinary session start' }).wait(

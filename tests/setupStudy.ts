@@ -17,6 +17,7 @@ import type {
 	StudyTrial,
 } from '../src/core/types.js'
 import type {
+	StudyAdmissionCase,
 	StudyDriverFixture,
 	StudyDriverFixtureOptions,
 	StudyMeterFixture,
@@ -25,6 +26,31 @@ import type {
 import { createRecorder } from '@orkestrel/test'
 import { StudyControl, StudyMeter, StudyScope } from '../src/core/engines/index.js'
 import { buildStudySchedule } from '../src/core/helpers.js'
+
+/** Supplies the output admission matrix: a fast oversized control, an expired oversized product, and an expired within-budget partial control. */
+export const STUDY_ADMISSION_CASES: readonly StudyAdmissionCase[] = Object.freeze([
+	{
+		name: 'fast oversized',
+		expired: false,
+		oversized: true,
+		cause: 'capacity',
+		product: undefined,
+	},
+	{
+		name: 'expired oversized',
+		expired: true,
+		oversized: true,
+		cause: 'deadline',
+		product: undefined,
+	},
+	{
+		name: 'expired within budget',
+		expired: true,
+		oversized: false,
+		cause: 'deadline',
+		product: { value: 'ok', partial: true },
+	},
+])
 
 /** Supplies malformed command tokens that must refuse before custody or child work. */
 export const STUDY_COMMAND_INVALID_ARGUMENTS: ReadonlyArray<readonly string[]> = Object.freeze([
@@ -292,6 +318,26 @@ export function buildCompactCustodyManifest(): StudyManifest {
 		definition,
 		schedule: buildStudySchedule(definition, baseline.scenarios),
 	})
+}
+
+/**
+ * Builds the compact custody horizon with explicit output byte allowances per tier.
+ * @param bytes - The request, goal, trial, and series byte allowances
+ * @returns The independently owned manifest whose other tier limits stay unchanged
+ */
+export function buildStudyCapacityManifest(
+	bytes: Readonly<Record<keyof StudyBounds, number>>,
+): StudyManifest {
+	const manifest = buildCompactCustodyManifest()
+	return {
+		...manifest,
+		bounds: {
+			request: { ...manifest.bounds.request, bytes: bytes.request },
+			goal: { ...manifest.bounds.goal, bytes: bytes.goal },
+			trial: { ...manifest.bounds.trial, bytes: bytes.trial },
+			series: { ...manifest.bounds.series, bytes: bytes.series },
+		},
+	}
 }
 
 /**

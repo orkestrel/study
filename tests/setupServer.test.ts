@@ -15,6 +15,8 @@ import {
 	buildCustodyPacketLabels,
 	buildStudyCLI,
 	buildStudyLibrary,
+	buildStudySessionOptions,
+	buildStudyTaskOptions,
 	createArtifactWorker,
 	createStudyPeer,
 	executeStudyCLI,
@@ -30,6 +32,29 @@ import {
 } from './setupServer.js'
 
 describe('study server fixtures', () => {
+	it('binds native fixture declarations to the selected entry and live cancellation', () => {
+		const scratch = createScratch()
+		try {
+			const entry = scratch.write('worker.cjs', '')
+			const controller = new AbortController()
+			const options = buildStudySessionOptions(scratch, entry, controller.signal)
+			expect(options.entry).toBe(entry)
+			expect(options.root).toBe(scratch.path)
+			expect(options.adapter).toBe(scratch.path)
+			expect(options.directory).toBe(join(scratch.path, 'trials'))
+			expect(scratch.has('trials')).toBe(true)
+			expect(options.trial).toMatchObject({ scenario: 'first', arm: 'large', repetition: 0 })
+			expect(isStudyBounds(options.profile.bounds)).toBe(true)
+			expect(options.signal).toBe(controller.signal)
+			controller.abort('fixture cancellation')
+			expect(options.signal.reason).toBe('fixture cancellation')
+			const task = buildStudyTaskOptions(entry, 1200)
+			expect(task).toEqual({ entry, root: resolve('.'), adapter: entry, roots: [], duration: 1200 })
+			expect(buildStudyTaskOptions(entry).duration).toBe(5000)
+		} finally {
+			scratch.destroy()
+		}
+	})
 	it('builds the native CLI and supplies a checkable consumer without importing its subject', async () => {
 		const scratch = createScratch({ parent: resolve('tmp/units'), prefix: 'setup-cli-' })
 		try {

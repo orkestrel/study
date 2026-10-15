@@ -213,12 +213,16 @@ export class StudySeries {
 			)
 			if (!isStudyProduct(value))
 				throw new StudyError('FAULT', 'Driver returned no valid study product')
-			product = Object.freeze({ value: cloneJSONValue(value.value), partial: value.partial })
+			const candidate = Object.freeze({
+				value: cloneJSONValue(value.value),
+				partial: value.partial,
+			})
+			const bytes = new TextEncoder().encode(JSON.stringify(candidate.value)).byteLength
+			if (bytes <= bounds.goal.bytes && outputs.every((budget) => bytes <= budget.remaining))
+				product = candidate
 			for (const parent of parents) parent.check()
 			scope.check()
-			const bytes = new TextEncoder().encode(JSON.stringify(product.value)).byteLength
-			if (bytes > bounds.goal.bytes || outputs.some((budget) => bytes > budget.remaining)) {
-				product = undefined
+			if (product === undefined) {
 				control.fail({
 					cause: 'capacity',
 					message: 'Study product exceeded its output allowance',

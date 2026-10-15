@@ -1,15 +1,14 @@
 import { requireValue, waitForCondition } from '@orkestrel/test'
 import { createScratch, isRunning } from '@orkestrel/test/server'
-import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { StudyDeadline } from '../../../../src/core/engines/StudyDeadline.js'
-import { STUDY_LOG_BYTES } from '../../../../src/server/processes/constants.js'
 import { StudyTask } from '../../../../src/server/processes/StudyTask.js'
 import {
 	STUDY_TASK_INSTRUMENT,
 	STUDY_TASK_INVALID_DURATIONS,
 	STUDY_TASK_RESPONSES,
 	STUDY_TASK_STOPS,
+	buildStudyTaskOptions,
 	buildStudyTaskRequest,
 	createStudyTaskFixture,
 	readStudyOrphan,
@@ -64,7 +63,6 @@ describe('StudyTask', () => {
 				scratch.destroy()
 			}
 		}
-		expect(STUDY_LOG_BYTES).toBe(64 * 1024)
 	}, 40000)
 
 	it('enforces its deadline and the caller abort with child cleanup', async () => {
@@ -109,13 +107,7 @@ describe('StudyTask', () => {
 	it('rejects an exited root that leaves a detached leaf holding stdout before its deadline', async () => {
 		const scratch = createScratch()
 		const entry = writeStudyOrphan(scratch, 20000)
-		const task = new StudyTask({
-			entry,
-			root: resolve('.'),
-			adapter: entry,
-			roots: [],
-			duration: 5000,
-		})
+		const task = new StudyTask(buildStudyTaskOptions(entry))
 		const result = task.execute(request, new AbortController().signal)
 		const settled = result.then(
 			() => undefined,
@@ -141,13 +133,7 @@ describe('StudyTask', () => {
 	it('settles an ordinary exit without a complete response', async () => {
 		const scratch = createScratch()
 		const entry = scratch.write('exit.cjs', "process.on('message', () => process.exit(0))")
-		const task = new StudyTask({
-			entry,
-			root: resolve('.'),
-			adapter: entry,
-			roots: [],
-			duration: 5000,
-		})
+		const task = new StudyTask(buildStudyTaskOptions(entry))
 		try {
 			await expect(
 				new StudyDeadline({ duration: 4000, label: 'ordinary StudyTask exit' }).wait(

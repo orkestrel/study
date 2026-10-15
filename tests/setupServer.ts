@@ -4,14 +4,18 @@ import { isInteger, isRecord } from '@orkestrel/contract'
 import { isRunning } from '@orkestrel/test/server'
 import type { StudyGrading, StudyLabels, StudyManifest, StudyRubric } from '../src/core/types.js'
 import type { StudySealedResult } from '../src/server/stores/types.js'
-import type { StudyTaskRequest } from '../src/server/processes/types.js'
+import type {
+	StudyProcessSessionOptions,
+	StudyTaskOptions,
+	StudyTaskRequest,
+} from '../src/server/processes/types.js'
 import type {
 	StudyOrphanReceipt,
 	StudyPeerFixture,
 	StudyTaskFixture,
 	StudyTaskMode,
 } from './src/server/processes/types.js'
-import { waitForCondition, waitForEvent } from '@orkestrel/test'
+import { requireValue, waitForCondition, waitForEvent } from '@orkestrel/test'
 import { execFile, fork } from 'node:child_process'
 import { join, relative, resolve } from 'node:path'
 import { isBuiltin } from 'node:module'
@@ -55,6 +59,40 @@ export function buildStudyTaskRequest(): StudyTaskRequest {
 			rubric: buildStudyRubric(),
 			profile: buildStudyProfile(),
 		},
+	}
+}
+
+/** Builds the options of a task bound to one adapter entry that reads no package roots.
+ * @param entry - The absolute adapter entry, used as both the entry and the adapter.
+ * @param duration - The task deadline in milliseconds; Default: 5000.
+ * @returns The task options rooted at the workspace.
+ */
+export function buildStudyTaskOptions(entry: string, duration = 5000): StudyTaskOptions {
+	return { entry, root: resolve('.'), adapter: entry, roots: [], duration }
+}
+
+/** Builds the options of a session over the first scheduled custody trial.
+ * @param scratch - The owned temporary resource holding the worker and the trial directory.
+ * @param entry - The absolute worker entry.
+ * @param signal - The parent cancellation.
+ * @returns The session options bound to the in-memory driver.
+ */
+export function buildStudySessionOptions(
+	scratch: ScratchInterface,
+	entry: string,
+	signal: AbortSignal,
+): StudyProcessSessionOptions {
+	const manifest = buildCustodyManifest()
+	return {
+		entry,
+		root: scratch.path,
+		directory: scratch.ensure('trials'),
+		adapter: scratch.path,
+		driver: 'memory',
+		profile: { ...buildStudyProfile(), bounds: manifest.bounds, roots: ['dist'] },
+		identity: { ...manifest.identity },
+		trial: requireValue(manifest.schedule[0]),
+		signal,
 	}
 }
 
@@ -178,7 +216,7 @@ process.on('message', () => {
 })`,
 	)
 	return Object.freeze({
-		task: new StudyTask({ entry, root: resolve('.'), adapter: entry, roots: [], duration }),
+		task: new StudyTask(buildStudyTaskOptions(entry, duration)),
 		pid: 'task-pid.txt',
 	})
 }

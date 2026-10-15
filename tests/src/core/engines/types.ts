@@ -4,11 +4,26 @@ import type {
 	StudyAttempt,
 	StudyContext,
 	StudyDriverInterface,
+	StudyFailure,
 	StudyGoal,
 	StudyProduct,
 	StudyStoreInterface,
 	StudyTrial,
 } from '../../../../src/core/types.js'
+
+/** Declares one driver result against the output admission it must meet. */
+export interface StudyAdmissionCase {
+	/** Names the case in the test title. */
+	readonly name: string
+	/** If `true`, the driver outlasts the goal duration before it returns. */
+	readonly expired: boolean
+	/** If `true`, the returned value exceeds the goal output allowance. */
+	readonly oversized: boolean
+	/** Names the cause the first terminal failure must carry. */
+	readonly cause: StudyFailure['cause']
+	/** Holds the product the first observation must retain. */
+	readonly product: StudyProduct | undefined
+}
 
 /** Holds real admission primitives and their owned cleanup boundary. */
 export interface StudyMeterFixture {

@@ -13,7 +13,9 @@ import {
 	buildCompactCustodyManifest,
 	buildCustodyAttempt,
 	buildCustodyManifest,
+	buildStudyCapacityManifest,
 	createStudyDriverFixture,
+	STUDY_ADMISSION_CASES,
 	STUDY_CUSTODY_MUTATIONS,
 } from '../../../setupStudy.js'
 
@@ -232,18 +234,73 @@ describe('StudyResults', () => {
 		}
 	})
 
+	it.each(STUDY_ADMISSION_CASES)(
+		'seals only admitted output after a goal deadline: $name',
+		async ({ expired, oversized, cause, product }) => {
+			const scratch = createScratch()
+			try {
+				const baseline = buildStudyCapacityManifest({
+					request: 16,
+					goal: 64,
+					trial: 8192,
+					series: 65536,
+				})
+				const manifest = {
+					...baseline,
+					bounds: {
+						...baseline.bounds,
+						request: { ...baseline.bounds.request, duration: 25 },
+						goal: { ...baseline.bounds.goal, duration: 50 },
+					},
+				}
+				// The synchronous wait outlasts the goal duration before any timer can fire.
+				const driver = createStudyDriverFixture({
+					execute: async (): Promise<StudyProduct> => {
+						if (expired) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
+						return { value: oversized ? 'x'.repeat(100) : 'ok', partial: true }
+					},
+				})
+				const directory = join(scratch.path, 'result')
+				const results = new StudyResults({ directory, manifest })
+				await results.create()
+				const attempts = await new StudySeries({
+					manifest,
+					driver: driver.driver,
+					store: results,
+					signal: new AbortController().signal,
+				}).execute()
+				await results.seal()
+				const reading = await readStudyResult(directory)
+				expect(driver.executed.calls[0]).toEqual(['write'])
+				const first = attempts[0]?.observations[0]
+				if (first === undefined) throw new Error('Missing first observation')
+				expect(first.failure?.cause).toBe(cause)
+				expect(attempts[0]?.failure?.cause).toBe(cause)
+				if (product === undefined) expect(first.product).toBeUndefined()
+				else expect(first.product).toEqual(product)
+				expect(attempts.map((attempt) => attempt.trial.id)).toEqual(
+					manifest.schedule.map((trial) => trial.id),
+				)
+				for (const attempt of attempts) expect(attempt.observations).toHaveLength(2)
+				expect(reading.status).toBe('sealed')
+				if (reading.status !== 'sealed') throw new Error('Missing seal')
+				expect(reading.attempts).toEqual(attempts)
+				expect(reading.attempts[0]?.observations[0]?.product).toEqual(first.product)
+			} finally {
+				scratch.destroy()
+			}
+		},
+	)
+
 	it('seals fulfilled capacity attempts when a driver product exceeds the series output limit', async () => {
 		const scratch = createScratch()
 		try {
-			const manifest = {
-				...buildCompactCustodyManifest(),
-				bounds: {
-					request: { duration: 1000, calls: 1, tokens: 1000, bytes: 1024 },
-					goal: { duration: 2000, calls: 2, tokens: 2000, bytes: 4096 },
-					trial: { duration: 4000, calls: 4, tokens: 4000, bytes: 8192 },
-					series: { duration: 32000, calls: 32, tokens: 32000, bytes: 16384 },
-				},
-			}
+			const manifest = buildStudyCapacityManifest({
+				request: 1024,
+				goal: 4096,
+				trial: 8192,
+				series: 16384,
+			})
 			const directory = join(scratch.path, 'result')
 			const results = new StudyResults({ directory, manifest })
 			await results.create()
@@ -289,15 +346,12 @@ describe('StudyResults', () => {
 	it('forwards a genuine terminal custody capacity rejection through the series and stays unsealed', async () => {
 		const scratch = createScratch()
 		try {
-			const manifest = {
-				...buildCompactCustodyManifest(),
-				bounds: {
-					request: { duration: 1000, calls: 1, tokens: 1000, bytes: 64 },
-					goal: { duration: 2000, calls: 2, tokens: 2000, bytes: 1200 },
-					trial: { duration: 4000, calls: 4, tokens: 4000, bytes: 2300 },
-					series: { duration: 32000, calls: 32, tokens: 32000, bytes: 2300 },
-				},
-			}
+			const manifest = buildStudyCapacityManifest({
+				request: 64,
+				goal: 1200,
+				trial: 2300,
+				series: 2300,
+			})
 			const directory = join(scratch.path, 'result')
 			const results = new StudyResults({ directory, manifest })
 			await results.create()

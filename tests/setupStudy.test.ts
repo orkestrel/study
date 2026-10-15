@@ -3,6 +3,7 @@ import {
 	buildCompactCustodyManifest,
 	buildCustodyAttempt,
 	buildCustodyManifest,
+	buildStudyCapacityManifest,
 	createStudyDriverFixture,
 	createStudyMeterFixture,
 	createStudyStoreFixture,
@@ -94,6 +95,21 @@ describe('study meter fixture lifecycle', () => {
 })
 
 describe('study declaration fixtures', () => {
+	it('varies byte allowances without changing the compact horizon or sharing caller data', () => {
+		const bytes = { request: 16, goal: 64, trial: 4096, series: 65536 }
+		const manifest = buildStudyCapacityManifest(bytes)
+		bytes.goal = 128
+		expect(manifest.bounds).toEqual({
+			request: { duration: 1000, calls: 1, tokens: 1000, bytes: 16 },
+			goal: { duration: 2000, calls: 2, tokens: 2000, bytes: 64 },
+			trial: { duration: 4000, calls: 4, tokens: 4000, bytes: 4096 },
+			series: { duration: 32000, calls: 32, tokens: 32000, bytes: 65536 },
+		})
+		expect(manifest.schedule.map(({ scenario, arm }) => ({ scenario, arm }))).toEqual([
+			{ scenario: 'first', arm: 'small' },
+			{ scenario: 'second', arm: 'small' },
+		])
+	})
 	it('keeps both scenarios in the compact custody population', () => {
 		const manifest = buildCompactCustodyManifest()
 		expect(

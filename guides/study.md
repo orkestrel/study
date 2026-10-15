@@ -167,7 +167,7 @@ The following declarations describe this concept.
 | `STUDY_COMMAND_HELP`             | const     | Defines the complete public CLI reference shared by help and grammar diagnostics.         |
 | `STUDY_COMMAND_OPERATION`        | const     | Names the command route beneath the native supervisor.                                    |
 | `STUDY_CUSTODY_BYTES`            | const     | Limits untrusted metadata before JSON parsing or file allocation.                         |
-| `STUDY_DRAIN_DURATION`           | const     | Bounds inherited output handles after native exit as a cleanup limit.                     |
+| `STUDY_DRAIN_DURATION`           | const     | Bounds how long inherited output handles stay open after native exit, in milliseconds.    |
 | `STUDY_FRAME_BYTES`              | const     | Limits each serialized IPC envelope, including its JSON framing.                          |
 | `STUDY_GOALS`                    | const     | Caps a declared scenario horizon before execution.                                        |
 | `STUDY_LAUNCH_BYTES`             | const     | Bounds combined supervised command output to 16 MiB before terminating the tree.          |

@@ -97,9 +97,8 @@ export function validateStudyRuntime(instrument: string, roots: readonly string[
 }
 
 /** Releases inherited output handles a bounded time after native exit.
- *
- * A descendant that outlives an exited root is outside discoverable-tree cleanup; this only stops the parent from waiting on its pipes.
  * @param child - A newly spawned child, subscribed before native exit.
+ * @remarks A descendant that outlives an exited root is outside discoverable-tree cleanup; this only stops the parent from waiting on its pipes.
  */
 export function drainStudyChild(child: ChildProcess): void {
 	let timer: ReturnType<typeof setTimeout> | undefined
