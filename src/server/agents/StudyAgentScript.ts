@@ -69,6 +69,9 @@ export class StudyAgentScript implements ProviderInterface {
 	 * @param messages - The actual Agent conversation
 	 * @param signal - The enclosing Agent run signal
 	 * @returns The declared response, optionally consuming an actual prior tool message
+	 * @remarks
+	 * A stream abandoned after admission, for example by `return`, fails its admitted request with the
+	 * run signal's reason, or a `FAULT` when the signal carries none, and never finishes it as success.
 	 * @throws StudyError - Thrown when responses are exhausted or admission fails
 	 */
 	async *stream(
@@ -159,10 +162,24 @@ export class StudyAgentScript implements ProviderInterface {
 			}
 			return result
 		} catch (error) {
-			if (ticket !== undefined) failStudyTicket(ticket, error, 'agent')
+			// Clear the ticket before settling so the finally below never settles it a second time.
+			const failed = ticket
+			ticket = undefined
+			if (failed !== undefined) failStudyTicket(failed, error, 'agent')
 			throw error
 		} finally {
-			this.#running = false
+			try {
+				// A consumer that abandons the stream leaves an admitted request unsettled; it never counts as success.
+				if (ticket !== undefined && !ticket.settled)
+					failStudyTicket(
+						ticket,
+						signal.reason ??
+							new StudyError('FAULT', 'Scripted response was abandoned before completion'),
+						'agent',
+					)
+			} finally {
+				this.#running = false
+			}
 		}
 	}
 }

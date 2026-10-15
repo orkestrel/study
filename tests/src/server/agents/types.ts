@@ -1,3 +1,4 @@
+import type { LedgerGauge } from '@orkestrel/agent'
 import type { RecorderInterface } from '@orkestrel/test'
 import type { StudyEvidence, StudySinkInterface } from '../../../../src/core/types.js'
 import type { StudyAgentPlan } from '../../../../src/server/agents/types.js'
@@ -17,7 +18,7 @@ import type {
  */
 export interface StudySinkFixtureOptions {
 	readonly refuse?: { readonly error: unknown; readonly row: number }
-	readonly during?: () => void
+	readonly during?: () => void | Promise<void>
 }
 
 /** Holds an evidence sink and the rows it accepted in order. */
@@ -37,7 +38,8 @@ export interface StudyAgentTraceFixture {
  * @remarks
  * `replies` are the queued protocol answers of the real provider's wire. `observe` is the trace's
  * observation switch. `limit` is the summary's prompt projection limit. `signal` is the summary's
- * own cancellation; omitted, a live signal is used. `refusal` wraps the value the latch's check
+ * own cancellation; omitted, a live signal is used. `gauge` prices each request; omitted, the
+ * fixture gauge that projects every fixture request at the declared projection is used. `refusal` wraps the value the latch's check
  * throws; omitted, work continues.
  */
 export interface StudyAgentSummaryFixtureOptions {
@@ -45,6 +47,7 @@ export interface StudyAgentSummaryFixtureOptions {
 	readonly observe: boolean
 	readonly limit: number
 	readonly signal?: AbortSignal
+	readonly gauge?: LedgerGauge
 	readonly refusal?: { readonly error: unknown }
 }
 

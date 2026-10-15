@@ -1,6 +1,6 @@
 import type { Message, ProviderRequest } from '@orkestrel/agent'
 import type { StudyAgentSummaryOptions } from './types.js'
-import { cloneJSONValue, isJSONValue } from '@orkestrel/contract'
+import { cloneJSONValue, isFiniteNumber, isJSONValue } from '@orkestrel/contract'
 import { StudyError } from '../../core/errors.js'
 import { projectStudyAgentRequest, validateStudyAgentUsage } from '../../core/agents/helpers.js'
 
@@ -10,9 +10,20 @@ export class StudyAgentSummary {
 
 	/** Binds the provider, the measuring trace, the gauge, the limit and the consumer's instruction.
 	 * @param options - Delegate, measurement seam, limits and cancellation.
+	 * @throws StudyError - Thrown with code `CONFIG` when the limit is not a positive safe integer, or the gauge scale is not finite and greater than 0 or its overhead is not finite and at least 0.
 	 */
 	constructor(options: StudyAgentSummaryOptions) {
-		this.#options = { ...options }
+		// The gauge is copied after validation, so later mutation of the caller's object cannot bypass the bound.
+		const { limit } = options
+		const { scale, overhead } = options.gauge
+		if (!Number.isSafeInteger(limit) || limit <= 0)
+			throw new StudyError('CONFIG', 'Summary limit must be a positive safe integer')
+		if (!isFiniteNumber(scale) || scale <= 0 || !isFiniteNumber(overhead) || overhead < 0)
+			throw new StudyError(
+				'CONFIG',
+				'Summary gauge scale must be finite and positive and its overhead finite and nonnegative',
+			)
+		this.#options = { ...options, limit, gauge: { scale, overhead } }
 	}
 
 	/** Measures one canonical request, refuses it at the limit, and sends the very same array to the provider.

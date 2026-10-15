@@ -13,6 +13,7 @@ import {
 	projectStudyAgentRequest,
 	translateStudyAgentError,
 } from '../../core/agents/helpers.js'
+import { StudyError } from '../../core/errors.js'
 import { buildStudyAgentRevision } from './helpers.js'
 
 /** Correlates measured Agent requests and retains their evidence across a trial's goals. */
@@ -23,6 +24,7 @@ export class StudyAgentTrace {
 	readonly #slots = new Map<StudyAgentRole, StudyAgentDispatch>()
 	#rows: StudyEvidence[] = []
 	#goal: string | undefined
+	#flushing = false
 	#admission: StudyAgentStamp | undefined
 	#refused: unknown
 	#ordinal = 0
@@ -42,8 +44,10 @@ export class StudyAgentTrace {
 
 	/** Begins a goal's rows. Ordinals, dispatch numbers and role identities continue from earlier goals.
 	 * @param goal - The goal whose rows follow.
+	 * @throws StudyError - Thrown with code `CONFIG` when a goal is already active; the active goal and its rows stay unchanged.
 	 */
 	start(goal: string): void {
+		if (this.#goal !== undefined) throw new StudyError('CONFIG', 'Trace goal is already active')
 		this.#rows = []
 		this.#goal = goal
 		this.#admission = undefined
@@ -62,13 +66,19 @@ export class StudyAgentTrace {
 
 	/** Appends the retained rows in order, including rows added during the flush, and ends the goal even when custody refuses a row.
 	 * @param evidence - The sink that takes custody of each row.
-	 * @returns Completion after every row is appended.
+	 * @returns Completion after every row is appended; immediately when no goal is active.
+	 * @throws StudyError - Thrown with code `CONFIG` when another flush is pending; the pending flush is untouched.
 	 */
 	async flush(evidence: StudySinkInterface): Promise<void> {
+		if (this.#goal === undefined) return
+		if (this.#flushing) throw new StudyError('CONFIG', 'Trace flush is already pending')
+		this.#flushing = true
 		try {
 			for (const row of this.#rows) await evidence.append(row)
 		} finally {
+			this.#rows = []
 			this.#goal = undefined
+			this.#flushing = false
 		}
 	}
 

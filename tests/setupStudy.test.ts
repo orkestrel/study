@@ -250,7 +250,11 @@ describe('study agent trace fixtures', () => {
 
 	it('records accepted rows in order and runs its hook before each append', async () => {
 		const seen: string[] = []
-		const fixture = createStudySinkFixture({ during: () => seen.push('hook') })
+		const fixture = createStudySinkFixture({
+			during: () => {
+				seen.push('hook')
+			},
+		})
 		await fixture.sink.append(row)
 		await fixture.sink.append({ ...row, event: 'summary' })
 		expect(fixture.rows.map(({ event }) => event)).toEqual(['lookup', 'summary'])

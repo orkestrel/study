@@ -50,8 +50,10 @@ export interface StudyAgentTraceOptions {
  * `provider` receives the one canonical array the summary measured. `runtime` prices it. `trace`
  * retains the summary's measurement, refusal and evidence rows. `latch` refuses work after a
  * retained failure. `gauge` prices each request and `limit` is the prompt projection at which a
- * request is refused. `instruction` is the final user turn appended to the folded messages.
- * `signal` bounds work when the caller supplies none.
+ * request is refused; it must be a positive safe integer, and `gauge.scale` must be finite and
+ * greater than 0 and `gauge.overhead` finite and at least 0, or construction refuses with `CONFIG`.
+ * The summary keeps its own copy of the gauge. `instruction` is the final user turn appended to the
+ * folded messages. `signal` bounds work when the caller supplies none.
  */
 export interface StudyAgentSummaryOptions {
 	readonly provider: ProviderInterface

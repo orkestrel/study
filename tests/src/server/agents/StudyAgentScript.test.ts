@@ -346,6 +346,42 @@ describe('StudyAgentScript', () => {
 		}
 	})
 
+	it('fails an abandoned stream request with agent attribution and never finishes it as success', async () => {
+		const meter = createStudyScriptMeter()
+		try {
+			const script = new StudyAgentScript({ bytes: 1000 })
+			const fixture = createStudyScriptFixture(meter, [buildStudyScriptResponse({ content: 'ok' })])
+			script.prepare(fixture.plan)
+			const stream = script.stream(STUDY_SCRIPT_MESSAGES, meter.control.signal)
+			expect(await stream.next()).toEqual({
+				done: false,
+				value: { channel: 'content', text: 'ok' },
+			})
+			expect(await stream.return({ content: 'abandoned' })).toEqual({
+				done: true,
+				value: { content: 'abandoned' },
+			})
+			expect(meter.meter.usage).toHaveLength(1)
+			expect(meter.meter.usage[0]).toMatchObject({
+				role: 'agent',
+				tokens: undefined,
+				bytes: undefined,
+			})
+			expect(meter.control.failure).toMatchObject({
+				cause: 'infrastructure',
+				message: 'Scripted response was abandoned before completion',
+				role: 'agent',
+			})
+			expect(() => script.prepare(fixture.plan)).not.toThrow()
+			// Closing the meter finds no unsettled request to replace the recorded failure with.
+			meter.close()
+			expect(meter.meter.usage).toHaveLength(1)
+			expect(meter.meter.usage[0]?.role).toBe('agent')
+		} finally {
+			meter.close()
+		}
+	})
+
 	it('fails the admitted ticket without provider evidence when the run is aborted before dispatch', async () => {
 		const meter = createStudyScriptMeter()
 		try {

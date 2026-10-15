@@ -1145,7 +1145,7 @@ export function createStudySinkFixture(options: StudySinkFixtureOptions = {}): S
 	let appended = 0
 	const sink: StudySinkInterface = {
 		async append(evidence): Promise<void> {
-			options.during?.()
+			await options.during?.()
 			const row = appended++
 			if (options.refuse !== undefined && options.refuse.row === row) throw options.refuse.error
 			rows.push(evidence)
@@ -1187,7 +1187,7 @@ export function createStudyAgentSummary(
 		runtime: createAgentRuntime(),
 		trace,
 		latch,
-		gauge: STUDY_AGENT_GAUGE,
+		gauge: options.gauge ?? STUDY_AGENT_GAUGE,
 		limit: options.limit,
 		instruction: STUDY_SUMMARY_INSTRUCTION,
 		signal: options.signal ?? new AbortController().signal,

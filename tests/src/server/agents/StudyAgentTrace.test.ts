@@ -288,4 +288,63 @@ describe('StudyAgentTrace', () => {
 		await trace.flush(next.sink)
 		expect(next.rows).toEqual([])
 	})
+
+	it('refuses to start a goal while one is active and keeps the active goal and its rows', async () => {
+		const { trace } = createStudyAgentTrace(true)
+		const sink = createStudySinkFixture()
+		trace.start('write')
+		trace.append('first', { id: 1 })
+		expect(() => trace.start('read')).toThrow('Trace goal is already active')
+		expect(() => trace.start('read')).toThrow(StudyError)
+		expect(trace.goal).toBe('write')
+		await trace.flush(sink.sink)
+		expect(sink.rows).toEqual([{ event: 'first', goal: 'write', value: { id: 1 } }])
+	})
+
+	it('treats a flush with no active goal as a no-op, so a completed flush never appends twice', async () => {
+		const { trace } = createStudyAgentTrace(true)
+		const sink = createStudySinkFixture()
+		await trace.flush(sink.sink)
+		trace.start('write')
+		trace.append('first', { id: 1 })
+		await trace.flush(sink.sink)
+		await trace.flush(sink.sink)
+		expect(sink.rows).toEqual([{ event: 'first', goal: 'write', value: { id: 1 } }])
+	})
+
+	it('refuses a second flush while one is pending and leaves the pending flush and late rows intact', async () => {
+		const { trace } = createStudyAgentTrace(true)
+		const held = Promise.withResolvers<void>()
+		const sink = createStudySinkFixture({ during: () => held.promise })
+		trace.start('write')
+		trace.append('first', { id: 1 })
+		const pending = trace.flush(sink.sink)
+		await expect(trace.flush(sink.sink)).rejects.toMatchObject({
+			code: 'CONFIG',
+			message: 'Trace flush is already pending',
+		})
+		expect(() => trace.start('read')).toThrow('Trace goal is already active')
+		trace.append('late', { id: 2 })
+		held.resolve()
+		await pending
+		expect(sink.rows.map((row) => row.event)).toEqual(['first', 'late'])
+		expect(trace.goal).toBe(undefined)
+	})
+
+	it('clears the rows and the pending phase when custody refuses, so the next goal starts clean and continues the counters', async () => {
+		const { trace } = createStudyAgentTrace(true)
+		const refusal = new Error('Custody refused')
+		const failing = createStudySinkFixture({ refuse: { error: refusal, row: 0 } })
+		trace.start('write')
+		trace.record(reading, first)
+		await expect(trace.flush(failing.sink)).rejects.toBe(refusal)
+		const sink = createStudySinkFixture()
+		await trace.flush(sink.sink)
+		expect(sink.rows).toEqual([])
+		trace.start('read')
+		trace.record(reading, first)
+		await trace.flush(sink.sink)
+		expect(sink.rows.map((row) => requireStudyRecord(row.value).dispatch)).toEqual([2, 2])
+		expect(trace.canonical('agent')?.id).toBe(2)
+	})
 })

@@ -79,6 +79,57 @@ describe('StudyAgentSummary', () => {
 		})
 	})
 
+	it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])(
+		'refuses the limit %s at construction',
+		(limit) => {
+			expect(() => createStudyAgentSummary({ replies: [], observe: true, limit })).toThrow(
+				'Summary limit must be a positive safe integer',
+			)
+		},
+	)
+
+	it.each([
+		{ scale: 0, overhead: 100 },
+		{ scale: -1, overhead: 100 },
+		{ scale: Number.NaN, overhead: 100 },
+		{ scale: Number.POSITIVE_INFINITY, overhead: 100 },
+		{ scale: 1e-9, overhead: -1 },
+		{ scale: 1e-9, overhead: Number.NaN },
+		{ scale: 1e-9, overhead: Number.POSITIVE_INFINITY },
+	])('refuses the gauge %o at construction', (gauge) => {
+		expect(() =>
+			createStudyAgentSummary({ replies: [], observe: true, limit: 102, gauge }),
+		).toThrow('Summary gauge scale must be finite and positive')
+	})
+
+	it('accepts a zero overhead and the smallest limit', () => {
+		expect(() =>
+			createStudyAgentSummary({
+				replies: [],
+				observe: true,
+				limit: 1,
+				gauge: { scale: 1e-9, overhead: 0 },
+			}),
+		).not.toThrow()
+	})
+
+	it('keeps the validated gauge and limit when the caller later mutates its gauge', async () => {
+		const gauge = { scale: 1e-9, overhead: 100 }
+		const fixture = createStudyAgentSummary({
+			replies: buildOllamaReplies('Recap'),
+			observe: false,
+			limit: 102,
+			gauge,
+		})
+		// An uncopied gauge would project 1001 and refuse at the limit of 102.
+		gauge.overhead = 1000
+		fixture.trace.start('write')
+		await expect(fixture.summary.summarize(STUDY_SUMMARY_MESSAGES, undefined)).resolves.toBe(
+			'Recap',
+		)
+		expect(fixture.wire.requests).toHaveLength(1)
+	})
+
 	it('numbers its dispatch after an agent dispatch of the same trial', async () => {
 		const fixture = createStudyAgentSummary({
 			replies: buildOllamaReplies('Recap'),
