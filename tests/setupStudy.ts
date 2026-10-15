@@ -6,8 +6,10 @@ import type {
 	StudyDefinition,
 	StudyGrading,
 	StudyDriverInterface,
+	StudyFailure,
 	StudyJudgment,
 	StudyManifest,
+	StudyObservation,
 	StudyProduct,
 	StudyProfile,
 	StudyRubric,
@@ -25,6 +27,7 @@ import type {
 	StudyMeterFixture,
 	StudyStoreFixture,
 } from './src/core/engines/types.js'
+import type { StudyExecutionCase } from './src/server/stores/types.js'
 import { createRecorder } from '@orkestrel/test'
 import { vi } from 'vitest'
 import { StudyControl, StudyMeter, StudyScope } from '../src/core/engines/index.js'
@@ -212,7 +215,6 @@ export function buildStudyManifest(): StudyManifest {
 	const scenarios = [buildStudyScenario(), buildStudyScenario('second')]
 	const profile = buildStudyProfile()
 	return {
-		version: 1,
 		id: 'a'.repeat(64),
 		created: '2026-10-14T12:00:00.000Z',
 		definition,
@@ -237,10 +239,9 @@ export function buildStudyGrading(
 	judgments: readonly StudyJudgment[] = [],
 ): StudyGrading {
 	return {
-		version: 1,
 		result: 'a'.repeat(64),
 		rubric: 'b'.repeat(64),
-		grader: 'grader-v1',
+		grader: 'grader',
 		instrument: 'c'.repeat(64),
 		attempts: schedule.map((trial) => trial.id),
 		labels: undefined,
@@ -299,7 +300,7 @@ export function createStudyMeterFixture(
 }
 
 /** Creates a consumer-side driver whose sessions are fresh per open and whose calls are recorded.
- * @param options - Optional goal execution and a promise that delays each open result.
+ * @param options - Optional goal execution, a promise that delays each open result, and an error that rejects each open.
  * @returns The driver with open, execute, and close observations.
  */
 export function createStudyDriverFixture(
@@ -311,6 +312,7 @@ export function createStudyDriverFixture(
 	const driver: StudyDriverInterface = {
 		async open(trial): Promise<StudySessionInterface> {
 			opened.handler(trial)
+			if (options.refuse !== undefined) throw options.refuse
 			if (options.opening !== undefined) await options.opening
 			return {
 				async execute(goal, context): Promise<StudyProduct> {
@@ -413,17 +415,334 @@ export function buildCustodyAttempt(manifest: StudyManifest, trial: StudyTrial):
 	if (scenario === undefined) throw new Error('Fixture trial has no scenario')
 	return {
 		trial,
-		observations: scenario.goals.map((goal) => ({
-			goal: goal.id,
-			product: { value: 'remember', partial: false },
-			failure: undefined,
-			usage: [],
-			duration: 0,
-		})),
+		observations: scenario.goals.map((goal) => buildStudyObservation(goal.id, true)),
 		failure: undefined,
 		duration: 0,
+		executed: true,
 	}
 }
+
+/**
+ * Builds an attributable operational failure.
+ * @param cause - The operational ending; Default: capacity
+ * @param message - The retained message; Default: Full
+ * @returns The inert failure
+ */
+export function buildStudyFailure(
+	cause: StudyFailure['cause'] = 'capacity',
+	message = 'Full',
+): StudyFailure {
+	return { cause, message, role: undefined }
+}
+
+/**
+ * Builds a retained goal outcome that carries an explicit execution fact.
+ * @param goal - The declared goal identity
+ * @param executed - True for a dispatched goal, false for a goal never dispatched
+ * @param change - The fields that differ from the default outcome
+ * @returns A complete product for a dispatched goal; a failure without product, usage or duration for an undispatched goal
+ */
+export function buildStudyObservation(
+	goal: string,
+	executed: boolean,
+	change: Partial<StudyObservation> = {},
+): StudyObservation {
+	return {
+		goal,
+		product: executed === false ? undefined : { value: 'remember', partial: false },
+		failure:
+			executed === false ? buildStudyFailure('interrupted', 'Goal unexecuted: Stopped') : undefined,
+		usage: [],
+		duration: 0,
+		executed,
+		...change,
+	}
+}
+
+/**
+ * Builds a terminal record over a scheduled trial from explicit goal outcomes.
+ * @param trial - The scheduled trial
+ * @param executed - The trial's execution fact
+ * @param observations - The ordered goal outcomes
+ * @param failure - The terminal operational failure; Default: none
+ * @returns The inert terminal record
+ */
+export function buildStudyAttempt(
+	trial: StudyTrial,
+	executed: boolean,
+	observations: readonly StudyObservation[],
+	failure?: StudyFailure,
+): StudyAttempt {
+	return { trial, observations, failure, duration: 0, executed }
+}
+
+/**
+ * Builds one terminal record per scheduled trial covering every operational partition.
+ * @param manifest - The two-goal declaration to fill
+ * @returns Completed, attempted-failure, partial-product, open-fault, inherited-cascade and between-goal-failure trials, then completed trials for the rest of the schedule
+ */
+export function buildStudyOperationAttempts(manifest: StudyManifest): readonly StudyAttempt[] {
+	const capacity = buildStudyFailure('capacity', 'Full')
+	return manifest.schedule.map((trial, index) => {
+		switch (index) {
+			case 1:
+				return buildStudyAttempt(
+					trial,
+					true,
+					[
+						buildStudyObservation('write', true, { product: undefined, failure: capacity }),
+						buildStudyObservation('read', false, {
+							failure: buildStudyFailure('capacity', 'Goal unexecuted: Full'),
+						}),
+					],
+					capacity,
+				)
+			case 2:
+				return buildStudyAttempt(trial, true, [
+					buildStudyObservation('write', true, { product: { value: 'half', partial: true } }),
+					buildStudyObservation('read', true),
+				])
+			case 3:
+				// An open failure is infrastructure, so its unexecuted goals carry that cause.
+				return buildStudyAttempt(
+					trial,
+					true,
+					['write', 'read'].map((goal) =>
+						buildStudyObservation(goal, false, {
+							failure: buildStudyFailure('infrastructure', 'Goal unexecuted: Open failed'),
+						}),
+					),
+					buildStudyFailure('infrastructure', 'Open failed'),
+				)
+			case 4:
+				return buildStudyAttempt(
+					trial,
+					false,
+					[buildStudyObservation('write', false), buildStudyObservation('read', false)],
+					buildStudyFailure('interrupted', 'Stopped'),
+				)
+			case 5:
+				return buildStudyAttempt(
+					trial,
+					true,
+					[
+						buildStudyObservation('write', true),
+						buildStudyObservation('read', false, {
+							failure: buildStudyFailure('deadline', 'Goal unexecuted: Late'),
+						}),
+					],
+					buildStudyFailure('deadline', 'Late'),
+				)
+			default:
+				return buildStudyAttempt(trial, true, [
+					buildStudyObservation('write', true),
+					buildStudyObservation('read', true),
+				])
+		}
+	})
+}
+
+/** Supplies the terminal record shapes custody must accept or refuse. */
+export const STUDY_EXECUTION_CASES: readonly StudyExecutionCase[] = Object.freeze([
+	{
+		name: 'accepts an executed trial whose goals all executed',
+		valid: true,
+		attempt: {},
+	},
+	{
+		name: 'accepts executed goals with zero duration and empty usage',
+		valid: true,
+		attempt: {
+			observations: [
+				buildStudyObservation('write', true, { duration: 0, usage: [] }),
+				buildStudyObservation('read', true, { duration: 0, usage: [] }),
+			],
+		},
+	},
+	{
+		name: 'accepts an attempted goal without a product as executed',
+		valid: true,
+		attempt: {
+			failure: buildStudyFailure(),
+			observations: [
+				buildStudyObservation('write', true, { product: undefined, failure: buildStudyFailure() }),
+				buildStudyObservation('read', false),
+			],
+		},
+	},
+	{
+		name: 'accepts an executed trial that never dispatched a goal',
+		valid: true,
+		attempt: {
+			failure: buildStudyFailure('infrastructure', 'Open failed'),
+			observations: [buildStudyObservation('write', false), buildStudyObservation('read', false)],
+		},
+	},
+	{
+		name: 'accepts an unexecuted trial that inherited a series failure',
+		valid: true,
+		attempt: {
+			executed: false,
+			failure: buildStudyFailure(),
+			observations: [buildStudyObservation('write', false), buildStudyObservation('read', false)],
+		},
+	},
+	{
+		name: 'accepts a trial close failure after every goal executed cleanly',
+		valid: true,
+		attempt: { failure: buildStudyFailure('infrastructure', 'Close failed') },
+	},
+	{
+		name: 'accepts a between-goal failure after a goal finished without one',
+		valid: true,
+		attempt: {
+			failure: buildStudyFailure('deadline', 'Late'),
+			observations: [buildStudyObservation('write', true), buildStudyObservation('read', false)],
+		},
+	},
+	{
+		name: 'accepts an executed goal with a product and a failure that ends the prefix',
+		valid: true,
+		attempt: {
+			failure: buildStudyFailure(),
+			observations: [
+				buildStudyObservation('write', true, { failure: buildStudyFailure() }),
+				buildStudyObservation('read', false),
+			],
+		},
+	},
+	{
+		name: 'refuses an undefined trial fact',
+		valid: false,
+		attempt: { executed: undefined },
+	},
+	{
+		name: 'refuses a goal that omits its fact',
+		valid: false,
+		attempt: {
+			observations: [
+				buildStudyObservation('write', true),
+				{ goal: 'read', product: undefined, failure: buildStudyFailure(), usage: [], duration: 0 },
+			],
+		},
+	},
+	{
+		name: 'refuses an unexecuted goal that holds a product',
+		valid: false,
+		attempt: {
+			failure: buildStudyFailure(),
+			observations: [
+				buildStudyObservation('write', true, { failure: buildStudyFailure() }),
+				buildStudyObservation('read', false, { product: { value: 'late', partial: false } }),
+			],
+		},
+	},
+	{
+		name: 'refuses an unexecuted goal that holds usage',
+		valid: false,
+		attempt: {
+			failure: buildStudyFailure(),
+			observations: [
+				buildStudyObservation('write', true, { failure: buildStudyFailure() }),
+				buildStudyObservation('read', false, {
+					usage: [{ role: 'agent', calls: 1, tokens: 1, bytes: 1, duration: 1 }],
+				}),
+			],
+		},
+	},
+	{
+		name: 'refuses an unexecuted goal that holds duration',
+		valid: false,
+		attempt: {
+			failure: buildStudyFailure(),
+			observations: [
+				buildStudyObservation('write', true, { failure: buildStudyFailure() }),
+				buildStudyObservation('read', false, { duration: 1 }),
+			],
+		},
+	},
+	{
+		name: 'refuses an unexecuted goal without a failure',
+		valid: false,
+		attempt: {
+			failure: buildStudyFailure(),
+			observations: [
+				buildStudyObservation('write', true, { failure: buildStudyFailure() }),
+				buildStudyObservation('read', false, { failure: undefined }),
+			],
+		},
+	},
+	{
+		name: 'refuses an unexecuted goal before an executed goal',
+		valid: false,
+		attempt: {
+			failure: buildStudyFailure(),
+			observations: [buildStudyObservation('write', false), buildStudyObservation('read', true)],
+		},
+	},
+	{
+		name: 'refuses an executed goal after a goal that failed',
+		valid: false,
+		attempt: {
+			failure: buildStudyFailure(),
+			observations: [
+				buildStudyObservation('write', true, { product: undefined, failure: buildStudyFailure() }),
+				buildStudyObservation('read', true),
+			],
+		},
+	},
+	{
+		name: 'refuses an unexecuted trial that holds an executed goal',
+		valid: false,
+		attempt: {
+			executed: false,
+			failure: buildStudyFailure(),
+			observations: [buildStudyObservation('write', true), buildStudyObservation('read', false)],
+		},
+	},
+	{
+		name: 'refuses an unexecuted trial without a failure',
+		valid: false,
+		attempt: {
+			executed: false,
+			observations: [buildStudyObservation('write', false), buildStudyObservation('read', false)],
+		},
+	},
+	{
+		name: 'refuses an attempt without a failure that holds a failed goal',
+		valid: false,
+		attempt: {
+			failure: undefined,
+			observations: [
+				buildStudyObservation('write', true, { failure: buildStudyFailure() }),
+				buildStudyObservation('read', false),
+			],
+		},
+	},
+	{
+		name: 'refuses an attempt without a failure that holds an unexecuted goal',
+		valid: false,
+		attempt: {
+			failure: undefined,
+			observations: [buildStudyObservation('write', true), buildStudyObservation('read', false)],
+		},
+	},
+	{
+		name: 'refuses a non-boolean trial fact',
+		valid: false,
+		attempt: { executed: 'yes' },
+	},
+	{
+		name: 'refuses a null goal fact',
+		valid: false,
+		attempt: {
+			observations: [
+				buildStudyObservation('write', true),
+				{ ...buildStudyObservation('read', true), executed: null },
+			],
+		},
+	},
+])
 
 /** Supplies hostile seal mutations that the offline reader must refuse. */
 export const STUDY_CUSTODY_MUTATIONS = Object.freeze([

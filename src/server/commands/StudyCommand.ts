@@ -203,7 +203,6 @@ export class StudyCommand {
 		signal.throwIfAborted()
 		const directory = request.out === undefined ? join(parent, id) : this.#file(request.out)
 		const manifest: StudyManifest = {
-			version: 1,
 			id,
 			created: new Date().toISOString(),
 			definition: preparation.definition,
@@ -290,7 +289,6 @@ export class StudyCommand {
 		const digest = hashStudyBytes(bytes)
 		const packet = buildStudyPacket(result, rubric, digest)
 		const grading: StudyGrading = {
-			version: 1,
 			result: result.seal.id,
 			rubric: digest,
 			grader: STUDY_COMMAND_GRADER,

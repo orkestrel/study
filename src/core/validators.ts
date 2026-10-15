@@ -37,7 +37,6 @@ export const isStudyRole: Guard<StudyRole> = literalOf(STUDY_ROLES)
 
 /** Checks whether a value names an operational ending. */
 export const isStudyCause: Guard<StudyCause> = literalOf(STUDY_CAUSES)
-
 /**
  * Checks whether an identifier is portable and bounded.
  * @param value - The candidate identifier
@@ -554,7 +553,7 @@ export function isStudyErrorCode(value: unknown): value is StudyErrorCode {
  * @returns True if its identities, attempts and judgments are valid; false otherwise
  * @example
  * ```ts
- * isStudyGrading({ version: 1 }) // false
+ * isStudyGrading({}) // false
  * ```
  */
 export function isStudyGrading(value: unknown): value is StudyGrading {
@@ -563,10 +562,9 @@ export function isStudyGrading(value: unknown): value is StudyGrading {
 			isRecord(value) &&
 			matchesStudyKeys(
 				value,
-				['version', 'result', 'rubric', 'grader', 'instrument', 'attempts', 'judgments'],
+				['result', 'rubric', 'grader', 'instrument', 'attempts', 'judgments'],
 				['labels', 'packet'],
 			) &&
-			value.version === 1 &&
 			isStudyDigest(value.result) &&
 			isStudyDigest(value.rubric) &&
 			isStudyDigest(value.instrument) &&

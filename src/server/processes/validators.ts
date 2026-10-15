@@ -17,8 +17,10 @@ export function isStudyFrame(value: unknown): value is StudyFrame {
 	return holds(
 		() =>
 			isRecord(value) &&
-			Object.keys(value).length === 4 &&
-			value.version === 1 &&
+			Object.keys(value).length === 3 &&
+			Object.hasOwn(value, 'id') &&
+			Object.hasOwn(value, 'operation') &&
+			Object.hasOwn(value, 'value') &&
 			typeof value.id === 'number' &&
 			Number.isSafeInteger(value.id) &&
 			value.id >= 0 &&

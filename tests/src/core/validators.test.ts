@@ -278,6 +278,13 @@ it('accepts exactly the declared roles and operational causes in their frozen re
 	expect(isStudyCause('tool')).toBe(false)
 })
 
+it('carries no format counter in a grading identity', () => {
+	const grading = buildStudyGrading([])
+	expect(isStudyGrading(grading)).toBe(true)
+	expect(Object.hasOwn(grading, 'version')).toBe(false)
+	expect(isStudyGrading({ ...grading, version: 1 })).toBe(false)
+})
+
 it('accepts only declared error codes, never a foreign or case-folded code', () => {
 	for (const code of ['CONFIG', 'EVIDENCE', 'CUSTODY', 'CAPACITY', 'FAULT', 'DEADLINE'])
 		expect(isStudyErrorCode(code)).toBe(true)

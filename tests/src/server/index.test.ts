@@ -9,9 +9,9 @@ describe('src server entry', () => {
 		expect(entry).toHaveProperty('buildStudyPacket')
 	})
 	it('exposes the environment-root byte identity and JSON custody codec', () => {
-		const bytes = entry.encodeStudyJSON({ version: 1 })
-		expect(entry.decodeStudyJSON(bytes)).toEqual({ version: 1 })
-		expect(entry.hashStudyBytes(bytes)).toBe(entry.hashStudyBytes('{"version":1}\n'))
+		const bytes = entry.encodeStudyJSON({ id: 1 })
+		expect(entry.decodeStudyJSON(bytes)).toEqual({ id: 1 })
+		expect(entry.hashStudyBytes(bytes)).toBe(entry.hashStudyBytes('{"id":1}\n'))
 		expect(entry).not.toHaveProperty('hashBytes')
 	})
 	it('leaves the bounded wait and product guard to the core entry without aliases', () => {

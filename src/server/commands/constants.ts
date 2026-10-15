@@ -1,8 +1,8 @@
 /** Caps declared execution duration at the native supervisor's host ceiling. */
 export const STUDY_COMMAND_DURATION = 86400000
 
-/** Fixes the trusted command's independent offline predicate version. */
-export const STUDY_COMMAND_GRADER = 'consumer-adapter-v1'
+/** Names the trusted command's independent offline predicate. */
+export const STUDY_COMMAND_GRADER = 'consumer-adapter'
 
 /** Defines the complete public CLI reference shared by help and grammar diagnostics. */
 export const STUDY_COMMAND_HELP = `study check <study> [--profile <name>]

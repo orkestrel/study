@@ -22,11 +22,11 @@ describe('StudyProcessDriver', () => {
 			const entry = scratch.write(
 				'peer.cjs',
 				`const fs=require('node:fs'); let goal; process.on('message',frame=>{
-				if(frame.operation==='open')process.send({version:1,id:frame.id,operation:'reply',value:{pid:process.pid,...frame.value.identity}})
-				if(frame.operation==='goal'){goal=frame;process.send({version:1,id:1,operation:'admit',value:{id:1,charge:{role:'tool',tokens:101,bytes:0}}})}
-				if(frame.operation==='reply'&&frame.id===1&&goal){fs.writeFileSync(${JSON.stringify(marker)},'dispatched');process.send({version:1,id:goal.id,operation:'reply',value:{value:true,partial:false}})}
-				if(frame.operation==='error'&&goal)process.send({version:1,id:goal.id,operation:'error',value:frame.value})
-				if(frame.operation==='close')process.send({version:1,id:frame.id,operation:'reply',value:true})
+				if(frame.operation==='open')process.send({id:frame.id,operation:'reply',value:{pid:process.pid,...frame.value.identity}})
+				if(frame.operation==='goal'){goal=frame;process.send({id:1,operation:'admit',value:{id:1,charge:{role:'tool',tokens:101,bytes:0}}})}
+				if(frame.operation==='reply'&&frame.id===1&&goal){fs.writeFileSync(${JSON.stringify(marker)},'dispatched');process.send({id:goal.id,operation:'reply',value:{value:true,partial:false}})}
+				if(frame.operation==='error'&&goal)process.send({id:goal.id,operation:'error',value:frame.value})
+				if(frame.operation==='close')process.send({id:frame.id,operation:'reply',value:true})
 			})`,
 			)
 			const manifest = buildCustodyManifest()
@@ -55,15 +55,17 @@ describe('StudyProcessDriver', () => {
 			await store.finish({
 				trial,
 				observations:
-					manifest.scenarios[0]?.goals.map((declared) => ({
+					manifest.scenarios[0]?.goals.map((declared, index) => ({
 						goal: declared.id,
 						product: undefined,
 						failure: fixture.control.failure,
 						usage: [],
 						duration: 0,
+						executed: index === 0,
 					})) ?? [],
 				failure: fixture.control.failure,
 				duration: 0,
+				executed: true,
 			})
 		} finally {
 			await session?.close()
@@ -73,7 +75,7 @@ describe('StudyProcessDriver', () => {
 	})
 	it('rejects malformed readiness, premature exit and output flooding from real children', async () => {
 		for (const source of [
-			`process.on('message',frame=>process.send({version:1,id:frame.id,operation:'reply',value:{pid:process.pid,subject:'foreign',instrument:'foreign'}}))`,
+			`process.on('message',frame=>process.send({id:frame.id,operation:'reply',value:{pid:process.pid,subject:'foreign',instrument:'foreign'}}))`,
 			`process.exit(7)`,
 			`process.stdout.write('x'.repeat(65537));process.on('message',()=>{})`,
 		]) {

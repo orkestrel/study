@@ -14,11 +14,15 @@ A study error stamps an own `STUDY_ERROR_BRAND` descriptor whose value is the er
 
 A product that exceeds its goal, trial, or series output allowance is omitted from custody with a capacity failure. Previously admitted products remain retained, and the remaining horizon is explicitly unexecuted. A genuine custody write or metadata-capacity failure still rejects execution and leaves the result unsealed.
 
+Each observation and attempt records an explicit execution fact. An observation is executed when the engine dispatched its goal to the session, and unexecuted when it fills the horizon after a terminal failure; an unexecuted observation holds a failure and no product, usage, or duration. An attempt is executed when it entered trial execution without an inherited terminal series failure, including a failure before the driver opened, so the fact does not claim that the driver was opened. Executed goals form a prefix of the horizon, and an executed goal that fails ends it. Both facts are required booleans, never inferred from a product, usage, duration, or failure message, and custody refuses an attempt that omits one or contradicts them. A terminal attempt holds a failure whenever a goal failed or went unexecuted. Study carries no format counter; the artifact inventory records the exact implementation fingerprints, and the definition, rubric, and label versions are caller-authored metadata that identify supplied content.
+
 The driver receives a borrowed admission interface and an evidence sink. The concrete engine owns the meter's closing lifecycle. Native workers await parent admission and acknowledge request settlement; each trial runs in a fresh child. Trusted adapters can access native resources, so process supervision is not a hostile-code sandbox.
 
 Execution custody creates a result directory exclusively, appends evidence, retains terminal attempts, and seals only a complete scheduled population. A result without a seal remains interrupted. Offline reading verifies the seal's exact file inventory and digests. Changed execution bytes refuse custody verification.
 
 Grading uses a sealed result and independently selected rubric bytes. Immutable grading versions retain their own rubric, packet, mapping, and imported label bytes. Semantic criteria remain unknown until accountable labels are imported. Reports select an exact grading identity and retain unknown criteria in whole-horizon intervals.
+
+Report operations partition trial records and goal records separately into executed and unexecuted by their explicit fact. The trial and goal counts overlap and are never added. Each fault row counts the affected trial or goal records for one cause, not independent failure events. A completed goal holds a non-partial product and no failure, and a completed trial holds no failure and only completed goals. Completion is an operational count, neither task success nor the qualification gate, and a partial product is retained and counted separately.
 
 ### Admit a bounded request
 
@@ -44,7 +48,7 @@ try {
 
 ### Retain complete execution custody
 
-Supply a validated manifest, a nonexistent directory, and terminal attempts for every scheduled trial. This example's scenarios declare a goal named write. The caller supplies observations; custody validates and retains them without executing the domain driver.
+Supply a validated manifest, a nonexistent directory, and terminal attempts for every scheduled trial. This example's scenarios declare a goal named write. The caller supplies observations; custody validates and retains them without executing the domain driver. Each attempt and observation carries its execution fact.
 
 ```ts
 import type { StudyAttempt, StudyManifest } from '@orkestrel/study'
@@ -167,7 +171,7 @@ The following declarations describe this concept.
 | `Resolution`                     | class     | Enforces captured inventory membership at every synchronous native import edge.           |
 | `STUDY_CAUSES`                   | const     | Lists every operational ending in report order.                                           |
 | `STUDY_COMMAND_DURATION`         | const     | Caps declared execution duration at the native supervisor's host ceiling.                 |
-| `STUDY_COMMAND_GRADER`           | const     | Fixes the trusted command's independent offline predicate version.                        |
+| `STUDY_COMMAND_GRADER`           | const     | Names the trusted command's independent offline predicate.                                |
 | `STUDY_COMMAND_HELP`             | const     | Defines the complete public CLI reference shared by help and grammar diagnostics.         |
 | `STUDY_COMMAND_OPERATION`        | const     | Names the command route beneath the native supervisor.                                    |
 | `STUDY_CUSTODY_BYTES`            | const     | Limits untrusted metadata before JSON parsing or file allocation.                         |
@@ -313,6 +317,7 @@ The following declarations describe this concept.
 | `computeStudyFixtureDigest`      | function  | Computes public fixture identity from execution policy and exact scenario bytes.          |
 | `computeStudyInstrumentDigest`   | function  | Computes the instrument identity binding trusted runtime bytes to the adapter inventory.  |
 | `computeStudyPacketDigest`       | function  | Computes a bundle identity binding exact public packet and private map bytes.             |
+| `computeStudyPartition`          | function  | Partitions records by their explicit execution fact without inferring any.                |
 | `computeStudyProfileDigest`      | function  | Binds the canonical fully resolved execution profile carried over IPC.                    |
 | `computeStudyReport`             | function  | Computes whole-horizon results with operational costs and repetitions kept distinct.      |
 | `computeStudyScores`             | function  | Computes arm intervals over the complete declared criterion horizon.                      |
@@ -1047,7 +1052,7 @@ Use the exported declaration with its documented arguments.
 ```ts
 import { isStudyGrading } from '@orkestrel/study'
 
-isStudyGrading({ version: 1 }) // false
+isStudyGrading({}) // false
 ```
 
 ### Refuse an incomplete adapter
@@ -1120,6 +1125,16 @@ import { computeStudyReport } from '@orkestrel/study/server'
 computeStudyReport(result, rubric, grading)
 ```
 
+### computeStudyPartition
+
+Use the exported declaration with its documented arguments.
+
+```ts
+import { computeStudyPartition } from '@orkestrel/study/server'
+
+computeStudyPartition(attempts) // { executed: 2, unexecuted: 1 }
+```
+
 ### Parse a study command
 
 Use the exported declaration with its documented arguments.
@@ -1147,7 +1162,7 @@ Use the exported declaration with its documented arguments.
 ```ts
 import { encodeStudyJSON } from '@orkestrel/study/server'
 
-encodeStudyJSON({ version: 1 })
+encodeStudyJSON({ id: 1 })
 ```
 
 ### decodeStudyJSON
@@ -1157,7 +1172,7 @@ Use the exported declaration with its documented arguments.
 ```ts
 import { decodeStudyJSON } from '@orkestrel/study/server'
 
-decodeStudyJSON(new TextEncoder().encode('{"version":1}')) // { version: 1 }
+decodeStudyJSON(new TextEncoder().encode('{"id":1}')) // { id: 1 }
 ```
 
 ### Project a wire value

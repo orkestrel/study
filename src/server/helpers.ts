@@ -42,7 +42,7 @@ export function hashStudyBytes(input: string | Uint8Array): string {
  * ```ts
  * import { encodeStudyJSON } from '@orkestrel/study/server'
  *
- * encodeStudyJSON({ version: 1 })
+ * encodeStudyJSON({ id: 1 })
  * ```
  */
 export function encodeStudyJSON(value: unknown): Uint8Array {
@@ -59,7 +59,7 @@ export function encodeStudyJSON(value: unknown): Uint8Array {
  * @throws TypeError - Thrown when the bytes are not valid UTF-8
  * @example
  * ```ts
- * decodeStudyJSON(new TextEncoder().encode('{"version":1}')) // { version: 1 }
+ * decodeStudyJSON(new TextEncoder().encode('{"id":1}')) // { id: 1 }
  * ```
  */
 export function decodeStudyJSON(bytes: Uint8Array): unknown {

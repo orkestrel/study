@@ -95,7 +95,7 @@ describe('study custody helpers', () => {
 			hashStudyBytes(
 				'{"files":[{"bytes":10,"digest":"' +
 					'a'.repeat(64) +
-					'","path":"manifest.json"}],"result":"execution","version":1}\n',
+					'","path":"manifest.json"}],"result":"execution"}\n',
 			),
 		)
 		expect(computeStudySealId('execution', [{ ...file, bytes: 11 }])).not.toBe(

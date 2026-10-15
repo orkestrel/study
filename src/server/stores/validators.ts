@@ -57,20 +57,9 @@ export function isStudyCustodyManifest(value: unknown): value is StudyManifest {
 			!isRecord(value) ||
 			!matchesStudyKeys(
 				value,
-				[
-					'version',
-					'id',
-					'created',
-					'definition',
-					'scenarios',
-					'identity',
-					'schedule',
-					'bounds',
-					'host',
-				],
+				['id', 'created', 'definition', 'scenarios', 'identity', 'schedule', 'bounds', 'host'],
 				['qualification'],
 			) ||
-			value.version !== 1 ||
 			!isStudyCustodyName(value.id) ||
 			!isStudyTimestamp(value.created) ||
 			!isStudyDefinition(value.definition) ||
@@ -172,7 +161,7 @@ export function isStudyCustodyFailure(value: unknown): value is StudyFailure {
 /**
  * Checks whether an observation preserves output or an explicit unexecuted failure.
  * @param value - The candidate observation
- * @returns True if the observation is valid; false otherwise
+ * @returns True if the observation is valid, with an executed fact or an unexecuted fact that holds a failure and no product, usage or duration; false otherwise
  * @example
  * ```ts
  * isStudyCustodyObservation({}) // false
@@ -182,14 +171,20 @@ export function isStudyCustodyObservation(value: unknown): value is StudyObserva
 	return holds(() => {
 		if (
 			!isRecord(value) ||
-			!matchesStudyKeys(value, ['goal', 'usage', 'duration'], ['product', 'failure']) ||
+			!matchesStudyKeys(value, ['goal', 'usage', 'duration', 'executed'], ['product', 'failure']) ||
 			!isStudyName(value.goal) ||
 			!isArray(value.usage) ||
 			!value.usage.every(isStudyUsage) ||
 			typeof value.duration !== 'number' ||
 			!Number.isSafeInteger(value.duration) ||
 			value.duration < 0 ||
-			(value.failure !== undefined && !isStudyCustodyFailure(value.failure))
+			(value.failure !== undefined && !isStudyCustodyFailure(value.failure)) ||
+			typeof value.executed !== 'boolean' ||
+			(value.executed === false &&
+				(value.product !== undefined ||
+					value.failure === undefined ||
+					value.usage.length !== 0 ||
+					value.duration !== 0))
 		)
 			return false
 		if (value.product === undefined) return value.failure !== undefined
@@ -206,7 +201,11 @@ export function isStudyCustodyObservation(value: unknown): value is StudyObserva
  * Checks whether an attempt terminally accounts for the exact scheduled goal horizon.
  * @param value - The candidate attempt
  * @param manifest - The authoritative declaration
- * @returns True if the terminal record is compatible; false otherwise
+ * @returns True if the terminal record is compatible and its execution facts are consistent; false otherwise
+ * @remarks
+ * Executed goals form a prefix of the horizon and an executed goal with a failure ends it.
+ * An unexecuted attempt holds only unexecuted goals, and an attempt without a failure holds only
+ * executed goals that did not fail.
  * @example
  * ```ts
  * isStudyCustodyAttempt({}, manifest) // false
@@ -219,7 +218,7 @@ export function isStudyCustodyAttempt(
 	return holds(() => {
 		if (
 			!isRecord(value) ||
-			!matchesStudyKeys(value, ['trial', 'observations', 'duration'], ['failure']) ||
+			!matchesStudyKeys(value, ['trial', 'observations', 'duration', 'executed'], ['failure']) ||
 			!isStudyCustodyTrial(value.trial) ||
 			!isArray(value.observations) ||
 			!value.observations.every(isStudyCustodyObservation) ||
@@ -232,15 +231,31 @@ export function isStudyCustodyAttempt(
 		const identity = value.trial
 		const trial = manifest.schedule.find((entry) => entry.id === identity.id)
 		const scenario = manifest.scenarios.find((entry) => entry.id === identity.scenario)
-		return (
-			trial !== undefined &&
-			scenario !== undefined &&
-			canonicalStringify(trial) === canonicalStringify(value.trial) &&
-			value.observations.length === scenario.goals.length &&
-			value.observations.every(
+		if (
+			trial === undefined ||
+			scenario === undefined ||
+			canonicalStringify(trial) !== canonicalStringify(value.trial) ||
+			value.observations.length !== scenario.goals.length ||
+			!value.observations.every(
 				(observation, index) => observation.goal === scenario.goals[index]?.id,
 			)
 		)
+			return false
+		const executed = value.executed
+		if (typeof executed !== 'boolean') return false
+		// A terminal record without a failure holds only executed goals that did not fail.
+		if (
+			value.failure === undefined &&
+			!value.observations.every((entry) => entry.executed && entry.failure === undefined)
+		)
+			return false
+		let admitting = executed
+		for (const observation of value.observations) {
+			if (!observation.executed) admitting = false
+			else if (admitting) admitting = observation.failure === undefined
+			else return false
+		}
+		return true
 	})
 }
 
@@ -283,8 +298,7 @@ export function isStudyCustodySeal(value: unknown): value is StudySeal {
 	return holds(() => {
 		return (
 			isRecord(value) &&
-			matchesStudyKeys(value, ['version', 'result', 'id', 'files']) &&
-			value.version === 1 &&
+			matchesStudyKeys(value, ['result', 'id', 'files']) &&
 			isStudyCustodyName(value.result) &&
 			isStudyDigest(value.id) &&
 			isArray(value.files) &&

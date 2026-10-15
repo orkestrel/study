@@ -24,7 +24,7 @@ describe('process validators', () => {
 				},
 			)
 			// Frame reads only after its enumerable-key cardinality passes.
-			Object.assign(hostile, { version: 1, id: 0, operation: 'goal', value: true })
+			Object.assign(hostile, { id: 0, operation: 'goal', value: true })
 			expect(guard(hostile)).toBe(false)
 			expect(reads).toBeGreaterThan(0)
 			const revoked = Proxy.revocable({}, {})
@@ -49,12 +49,12 @@ describe('process validators', () => {
 	})
 
 	it('refuses foreign envelopes and invalid domain leaves', () => {
-		expect(isStudyFrame({ version: 1, id: 1, operation: 'goal', value: true })).toBe(true)
-		expect(isStudyFrame({ version: 1, id: 1, operation: 'goal', value: true, extra: true })).toBe(
-			false,
-		)
-		expect(isStudyFrame({ version: 1, id: NaN, operation: 'goal', value: true })).toBe(false)
-		expect(isStudyFrame({ version: 1, id: 1, operation: 'unknown', value: true })).toBe(false)
+		expect(isStudyFrame({ id: 1, operation: 'goal', value: true })).toBe(true)
+		expect(isStudyFrame({ id: 1, operation: 'goal', value: true, extra: true })).toBe(false)
+		expect(isStudyFrame({ id: 1, operation: 'goal', extra: true })).toBe(false)
+		expect(isStudyFrame({ id: 1, operation: 'goal' })).toBe(false)
+		expect(isStudyFrame({ id: NaN, operation: 'goal', value: true })).toBe(false)
+		expect(isStudyFrame({ id: 1, operation: 'unknown', value: true })).toBe(false)
 		expect(isStudyCharge({ role: 'tool', tokens: 0, bytes: 0 })).toBe(true)
 		expect(isStudyCharge({ role: 'tool', tokens: -0, bytes: -0 })).toBe(true)
 		expect(isStudyCharge({ role: 'tool', tokens: Number.MAX_SAFE_INTEGER + 1, bytes: 0 })).toBe(

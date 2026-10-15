@@ -35,7 +35,6 @@ export interface StudyFile {
 
 /** Holds a complete execution inventory and its deterministic identity. */
 export interface StudySeal {
-	readonly version: 1
 	readonly result: string
 	readonly id: string
 	readonly files: readonly StudyFile[]

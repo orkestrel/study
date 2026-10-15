@@ -66,7 +66,6 @@ export type StudyOperation = 'open' | 'goal' | 'close' | 'admit' | 'finish' | 'f
 
 /** Holds a correlated JSON request, reply or cancellation notification. */
 export interface StudyFrame {
-	readonly version: 1
 	readonly id: number
 	readonly operation: StudyOperation | 'reply' | 'error' | 'abort'
 	readonly value: JSONValue

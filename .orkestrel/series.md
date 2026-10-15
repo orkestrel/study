@@ -1,4 +1,36 @@
-# Actual-capacity Compaction run on 2026-10-15
+# Compaction successor authorized on 2026-10-15
+
+The user authorized a separate Compaction-only rerun with bounded recap growth after the
+terminal reading that follows. Prepare that treatment through the existing Conversation
+section cap, prove the adapter configuration, and freeze its own finite deadline before launch.
+Keep the original failure and Records result unchanged. No successor has launched at this entry.
+
+Study's execution-accounting change is accepted after actual Sonnet implementation and an
+independent Opus review. Goals and trials carry explicit execution facts; reports distinguish
+failed attempts from unexecuted cascades and preserve declared quality denominators. Study-owned
+format counters and historical compatibility branches are removed. Structural validation,
+integrity hashes, actual npm identities and caller-authored content versions remain. There is
+no migration or version-based decoder. Agent's captured installed Study runtime stays unchanged.
+
+Opus confirmed the production claims and prescribed close-failure regression cases. Before
+those cases, both proposed mutations passed 58 tests; afterward each failed its intended
+assertion with 58 tests passing. The restored focused suite passed 59 tests. Final format,
+lint, types and build passed; npm test measured 604 passes and 2 explained applicability skips.
+Discovery found no ungated, empty or undiscovered test files. Release-only distribution tests
+were not run. The acceptance commit carries the complete ruling and measurements.
+
+Compaction's retained products are fully labeled. Grading
+467587cc891b026a8c5d81eb36ade8b8ffa7ed6a98b92f03ffcf06e27b67a8d1 records 24 achieved, 124
+unsuccessful and 236 unknown over 384 criteria. Absent products include the failed attempted
+goal and 58 unexecuted goals; the frozen report conflates these and must stay byte-identical.
+Use the terminal reader for execution counts. These are model judgments from a development
+treatment, not established ground truth or a production-readiness finding.
+
+The requested hour check completed at 2026-10-15T13:15:20.018Z without launching inference.
+Its receipt is Agent/tmp/studies/progress-check-20261015T1315.json. The following entries
+describe historical decisions and preserve their original stop rules and deadlines.
+
+# Terminal Compaction and parallel quality work on 2026-10-15
 
 The user selected unchanged estimation with prediction misses recorded as diagnostics. Root
 accepted Agent e390d2e and Ollama f2a94d6 after independent Astra/Opus review, prescribed fixes,
@@ -6,7 +38,8 @@ mutation proof and final gates. Actual room/output failures, native refusals, mi
 operational failures and exhausted bounds still stop at the first failure. No retries or rescue.
 Estimator, affine coefficients, 512-token cushion, compaction admission and room remain unchanged.
 
-Only Compaction is running. Retain candidate-3 Records at 96/96; never rerun or replay it.
+Compaction is terminal: 37 goals completed, goal 38 was attempted and refused, and 58 goals
+were unexecuted. Retain candidate-3 Records at 96/96; never rerun or replay it.
 Old attempts and their verdicts remain immutable. This successor changes the failure policy
 and opts Compaction into native truncate:false/shift:false; it is disclosed development evidence.
 
@@ -18,6 +51,10 @@ launcher cleanup. The launcher uses the remaining absolute allowance; never rese
 One attempt, 96 goals, zero retries. Request duration remains 360000 ms, goal duration 900000 ms.
 
 Root launch: node tmp/units/compaction-room-launch.ts, already executed; do not execute again.
+The launcher ended exit 1, uncapped, after 1912436 ms. The first refusal at ev-10-2 was the
+local admission projection 12976 against input room 11776, not a native Ollama overflow.
+The failed run remains sealed as c76f74f0788d3b0732fbbd5b3a240d279f4bbcfabee8865d35fb096cb0750f34.
+No automatic rerun is selected.
 Canonical child PID 65956. Execution journal/errors: Agent/tmp/codex/compaction-room-series.jsonl
 and .err. The journal writes its result at termination; live evidence is
 execution/trials/r1-s1-a1/evidence.jsonl under the output. Event observer PID 45800 writes
@@ -38,16 +75,25 @@ Report positive prediction residuals separately; they cannot reject this success
 coverage and phase/component costs are descriptive. No quality or speed result is established yet.
 
 Root accepted tmp/units/compaction-room-reading.ts after 36 CPU controls and frozen inventory
-verification. Run its documented terminal command only after the series closes. It preserves
-the first failure, unknown usage, unexecuted cascades and separate component/phase measurements.
+verification. Its terminal reading is tmp/units/compaction-room-reading.json, exit 2 as expected
+for rejection. It preserves the first failure, unknown usage, unexecuted cascades and separate
+component/phase measurements. Do not overwrite that reading.
 
-Retained Records labeling is running with 2 GPT-6.1 Sol high workers. Canonical child PID 30568,
-journal Agent/tmp/codex/retained-label-population-series.jsonl, fixed deadline
-2026-10-15T13:29:26.969Z. Each child has 132 seconds; any failure stops new scheduling, with no
-retry or model substitution. Results and prospective custody are under Agent/tmp/studies with
-the retained-label-population prefix. The accepted 096 pilot is reused and must never be
-relabeled. No labels have been imported. The following sections are historical, superseded
-where they describe a stopped daemon, adaptive estimation, or a ban on this authorized successor.
+Retained Records labeling completed exit 0, uncapped, after 2018346 ms with 2 GPT-6.1 Sol high
+workers. All 95 pending batches and the preserved 096 pilot passed custody checks. The imported
+grading is b3636a404a274942dde10f5cc7bddcfee4592643ee978cd17b4f7eb067fa99f8: Records has 78
+achieved, 305 unsuccessful and 1 unknown over 384 semantic criteria. These are model judgments,
+not established ground truth. Actual transport input/output was 6777291/127585 tokens; no
+cached input was reported. Original execution and historical gradings remain unchanged.
+See Agent/tmp/units/retained-label-import-report.md for immutable label and report custody.
+
+The refused request contains eleven accumulated recaps, 80.739% of its heuristic units.
+The driver leaves the documented section cap unset. No library mechanism defect is established.
+Agent prefill meets the investigation cost gates, but only four of the twelve fixed checkpoints
+exist. Exact-byte CPU preparation proceeds; no optimization or further GPU run is admitted.
+Study execution accounting proceeds separately in this checkout, with installed consumer and
+frozen runtimes unchanged. The one-hour metadata check is armed for 13:15:20Z (09:15 EDT).
+The following sections are historical and superseded by this terminal state.
 
 # Compaction terminal outcome on 2026-10-15
 

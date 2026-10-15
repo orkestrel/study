@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { StudySeries } from '../../../../src/core/engines/index.js'
 import type { StudyProduct } from '../../../../src/core/types.js'
 import { StudyResults } from '../../../../src/server/stores/StudyResults.js'
-import { encodeStudyJSON } from '../../../../src/server/helpers.js'
+import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
 import { readStudyResult } from '../../../../src/server/stores/helpers.js'
 import { StudyEvidenceSink } from '../../../../src/server/stores/StudyEvidenceSink.js'
 import {
@@ -14,6 +14,7 @@ import {
 	buildCustodyAttempt,
 	buildCustodyManifest,
 	buildStudyCapacityManifest,
+	buildStudyObservation,
 	createStudyDriverFixture,
 	STUDY_ADMISSION_CASES,
 	STUDY_CUSTODY_MUTATIONS,
@@ -159,12 +160,13 @@ describe('StudyResults', () => {
 				const attempt = buildCustodyAttempt(manifest, trial)
 				await results.finish({
 					...attempt,
+					executed: false,
 					failure: { cause: 'infrastructure', message: 'Unavailable', role: undefined },
-					observations: attempt.observations.map((observation) => ({
-						...observation,
-						product: undefined,
-						failure: { cause: 'interrupted', message: 'Never dispatched', role: undefined },
-					})),
+					observations: attempt.observations.map((observation) =>
+						buildStudyObservation(observation.goal, false, {
+							failure: { cause: 'interrupted', message: 'Never dispatched', role: undefined },
+						}),
+					),
 				})
 			}
 			const seal = await results.seal()
@@ -277,6 +279,7 @@ describe('StudyResults', () => {
 				expect(first.failure?.cause).toBe(cause)
 				expect(attempts[0]?.failure?.cause).toBe(cause)
 				expect(first.product).toEqual(product)
+				expect(first.executed).toBe(true)
 				expect(attempts.map((attempt) => attempt.trial.id)).toEqual(
 					manifest.schedule.map((trial) => trial.id),
 				)
@@ -320,7 +323,9 @@ describe('StudyResults', () => {
 			expect(first?.observations[0]?.failure?.cause).toBe('capacity')
 			expect(first?.observations[1]?.product).toBeUndefined()
 			expect(first?.observations[1]?.failure?.message).toMatch(/^Goal unexecuted/)
-			for (const attempt of attempts.slice(1))
+			expect(first?.executed).toBe(true)
+			expect(first?.observations.map((observation) => observation.executed)).toEqual([true, false])
+			for (const attempt of attempts.slice(1)) {
 				expect(
 					attempt.observations.every(
 						(observation) =>
@@ -328,6 +333,12 @@ describe('StudyResults', () => {
 							observation.failure?.message.startsWith('Goal unexecuted') === true,
 					),
 				).toBe(true)
+				expect(attempt.executed).toBe(false)
+				expect(attempt.observations.map((observation) => observation.executed)).toEqual([
+					false,
+					false,
+				])
+			}
 			const seal = await results.seal()
 			const reading = await readStudyResult(directory)
 			expect(reading.status).toBe('sealed')
@@ -372,6 +383,76 @@ describe('StudyResults', () => {
 			expect((await readStudyResult(directory)).status).toBe('interrupted')
 			await expect(results.seal()).rejects.toMatchObject({ code: 'CUSTODY' })
 		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('retains explicit execution facts through a sealed round trip', async () => {
+		const scratch = createScratch()
+		try {
+			const result = await retainStudyFixture(join(scratch.path, 'result'))
+			expect(
+				result.attempts.map((attempt) => [
+					attempt.executed,
+					attempt.observations.map((observation) => observation.executed),
+				]),
+			).toEqual(result.manifest.schedule.map(() => [true, [true, true]]))
+			const trial = result.manifest.schedule[0]
+			if (trial === undefined) throw new Error('Missing trial')
+			const text = await readFile(
+				join(result.directory, 'execution', 'trials', trial.id, 'attempt.json'),
+				'utf8',
+			)
+			expect(text.match(/"executed":true/g)).toHaveLength(3)
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('binds the sealed inventory to the exact bytes of every execution fact and detects a changed byte', async () => {
+		const scratch = createScratch()
+		try {
+			const result = await retainStudyFixture(join(scratch.path, 'result'))
+			for (const file of result.seal.files) {
+				const bytes = await readFile(join(result.directory, 'execution', ...file.path.split('/')))
+				expect(hashStudyBytes(bytes)).toBe(file.digest)
+			}
+			const trial = result.manifest.schedule[0]
+			if (trial === undefined) throw new Error('Missing trial')
+			await appendFile(join(result.directory, 'execution', 'trials', trial.id, 'attempt.json'), ' ')
+			await expect(readStudyResult(result.directory)).rejects.toMatchObject({ code: 'CUSTODY' })
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('refuses a terminal record whose goals failed or went unexecuted without a terminal failure', async () => {
+		const scratch = createScratch()
+		const sinks: StudyEvidenceSink[] = []
+		try {
+			const manifest = buildCompactCustodyManifest()
+			const trial = manifest.schedule[0]
+			if (trial === undefined) throw new Error('Missing fixture trial')
+			const results = new StudyResults({ directory: join(scratch.path, 'result'), manifest })
+			await results.create()
+			const sink = await results.start(trial)
+			if (sink instanceof StudyEvidenceSink) sinks.push(sink)
+			const attempt = buildCustodyAttempt(manifest, trial)
+			await expect(
+				results.finish({
+					...attempt,
+					observations: [
+						buildStudyObservation('write', true),
+						buildStudyObservation('read', false),
+					],
+				}),
+			).rejects.toMatchObject({ code: 'CUSTODY' })
+			await expect(results.finish({ ...attempt, executed: false })).rejects.toMatchObject({
+				code: 'CUSTODY',
+			})
+			expect(scratch.has(`result/execution/trials/${trial.id}/attempt.json`)).toBe(false)
+		} finally {
+			await Promise.allSettled(sinks.map((sink) => sink.close()))
 			scratch.destroy()
 		}
 	})

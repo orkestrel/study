@@ -88,7 +88,6 @@ export function buildStudyPacket(
 	const links = buildStudyPacketLinks(result, rubric)
 	if (links.length === 0) return undefined
 	let length = encodeStudyJSON({
-		version: 1,
 		disclosure: STUDY_PACKET_DISCLOSURE,
 		entries: [],
 	}).byteLength
@@ -115,9 +114,8 @@ export function buildStudyPacket(
 		return entry
 	})
 	return Object.freeze({
-		content: encodeStudyJSON({ version: 1, disclosure: STUDY_PACKET_DISCLOSURE, entries }),
+		content: encodeStudyJSON({ disclosure: STUDY_PACKET_DISCLOSURE, entries }),
 		mapping: encodeStudyJSON({
-			version: 1,
 			result: result.seal.id,
 			rubric: digest,
 			entries: links,
@@ -369,7 +367,7 @@ export function validateStudyEvidenceBytes(
  * ```
  */
 export function computeStudySealId(result: string, files: readonly StudyFile[]): string {
-	return hashStudyBytes(encodeStudyJSON({ version: 1, result, files }))
+	return hashStudyBytes(encodeStudyJSON({ result, files }))
 }
 
 /**

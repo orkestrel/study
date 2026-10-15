@@ -43,7 +43,6 @@ export class StudySeries {
 		const manifest = this.#options.manifest
 		const expected = buildStudySchedule(manifest.definition, manifest.scenarios)
 		if (
-			manifest.version !== 1 ||
 			!isStudyBounds(manifest.bounds) ||
 			canonicalStringify(expected) !== canonicalStringify(manifest.schedule)
 		)
@@ -169,6 +168,7 @@ export class StudySeries {
 					failure: unexecuted,
 					usage: Object.freeze([]),
 					duration: 0,
+					executed: false,
 				}),
 			)
 		}
@@ -182,6 +182,9 @@ export class StudySeries {
 					? { ...failure, message: `${failure.message}; cleanup: ${cleanup.message}` }
 					: failure,
 			duration: Math.ceil(performance.now() - started),
+			// The trial entered execution unless it inherited a terminal series failure at its
+			// boundary. This does not claim that driver.open ran.
+			executed: prior === undefined,
 		})
 		try {
 			await deadline.wait(this.#options.store.finish(attempt))
@@ -241,6 +244,7 @@ export class StudySeries {
 			failure: control.failure,
 			usage: meter.usage,
 			duration: Math.ceil(performance.now() - started),
+			executed: true,
 		})
 	}
 

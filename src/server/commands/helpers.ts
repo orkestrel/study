@@ -1,9 +1,11 @@
 import type {
+	StudyAttempt,
 	StudyBounds,
 	StudyDefinition,
 	StudyEvidence,
 	StudyGrading,
 	StudyIdentity,
+	StudyObservation,
 	StudyProfile,
 	StudyRubric,
 } from '../../core/types.js'
@@ -165,11 +167,34 @@ export async function collectStudyEvidence(
 }
 
 /**
+ * Partitions records by their explicit execution fact without inferring any.
+ * @param records - The attempts or observations to partition
+ * @returns Counts of executed and unexecuted records, which sum to the record count
+ * @example
+ * ```ts
+ * computeStudyPartition(attempts) // { executed: 2, unexecuted: 1 }
+ * ```
+ */
+export function computeStudyPartition(
+	records: ReadonlyArray<StudyAttempt | StudyObservation>,
+): Readonly<Record<'executed' | 'unexecuted', number>> {
+	return {
+		executed: records.filter((record) => record.executed).length,
+		unexecuted: records.filter((record) => !record.executed).length,
+	}
+}
+
+/**
  * Computes whole-horizon results with operational costs and repetitions kept distinct.
  * @param result - The verified complete execution
  * @param rubric - The retained compatible rubric
  * @param grading - The independently verified selected grading
  * @returns The JSON report without pooling identities or inventing absent measurements
+ * @remarks
+ * Operations count affected trial and goal records, not independent failure events, and the
+ * trial and goal counts overlap and are never added. Completion is operational: a goal is
+ * completed when it holds a non-partial product and no failure, and a trial when it holds no
+ * failure and every goal completed. It is neither task success nor a qualification gate.
  * @example
  * ```ts
  * computeStudyReport(result, rubric, grading)
@@ -183,6 +208,14 @@ export function computeStudyReport(
 	const scores = computeStudyScores(result.manifest, rubric, grading)
 	const observations = result.attempts.flatMap((attempt) => attempt.observations)
 	const usage = observations.flatMap((observation) => observation.usage)
+	const completed = new Set(
+		observations.filter(
+			(observation) =>
+				observation.product !== undefined &&
+				!observation.product.partial &&
+				observation.failure === undefined,
+		),
+	)
 	const repetitions = result.manifest.definition.order.map((order, repetition) => ({
 		repetition,
 		order: [...order],
@@ -249,19 +282,30 @@ export function computeStudyReport(
 			trials: {
 				scheduled: result.manifest.schedule.length,
 				terminal: result.attempts.length,
+				...computeStudyPartition(result.attempts),
+				completed: result.attempts.filter(
+					(attempt) =>
+						attempt.failure === undefined &&
+						attempt.observations.every((observation) => completed.has(observation)),
+				).length,
 				faults: STUDY_CAUSES.map((cause) => ({
 					cause,
-					count: result.attempts.filter((attempt) => attempt.failure?.cause === cause).length,
+					...computeStudyPartition(
+						result.attempts.filter((attempt) => attempt.failure?.cause === cause),
+					),
 				})),
 			},
 			goals: {
 				scheduled: observations.length,
+				...computeStudyPartition(observations),
 				products: observations.filter((observation) => observation.product !== undefined).length,
 				partial: observations.filter((observation) => observation.product?.partial === true).length,
-				unexecuted: observations.filter((observation) => observation.product === undefined).length,
+				completed: observations.filter((observation) => completed.has(observation)).length,
 				faults: STUDY_CAUSES.map((cause) => ({
 					cause,
-					count: observations.filter((observation) => observation.failure?.cause === cause).length,
+					...computeStudyPartition(
+						observations.filter((observation) => observation.failure?.cause === cause),
+					),
 				})),
 			},
 		},

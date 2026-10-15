@@ -26,6 +26,15 @@ describe('StudySeries', () => {
 		)
 		expect(attempts.every((attempt) => attempt.failure === undefined)).toBe(true)
 		expect(
+			attempts.map((attempt) => [
+				attempt.executed,
+				attempt.observations.map((observation) => observation.executed),
+			]),
+		).toEqual([
+			[true, [true, true]],
+			[true, [true, true]],
+		])
+		expect(
 			attempts.map((attempt) => attempt.observations.map((observation) => observation.goal)),
 		).toEqual([
 			['write', 'read'],
@@ -86,6 +95,9 @@ describe('StudySeries', () => {
 			expect(first?.observations[0]?.failure?.cause).toBe('interrupted')
 			expect(first?.observations[1]?.product).toBeUndefined()
 			expect(first?.observations[1]?.failure?.message).toMatch(/^Goal unexecuted/)
+			expect(first?.executed).toBe(true)
+			expect(first?.observations.map((observation) => observation.executed)).toEqual([true, false])
+			expect(second?.executed).toBe(false)
 			expect(second?.observations.map((observation) => observation.goal)).toEqual(['write', 'read'])
 			expect(
 				second?.observations.every(
@@ -137,6 +149,12 @@ describe('StudySeries', () => {
 				),
 			).toBe(true)
 			expect(driver.executed.count).toBe(0)
+			expect(attempts.map((attempt) => attempt.executed)).toEqual([true, false])
+			expect(
+				attempts.every((attempt) =>
+					attempt.observations.every((observation) => observation.executed === false),
+				),
+			).toBe(true)
 			expect(driver.opened.count).toBe(1)
 			expect(driver.closed.calls).toEqual([[manifest.schedule[0]?.id]])
 		} finally {
@@ -230,5 +248,130 @@ describe('StudySeries', () => {
 		expect(second?.observations[1]?.product).toBeUndefined()
 		expect(second?.observations[1]?.failure?.message).toMatch(/^Goal unexecuted/)
 		expect(driver.executed.calls).toEqual([['write'], ['read'], ['write']])
+	})
+
+	it('records execution that returns a product without any metered request as executed with empty usage', async () => {
+		const manifest = buildCompactCustodyManifest()
+		const driver = createStudyDriverFixture()
+		const custody = createStudyStoreFixture()
+		const attempts = await new StudySeries({
+			manifest,
+			driver: driver.driver,
+			store: custody.store,
+			signal: new AbortController().signal,
+		}).execute()
+		const observations = attempts.flatMap((attempt) => attempt.observations)
+		expect(observations).toHaveLength(4)
+		for (const observation of observations) {
+			expect(observation.executed).toBe(true)
+			expect(observation.usage).toEqual([])
+			expect(observation.product).toEqual({ value: observation.goal, partial: false })
+			expect(observation.failure).toBeUndefined()
+		}
+	})
+
+	it('separates an attempted goal fault from the unexecuted remainder and from the later trial that inherits it', async () => {
+		const manifest = buildCompactCustodyManifest()
+		const driver = createStudyDriverFixture({
+			execute: async (): Promise<StudyProduct> => {
+				throw new Error('Driver fault')
+			},
+		})
+		const custody = createStudyStoreFixture()
+		const [first, second, ...rest] = await new StudySeries({
+			manifest,
+			driver: driver.driver,
+			store: custody.store,
+			signal: new AbortController().signal,
+		}).execute()
+		expect(rest).toEqual([])
+		expect(first?.executed).toBe(true)
+		expect(first?.failure).toEqual({
+			cause: 'infrastructure',
+			message: 'Driver fault',
+			role: undefined,
+		})
+		expect(first?.observations.map((observation) => observation.executed)).toEqual([true, false])
+		expect(first?.observations[0]).toMatchObject({
+			product: undefined,
+			failure: { cause: 'infrastructure', message: 'Driver fault' },
+		})
+		expect(first?.observations[1]).toMatchObject({
+			product: undefined,
+			usage: [],
+			duration: 0,
+			failure: { cause: 'infrastructure', message: 'Goal unexecuted: Driver fault' },
+		})
+		expect(second?.executed).toBe(false)
+		expect(second?.observations.map((observation) => observation.executed)).toEqual([false, false])
+		expect(driver.executed.calls).toEqual([['write']])
+		expect(driver.opened.count).toBe(1)
+	})
+
+	it('records an open fault as an executed trial with no executed goal and cascades the later trial', async () => {
+		const manifest = buildCompactCustodyManifest()
+		const driver = createStudyDriverFixture({ refuse: new Error('Open refused') })
+		const custody = createStudyStoreFixture()
+		const attempts = await new StudySeries({
+			manifest,
+			driver: driver.driver,
+			store: custody.store,
+			signal: new AbortController().signal,
+		}).execute()
+		const [first, second] = attempts
+		expect(attempts).toHaveLength(2)
+		expect(first?.executed).toBe(true)
+		expect(first?.failure?.cause).toBe('infrastructure')
+		expect(first?.observations.map((observation) => observation.executed)).toEqual([false, false])
+		expect(second?.executed).toBe(false)
+		expect(second?.observations.map((observation) => observation.executed)).toEqual([false, false])
+		expect(driver.opened.count).toBe(1)
+		expect(driver.executed.count).toBe(0)
+		expect(driver.closed.count).toBe(0)
+		expect(custody.started.count).toBe(2)
+		expect(custody.attempts.count).toBe(2)
+	})
+
+	it('keeps the product of a goal that finishes after its deadline and leaves the rest unexecuted', async () => {
+		const baseline = buildStudyCapacityManifest({
+			request: 16,
+			goal: 64,
+			trial: 4096,
+			series: 65536,
+		})
+		const manifest = {
+			...baseline,
+			bounds: {
+				...baseline.bounds,
+				request: { ...baseline.bounds.request, duration: 25 },
+				goal: { ...baseline.bounds.goal, duration: 50 },
+			},
+		}
+		let waited = 0
+		// The synchronous wait outlasts the goal duration before any timer can fire.
+		const driver = createStudyDriverFixture({
+			execute: async (): Promise<StudyProduct> => {
+				const started = performance.now()
+				Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
+				waited = performance.now() - started
+				return { value: 'ok', partial: false }
+			},
+		})
+		const custody = createStudyStoreFixture()
+		const [first, second] = await new StudySeries({
+			manifest,
+			driver: driver.driver,
+			store: custody.store,
+			signal: new AbortController().signal,
+		}).execute()
+		expect(waited).toBeGreaterThanOrEqual(manifest.bounds.goal.duration)
+		expect(first?.executed).toBe(true)
+		expect(first?.failure?.cause).toBe('deadline')
+		expect(first?.observations.map((observation) => observation.executed)).toEqual([true, false])
+		expect(first?.observations[0]?.product).toEqual({ value: 'ok', partial: false })
+		expect(first?.observations[0]?.failure?.cause).toBe('deadline')
+		expect(second?.executed).toBe(false)
+		expect(second?.observations.map((observation) => observation.executed)).toEqual([false, false])
+		expect(driver.executed.calls).toEqual([['write']])
 	})
 })

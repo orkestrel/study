@@ -186,7 +186,6 @@ export class StudyResults implements StudyResultsInterface {
 				)
 			}
 			const seal: StudySeal = Object.freeze({
-				version: 1,
 				result: this.#manifest.id,
 				id: computeStudySealId(this.#manifest.id, files),
 				files,

@@ -1,5 +1,14 @@
+import type { StudyObservation } from '../../../../src/core/types.js'
+import { isRecord } from '@orkestrel/contract'
 import { describe, expect, it } from 'vitest'
-import { buildCustodyAttempt, buildCustodyManifest } from '../../../setupStudy.js'
+import {
+	buildCompactCustodyManifest,
+	buildCustodyAttempt,
+	buildCustodyManifest,
+	buildStudyObservation,
+	STUDY_EXECUTION_CASES,
+} from '../../../setupStudy.js'
+import { decodeStudyJSON, encodeStudyJSON } from '../../../../src/server/helpers.js'
 import {
 	isStudyCustodyAttempt,
 	isStudyCustodyEvidence,
@@ -92,22 +101,65 @@ describe('custody validators', () => {
 		)
 	})
 
+	it.each(STUDY_EXECUTION_CASES)('reads execution facts: $name', ({ valid, attempt }) => {
+		const manifest = buildCompactCustodyManifest()
+		const trial = manifest.schedule[0]
+		if (trial === undefined) throw new Error('Missing trial')
+		const record = { ...buildCustodyAttempt(manifest, trial), ...attempt }
+		expect(isStudyCustodyAttempt(record, manifest)).toBe(valid)
+		// An undefined member leaves the record once it crosses custody bytes and must read the same.
+		expect(isStudyCustodyAttempt(decodeStudyJSON(encodeStudyJSON(record)), manifest)).toBe(valid)
+	})
+
+	it('serializes every required execution fact and reads the bytes back', () => {
+		const manifest = buildCompactCustodyManifest()
+		const trial = manifest.schedule[0]
+		if (trial === undefined) throw new Error('Missing trial')
+		const current = buildCustodyAttempt(manifest, trial)
+		const decoded = decodeStudyJSON(encodeStudyJSON(current))
+		expect(isStudyCustodyAttempt(decoded, manifest)).toBe(true)
+		expect(isRecord(decoded) && decoded.executed).toBe(true)
+		expect(isStudyCustodyAttempt({ ...current, executed: 1 }, manifest)).toBe(false)
+	})
+
+	it('reads each observation fact on its own terms', () => {
+		const dispatched = buildStudyObservation('write', true, { duration: 0, usage: [] })
+		const usage = { role: 'agent', calls: 1, tokens: 1, bytes: 1, duration: 1 } as const
+		expect(isStudyCustodyObservation(dispatched)).toBe(true)
+		expect(isStudyCustodyObservation(buildStudyObservation('write', false))).toBe(true)
+		expect(isStudyCustodyObservation({ ...dispatched, executed: 'yes' })).toBe(false)
+		expect(isStudyCustodyObservation({ ...dispatched, executed: null })).toBe(false)
+		expect(isStudyCustodyObservation({ ...dispatched, executed: undefined })).toBe(false)
+		const changes: ReadonlyArray<Partial<StudyObservation>> = [
+			{ product: { value: 'late', partial: false } },
+			{ usage: [usage] },
+			{ duration: 1 },
+			{ failure: undefined },
+		]
+		for (const change of changes)
+			expect(isStudyCustodyObservation(buildStudyObservation('write', false, change))).toBe(false)
+	})
+
+	it('refuses a manifest that carries a foreign format member', () => {
+		const manifest = buildCustodyManifest()
+		expect(isStudyCustodyManifest(manifest)).toBe(true)
+		expect(isStudyCustodyManifest({ ...manifest, version: 2 })).toBe(false)
+	})
+
 	it('refuses duplicate, escaping, or unknown execution inventory paths', () => {
 		const file = { path: 'manifest.json', bytes: 10, digest: 'a'.repeat(64) }
 		expect(isStudyCustodyFile(file)).toBe(true)
 		expect(isStudyCustodyFile({ ...file, path: 'trials/con/attempt.json' })).toBe(false)
 		expect(isStudyCustodyFile({ ...file, path: '../manifest.json' })).toBe(false)
 		expect(isStudyCustodyFile({ ...file, path: 'arbitrary.json' })).toBe(false)
+		expect(isStudyCustodySeal({ result: 'execution', id: 'b'.repeat(64), files: [file] })).toBe(
+			true,
+		)
+		expect(
+			isStudyCustodySeal({ result: 'execution', id: 'b'.repeat(64), files: [file, file] }),
+		).toBe(false)
 		expect(
 			isStudyCustodySeal({ version: 1, result: 'execution', id: 'b'.repeat(64), files: [file] }),
-		).toBe(true)
-		expect(
-			isStudyCustodySeal({
-				version: 1,
-				result: 'execution',
-				id: 'b'.repeat(64),
-				files: [file, file],
-			}),
 		).toBe(false)
 	})
 })

@@ -127,8 +127,8 @@ await new GuideCommand({
 		const { parseStudyArguments } = server
 		expect(matchesStudyKeys({ id: 'one' }, ['id'])).toBe(true)
 		expect(matchesStudyKeys({ id: 'one', extra: true }, ['id'])).toBe(false)
-		expect(new TextDecoder().decode(encodeStudyJSON({ version: 1 }))).toBe('{"version":1}\n')
-		expect(decodeStudyJSON(new TextEncoder().encode('{"version":1}'))).toEqual({ version: 1 })
+		expect(new TextDecoder().decode(encodeStudyJSON({ id: 1 }))).toBe('{"id":1}\n')
+		expect(decodeStudyJSON(new TextEncoder().encode('{"id":1}'))).toEqual({ id: 1 })
 		expect(hashStudyBytes('retained evidence')).toMatch(/^[a-f0-9]{64}$/)
 		expect(hashStudyBytes('changed evidence')).not.toBe(hashStudyBytes('retained evidence'))
 		expect(isStudyAdapter({})).toBe(false)

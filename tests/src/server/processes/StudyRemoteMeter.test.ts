@@ -15,7 +15,7 @@ describe('StudyRemoteMeter', () => {
 		const scratch = createScratch()
 		const peer = createStudyPeer(
 			scratch,
-			`process.on('message', frame => setTimeout(() => process.send({version:1,id:frame.id,operation:'reply',value:frame.operation === 'admit' ? {id:frame.value.id} : true}),25))`,
+			`process.on('message', frame => setTimeout(() => process.send({id:frame.id,operation:'reply',value:frame.operation === 'admit' ? {id:frame.value.id} : true}),25))`,
 		)
 		const channel = new StudyChannel({
 			endpoint: peer.child,
@@ -55,7 +55,7 @@ describe('StudyRemoteMeter', () => {
 		const source = `const fs = require('node:fs'), path = require('node:path')
 process.on('message', frame => {
 	fs.appendFileSync(path.join(__dirname, 'receipt.log'), frame.operation + '\\n')
-	process.send({version:1,id:frame.id,operation:'reply',value:frame.operation === 'admit' ? {id:frame.value.id} : true})
+	process.send({id:frame.id,operation:'reply',value:frame.operation === 'admit' ? {id:frame.value.id} : true})
 })`
 		const firstScratch = createScratch()
 		const secondScratch = createScratch()
@@ -106,10 +106,10 @@ process.on('message', frame => {
 			scratch,
 			`const fs = require('node:fs'), path = require('node:path')
 process.on('message', frame => {
-	if (frame.operation === 'admit') { process.send({version:1,id:frame.id,operation:'reply',value:{id:frame.value.id}}); return }
+	if (frame.operation === 'admit') { process.send({id:frame.id,operation:'reply',value:{id:frame.value.id}}); return }
 	setTimeout(() => {
 		fs.writeFileSync(path.join(__dirname, 'receipt.json'), JSON.stringify(frame.value.usage))
-		process.send({version:1,id:frame.id,operation:'reply',value:true})
+		process.send({id:frame.id,operation:'reply',value:true})
 	}, 25)
 })`,
 		)
@@ -149,7 +149,7 @@ process.on('message', frame => {
 		const scratch = createScratch()
 		const peer = createStudyPeer(
 			scratch,
-			`process.on('message', frame => process.send({version:1,id:frame.id,operation:'error',value:{cause:'capacity',message:'parent denied',role:'tool'}}))`,
+			`process.on('message', frame => process.send({id:frame.id,operation:'error',value:{cause:'capacity',message:'parent denied',role:'tool'}}))`,
 		)
 		const channel = new StudyChannel({
 			endpoint: peer.child,

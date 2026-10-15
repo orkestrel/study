@@ -50,6 +50,8 @@ export interface StudyDriverFixtureOptions {
 	readonly execute?: (goal: StudyGoal, context: StudyContext) => Promise<StudyProduct>
 	/** Delays each open result until the caller resolves it. */
 	readonly opening?: Promise<void>
+	/** Rejects each open with the supplied error after the call is recorded. */
+	readonly refuse?: Error
 }
 
 /** Holds a driver whose every boundary call is recorded. */

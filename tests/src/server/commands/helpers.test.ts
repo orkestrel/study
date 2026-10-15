@@ -2,19 +2,29 @@ import { createScratch } from '@orkestrel/test/server'
 import { appendFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { isRecord } from '@orkestrel/contract'
 import {
 	buildCustodyManifest,
+	buildStudyAttempt,
+	buildStudyFailure,
+	buildStudyObservation,
+	buildStudyOperationAttempts,
 	buildStudyRubric,
 	buildStudySettingsProfile,
 	STUDY_PROFILE_SETTINGS,
 } from '../../../setupStudy.js'
 import { parseStudyProfile } from '../../../../src/core/parsers.js'
 import { computeStudyProfileDigest } from '../../../../src/server/processes/helpers.js'
-import { buildCustodyGrading, retainStudyFixture } from '../../../setupServer.js'
+import {
+	buildCustodyGrading,
+	buildStudyReportResult,
+	retainStudyFixture,
+} from '../../../setupServer.js'
 import {
 	collectStudyEvidence,
 	computeStudyCommandFingerprint,
 	computeStudyFixtureDigest,
+	computeStudyPartition,
 	computeStudyReport,
 	resolveStudyPath,
 	resolveStudyProfile,
@@ -120,6 +130,124 @@ describe('study command helpers', () => {
 		expect(sealed.pop()).toEqual(sealed[0])
 		expect(new Set(sealed.map(({ profile }) => profile)).size).toBe(sealed.length)
 		expect(new Set(sealed.map(({ fingerprint }) => fingerprint)).size).toBe(sealed.length)
+	})
+
+	it('partitions attempted failures apart from cascaded unexecuted goals and counts completion by product and failure', () => {
+		const manifest = buildCustodyManifest()
+		const result = buildStudyReportResult(buildStudyOperationAttempts(manifest), manifest)
+		const report = computeStudyReport(
+			result,
+			buildStudyRubric(),
+			buildCustodyGrading(result, buildStudyRubric()),
+		)
+		if (!isRecord(report)) throw new Error('Missing report')
+		expect(report.operations).toEqual({
+			trials: {
+				scheduled: 8,
+				terminal: 8,
+				executed: 7,
+				unexecuted: 1,
+				completed: 3,
+				faults: [
+					{ cause: 'capacity', executed: 1, unexecuted: 0 },
+					{ cause: 'infrastructure', executed: 1, unexecuted: 0 },
+					{ cause: 'deadline', executed: 1, unexecuted: 0 },
+					{ cause: 'interrupted', executed: 0, unexecuted: 1 },
+				],
+			},
+			goals: {
+				scheduled: 16,
+				executed: 10,
+				unexecuted: 6,
+				products: 9,
+				partial: 1,
+				completed: 8,
+				faults: [
+					{ cause: 'capacity', executed: 1, unexecuted: 1 },
+					{ cause: 'infrastructure', executed: 0, unexecuted: 2 },
+					{ cause: 'deadline', executed: 0, unexecuted: 1 },
+					{ cause: 'interrupted', executed: 0, unexecuted: 2 },
+				],
+			},
+		})
+	})
+
+	it('excludes a product that carries a failure from completion and counts each affected record once per cause', () => {
+		const manifest = buildCustodyManifest()
+		const late = buildStudyFailure('deadline', 'Late')
+		const closing = buildStudyFailure('infrastructure', 'Close failed')
+		const attempts = buildStudyOperationAttempts(manifest).map((attempt, index) => {
+			if (index === 0)
+				return buildStudyAttempt(
+					attempt.trial,
+					true,
+					[
+						buildStudyObservation('write', true, { failure: late }),
+						buildStudyObservation('read', false, {
+							failure: buildStudyFailure('deadline', 'Goal unexecuted: Late'),
+						}),
+					],
+					late,
+				)
+			// Both goals completed cleanly, then closing the trial failed.
+			if (index === 6)
+				return buildStudyAttempt(
+					attempt.trial,
+					true,
+					[buildStudyObservation('write', true), buildStudyObservation('read', true)],
+					closing,
+				)
+			return attempt
+		})
+		const result = buildStudyReportResult(attempts, manifest)
+		const report = computeStudyReport(
+			result,
+			buildStudyRubric(),
+			buildCustodyGrading(result, buildStudyRubric()),
+		)
+		if (!isRecord(report) || !isRecord(report.operations)) throw new Error('Missing operations')
+		expect(report.operations).toEqual({
+			trials: {
+				scheduled: 8,
+				terminal: 8,
+				executed: 7,
+				unexecuted: 1,
+				completed: 1,
+				faults: [
+					{ cause: 'capacity', executed: 1, unexecuted: 0 },
+					{ cause: 'infrastructure', executed: 2, unexecuted: 0 },
+					{ cause: 'deadline', executed: 2, unexecuted: 0 },
+					{ cause: 'interrupted', executed: 0, unexecuted: 1 },
+				],
+			},
+			goals: {
+				scheduled: 16,
+				executed: 9,
+				unexecuted: 7,
+				products: 8,
+				partial: 1,
+				completed: 6,
+				faults: [
+					{ cause: 'capacity', executed: 1, unexecuted: 1 },
+					{ cause: 'infrastructure', executed: 0, unexecuted: 2 },
+					{ cause: 'deadline', executed: 1, unexecuted: 2 },
+					{ cause: 'interrupted', executed: 0, unexecuted: 2 },
+				],
+			},
+		})
+	})
+
+	it('partitions records by their explicit fact without inferring it from product, usage or failure', () => {
+		expect(computeStudyPartition([])).toEqual({ executed: 0, unexecuted: 0 })
+		const records = [
+			buildStudyObservation('write', true, { product: undefined, failure: buildStudyFailure() }),
+			buildStudyObservation('write', true),
+			buildStudyObservation('write', false),
+			buildStudyObservation('write', false, { failure: buildStudyFailure('deadline') }),
+		]
+		expect(computeStudyPartition(records)).toEqual({ executed: 2, unexecuted: 2 })
+		const attempts = buildStudyOperationAttempts(buildCustodyManifest())
+		expect(computeStudyPartition(attempts)).toEqual({ executed: 7, unexecuted: 1 })
 	})
 
 	it('retains the declared denominator, semantic unknowns, separate repetitions and unknown actual usage', async () => {

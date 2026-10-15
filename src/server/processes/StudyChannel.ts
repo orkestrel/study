@@ -57,7 +57,7 @@ export class StudyChannel {
 		const id = ++this.#next
 		return new Promise<JSONValue>((resolve, reject) => {
 			this.#pending.set(id, { resolve, reject })
-			this.#send({ version: 1, id, operation, value }).catch((error: unknown) => this.close(error))
+			this.#send({ id, operation, value }).catch((error: unknown) => this.close(error))
 		})
 	}
 
@@ -65,7 +65,7 @@ export class StudyChannel {
 	 * @param value - Validated goal, trial or ticket cancellation attribution.
 	 */
 	abort(value: JSONValue): void {
-		void this.#send({ version: 1, id: 0, operation: 'abort', value }).catch((error: unknown) =>
+		void this.#send({ id: 0, operation: 'abort', value }).catch((error: unknown) =>
 			this.close(error),
 		)
 	}
@@ -128,10 +128,9 @@ export class StudyChannel {
 		this.#active++
 		try {
 			const result = await this.#options.handle(value.operation, value.value)
-			await this.#send({ version: 1, id: value.id, operation: 'reply', value: result })
+			await this.#send({ id: value.id, operation: 'reply', value: result })
 		} catch (error) {
 			await this.#send({
-				version: 1,
 				id: value.id,
 				operation: 'error',
 				value: toStudyWire(readStudyFailure(error)),

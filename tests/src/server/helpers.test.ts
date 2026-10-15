@@ -29,9 +29,9 @@ describe('server environment helpers', () => {
 	})
 
 	it('decodes strict UTF-8 JSON, returns undefined for malformed JSON and refuses invalid bytes', () => {
-		expect(decodeStudyJSON(encodeStudyJSON({ version: 1, label: 'é' }))).toEqual({
+		expect(decodeStudyJSON(encodeStudyJSON({ id: 1, label: 'é' }))).toEqual({
 			label: 'é',
-			version: 1,
+			id: 1,
 		})
 		expect(decodeStudyJSON(Buffer.from('{', 'utf8'))).toBeUndefined()
 		expect(() => decodeStudyJSON(new Uint8Array([0x7b, 0xff, 0x7d]))).toThrow(TypeError)

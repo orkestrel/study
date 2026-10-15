@@ -21,9 +21,9 @@ describe('StudyChannel', () => {
 				const action = ${JSON.stringify(action)}
 				if (action === 'exit') { process.exit(7); return }
 				if (action === 'malformed') { process.send({invalid:true}); return }
-				if (action === 'failure') { process.send({version:1,id:frame.id,operation:'error',value:{invalid:true}}); return }
-				if (action === 'oversized') { process.send({version:1,id:frame.id,operation:'reply',value:'x'.repeat(16*1024*1024)}); return }
-				process.send({version:1,id:action === 'foreign' ? frame.id+1 : frame.id,operation:'reply',value:frame.value})
+				if (action === 'failure') { process.send({id:frame.id,operation:'error',value:{invalid:true}}); return }
+				if (action === 'oversized') { process.send({id:frame.id,operation:'reply',value:'x'.repeat(16*1024*1024)}); return }
+				process.send({id:action === 'foreign' ? frame.id+1 : frame.id,operation:'reply',value:frame.value})
 			})`,
 			)
 			const channel = new StudyChannel({
@@ -55,7 +55,7 @@ describe('StudyChannel', () => {
 		const scratch = createScratch()
 		const peer = createStudyPeer(
 			scratch,
-			`process.send({version:1,id:2,operation:'admit',value:{}}); process.on('message',()=>{})`,
+			`process.send({id:2,operation:'admit',value:{}}); process.on('message',()=>{})`,
 		)
 		const operations: string[] = []
 		const channel = new StudyChannel({
@@ -93,16 +93,16 @@ describe('StudyChannel', () => {
 			firstScratch,
 			`process.on('message', frame => {
 				if (frame.operation !== 'goal') return
-				process.send({version:1,id:1,operation:'admit',value:{}})
-				process.send({version:1,id:frame.id,operation:'reply',value:'original'})
+				process.send({id:1,operation:'admit',value:{}})
+				process.send({id:frame.id,operation:'reply',value:'original'})
 			})`,
 		)
 		const second = createStudyPeer(
 			secondScratch,
 			`process.on('message', frame => {
 				if (frame.operation !== 'goal') return
-				process.send({version:1,id:1,operation:'admit',value:{}})
-				process.send({version:1,id:frame.id,operation:'reply',value:'replacement'})
+				process.send({id:1,operation:'admit',value:{}})
+				process.send({id:frame.id,operation:'reply',value:'replacement'})
 			})`,
 		)
 		const original = createRecorder<readonly [string]>()
@@ -145,7 +145,7 @@ describe('StudyChannel', () => {
 			scratch,
 			`const frames = []
 process.on('message', frame => {
-	if (frame?.control === 'release') { for (const request of frames) process.send({version:1,id:request.id,operation:'reply',value:request.value}); return }
+	if (frame?.control === 'release') { for (const request of frames) process.send({id:request.id,operation:'reply',value:request.value}); return }
 	if (frame?.operation !== 'goal') return
 	frames.push(frame)
 })`,
@@ -184,7 +184,7 @@ process.on('message', frame => {
 			scratch,
 			`let replies = 0
 process.on('message', frame => {
-	if (frame?.control === 'start') { for (let id = 1; id <= ${String(STUDY_PENDING_LIMIT + 1)}; id++) process.send({version:1,id,operation:'goal',value:{id}}); return }
+	if (frame?.control === 'start') { for (let id = 1; id <= ${String(STUDY_PENDING_LIMIT + 1)}; id++) process.send({id,operation:'goal',value:{id}}); return }
 	if (frame?.operation === 'reply') { replies++; if (replies === ${String(STUDY_PENDING_LIMIT)}) process.send({control:'replied',count:replies}) }
 })`,
 		)

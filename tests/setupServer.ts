@@ -2,7 +2,13 @@ import type { StudyLaunchResult } from '../src/server/launchers/types.js'
 import type { ScratchInterface } from '@orkestrel/test/server'
 import { isArray, isInteger, isRecord, parseJSON } from '@orkestrel/contract'
 import { isRunning } from '@orkestrel/test/server'
-import type { StudyGrading, StudyLabels, StudyManifest, StudyRubric } from '../src/core/types.js'
+import type {
+	StudyAttempt,
+	StudyGrading,
+	StudyLabels,
+	StudyManifest,
+	StudyRubric,
+} from '../src/core/types.js'
 import type { StudySealedResult } from '../src/server/stores/types.js'
 import type {
 	StudyProcessSessionOptions,
@@ -453,6 +459,25 @@ export async function retainStudyFixture(
 }
 
 /**
+ * Builds an inert sealed reading over supplied attempts for report computation.
+ * @param attempts - The terminal records the report partitions
+ * @param manifest - The declaration the attempts belong to; Default: a fresh custody manifest
+ * @returns A sealed reading with an empty inventory, never written to custody
+ */
+export function buildStudyReportResult(
+	attempts: readonly StudyAttempt[],
+	manifest: StudyManifest = buildCustodyManifest(),
+): StudySealedResult {
+	return {
+		status: 'sealed',
+		directory: '',
+		manifest,
+		attempts,
+		seal: { result: manifest.id, id: 'e'.repeat(64), files: [] },
+	}
+}
+
+/**
  * Builds complete predicate judgments while preserving unknown semantic grades.
  * @param result - The verified execution
  * @param rubric - The independently held rubric
@@ -465,10 +490,9 @@ export function buildCustodyGrading(
 	labels?: StudyLabels,
 ): StudyGrading {
 	return {
-		version: 1,
 		result: result.seal.id,
 		rubric: hashStudyBytes(encodeStudyJSON(rubric)),
-		grader: 'predicate-v1',
+		grader: 'predicate',
 		instrument: 'b'.repeat(64),
 		attempts: result.manifest.schedule.map((trial) => trial.id),
 		labels: labels === undefined ? undefined : hashStudyBytes(encodeStudyJSON(labels)),

@@ -29,8 +29,8 @@ describe('StudyProcessSession', () => {
 				`const fs = require('node:fs'), path = require('node:path')
 process.on('message', frame => {
 	fs.appendFileSync(path.join(__dirname, 'frames.ndjson'), JSON.stringify(frame) + '\\n')
-	if (frame.operation === 'open') process.send({version:1,id:frame.id,operation:'reply',value:{pid:process.pid,subject:frame.value.identity.subject,instrument:frame.value.identity.instrument}})
-	if (frame.operation === 'close') process.send({version:1,id:frame.id,operation:'reply',value:true})
+	if (frame.operation === 'open') process.send({id:frame.id,operation:'reply',value:{pid:process.pid,subject:frame.value.identity.subject,instrument:frame.value.identity.instrument}})
+	if (frame.operation === 'close') process.send({id:frame.id,operation:'reply',value:true})
 })`,
 			),
 			root: scratch.path,

@@ -4,12 +4,15 @@ import {
 	buildCustodyAttempt,
 	buildCustodyManifest,
 	buildStudyCapacityManifest,
+	buildStudyObservation,
+	buildStudyOperationAttempts,
 	buildStudyProfile,
 	buildStudySettingsProfile,
 	createStudyDriverFixture,
 	createStudyMeterFixture,
 	createStudyStoreFixture,
 	importStudyErrorCopy,
+	STUDY_EXECUTION_CASES,
 	STUDY_PROFILE_SETTINGS,
 } from './setupStudy.js'
 import { StudyError } from '../src/core/errors.js'
@@ -154,6 +157,65 @@ describe('study declaration fixtures', () => {
 		expect(() => buildCustodyAttempt(first, { ...trial, scenario: 'foreign' })).toThrow(
 			'no scenario',
 		)
+	})
+	it('builds terminal horizons that carry explicit execution facts', () => {
+		const current = buildCustodyManifest()
+		const trial = current.schedule[0]
+		if (trial === undefined) throw new Error('Missing fixture trial')
+		expect(Object.hasOwn(current, 'version')).toBe(false)
+		expect(buildCustodyAttempt(current, trial)).toMatchObject({
+			executed: true,
+			observations: [{ executed: true }, { executed: true }],
+		})
+		expect(buildStudyObservation('write', false)).toEqual({
+			goal: 'write',
+			product: undefined,
+			failure: { cause: 'interrupted', message: 'Goal unexecuted: Stopped', role: undefined },
+			usage: [],
+			duration: 0,
+			executed: false,
+		})
+	})
+	it('covers accepted and refused execution shapes', () => {
+		expect(new Set(STUDY_EXECUTION_CASES.map(({ valid }) => valid))).toEqual(new Set([true, false]))
+		expect(new Set(STUDY_EXECUTION_CASES.map(({ name }) => name)).size).toBe(
+			STUDY_EXECUTION_CASES.length,
+		)
+	})
+	it('builds one attempt per scheduled trial with each operational partition represented', () => {
+		const manifest = buildCustodyManifest()
+		const attempts = buildStudyOperationAttempts(manifest)
+		expect(attempts.map((attempt) => attempt.trial.id)).toEqual(
+			manifest.schedule.map((trial) => trial.id),
+		)
+		expect(attempts.map((attempt) => attempt.executed)).toEqual([
+			true,
+			true,
+			true,
+			true,
+			false,
+			true,
+			true,
+			true,
+		])
+		expect(attempts.map((attempt) => attempt.failure?.cause)).toEqual([
+			undefined,
+			'capacity',
+			undefined,
+			'infrastructure',
+			'interrupted',
+			'deadline',
+			undefined,
+			undefined,
+		])
+	})
+	it('rejects each driver open with the supplied error after recording the call', async () => {
+		const refusal = new Error('Open refused')
+		const fixture = createStudyDriverFixture({ refuse: refusal })
+		const trial = buildCompactCustodyManifest().schedule[0]
+		if (trial === undefined) throw new Error('Missing fixture trial')
+		await expect(fixture.driver.open(trial, new AbortController().signal)).rejects.toBe(refusal)
+		expect(fixture.opened.calls).toEqual([[trial]])
 	})
 	it('builds settings profiles that differ from the base only by their settings', () => {
 		const base = buildStudyProfile()

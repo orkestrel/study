@@ -108,7 +108,6 @@ export interface StudyIdentity {
 
 /** Holds the execution declaration sealed before any trial begins. */
 export interface StudyManifest {
-	readonly version: 1
 	readonly id: string
 	readonly created: string
 	readonly definition: StudyDefinition
@@ -226,6 +225,8 @@ export interface StudyObservation {
 	readonly failure: StudyFailure | undefined
 	readonly usage: readonly StudyUsage[]
 	readonly duration: number
+	/** Records whether the engine dispatched the goal to the session; never inferred from product, usage, duration or failure. */
+	readonly executed: boolean
 }
 
 /** Holds a terminal trial record, including goals never dispatched. */
@@ -234,6 +235,8 @@ export interface StudyAttempt {
 	readonly observations: readonly StudyObservation[]
 	readonly failure: StudyFailure | undefined
 	readonly duration: number
+	/** Records whether the trial entered execution without an inherited terminal series failure, including failures before the driver opened; not a claim that the driver was opened. */
+	readonly executed: boolean
 }
 
 /** Appends terminal records without overwriting a prior attempt. */
@@ -296,7 +299,6 @@ export interface StudyLabels {
 
 /** Holds a grading identity that cannot replace or mutate execution bytes. */
 export interface StudyGrading {
-	readonly version: 1
 	readonly result: string
 	readonly rubric: string
 	readonly grader: string

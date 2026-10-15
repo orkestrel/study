@@ -3,9 +3,24 @@
 The user limited the successor execution to Compaction on 2026-10-15. Retain candidate-3
 Records at its original build and seal; do not rerun it to collect checkpoints or timing fields.
 This instruction supersedes the Records checkpoint collection proposed later in this document.
-The observation implementation passed review and package gates, and Compaction executes with
-those observations under the protocol in `series.md`. Records replay that depends on missing
+The observation implementation passed review and package gates. The Compaction room attempt
+ended after 37 completed goals and a refusal on attempted goal 38. The user authorized a
+separate recap-cap treatment; preparation follows `series.md`. Records replay that depends on missing
 exact request checkpoints remains unavailable. No optimization or speed gain is accepted.
+
+The partial attempt attributes 27.575% of Agent request wall time to prefill, representing
+20.389% of attempt wall time. Model loading is 0.372% of Agent request wall time. The exact-byte
+packet at Agent/tmp/studies/performance-terminal-inputs contains checkpoints 8, 16, 24 and 32;
+the later checkpoints required by the twelve-checkpoint screen are unavailable. Manifest hash:
+d3ba2d7bd39bb2d1bd28216a977f4fa614d32c09f28f6b8b4221bfa631203464.
+The accepted successor verifier preserved every packet byte and passed strict TypeScript plus
+3 positive and 6 negative controls. This preparation does not admit the incomplete performance
+screen or establish an optimization result.
+
+The CPU fixture against the frozen Conversation reproduced the final fold's 95-to-162-unit
+expansion and verified section-cap merging, source identities, the protected exchange, and
+initial/merge throw and abort behavior. It made no model calls. Its cap-2 case is a mechanism
+fixture, not a selected treatment or evidence that model-generated merging preserves quality.
 
 The user requested this investigation on 2026-10-14 and authorized Fable 5.1 to settle the proposal on 2026-10-15. Adopt observation-only timing as the first implementation unit, with Agent requests as the first measurement priority. No optimization candidate is admitted for implementation yet. Scaffold's `quality.md` requires realistic workloads, predeclared sample counts and worthwhile differences, uncertainty, negative controls, and host-load readings. Production changes wait for those measurements.
 
