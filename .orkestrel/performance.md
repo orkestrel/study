@@ -139,3 +139,13 @@ Fable's final decision ran as actual `claude-fable-5-1`, session `c5d704ad-3d92-
 Fable requested two non-blocking implementation checks, delegated to actual `claude-haiku-5-5`, session `df06d134-7b61-4888-82e0-31e37aa87bda`: 22,334 ms, exit 0, uncapped, four turns, USD 0.00568121 API-equivalent accounting. Haiku read only its brief, the installed provider declaration, and sanitized retained dispatch/profile metadata. Root checked the decision-bearing declarations directly. No further synthesis, broad absorption, or workload execution was needed to close the proposal.
 
 The next implementation unit is observation-only timing; its first model diagnostic depends on resolving the failed qualification. Study hardening closed locally on Windows with admission/native regressions, full gates, and packed-consumer proof. Agent's copied runtime and sealed evidence remain unchanged. No performance change, concurrency setting, provider setting, installed consumer dependency, or captured artifact changed during this investigation.
+# October 15 series constraint
+
+The user requires the resumed series to rerun Compaction only. Reuse completed candidate3
+Records with its original identity. The checkpoint collection described below must not cause
+another Records qualification or hold up Compaction. Historical candidate3 lacks exact request
+bodies and Ledger snapshots; no faithful checkpoint replay can be reconstructed from it. Keep
+source instrumentation and fixture proofs, but defer checkpoint-dependent Records diagnostics
+until suitable captured work is available. This constraint supersedes the proposed collection
+during a successor Records qualification; it does not weaken the paired measurement thresholds.
+
