@@ -1,3 +1,21 @@
+# Rolling Compaction running on 2026-10-15
+
+Agent `7a2e29a` implements the vendor-informed one-pass rolling treatment after actual
+Sonnet implementation, independent actual Opus review, mutation proofs and green gates.
+Its isolated runtime avoids rewriting historical builds. The full service proof passed
+180 tests; guide parity passed 137. Study's accepted implementation remains unchanged.
+
+Only Compaction is running: Agent/tmp/studies/compaction-rolling, frozen project
+Agent/tmp/studies/compaction-rolling-project. Its fingerprint is
+`3916d7506358aca5d08ae3b33569b1005cae87c9eeba8b1614725ff6b17df90a`, with fixed deadline
+`2026-10-15T17:26:13.570Z` (13:26 EDT). There is one attempt, 96 goals and zero retries.
+The dedicated daemon covers the deadline. Records remains complete and must not be replayed.
+
+Agent's `.orkestrel/agent/handoff.md` carries the external pins digest, process identities,
+reader command and artifact preservation requirements. Do not refresh Agent's installed
+Study, build its root dist, or sweep captured inputs while this series runs. The earlier
+append-only result and the unlaunched section-cap proposal remain distinct from this treatment.
+
 # Production-compaction research on 2026-10-15
 
 The user's comparability check withdrew the unlaunched sections:2 treatment. Agent's
