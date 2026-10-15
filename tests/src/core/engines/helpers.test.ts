@@ -2,6 +2,7 @@ import type { StudyFailure } from '../../../../src/core/types.js'
 import { describe, expect, it } from 'vitest'
 import { StudyError } from '../../../../src/core/errors.js'
 import { failureToStudyError, readStudyFailure } from '../../../../src/core/engines/helpers.js'
+import { importStudyErrorCopy } from '../../../setupStudy.js'
 
 describe('study engine error attribution', () => {
 	it('preserves an existing operational reading and classifies uncategorized errors', () => {
@@ -57,6 +58,28 @@ describe('study engine error attribution', () => {
 		)
 		expect(readStudyFailure(new Error('Disk refused')).cause).toBe('infrastructure')
 		expect(readStudyFailure('CAPACITY').cause).toBe('infrastructure')
+	})
+
+	it('attributes errors a distinct study module copy constructs', async () => {
+		const copy = await importStudyErrorCopy('helpers-attribution')
+		expect(readStudyFailure(copy.create('CAPACITY', 'No request room'))).toEqual({
+			cause: 'capacity',
+			message: 'No request room',
+			role: undefined,
+		})
+		expect(readStudyFailure(copy.create('DEADLINE', 'Goal timer elapsed'))).toEqual({
+			cause: 'deadline',
+			message: 'Goal timer elapsed',
+			role: undefined,
+		})
+		const failure: StudyFailure = { cause: 'capacity', message: 'Context full', role: 'agent' }
+		expect(readStudyFailure(copy.create('FAULT', 'Request rejected', failure))).toBe(failure)
+		expect(readStudyFailure(copy.create('FAULT', 'Adapter crashed'))).toEqual({
+			cause: 'infrastructure',
+			message: 'Adapter crashed',
+			role: undefined,
+		})
+		expect(readStudyFailure(copy.create('CONFIG', 'Missing arm')).cause).toBe('infrastructure')
 	})
 
 	it('does not trust a lookalike that is not a study error', () => {

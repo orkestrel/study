@@ -4,12 +4,13 @@ import { execFileSync, fork, spawnSync } from 'node:child_process'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { isRecord } from '@orkestrel/contract'
+import { isArray, isRecord, parseJSON } from '@orkestrel/contract'
 import { isStudyBounds } from '../src/core/validators.js'
 import { buildStudyRubric } from './setupStudy.js'
 import {
 	STUDY_CHECK_FINGERPRINT,
 	STUDY_LAUNCHER_PID,
+	admitStudyLibrary,
 	buildCustodyGrading,
 	buildCustodyLabels,
 	buildCustodyPacketLabels,
@@ -85,6 +86,19 @@ describe('study server fixtures', () => {
 				{ encoding: 'utf8', timeout: 10000, windowsHide: true },
 			)
 			expect(constructed).toBe('StudyError:CONFIG:Built refusal\n')
+			const consumer = createScratch({ parent: resolve('tmp/units'), prefix: 'setup-admitted-' })
+			try {
+				writeStudyConsumer(consumer)
+				const before = parseJSON(consumer.read('studies/files/profiles/local.json') ?? '')
+				if (!isRecord(before) || !isArray(before.roots)) throw new Error('Missing consumer profile')
+				admitStudyLibrary(consumer, scratch)
+				expect(parseJSON(consumer.read('studies/files/profiles/local.json') ?? '')).toEqual({
+					...before,
+					roots: [...before.roots, join(scratch.path, 'library')],
+				})
+			} finally {
+				consumer.destroy()
+			}
 		} finally {
 			scratch.destroy()
 		}

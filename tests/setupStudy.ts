@@ -21,14 +21,44 @@ import type {
 	StudyAdmissionCase,
 	StudyDriverFixture,
 	StudyDriverFixtureOptions,
+	StudyErrorCopy,
 	StudyMeterFixture,
 	StudyStoreFixture,
 } from './src/core/engines/types.js'
 import { createRecorder } from '@orkestrel/test'
+import { vi } from 'vitest'
 import { StudyControl, StudyMeter, StudyScope } from '../src/core/engines/index.js'
 import { buildStudySchedule } from '../src/core/helpers.js'
 
-/** Supplies the output admission matrix: a fast oversized control, an expired oversized product, and an expired within-budget partial control. */
+/** Evaluates a distinct copy of the real study error module, tagged the way captured loading tags an import.
+ * @param label - The copy's tag; equal labels share one evaluation.
+ * @returns The copy's own class, construction and guard.
+ */
+export async function importStudyErrorCopy(label: string): Promise<StudyErrorCopy> {
+	// Vitest's runner keys a module by its full id, query included, so each tag evaluates the
+	// real source once more without replacing anything.
+	const copy: unknown = await vi.importActual(
+		`../src/core/errors.js?artifact=${encodeURIComponent(label)}`,
+	)
+	if (
+		typeof copy !== 'object' ||
+		copy === null ||
+		!('StudyError' in copy) ||
+		!('isStudyError' in copy) ||
+		typeof copy.StudyError !== 'function' ||
+		typeof copy.isStudyError !== 'function'
+	)
+		throw new Error('Study error copy exports no class and guard')
+	const error = copy.StudyError
+	const guard = copy.isStudyError
+	return {
+		error,
+		create: (...values) => Reflect.construct(error, values),
+		recognize: (value) => Reflect.apply(guard, undefined, [value]) === true,
+	}
+}
+
+/** Supplies the output admission matrix:a fast oversized control, an expired oversized product, and an expired within-budget partial control. */
 export const STUDY_ADMISSION_CASES: readonly StudyAdmissionCase[] = Object.freeze([
 	{
 		name: 'fast oversized',

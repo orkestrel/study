@@ -64,6 +64,24 @@ process.stdout.write(JSON.stringify(Object.keys(entry).sort()))
 const CJS_DRIVER_SOURCE = `const entry = require(process.argv[2])
 process.stdout.write(JSON.stringify(Object.keys(entry).sort()))
 `
+// Drives the installed import and require copies against each other, so a Study error
+// one module copy throws is read by the other copy's guard and attribution.
+const ERROR_DRIVER = 'errors.mjs'
+const ERROR_DRIVER_SOURCE = `import { createRequire } from 'node:module'
+const imported = await import(process.argv[2])
+const required = createRequire(import.meta.url)(process.argv[2])
+const failure = { cause: 'capacity', message: 'Context full', role: 'agent' }
+const lookalike = Object.assign(new Error('Foreign'), { name: 'StudyError', code: 'CAPACITY' })
+process.stdout.write(JSON.stringify({
+	distinct: imported.StudyError !== required.StudyError,
+	imported: imported.isStudyError(new required.StudyError('CAPACITY', 'Required capacity')),
+	required: required.isStudyError(new imported.StudyError('DEADLINE', 'Imported deadline')),
+	capacity: imported.readStudyFailure(new required.StudyError('CAPACITY', 'Required capacity')),
+	deadline: required.readStudyFailure(new imported.StudyError('DEADLINE', 'Imported deadline')),
+	retained: imported.readStudyFailure(new required.StudyError('FAULT', 'Rejected', failure)) === failure,
+	lookalike: imported.isStudyError(lookalike),
+}))
+`
 
 // The extensions a JavaScript handler loads as modules. Node loads a native addon
 // through its addon handler instead, so that extension is named separately.
@@ -923,5 +941,25 @@ describe('installed entries', () => {
 			)
 			expect(reported).toStrictEqual([])
 		}
+	})
+
+	it('recognizes a study error across the installed import and require copies', (context) => {
+		const stage = requireStage(context)
+		const entry = stage.entries.find(
+			(candidate) => candidate.subpath === '.' && candidate.importable && candidate.requirable,
+		)
+		if (entry === undefined) throw new Error('The root entry publishes no import and require pair')
+		writeFile(join(stage.consumer, ERROR_DRIVER), ERROR_DRIVER_SOURCE)
+		const result = runNode([join(stage.consumer, ERROR_DRIVER), entry.specifier], stage.consumer)
+		if (result.status !== 0) throw new Error(`The error driver failed: ${readOutput(result)}`)
+		expect(JSON.parse(result.stdout)).toStrictEqual({
+			distinct: true,
+			imported: true,
+			required: true,
+			capacity: { cause: 'capacity', message: 'Required capacity' },
+			deadline: { cause: 'deadline', message: 'Imported deadline' },
+			retained: true,
+			lookalike: false,
+		})
 	})
 })

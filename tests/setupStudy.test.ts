@@ -9,8 +9,27 @@ import {
 	createStudyDriverFixture,
 	createStudyMeterFixture,
 	createStudyStoreFixture,
+	importStudyErrorCopy,
 	STUDY_PROFILE_SETTINGS,
 } from './setupStudy.js'
+import { StudyError } from '../src/core/errors.js'
+
+describe('study error module copies', () => {
+	it('evaluates one distinct real error module per tag', async () => {
+		const first = await importStudyErrorCopy('setup-first')
+		const repeated = await importStudyErrorCopy('setup-first')
+		const second = await importStudyErrorCopy('setup-second')
+		expect(first.error).not.toBe(StudyError)
+		expect(second.error).not.toBe(first.error)
+		expect(repeated.error).toBe(first.error)
+		const created = first.create('CONFIG', 'Copy refusal')
+		expect(created).toBeInstanceOf(Error)
+		expect(created).not.toBeInstanceOf(StudyError)
+		expect(created).toMatchObject({ name: 'StudyError', code: 'CONFIG', message: 'Copy refusal' })
+		expect(first.recognize(created)).toBe(true)
+		expect(first.recognize(new Error('ordinary'))).toBe(false)
+	})
+})
 
 describe('study boundary fixtures', () => {
 	it('opens a fresh session per call and records every driver boundary call', async () => {

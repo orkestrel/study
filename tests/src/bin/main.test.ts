@@ -12,6 +12,7 @@ import { StudyTask } from '../../../src/server/processes/StudyTask.js'
 import { StudyCommand } from '../../../src/server/commands/StudyCommand.js'
 import { readStudyResult } from '../../../src/server/stores/helpers.js'
 import {
+	admitStudyLibrary,
 	buildStudyCLI,
 	buildStudyLibrary,
 	executeStudyCLI,
@@ -649,12 +650,7 @@ describe('built study executable', () => {
 		const library = createScratch({ parent: resolve('tmp/units'), prefix: 'runtime-library-' })
 		try {
 			const built = pathToFileURL(await buildStudyLibrary(library)).href
-			const profile = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
-			if (!isRecord(profile) || !isArray(profile.roots)) throw new Error('Missing profile')
-			scratch.write(
-				'studies/files/profiles/local.json',
-				JSON.stringify({ ...profile, roots: [...profile.roots, join(library.path, 'library')] }),
-			)
+			admitStudyLibrary(scratch, library)
 			for (const [thrown, code, message] of [
 				["new StudyError('CONFIG', 'Built library refusal')", 64, 'CONFIG: Built library refusal'],
 				[
@@ -672,6 +668,11 @@ describe('built study executable', () => {
 					1,
 					'FAULT: Foreign refusal',
 				],
+				[
+					"Object.assign(new Error('Foreign configuration'), { name: 'StudyError', code: 'CONFIG' })",
+					1,
+					'FAULT: Foreign configuration',
+				],
 			] as const) {
 				scratch.write(
 					'studies/files/index.ts',
@@ -681,6 +682,99 @@ describe('built study executable', () => {
 				expect(checked.code).toBe(code)
 				expect(checked.output).toContain(`study: ${message}`)
 			}
+		} finally {
+			await destroyScratch(library)
+		}
+	})
+
+	it('attributes a real built library StudyError thrown during captured execution', async () => {
+		const library = createScratch({ parent: resolve('tmp/units'), prefix: 'runtime-library-' })
+		try {
+			const built = pathToFileURL(await buildStudyLibrary(library)).href
+			for (const [thrown, failure] of [
+				[
+					"new StudyError('CAPACITY', 'Captured capacity')",
+					{ cause: 'capacity', message: 'Captured capacity', role: undefined },
+				],
+				[
+					"new StudyError('DEADLINE', 'Captured deadline')",
+					{ cause: 'deadline', message: 'Captured deadline', role: undefined },
+				],
+				[
+					"new StudyError('FAULT', 'Captured attribution', { cause: 'capacity', message: 'Context full', role: 'agent' })",
+					{ cause: 'capacity', message: 'Context full', role: 'agent' },
+				],
+				[
+					"new StudyError('FAULT', 'Captured fault')",
+					{ cause: 'infrastructure', message: 'Captured fault', role: undefined },
+				],
+				[
+					"Object.assign(new Error('Foreign capacity'), { name: 'StudyError', code: 'CAPACITY' })",
+					{ cause: 'infrastructure', message: 'Foreign capacity', role: undefined },
+				],
+			] as const) {
+				const consumer = createScratch({
+					parent: resolve('tmp/units'),
+					prefix: 'runtime-consumer-',
+				})
+				try {
+					writeStudyConsumer(consumer)
+					admitStudyLibrary(consumer, library)
+					const source = consumer.read('studies/files/index.ts') ?? ''
+					consumer.write(
+						'studies/files/index.ts',
+						`import { StudyError } from ${JSON.stringify(built)}\n${source.replace(
+							'async execute(goal, context) {',
+							`async execute(goal, context) { throw ${thrown};`,
+						)}`,
+					)
+					const executed = await executeStudyCLI(entry, consumer.path, ['execute', 'assessment'])
+					expect(executed.code).toBe(1)
+					const result = parseJSON(executed.output.split(/\r\n|\n/)[0] ?? '')
+					if (!isRecord(result) || typeof result.path !== 'string')
+						throw new Error(`Missing failure result: ${executed.output}`)
+					const sealed = await readStudyResult(result.path)
+					if (sealed.status !== 'sealed') throw new Error('Failure horizon did not seal')
+					expect(sealed.attempts[0]?.failure).toEqual(failure)
+				} finally {
+					await destroyScratch(consumer)
+				}
+			}
+		} finally {
+			await destroyScratch(library)
+		}
+	})
+
+	it('keeps an abandoned ticket observation exact and reports its cleanup disconnect', async () => {
+		const library = createScratch({ parent: resolve('tmp/units'), prefix: 'runtime-library-' })
+		try {
+			const built = pathToFileURL(await buildStudyLibrary(library)).href
+			admitStudyLibrary(scratch, library)
+			const source = scratch.read('studies/files/index.ts') ?? ''
+			scratch.write(
+				'studies/files/index.ts',
+				`import { StudyError } from ${JSON.stringify(built)}\n${source.replace(
+					'writeFileSync(file, options.subject.prefix+goal.input)',
+					"(()=>{throw new StudyError('CAPACITY', 'Captured capacity')})()",
+				)}`,
+			)
+			const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
+			expect(executed.code).toBe(1)
+			const result = parseJSON(executed.output.split(/\r\n|\n/)[0] ?? '')
+			if (!isRecord(result) || typeof result.path !== 'string')
+				throw new Error(`Missing failure result: ${executed.output}`)
+			const sealed = await readStudyResult(result.path)
+			if (sealed.status !== 'sealed') throw new Error('Failure horizon did not seal')
+			expect(sealed.attempts[0]?.observations[0]?.failure).toEqual({
+				cause: 'capacity',
+				message: 'Captured capacity',
+				role: undefined,
+			})
+			expect(sealed.attempts[0]?.failure).toEqual({
+				cause: 'capacity',
+				message: 'Captured capacity; cleanup: Study process disconnected',
+				role: undefined,
+			})
 		} finally {
 			await destroyScratch(library)
 		}

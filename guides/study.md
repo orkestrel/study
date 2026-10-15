@@ -10,6 +10,8 @@ Declare the question, purpose, arms, scenarios, repetition order, and rubric bef
 
 The request meter reserves token and byte ceilings before an adapter dispatches work. Request, goal, trial, and series limits bound enclosing work. Missing actual usage remains unknown and consumes the admitted ceiling. Capacity, infrastructure, deadline, and interruption are operational outcomes; a product never awards its own task verdict. An error that carries a failure keeps that attribution; a study error without one reads as capacity for the `CAPACITY` code and as deadline for the `DEADLINE` code, and every other rejection reads as infrastructure.
 
+A study error stamps an own `STUDY_ERROR_BRAND` descriptor whose value is the error itself. `isStudyError` requires that descriptor with an `Error` subclass, the `StudyError` name, and a declared code, so a study error thrown by another package, ESM, CommonJS, or captured module copy keeps its code and attribution. The brand uses the global symbol registry: it is recognition, not unforgeable provenance. An unbranded older copy, an inherited or borrowed brand, a proxy, and a property-only lookalike read as infrastructure.
+
 A product that exceeds its goal, trial, or series output allowance is omitted from custody with a capacity failure. Previously admitted products remain retained, and the remaining horizon is explicitly unexecuted. A genuine custody write or metadata-capacity failure still rejects execution and leaves the result unsealed.
 
 The driver receives a borrowed admission interface and an evidence sink. The concrete engine owns the meter's closing lifecycle. Native workers await parent admission and acknowledge request settlement; each trial runs in a fresh child. Trusted adapters can access native resources, so process supervision is not a hostile-code sandbox.
@@ -170,6 +172,7 @@ The following declarations describe this concept.
 | `STUDY_COMMAND_OPERATION`        | const     | Names the command route beneath the native supervisor.                                    |
 | `STUDY_CUSTODY_BYTES`            | const     | Limits untrusted metadata before JSON parsing or file allocation.                         |
 | `STUDY_DRAIN_DURATION`           | const     | Bounds how long inherited output handles stay open after native exit, in milliseconds.    |
+| `STUDY_ERROR_BRAND`              | const     | Keys the own self-identity every study error stamps on itself.                            |
 | `STUDY_FRAME_BYTES`              | const     | Limits each serialized IPC envelope, including its JSON framing.                          |
 | `STUDY_GOALS`                    | const     | Caps a declared scenario horizon before execution.                                        |
 | `STUDY_LAUNCH_BYTES`             | const     | Bounds combined supervised command output to 16 MiB before terminating the tree.          |

@@ -1,15 +1,15 @@
 import type { JSONValue } from '@orkestrel/contract'
 import type { StudyEvidence, StudyAttempt } from '../../core/types.js'
-import { arrayOf, attempt, isArray, isError, isRecord, isString } from '@orkestrel/contract'
+import { arrayOf, isArray, isRecord, isString } from '@orkestrel/contract'
 import { dirname } from 'node:path'
-import { StudyError } from '../../core/errors.js'
+import { isStudyError, StudyError } from '../../core/errors.js'
 import {
 	parseStudyDefinition,
 	parseStudyProfile,
 	parseStudyRubric,
 	parseStudyScenario,
 } from '../../core/parsers.js'
-import { isStudyErrorCode, isStudyJudgment } from '../../core/validators.js'
+import { isStudyJudgment } from '../../core/validators.js'
 import { Artifacts } from '../artifacts/Artifacts.js'
 import { readStudyAdapter } from '../adapters/helpers.js'
 import { hashStudyBytes } from '../helpers.js'
@@ -40,14 +40,9 @@ export class StudyTaskWorker {
 		try {
 			response = await this.#execute(value)
 		} catch (error) {
-			// A captured adapter evaluates its own copy of the study library, so its StudyError
-			// class differs from this worker's; classify by validated shape instead of identity.
-			const code = attempt(() =>
-				isError(error) && error.name === 'StudyError' && 'code' in error ? error.code : undefined,
-			)
 			response = {
 				error: error instanceof Error ? error.message : String(error),
-				code: code.success && isStudyErrorCode(code.value) ? code.value : 'FAULT',
+				code: isStudyError(error) ? error.code : 'FAULT',
 			}
 		}
 		if (Buffer.byteLength(JSON.stringify(response)) > STUDY_FRAME_BYTES)

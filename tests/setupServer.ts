@@ -1,6 +1,6 @@
 import type { StudyLaunchResult } from '../src/server/launchers/types.js'
 import type { ScratchInterface } from '@orkestrel/test/server'
-import { isInteger, isRecord } from '@orkestrel/contract'
+import { isArray, isInteger, isRecord, parseJSON } from '@orkestrel/contract'
 import { isRunning } from '@orkestrel/test/server'
 import type { StudyGrading, StudyLabels, StudyManifest, StudyRubric } from '../src/core/types.js'
 import type { StudySealedResult } from '../src/server/stores/types.js'
@@ -583,6 +583,19 @@ export async function buildStudyLibrary(
 		logLevel: 'warn',
 	})
 	return join(output, 'index.js')
+}
+
+/** Admits a separately built library package to a written consumer's local profile roots.
+ * @param consumer - The consumer `writeStudyConsumer` wrote.
+ * @param library - The scratch `buildStudyLibrary` built its package under.
+ */
+export function admitStudyLibrary(consumer: ScratchInterface, library: ScratchInterface): void {
+	const profile = parseJSON(consumer.read('studies/files/profiles/local.json') ?? '')
+	if (!isRecord(profile) || !isArray(profile.roots)) throw new Error('Missing consumer profile')
+	consumer.write(
+		'studies/files/profiles/local.json',
+		JSON.stringify({ ...profile, roots: [...profile.roots, join(library.path, 'library')] }),
+	)
 }
 
 /** Drives the real CLI with a finite native command cap.

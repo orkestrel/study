@@ -1,3 +1,54 @@
+# Prospective Compaction qualification at 2026-10-15 04:10 UTC
+
+The repaired seams passed independent Astra review and final Agent/Study gates on 2026-10-15.
+The isolated packed ESM/CommonJS proof passed. After installed Study refresh, the original
+Memory CPU reproduction retained the exact capacity error at11777 prompt tokens and completed
+its10-token control. Root's ruling is Agent/.orkestrel/agent/series-repair-verdict.md. The successor
+project is Agent/tmp/studies/compaction-provisional-project; its launch.json and the matching
+Agent/tmp/units/compaction-provisional receipts establish execution state. Records is not rerun.
+
+Reuse the sealed candidate-3 Records execution. Execute Compaction only after the summary
+admission and cross-copy Study error repairs pass their regression proofs and independent review.
+The Full diagnostic is closed and INCONCLUSIVE: it lacks the predeclared held-out population
+and pressure coverage. Preserve its fit, validation, execution, and seal unchanged.
+
+Actual Opus session 727e0cb1-5ed6-46c1-92e1-2d9470962416 returned the successor ruling in
+82570 ms, exit0, uncapped. Root accepts one prospective Compaction qualification using the
+provisional fit, without a duplicate short-prefix execution. This supersedes the earlier
+requirement to launch only after qualified Full calibration; it does not change the diagnostic's
+acceptance criteria or result. Each successful gauged response is checked against its projection.
+Pressure must be observed; Full's failure does not prove that Compaction will exercise it.
+
+Freeze scale0.9784397854197346 and overhead414.49493933313806 from fit SHA256
+7f50d98fe7b232c27b31dce926413f75b4e0d9eba12af5d63f43499005812235 and policy SHA256
+0d5ada44466c69a3a3e66880c8727c4580b9208a541a813b837e6bca86c1bbfe. Keep context20480,
+output8192, safety512, recap2048, and thinking off. Agent prompt room is11776; summary prompt
+room is17920. Both roles require pre-dispatch admission and post-response projection checks.
+
+The prospective limits are9600000 ms for trial and series,9660000 ms for the launcher including
+cleanup,4096 calls,8000000 tokens,1073741824 bytes,6 minutes per request, and15 minutes per goal.
+Freeze an absolute deadline, create-only paths, repaired build identities, source transitions,
+declaration fingerprint, and the existing semantic rubric's byte identity before inference.
+Verify dedicated daemon lifetime through that deadline and cleanup. Retain Records' original
+build and seal. Repairs do not authorize rewriting historical artifacts.
+
+Stop on underprediction, missing/nonpositive usage, terminal WINDOW, summary failure, partial
+product, operational failure, or an exhausted limit. Preserve first failures without retry,
+recovery, refitting, window expansion, or extension. A failed result admits no automatic rerun.
+
+Acceptance requires96 completed goals, no failed/partial product, valid positive usage and
+unambiguous canonical-to-wire joins for every dispatched gauged request, zero underpredictions,
+and exercised pressure: oversized admission followed by successful summary and a smaller
+admitted request. Require successful summary-bearing requests after compaction. Report signed
+residuals before/after compaction, observed maxima, and actuals in[10598.4,11776] descriptively.
+Absence of near-room actuals permits no claim about that band.
+
+The result can establish one qualified Compaction trajectory over its observed request range.
+The reused workload makes it development evidence. It cannot establish population performance,
+unseen-workload generalization, causal repair gains, or a quality-valid cross-build comparison.
+Grade retained Records and Compaction products offline with the precommitted semantic rubric;
+generate neither arm again solely for grading. Performance replay remains separately bounded.
+
 # Repair qualification and implement observation
 
 The user authorized repairing the failed series and Study on 2026-10-15 and reaffirmed parallel performance implementation. Use actual Opus for open repair design and independent review, Sonnet for closed implementation, and Haiku for precise checks. Fable is forbidden without fresh permission. Accepted performance decisions remain in performance.md.

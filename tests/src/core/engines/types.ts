@@ -1,5 +1,6 @@
 import type { RecorderInterface } from '@orkestrel/test'
 import type { StudyControl, StudyMeter, StudyScope } from '../../../../src/core/engines/index.js'
+import type { StudyError } from '../../../../src/core/errors.js'
 import type {
 	StudyAttempt,
 	StudyContext,
@@ -10,6 +11,16 @@ import type {
 	StudyStoreInterface,
 	StudyTrial,
 } from '../../../../src/core/types.js'
+
+/** Holds a separately evaluated copy of the real study error module. */
+export interface StudyErrorCopy {
+	/** Holds the copy's own error class. */
+	readonly error: unknown
+	/** Constructs an error through the copy's own class. */
+	readonly create: (...values: ConstructorParameters<typeof StudyError>) => unknown
+	/** Applies the copy's own error guard. */
+	readonly recognize: (value: unknown) => boolean
+}
 
 /** Declares one driver result against the output admission it must meet. */
 export interface StudyAdmissionCase {
