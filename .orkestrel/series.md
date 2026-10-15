@@ -41,3 +41,44 @@ Adopt Agent-owned measureMessage/measureRequest helpers with disjoint content, f
 Recovery stays outside the strict instrument. The planner's proposed catch-and-compact cannot be adopted without addressing the transport's latched failure and Study's cancelled meters, as the analyst identified. Do not clear these owners or recreate budgets. A recovery unit must own a defined eligible pre-dispatch failure boundary, independently admit repair input, prevent repeated side effects/arrivals, and preserve the original failure. Source changes and execution for that separate treatment follow a frozen protocol; they do not block strict component measurement or strict qualification.
 
 Interpretation: the harness and model together are the evaluated system, and multiple-attempt success answers a different question from first-attempt success; see [Anthropic's evaluation guidance](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents). The separation in this plan is a design choice for this series. After recovery changes trajectory state, subsequent goals belong to that recovery trajectory; they cannot be counted as independent strict attempts. Improvements tuned against this workload remain development evidence until tested on a held-out workload.
+# Successor qualification, October 15
+
+The old chain is closed as a failed experiment. Its original deadline remains
+2026-10-15T08:54:21.154Z; the last start admitting a complete 21660000 ms launch was
+02:53:21.154Z. Do not extend it or launch quality against its failed capacity result.
+
+After integrated evidence review, freeze a separate calibration diagnostic: 24 goal executions,
+192 agent calls and 45 minutes including preparation/cleanup. Use two fresh Full executions of
+the first public goal as repeated-input controls, then a fresh Full trajectory at positions
+1 through 22. Reserve entire positions 4,8,12,16,20,22 as held-out observations before inference;
+all other trajectory positions train the gauge. The controls belong to neither set. Preserve
+every failure and the first over-room actual reading. No automatic extension or refit.
+
+Fit positive-slope ordinary least squares on exact request estimate versus actual prompt count.
+The overhead is max(0, fitted intercept plus maximum training residual); scale is fitted slope.
+Persist training membership and coefficients before reading held-out results. Require finite
+coefficients, varying estimates, unambiguous canonical-to-wire joins, valid usage and zero
+held-out underprediction. Held-out evidence must cover at least three designated positions,
+including a prompt in [0.9W,W], where W=20480-8192-512=11776. Missing pressure coverage is
+inconclusive. An underprediction within actual room invalidates calibration; it does not by
+itself establish poor model quality. Do not name residuals template overhead.
+
+Full contexts do not establish transfer to summary-bearing Compaction contexts. A subsequent
+fresh qualification must complete both 96-goal Records and Compaction trials, with no partial
+product, invalid usage, capacity/operational failure or underprediction. Require exercised
+Compaction pressure and successful compaction: an oversized admission measurement followed by
+a smaller admitted request is valid pressure evidence. Do not require a narrowly chosen admitted
+token band when compaction deliberately reduces it. Records captures checkpoint positions
+8,16,24,32,40,48,56,64,72,80,88,96 during this necessary qualification.
+
+Freeze fresh create-only profile, result paths, build identities and declaration fingerprints.
+Qualification and quality each retain the existing six-hour execution plus one-minute launcher
+allowance: twelve hours two minutes after calibration. Root must accept sealed qualification
+before quality starts. The dedicated daemon lifetime must cover that prospective deadline and
+cleanup; restart the idle dedicated daemon if necessary, never the user's daemon. These are
+new bounded experiments, not extensions of candidate3. No additional hidden retries, window
+increase or deadline reset. Performance replay remains its separately accepted 60-minute stage.
+
+The reused endurance workload has informed these repairs. Describe its quality reading as
+development evidence; calibration holdout does not make endurance an untouched benchmark.
+
