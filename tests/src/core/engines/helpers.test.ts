@@ -26,6 +26,26 @@ describe('study engine error attribution', () => {
 		expect(readStudyFailure(undefined).cause).toBe('infrastructure')
 	})
 
+	it('preserves refused completed content with its cause and role through the FAULT code', () => {
+		const failure: StudyFailure = {
+			cause: 'content',
+			message: 'Summary content was unusable',
+			role: 'summary',
+		}
+		const error = failureToStudyError(failure)
+		expect(error.code).toBe('FAULT')
+		expect(error.message).toBe(failure.message)
+		expect(readStudyFailure(error)).toBe(failure)
+		expect(readStudyFailure(error)).toEqual({
+			cause: 'content',
+			message: failure.message,
+			role: 'summary',
+		})
+		expect(readStudyFailure(new StudyError('FAULT', 'Summary content was unusable')).cause).toBe(
+			'infrastructure',
+		)
+	})
+
 	it('attributes a bare capacity error to capacity', () => {
 		expect(readStudyFailure(new StudyError('CAPACITY', 'No request room'))).toEqual({
 			cause: 'capacity',

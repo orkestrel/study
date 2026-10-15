@@ -309,11 +309,11 @@ it('accepts JSON products with partial status and refuses non-JSON or hostile ou
 
 it('accepts exactly the declared roles and operational causes in their frozen report order', () => {
 	expect(STUDY_ROLES).toEqual(['agent', 'judge', 'summary', 'metadata', 'tool'])
-	expect(STUDY_CAUSES).toEqual(['capacity', 'infrastructure', 'deadline', 'interrupted'])
+	expect(STUDY_CAUSES).toEqual(['capacity', 'infrastructure', 'deadline', 'interrupted', 'content'])
 	expect(Object.isFrozen(STUDY_ROLES) && Object.isFrozen(STUDY_CAUSES)).toBe(true)
 	for (const role of ['agent', 'judge', 'summary', 'metadata', 'tool'])
 		expect(isStudyRole(role)).toBe(true)
-	for (const cause of ['capacity', 'infrastructure', 'deadline', 'interrupted'])
+	for (const cause of ['capacity', 'infrastructure', 'deadline', 'interrupted', 'content'])
 		expect(isStudyCause(cause)).toBe(true)
 	for (const value of ['Agent', 'success', '', undefined, null, 0, ['tool'], { role: 'tool' }]) {
 		expect(isStudyRole(value)).toBe(false)
@@ -321,6 +321,8 @@ it('accepts exactly the declared roles and operational causes in their frozen re
 	}
 	expect(isStudyRole('capacity')).toBe(false)
 	expect(isStudyCause('tool')).toBe(false)
+	expect(isStudyCause('Content')).toBe(false)
+	expect(isStudyCause('decoder')).toBe(false)
 })
 
 it('carries no format counter in a grading identity', () => {

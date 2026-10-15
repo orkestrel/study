@@ -70,6 +70,11 @@ describe('process validators', () => {
 			false,
 		)
 		expect(isStudyProcessFailure({ cause: 'success', message: 'won' })).toBe(false)
+		expect(isStudyProcessFailure({ cause: 'content', message: 'unusable', role: 'summary' })).toBe(
+			true,
+		)
+		expect(isStudyProcessFailure({ cause: 'content', message: 'unusable' })).toBe(true)
+		expect(isStudyProcessFailure({ cause: 'Content', message: 'unusable' })).toBe(false)
 		expect(isStudyEvidence({ event: 'saved', goal: 'write', value: 'one' })).toBe(true)
 		expect(isStudyEvidence({ event: 'saved', goal: '', value: 'one' })).toBe(false)
 		expect(isStudyTrial({ id: 'trial', scenario: 'first', arm: 'tool', repetition: 0 })).toBe(true)

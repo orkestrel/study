@@ -33,4 +33,5 @@ export const STUDY_CAUSES: readonly StudyCause[] = Object.freeze([
 	'infrastructure',
 	'deadline',
 	'interrupted',
+	'content',
 ])

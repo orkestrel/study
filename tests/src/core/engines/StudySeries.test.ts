@@ -1,7 +1,8 @@
+import type { StudyFailure, StudyProduct } from '../../../../src/core/types.js'
 import { waitForCondition } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import { StudySeries } from '../../../../src/core/engines/index.js'
-import type { StudyProduct } from '../../../../src/core/types.js'
+import { StudyError } from '../../../../src/core/errors.js'
 import {
 	buildCompactCustodyManifest,
 	buildStudyCapacityManifest,
@@ -59,6 +60,66 @@ describe('StudySeries', () => {
 		expect(driver.executed.count).toBe(4)
 		expect(driver.closed.count).toBe(2)
 		expect(custody.started.count).toBe(2)
+		expect(custody.attempts.count).toBe(2)
+	})
+
+	it('propagates an attached content failure through the horizon without retry and keeps settled usage', async () => {
+		const manifest = buildCompactCustodyManifest()
+		const refused: StudyFailure = {
+			cause: 'content',
+			message: 'Summary content was unusable',
+			role: 'summary',
+		}
+		const driver = createStudyDriverFixture({
+			execute: async (_goal, context): Promise<StudyProduct> => {
+				const ticket = context.meter.admit({ role: 'summary', tokens: 10, bytes: 10 })
+				ticket.finish({ role: 'summary', calls: 1, tokens: 7, bytes: 9, duration: 1 })
+				throw new StudyError('FAULT', refused.message, refused)
+			},
+		})
+		const custody = createStudyStoreFixture()
+		const attempts = await new StudySeries({
+			manifest,
+			driver: driver.driver,
+			store: custody.store,
+			signal: new AbortController().signal,
+		}).execute()
+		expect(attempts.map((attempt) => attempt.trial.id)).toEqual(
+			manifest.schedule.map((trial) => trial.id),
+		)
+		const [first, second] = attempts
+		expect(first?.executed).toBe(true)
+		expect(first?.failure).toEqual(refused)
+		expect(
+			first?.observations.map((observation) => [observation.goal, observation.executed]),
+		).toEqual([
+			['write', true],
+			['read', false],
+		])
+		expect(first?.observations[0]?.failure).toEqual(refused)
+		expect(first?.observations[0]?.product).toBeUndefined()
+		expect(first?.observations[0]?.usage).toMatchObject([
+			{ role: 'summary', calls: 1, tokens: 7, bytes: 9 },
+		])
+		expect(first?.observations[1]?.failure).toEqual({
+			...refused,
+			message: `Goal unexecuted: ${refused.message}`,
+		})
+		expect(first?.observations[1]?.usage).toEqual([])
+		expect(second?.executed).toBe(false)
+		expect(second?.failure).toEqual(refused)
+		expect(second?.observations.map((observation) => observation.executed)).toEqual([false, false])
+		expect(
+			second?.observations.every(
+				(observation) =>
+					observation.product === undefined &&
+					observation.failure?.cause === 'content' &&
+					observation.failure.role === 'summary' &&
+					observation.failure.message === `Goal unexecuted: ${refused.message}`,
+			),
+		).toBe(true)
+		expect(driver.opened.count).toBe(1)
+		expect(driver.executed.calls).toEqual([['write']])
 		expect(custody.attempts.count).toBe(2)
 	})
 

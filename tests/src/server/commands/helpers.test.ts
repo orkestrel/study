@@ -1,3 +1,4 @@
+import type { StudyFailure } from '../../../../src/core/types.js'
 import { createScratch } from '@orkestrel/test/server'
 import { appendFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
@@ -163,6 +164,7 @@ describe('study command helpers', () => {
 					{ cause: 'infrastructure', executed: 1, unexecuted: 0 },
 					{ cause: 'deadline', executed: 1, unexecuted: 0 },
 					{ cause: 'interrupted', executed: 0, unexecuted: 1 },
+					{ cause: 'content', executed: 0, unexecuted: 0 },
 				],
 			},
 			goals: {
@@ -177,9 +179,47 @@ describe('study command helpers', () => {
 					{ cause: 'infrastructure', executed: 0, unexecuted: 2 },
 					{ cause: 'deadline', executed: 0, unexecuted: 1 },
 					{ cause: 'interrupted', executed: 0, unexecuted: 2 },
+					{ cause: 'content', executed: 0, unexecuted: 0 },
 				],
 			},
 		})
+	})
+
+	it('reports a first executed content failure with the goals it leaves unexecuted under the same cause, apart by the executed fact', () => {
+		const manifest = buildCustodyManifest()
+		const refused: StudyFailure = {
+			cause: 'content',
+			message: 'Summary content was unusable',
+			role: 'summary',
+		}
+		const attempts = buildStudyOperationAttempts(manifest).map((attempt, index) =>
+			index === 0
+				? buildStudyAttempt(
+						attempt.trial,
+						true,
+						[
+							buildStudyObservation('write', true, { product: undefined, failure: refused }),
+							buildStudyObservation('read', false, {
+								failure: { ...refused, message: `Goal unexecuted: ${refused.message}` },
+							}),
+						],
+						refused,
+					)
+				: attempt,
+		)
+		const result = buildStudyReportResult(attempts, manifest)
+		const report = computeStudyReport(
+			result,
+			buildStudyRubric(),
+			buildCustodyGrading(result, buildStudyRubric()),
+		)
+		if (!isRecord(report) || !isRecord(report.operations)) throw new Error('Missing operations')
+		const { trials, goals } = report.operations
+		if (!isRecord(trials) || !isRecord(goals)) throw new Error('Missing partitions')
+		expect(trials.faults).toContainEqual({ cause: 'content', executed: 1, unexecuted: 0 })
+		expect(goals.faults).toContainEqual({ cause: 'content', executed: 1, unexecuted: 1 })
+		expect(goals.faults).toContainEqual({ cause: 'interrupted', executed: 0, unexecuted: 2 })
+		expect(goals.faults).toContainEqual({ cause: 'infrastructure', executed: 0, unexecuted: 2 })
 	})
 
 	it('excludes a product that carries a failure from completion and counts each affected record once per cause', () => {
@@ -228,6 +268,7 @@ describe('study command helpers', () => {
 					{ cause: 'infrastructure', executed: 2, unexecuted: 0 },
 					{ cause: 'deadline', executed: 2, unexecuted: 0 },
 					{ cause: 'interrupted', executed: 0, unexecuted: 1 },
+					{ cause: 'content', executed: 0, unexecuted: 0 },
 				],
 			},
 			goals: {
@@ -242,6 +283,7 @@ describe('study command helpers', () => {
 					{ cause: 'infrastructure', executed: 0, unexecuted: 2 },
 					{ cause: 'deadline', executed: 1, unexecuted: 2 },
 					{ cause: 'interrupted', executed: 0, unexecuted: 2 },
+					{ cause: 'content', executed: 0, unexecuted: 0 },
 				],
 			},
 		})

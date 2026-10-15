@@ -6,8 +6,13 @@ export type StudyPurpose = 'mechanism' | 'quality' | 'capacity'
 /** Names a request's measured responsibility. */
 export type StudyRole = 'agent' | 'judge' | 'summary' | 'metadata' | 'tool'
 
-/** Names an operational ending separately from task achievement. */
-export type StudyCause = 'capacity' | 'infrastructure' | 'deadline' | 'interrupted'
+/**
+ * Names an operational ending separately from task achievement.
+ * @remarks
+ * `content` means a request completed but its consumer refused the content as unusable. It
+ * claims no model or decoder cause and grades no semantic quality.
+ */
+export type StudyCause = 'capacity' | 'infrastructure' | 'deadline' | 'interrupted' | 'content'
 
 /** Names malformed configuration, evidence, custody and operational failures. */
 export type StudyErrorCode = 'CONFIG' | 'EVIDENCE' | 'CUSTODY' | 'CAPACITY' | 'FAULT' | 'DEADLINE'

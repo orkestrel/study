@@ -99,6 +99,21 @@ describe('custody validators', () => {
 			true,
 		)
 		expect(isStudyCustodyFailure({ cause: 'success', message: 'Awarded' })).toBe(false)
+		const refused = { cause: 'content', message: 'Summary content was unusable', role: 'summary' }
+		expect(isStudyCustodyFailure(refused)).toBe(true)
+		expect(isStudyCustodyFailure({ ...refused, cause: 'Content' })).toBe(false)
+		const sealed = {
+			...attempt,
+			failure: refused,
+			observations: [
+				buildStudyObservation('write', true, { product: undefined, failure: refused }),
+				buildStudyObservation('read', false),
+			],
+		}
+		expect(isStudyCustodyAttempt(sealed, manifest)).toBe(true)
+		expect(
+			isStudyCustodyAttempt({ ...sealed, failure: { ...refused, cause: 'decoder' } }, manifest),
+		).toBe(false)
 		expect(isStudyCustodyFailure({ cause: 'capacity', message: '', role: undefined })).toBe(false)
 		expect(isStudyCustodyFailure({ cause: 'capacity', message: 'Full', role: 'tool' })).toBe(true)
 		expect(isStudyCustodyFailure({ cause: 'capacity', message: 'Full', role: 'foreign' })).toBe(
