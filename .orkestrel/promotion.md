@@ -3,7 +3,8 @@
 The 2026-10-15 review recommends promoting reusable Agent instrumentation from Agent's
 authored studies into Study. Agent is the common runtime for studies; the package under
 study owns its workload, treatment choices, tools, and grading criteria. This document
-records a completed source review and a proposed extraction. No extraction is implemented.
+records the accepted extraction and its implementation. The user authorized promotion on
+2026-10-15. Implementation is in progress.
 
 The review covers Agent `c3e0f41`, Study `a37cc37`, the authored `studies/` file census,
 their proofs under `tests/studies/`, Study's execution and custody contracts, and the
@@ -210,3 +211,28 @@ uncapped. Grok session `c8db85b1-b360-40c6-91ef-4ea7a90f8c3c` completed in 44413
 exit 0, uncapped. Citation checks resolved the map's 76 references and the opinion's
 44 references after expanding its shortened paths. Those checks establish location,
 not semantic correctness. No Fable lane was dispatched.
+
+## Implementation routing
+
+The exit criterion above is unchanged. Source `a89a400` is the implementation baseline.
+The published registry currently resolves Agent 0.0.30, Ollama 0.0.23, Contract 0.0.19,
+Tool 0.0.19, MCP 0.0.38, and Scaffold 0.0.101. Study is not published. Agent and Ollama
+are declared dependencies here; runtime construction continues through admitted namespaces.
+
+Parallel writers use isolated worktrees. Sonnet implements runtime selection and optional
+auxiliary contracts; Opus implements the Agent and Ollama instrumentation; Sonnet implements
+ticket settlement and grading traversal. Each owns its worktree, including corresponding
+proofs. Shared changes are integrated serially by the orchestrator. Agent migration follows
+those units, with the non-Agent subject proof and documentation. Independent audit and gates
+follow integration. No unit publishes, commits, installs, runs live model studies, or edits
+another unit's worktree. Fable is excluded.
+
+The running Compaction series resolves Study from Agent's normal copied node_modules
+directory, not the Study checkout. Keep that installation and the frozen project/runtime
+unchanged. Study checkout dependency installation and isolated worktree builds are separate.
+At 15:38 UTC the series had 94 result events, 12 summaries, and no recorded failure.
+
+Claude Sonnet liveness passed with READY, session 177aaed5-f512-474e-accc-20fcf875b802,
+4574 ms, exit 0, uncapped. The user explicitly requested Claude models for this work,
+overriding the usual Codex engine mapping. Implementation caps allow 30 minutes: the prior
+Opus review took 430581 ms, plus source changes, scoped proof commands, and slack.
