@@ -1428,6 +1428,49 @@ export const STUDY_OLLAMA_STATUS_FAILURES: readonly OllamaStatusFailureFixture[]
 		code: 'CAPACITY',
 		message: 'Ollama wire byte allowance exceeded',
 	},
+	{
+		name: 'a multi-line JSON body on HTTP 500',
+		status: 500,
+		body: JSON.stringify({ error: 'model runner crashed' }, null, 2),
+		code: 'FAULT',
+		message: 'Ollama HTTP 500 error: model runner crashed',
+	},
+	{
+		name: 'an empty body on HTTP 502',
+		status: 502,
+		body: '',
+		code: 'FAULT',
+		message: 'Ollama HTTP response refused: 502',
+	},
+	{
+		name: 'an overlong error reason on HTTP 500',
+		status: 500,
+		body: JSON.stringify({ error: `model runner crashed: ${'x'.repeat(300)}` }),
+		code: 'FAULT',
+		message: 'Ollama HTTP 500 error: model runner crashed',
+	},
+])
+
+/** Supplies 200 response bodies that break the row protocol, with the failure each latches without a role. */
+export const STUDY_OLLAMA_ROW_FAULTS: readonly OllamaStreamFailureFixture[] = Object.freeze([
+	{
+		name: 'a stream with no terminal row',
+		body: STUDY_OLLAMA_PARTIAL_ROW,
+		message: 'Ollama response has no terminal row',
+		cause: 'infrastructure',
+	},
+	{
+		name: 'a row after the terminal',
+		body: `${buildOllamaRow()}${buildOllamaRow()}`,
+		message: 'Ollama emitted a row after its terminal',
+		cause: 'infrastructure',
+	},
+	{
+		name: 'an unparsable stream row',
+		body: '{broken\n',
+		message: 'JSON',
+		cause: 'infrastructure',
+	},
 ])
 
 /** Resolves the canonical root of an installed package as Node resolves it from a directory.

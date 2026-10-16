@@ -1,5 +1,6 @@
 import type { JudgeInterface } from '@orkestrel/agent'
 import { describe, expect, it } from 'vitest'
+import { parseJSON } from '@orkestrel/contract'
 import { captureError, requireValue } from '@orkestrel/test'
 import { StudyAgentJudge } from '../../../../src/core/agents/StudyAgentJudge.js'
 import { StudyError } from '../../../../src/core/errors.js'
@@ -17,6 +18,7 @@ import {
 } from '../../../setupStudy.js'
 import {
 	STUDY_OLLAMA_CHAT_BODY,
+	STUDY_OLLAMA_ROW_FAULTS,
 	STUDY_OLLAMA_STREAM_FAILURES,
 	STUDY_OLLAMA_STATUS_FAILURES,
 	buildOllamaStrictRoles,
@@ -174,11 +176,44 @@ describe('StudyOllamaTransport', () => {
 		},
 	)
 
+	it.each(STUDY_OLLAMA_ROW_FAULTS)(
+		'latches $name before any later dispatch, failing its ticket without a wire row',
+		async ({ body, message, cause }) => {
+			const fixture = await createOllamaTransportFixture([{ path: '/api/chat', body }])
+			try {
+				const provider = createOllamaTransportProvider(fixture.transport, fixture.server.url)
+				const signal = new AbortController().signal
+				const outcome = await provider.generate(STUDY_AGENT_MESSAGES, signal).then(
+					() => undefined,
+					(error: unknown) => error,
+				)
+				expect(outcome).toBeDefined()
+				const retained = readStudyFailure(captureError(() => fixture.transport.check()))
+				expect(retained.cause).toBe(cause)
+				expect(retained.message).toContain(message)
+				expect(fixture.goal.usage()).toEqual([
+					{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
+				])
+				const failure = fixture.goal.evidence.find((row) => row.event === 'wire-failure')
+				expect(failure?.value).toMatchObject({ role: 'agent', path: '/api/chat', status: 200 })
+				expect(fixture.goal.evidence.some((row) => row.event === 'wire')).toBe(false)
+				await provider.generate(STUDY_AGENT_MESSAGES, signal).then(
+					() => undefined,
+					() => undefined,
+				)
+				expect(fixture.server.requests).toHaveLength(1)
+			} finally {
+				await fixture.close()
+			}
+		},
+	)
+
 	it.each(STUDY_OLLAMA_STATUS_FAILURES)(
 		'reads $name once under the wire bounds and accounts it before refusal',
 		async ({ status, body, code, message }) => {
+			const allowance = 2048
 			const fixture = await createOllamaTransportFixture([{ path: '/api/chat', body, status }], {
-				limit: { duration: 2000, bytes: 2048 },
+				limit: { duration: 2000, bytes: allowance },
 			})
 			try {
 				const init = { method: 'POST', body: STUDY_OLLAMA_CHAT_BODY }
@@ -195,34 +230,186 @@ describe('StudyOllamaTransport', () => {
 				expect(fixture.goal.usage()).toEqual([
 					{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
 				])
-				const failure = fixture.goal.evidence.find((row) => row.event === 'wire-failure')
-				expect(failure?.value).toMatchObject({ role: 'agent', status })
+				const failure = requireStudyRecord(
+					fixture.goal.evidence.find((row) => row.event === 'wire-failure')?.value,
+				)
+				expect(failure).toMatchObject({ role: 'agent', status })
+				// Every byte read is retained, request included, up to the first chunk past the allowance.
+				const read =
+					encoder.encode(STUDY_OLLAMA_CHAT_BODY).byteLength + encoder.encode(body).byteLength
+				expect(Math.min(Number(failure.bytes), allowance + 1)).toBe(Math.min(read, allowance + 1))
+				expect(String(failure.reason)).toContain(message)
+				expect(String(failure.reason).length).toBeLessThanOrEqual(256)
 			} finally {
 				await fixture.close()
 			}
 		},
 	)
 
-	it('accounts the actual tokens and wire row before refusing a completion over its allowance', async () => {
-		const fixture = await createOllamaTransportFixture([
-			{ path: '/api/chat', body: buildOllamaRow({ prompt: 10, completion: 600 }) },
-		])
+	it.each([
+		[
+			'a completion over its allowance',
+			'agent',
+			600,
+			'Actual generation exceeded the output allowance',
+		],
+		[
+			'a summary completion at its own output cap',
+			'summary',
+			256,
+			'Substantive generation reached its output cap',
+		],
+	] as const)(
+		'accounts the actual tokens and wire row before refusing %s',
+		async (_name, role, completion, message) => {
+			const fixture = await createOllamaTransportFixture([
+				{ path: '/api/chat', body: buildOllamaRow({ prompt: 10, completion }) },
+			])
+			try {
+				const provider = createOllamaTransportProvider(fixture.transport, fixture.server.url, role)
+				await provider.generate(STUDY_AGENT_MESSAGES, new AbortController().signal).then(
+					() => undefined,
+					() => undefined,
+				)
+				const usage = fixture.goal.usage().map((row) => [row.role, row.tokens])
+				expect(usage).toEqual([[role, 10 + completion]])
+				const wire = fixture.goal.evidence.find((row) => row.event === 'wire')
+				expect(wire?.value).toMatchObject({ role, prompt: 10, completion, finish: 'stop' })
+				expect(fixture.goal.evidence.some((row) => row.event === 'wire-failure')).toBe(false)
+				expect(readStudyFailure(captureError(() => fixture.transport.check()))).toEqual({
+					cause: 'capacity',
+					message,
+					role,
+				})
+			} finally {
+				await fixture.close()
+			}
+		},
+	)
+
+	it('refuses a chat request whose reserved room exceeds the request token allowance before it reaches the server', async () => {
+		const fixture = await createOllamaTransportFixture([], {
+			room: { context: 65536, safety: 128 },
+		})
 		try {
 			const provider = createOllamaTransportProvider(fixture.transport, fixture.server.url)
 			await provider.generate(STUDY_AGENT_MESSAGES, new AbortController().signal).then(
 				() => undefined,
 				() => undefined,
 			)
-			const usage = fixture.goal.usage().map(({ role, tokens }) => [role, tokens])
-			expect(usage).toEqual([['agent', 610]])
-			const wire = fixture.goal.evidence.find((row) => row.event === 'wire')
-			expect(wire?.value).toMatchObject({ prompt: 10, completion: 600, finish: 'stop' })
-			expect(fixture.goal.evidence.some((row) => row.event === 'wire-failure')).toBe(false)
-			expect(readStudyFailure(captureError(() => fixture.transport.check()))).toEqual({
-				cause: 'capacity',
-				message: 'Actual generation exceeded the output allowance',
-				role: 'agent',
+			expect(captureError(() => fixture.transport.check())).toMatchObject({
+				code: 'CAPACITY',
+				message: 'Request ceiling exceeds the request allowance',
 			})
+			expect(fixture.server.requests).toEqual([])
+			expect(fixture.goal.usage()).toEqual([])
+			expect(fixture.goal.evidence).toEqual([])
+		} finally {
+			await fixture.close()
+		}
+	})
+
+	it('aborts a hung response at its request deadline and retains the observed timeline without timing', async () => {
+		const fixture = await createOllamaTransportFixture(
+			[{ path: '/api/chat', body: STUDY_OLLAMA_PARTIAL_ROW, open: true }],
+			{ observe: true, limit: { duration: 200, bytes: 1048576 } },
+		)
+		try {
+			const dispatch = { id: 1, revision: 'f'.repeat(64) }
+			const init = { method: 'POST', body: STUDY_OLLAMA_CHAT_BODY }
+			const outcome = await fixture.transport
+				.fetch('agent', `${fixture.server.url}/api/chat`, init, dispatch)
+				.then((response) => response.text())
+				.then(
+					() => undefined,
+					(error: unknown) => error,
+				)
+			expect(outcome).toMatchObject({ name: 'TimeoutError' })
+			expect(captureError(() => fixture.transport.check())).toBe(outcome)
+			expect(fixture.goal.usage()).toEqual([
+				{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
+			])
+			expect(fixture.goal.evidence.map((row) => row.event)).toEqual(['dispatch', 'wire-failure'])
+			const [sent, failure] = fixture.goal.evidence.map((row) => requireStudyRecord(row.value))
+			expect(Object.keys(failure ?? {}).sort()).toEqual([
+				'bytes',
+				'canonical',
+				'elapsed',
+				'id',
+				'path',
+				'reason',
+				'revision',
+				'role',
+				'sent',
+				'started',
+				'status',
+			])
+			expect(failure).toMatchObject({
+				role: 'agent',
+				path: '/api/chat',
+				status: 200,
+				id: sent?.id,
+				canonical: 1,
+				revision: 'f'.repeat(64),
+			})
+			expect(Number(failure?.elapsed)).toBeGreaterThan(0)
+		} finally {
+			await fixture.close()
+		}
+	})
+
+	it('joins observed metadata, agent and judge dispatches to the previous model, reads raw judge units, and keeps metadata timing null', async () => {
+		const fixture = await createOllamaTransportFixture([], { observe: true })
+		try {
+			const signal = new AbortController().signal
+			const provider = createOllamaTransportProvider(fixture.transport, fixture.server.url)
+			const real = createOllamaJudgeFixture(
+				fixture.server.url,
+				(input: string | URL | Request, init?: RequestInit) =>
+					fixture.transport.fetch('judge', input, init),
+			)
+			const judge = new StudyAgentJudge(real, fixture.transport)
+			await provider.generate(STUDY_AGENT_MESSAGES, signal)
+			await fixture.transport.verify()
+			await judge.ask(STUDY_JUDGE_REQUEST, signal)
+			await provider.generate(STUDY_AGENT_MESSAGES, signal)
+			const dispatches = fixture.goal.evidence
+				.filter((row) => row.event === 'dispatch')
+				.map((row) => requireStudyRecord(row.value))
+			expect(
+				dispatches.map(({ id, role, model, previous, changed }) => [
+					id,
+					role,
+					model,
+					previous,
+					changed,
+				]),
+			).toEqual([
+				[1, 'agent', 'model', null, false],
+				[2, 'metadata', null, 'model', false],
+				[3, 'metadata', 'model', 'model', false],
+				[4, 'metadata', 'judge', 'model', false],
+				[5, 'judge', 'judge', 'model', true],
+				[6, 'agent', 'model', 'judge', true],
+			])
+			const generate = requireValue(
+				fixture.server.requests.find((request) => request.path === '/api/generate'),
+			)
+			const prompt = requireStudyRecord(parseJSON(generate.body)).prompt
+			if (typeof prompt !== 'string') throw new Error('Missing raw judge prompt')
+			expect(dispatches.map((value) => value.raw)).toEqual([
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ encoding: 'utf-8', units: prompt.length, bytes: Buffer.byteLength(prompt, 'utf8') },
+				undefined,
+			])
+			const metadata = fixture.goal.evidence
+				.filter((row) => row.event === 'wire')
+				.map((row) => requireStudyRecord(row.value))
+				.filter((value) => value.role === 'metadata')
+			expect(metadata.map((value) => value.timing)).toEqual([null, null, null])
 		} finally {
 			await fixture.close()
 		}

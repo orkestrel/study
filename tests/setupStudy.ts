@@ -1128,6 +1128,12 @@ export const STUDY_SUMMARY_MESSAGES: readonly Message[] = Object.freeze<readonly
 	{ id: 'h2', role: 'assistant', content: 'First answer' },
 ])
 
+/** Supplies terminal rows whose actual prompt equals or exceeds STUDY_AGENT_PROJECTION, which a summary must still complete under. */
+export const STUDY_SUMMARY_PROMPTS: readonly OllamaRowFixture[] = Object.freeze([
+	Object.freeze({ prompt: STUDY_AGENT_PROJECTION }),
+	...STUDY_AGENT_MISSES,
+])
+
 /** Joins every message to the declared `history` origin and its own id, as an inert consumer origin handler.
  * @param messages - The measured request's messages.
  * @returns One origin entry per message in order.
@@ -1291,6 +1297,7 @@ export const STUDY_SCRIPT_INVALID_RESPONSES: readonly unknown[] = Object.freeze(
 	{ content: '', calls: [], tokens: -1 },
 	{ content: '', calls: [], tokens: 1.5 },
 	{ content: '', calls: [], tokens: '1' },
+	{ content: '', calls: [], tokens: Number.NaN },
 	{ content: '', calls: [], bytes: Number.MAX_SAFE_INTEGER + 1 },
 	{ content: '', calls: [], bytes: Number.NaN },
 ])

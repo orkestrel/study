@@ -11,6 +11,7 @@ import {
 	STUDY_OLLAMA_PARTIAL_ROW,
 	STUDY_SUMMARY_INSTRUCTION,
 	STUDY_SUMMARY_MESSAGES,
+	STUDY_SUMMARY_PROMPTS,
 	buildOllamaReplies,
 	buildOllamaRow,
 	createStudyAgentSummary,
@@ -196,6 +197,30 @@ describe('StudyAgentSummary', () => {
 		)
 		expect(admitted.wire.requests).toHaveLength(1)
 	})
+
+	it.each(STUDY_SUMMARY_PROMPTS)(
+		'completes a summary whose actual prompt of $prompt reaches its projection, keeping the forecast and retaining no refusal',
+		async (row) => {
+			const fixture = createStudyAgentSummary({
+				replies: [{ path: '/api/chat', body: buildOllamaRow({ ...row, content: 'Recap' }) }],
+				observe: true,
+				limit: 1000,
+			})
+			const sink = createStudySinkFixture()
+			fixture.trace.start('write')
+			await expect(fixture.summary.summarize(STUDY_SUMMARY_MESSAGES, undefined)).resolves.toBe(
+				'Recap',
+			)
+			expect(fixture.wire.requests).toHaveLength(1)
+			await fixture.trace.flush(sink.sink)
+			expect(sink.rows.map((entry) => entry.event)).toEqual(['context', 'summary'])
+			expect(sink.rows[0]?.value).toMatchObject({
+				stage: 'dispatch',
+				role: 'summary',
+				projected: STUDY_AGENT_PROJECTION,
+			})
+		},
+	)
 
 	it('refuses at the limit without retaining a row when observation is off', async () => {
 		const fixture = createStudyAgentSummary({

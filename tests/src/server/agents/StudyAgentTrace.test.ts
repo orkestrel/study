@@ -190,12 +190,14 @@ describe('StudyAgentTrace', () => {
 		expect(sink.rows).toEqual([{ event: 'lookup', goal: 'write', value: { id: 'during' } }])
 	})
 
-	it('retains one refusal row per refused identity naming the retained admission, and latches every translation', async () => {
+	it('retains one refusal row per refused identity naming the retained agent admission across summary measurements, and latches every translation', async () => {
 		const { trace, latch } = createStudyAgentTrace(true)
 		const sink = createStudySinkFixture()
 		const revision = buildStudyAgentRevision(first)
 		trace.start('write')
 		trace.admit(first, STUDY_AGENT_GAUGE)
+		trace.measure('admission', 'summary', second, reading, undefined)
+		trace.dispatch('summary', second, reading)
 		const window = new AgentError('WINDOW', 'Full', { context: { consumed: 700, max: 600 } })
 		const translated = trace.translate(window)
 		expect(trace.translate(window)).toEqual(translated)
