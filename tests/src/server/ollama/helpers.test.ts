@@ -222,6 +222,24 @@ describe('validateStudyOllamaCompletion', () => {
 		expect(outcome).toMatchObject({ code, failure: { role: 'agent' } })
 	})
 
+	it('retains the summary role in the failure of a prompt one over the summary room', () => {
+		const summaryRequest: StudyOllamaRequest = { ...agentRequest, role: 'summary' }
+		const outcome = captureError(() =>
+			validateStudyOllamaCompletion(
+				{ prompt: 32129, completion: 2, reason: 'stop' },
+				room,
+				summaryRequest,
+			),
+		)
+		expect(outcome).toBeInstanceOf(StudyError)
+		expect(outcome).toMatchObject({
+			code: 'CAPACITY',
+			message: 'Actual prompt exceeded reserved context capacity',
+			failure: { role: 'summary' },
+		})
+		expect(readStudyFailure(outcome)).toMatchObject({ cause: 'capacity', role: 'summary' })
+	})
+
 	it('admits the one-token length finish only where the policy declares it', () => {
 		const terminal = { prompt: 10, completion: 1, reason: 'length' }
 		expect(() => validateStudyOllamaCompletion(terminal, room, judgeRequest)).not.toThrow()
@@ -410,6 +428,24 @@ describe('timing and raw observations', () => {
 			throw new Error('Refused timing')
 		}, {})
 		expect(refused).toBeUndefined()
+	})
+
+	it('retains every reported timing member of a complete terminal as its literal value', () => {
+		const timing = extractTiming({
+			done: true,
+			total_duration: 1234567,
+			load_duration: 234567,
+			prompt_eval_duration: 345678,
+			eval_duration: 456789,
+			prompt_eval_count: 11,
+			eval_count: 13,
+			prompt_eval_cached_count: 3,
+		})
+		expect(buildStudyOllamaTiming(timing)).toEqual({
+			durations: { total: 1234567, load: 234567, prompt: 345678, decode: 456789 },
+			counts: { prompt: 11, decode: 13, cached: 3 },
+			invalid: [],
+		})
 	})
 
 	it('reads a raw prompt in UTF-16 units and UTF-8 bytes and nothing from another body', () => {

@@ -1,6 +1,6 @@
 import type { StudyFailure } from '../../../../src/core/types.js'
 import { createScratch } from '@orkestrel/test/server'
-import { appendFile } from 'node:fs/promises'
+import { appendFile, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { isRecord } from '@orkestrel/contract'
@@ -357,4 +357,56 @@ describe('study command helpers', () => {
 			scratch.destroy()
 		}
 	})
+
+	it.each([
+		{
+			name: 'rewritten under the stale digest',
+			sealed: false,
+			rewrite: (text: string) => `${text}${text.split('\n')[0] ?? ''}\n`,
+			message: 'Evidence changed after execution verification',
+		},
+		{
+			name: 'without a trailing newline under a matching digest',
+			sealed: true,
+			rewrite: (text: string) => text.slice(0, -1),
+			message: 'Evidence is incomplete',
+		},
+		{
+			name: 'with an invalid row under a matching digest',
+			sealed: true,
+			rewrite: () => '{"event":1}\n',
+			message: 'Evidence row is invalid',
+		},
+	])(
+		'refuses sealed evidence $name with a custody failure naming it',
+		async ({ sealed, rewrite, message }) => {
+			const scratch = createScratch()
+			try {
+				const result = await retainStudyFixture(join(scratch.path, 'result'))
+				const trial = result.manifest.schedule[0]
+				if (trial === undefined) throw new Error('Missing trial')
+				const path = join(result.directory, 'execution', 'trials', trial.id, 'evidence.jsonl')
+				const bytes = Buffer.from(rewrite(await readFile(path, 'utf8')), 'utf8')
+				await writeFile(path, bytes)
+				const sealPath = `trials/${trial.id}/evidence.jsonl`
+				const tampered = sealed
+					? {
+							...result,
+							seal: {
+								...result.seal,
+								files: result.seal.files.map((file) =>
+									file.path === sealPath ? { ...file, digest: hashStudyBytes(bytes) } : file,
+								),
+							},
+						}
+					: result
+				await expect(collectStudyEvidence(tampered)).rejects.toMatchObject({
+					code: 'CUSTODY',
+					message,
+				})
+			} finally {
+				scratch.destroy()
+			}
+		},
+	)
 })

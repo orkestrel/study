@@ -1,3 +1,4 @@
+import { parseJSON } from '@orkestrel/contract'
 import { describe, expect, it } from 'vitest'
 import {
 	buildCompactCustodyManifest,
@@ -8,6 +9,7 @@ import {
 	buildStudyOperationAttempts,
 	buildStudyProfile,
 	buildStudySettingsProfile,
+	buildOllamaJudgeRow,
 	buildOllamaReplies,
 	buildStudyAgentOrigins,
 	createStudyAgentSummary,
@@ -21,6 +23,7 @@ import {
 	createStudyStoreFixture,
 	importStudyErrorCopy,
 	readOllamaMessages,
+	requireStudyRecord,
 	STUDY_EXECUTION_CASES,
 	STUDY_OLLAMA_PROVIDER,
 	STUDY_PROFILE_SETTINGS,
@@ -295,8 +298,52 @@ describe('study agent trace fixtures', () => {
 		expect(fixture.latch.checks.count).toBe(2)
 	})
 
-	it('joins every message to its own id and reads wire messages back in order', () => {
+	it('builds the raw judge answer as one length-finished token with top logprobs and spreads overrides last', () => {
+		const logprobs = [
+			{
+				token: 'Yes',
+				logprob: -0.01,
+				top_logprobs: [
+					{ token: 'Yes', logprob: -0.01 },
+					{ token: 'No', logprob: -8 },
+					{ token: 'A', logprob: -8 },
+					{ token: 'B', logprob: -8 },
+				],
+			},
+		]
+		const answer = {
+			model: 'judge',
+			done: true,
+			done_reason: 'length',
+			response: 'Yes',
+			prompt_eval_count: 10,
+			eval_count: 1,
+			logprobs,
+		}
+		expect(parseJSON(buildOllamaJudgeRow())).toEqual(answer)
+		expect(
+			parseJSON(buildOllamaJudgeRow({ response: 'No', eval_count: 2, extra: 'kept' })),
+		).toEqual({
+			...answer,
+			response: 'No',
+			eval_count: 2,
+			extra: 'kept',
+		})
+	})
+
+	it('joins every message to its own id and reads wire messages back in order', async () => {
 		expect(buildStudyAgentOrigins(STUDY_SUMMARY_MESSAGES)).toEqual([
+			{ origin: 'history', source: 'h1' },
+			{ origin: 'history', source: 'h2' },
+		])
+		expect(buildStudyAgentOrigins([])).toEqual([])
+		// The trace built by the fixture reads the same origins through the consumer handler it was given.
+		const { trace } = createStudyAgentTrace(true)
+		const sink = createStudySinkFixture()
+		trace.start('write')
+		trace.record({ estimate: 1, projected: 2 }, { messages: STUDY_SUMMARY_MESSAGES })
+		await trace.flush(sink.sink)
+		expect(requireStudyRecord(sink.rows[0]?.value).origins).toEqual([
 			{ origin: 'history', source: 'h1' },
 			{ origin: 'history', source: 'h2' },
 		])
