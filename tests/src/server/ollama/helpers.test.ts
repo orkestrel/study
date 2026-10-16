@@ -400,6 +400,12 @@ describe('timing and raw observations', () => {
 			counts: { prompt: null, decode: null, cached: 3 },
 			invalid: ['load_duration'],
 		})
+		// An unreported total stays null beside a reported member, never zero.
+		expect(buildStudyOllamaTiming(extractTiming({ done: true, load_duration: 7 }))).toEqual({
+			durations: { total: null, load: 7, prompt: null, decode: null },
+			counts: { prompt: null, decode: null, cached: null },
+			invalid: [],
+		})
 		const refused = readStudyOllamaTiming(() => {
 			throw new Error('Refused timing')
 		}, {})

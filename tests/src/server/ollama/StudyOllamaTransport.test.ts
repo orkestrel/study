@@ -234,6 +234,8 @@ describe('StudyOllamaTransport', () => {
 					fixture.goal.evidence.find((row) => row.event === 'wire-failure')?.value,
 				)
 				expect(failure).toMatchObject({ role: 'agent', status })
+				// Observation is off, so the retained failure holds only its unobserved members.
+				expect(Object.keys(failure).sort()).toEqual(['bytes', 'path', 'reason', 'role', 'status'])
 				// Every byte read is retained, request included, up to the first chunk past the allowance.
 				const read =
 					encoder.encode(STUDY_OLLAMA_CHAT_BODY).byteLength + encoder.encode(body).byteLength
@@ -353,16 +355,27 @@ describe('StudyOllamaTransport', () => {
 				revision: 'f'.repeat(64),
 			})
 			expect(Number(failure?.elapsed)).toBeGreaterThan(0)
+			// The request was admitted before it was sent, so its clock never starts after its send.
+			expect(Number(failure?.sent)).toBeGreaterThanOrEqual(Number(failure?.started))
 		} finally {
 			await fixture.close()
 		}
 	})
 
-	it('joins observed metadata, agent and judge dispatches to the previous model, reads raw judge units, and keeps metadata timing null', async () => {
+	it('joins observed metadata, agent and judge dispatches to the previous model, reads raw judge units, keeps metadata timing null, and joins a canonical dispatch only to the agent requests the caller measured', async () => {
 		const fixture = await createOllamaTransportFixture([], { observe: true })
 		try {
 			const signal = new AbortController().signal
-			const provider = createOllamaTransportProvider(fixture.transport, fixture.server.url)
+			const revision = 'f'.repeat(64)
+			const provider = createOllamaTransportProvider(
+				fixture.transport,
+				fixture.server.url,
+				'agent',
+				{
+					id: 1,
+					revision,
+				},
+			)
 			const real = createOllamaJudgeFixture(
 				fixture.server.url,
 				(input: string | URL | Request, init?: RequestInit) =>
@@ -405,11 +418,26 @@ describe('StudyOllamaTransport', () => {
 				{ encoding: 'utf-8', units: prompt.length, bytes: Buffer.byteLength(prompt, 'utf8') },
 				undefined,
 			])
-			const metadata = fixture.goal.evidence
+			const wires = fixture.goal.evidence
 				.filter((row) => row.event === 'wire')
 				.map((row) => requireStudyRecord(row.value))
-				.filter((value) => value.role === 'metadata')
+			const metadata = wires.filter((value) => value.role === 'metadata')
 			expect(metadata.map((value) => value.timing)).toEqual([null, null, null])
+			// Only the measured agent requests carry a canonical dispatch; metadata and judge rows join none.
+			const joins = [
+				['agent', 1, revision],
+				['metadata', null, null],
+				['metadata', null, null],
+				['metadata', null, null],
+				['judge', null, null],
+				['agent', 1, revision],
+			]
+			expect(
+				dispatches.map(({ role, canonical, revision: joined }) => [role, canonical, joined]),
+			).toEqual(joins)
+			expect(
+				wires.map(({ role, canonical, revision: joined }) => [role, canonical, joined]),
+			).toEqual(joins)
 		} finally {
 			await fixture.close()
 		}
@@ -840,6 +868,9 @@ describe('StudyOllamaTransport', () => {
 			expect(Object.keys(onWire ?? {}).sort()).toEqual(
 				[...Object.keys(offWire ?? {}), ...observed].sort(),
 			)
+			// The timeline orders admission, send and settlement.
+			expect(Number(onWire?.sent)).toBeGreaterThanOrEqual(Number(onWire?.started))
+			expect(Number(onWire?.elapsed)).toBeGreaterThanOrEqual(0)
 		} finally {
 			await off.close()
 			await on.close()

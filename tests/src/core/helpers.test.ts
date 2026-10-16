@@ -137,13 +137,17 @@ it('rejects duplicate, missing, foreign and oversized scenario populations', () 
 	).toThrow(StudyError)
 })
 
-it('enforces all criterion references, complete goal coverage, purpose and room allowances', () => {
+it('enforces a valid profile, all criterion references, complete goal coverage, purpose and room allowances', () => {
 	const manifest = buildStudyManifest()
 	const rubric = buildStudyRubric()
 	const profile = buildStudyProfile()
 	expect(() =>
 		validateStudyInputs(manifest.definition, manifest.scenarios, rubric, profile),
 	).not.toThrow()
+	// A profile that fails its own guard is refused even when every cross-reference and allowance holds.
+	expect(() =>
+		validateStudyInputs(manifest.definition, manifest.scenarios, rubric, { ...profile, roots: [] }),
+	).toThrow('Invalid rubric or profile')
 	expect(() =>
 		validateStudyInputs(
 			manifest.definition,

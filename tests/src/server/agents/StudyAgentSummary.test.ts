@@ -144,7 +144,7 @@ describe('StudyAgentSummary', () => {
 		expect(fixture.trace.canonical('summary')?.id).toBe(2)
 	})
 
-	it('refuses a projection that reaches the limit before any request and admits one below it', async () => {
+	it('refuses a projection that reaches or passes the limit before any request and admits one below it', async () => {
 		const refused = createStudyAgentSummary({
 			replies: buildOllamaReplies('Recap'),
 			observe: true,
@@ -186,6 +186,20 @@ describe('StudyAgentSummary', () => {
 			'consumed',
 			'max',
 		])
+		// A projection past the limit retains the projection it reached, never the limit it passed.
+		const over = createStudyAgentSummary({
+			replies: buildOllamaReplies('Recap'),
+			observe: true,
+			limit: 100,
+		})
+		const overSink = createStudySinkFixture()
+		over.trace.start('write')
+		await expect(over.summary.summarize(STUDY_SUMMARY_MESSAGES, undefined)).rejects.toMatchObject({
+			code: 'CAPACITY',
+		})
+		expect(over.wire.requests).toEqual([])
+		await over.trace.flush(overSink.sink)
+		expect(overSink.rows[1]?.value).toMatchObject({ cause: 'capacity', consumed: 101, max: 100 })
 		const admitted = createStudyAgentSummary({
 			replies: buildOllamaReplies('Recap'),
 			observe: true,
