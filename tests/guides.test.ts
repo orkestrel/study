@@ -22,7 +22,6 @@ const INTERNAL: readonly string[] = Object.freeze([
 	'class StudyLaunchChild',
 	'class StudyOllamaExchange',
 	'class StudyOllamaGoal',
-	'class StudyProcessGoal',
 	'class StudyTaskChild',
 	'class StudyTrialLease',
 ])
@@ -64,7 +63,8 @@ await new GuideCommand({
 		createStudySinkFixture,
 		readOllamaMessages,
 	} = await import('./setupStudy.js')
-	const { retainStudyFixture, buildCustodyGrading } = await import('./setupServer.js')
+	const { retainStudyFixture, buildCustodyGrading, createOllamaContext } =
+		await import('./setupServer.js')
 	const { realpathSync } = await import('node:fs')
 
 	it('indexes the package guide and keeps the README pitch equal to the Study tagline', () => {
@@ -186,6 +186,20 @@ await new GuideCommand({
 			out: undefined,
 			expected: undefined,
 		})
+	})
+
+	it('issues worker admissions in the sequence the titled example claims', () => {
+		const { StudyProcessGoal } = server
+		const fixture = createOllamaContext()
+		try {
+			const goal = new StudyProcessGoal(fixture.context)
+			expect(goal.issue(2)).toBeUndefined()
+			expect(goal.issue(1)).toBe(1)
+			expect(goal.issue(1)).toBeUndefined()
+			expect(goal.issue(2)).toBe(2)
+		} finally {
+			fixture.close()
+		}
 	})
 
 	it('executes the Agent helper examples against their claimed values', () => {

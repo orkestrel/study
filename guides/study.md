@@ -322,6 +322,7 @@ The following declarations describe this concept.
 | `StudyParentTicket`              | interface | Holds an authoritative parent ticket and its transport listener lifetime.                                                      |
 | `StudyPreparation`               | interface | Holds checked public declarations and reproducible executable identities.                                                      |
 | `StudyProcessDriver`             | class     | Opens one fresh native child for each scheduled trial.                                                                         |
+| `StudyProcessGoal`               | class     | Holds one goal's parent context and the worker admission sequence it issues while the goal runs.                               |
 | `StudyProcessOptions`            | interface | Holds the parent-owned fresh trial process configuration.                                                                      |
 | `StudyProcessSession`            | class     | Keeps admission and evidence custody in the parent of one fresh trial process.                                                 |
 | `StudyProcessSessionOptions`     | interface | Holds one fresh child trial's launch parameters and cancellation.                                                              |
@@ -751,6 +752,14 @@ The declaration exposes these methods.
 | Method | Summary                                                          |
 | ------ | ---------------------------------------------------------------- |
 | `open` | Opens isolated child state and waits for its verified readiness. |
+
+#### `StudyProcessGoal`
+
+The declaration exposes these methods.
+
+| Method  | Summary                                                                                        |
+| ------- | ---------------------------------------------------------------------------------------------- |
+| `issue` | Issues the identifier of the next worker admission when the worker asked for exactly that one. |
 
 #### `StudyProcessSession`
 
@@ -1420,6 +1429,23 @@ Use the exported declaration with its documented arguments.
 import { toStudyWire } from '@orkestrel/study/server'
 
 toStudyWire({ state: 'ready', failure: undefined }) // { state: 'ready' }
+```
+
+### Issue worker admissions in sequence
+
+Use the exported declaration with its documented arguments.
+
+```ts
+import type { StudyContext } from '@orkestrel/study'
+import { StudyProcessGoal } from '@orkestrel/study/server'
+
+declare const context: StudyContext
+
+const goal = new StudyProcessGoal(context)
+goal.issue(2) // undefined
+goal.issue(1) // 1
+goal.issue(1) // undefined
+goal.issue(2) // 2
 ```
 
 ### buildStudyPacketLinks
@@ -2241,6 +2267,18 @@ import type { StudyProcessDriver } from '@orkestrel/study/server'
 declare const instance: StudyProcessDriver
 declare const open: Parameters<StudyProcessDriver['open']>
 instance.open(...open)
+```
+
+### Call StudyProcessGoal methods
+
+Supply an instance of the declared contract.
+
+```ts
+import type { StudyProcessGoal } from '@orkestrel/study/server'
+
+declare const instance: StudyProcessGoal
+declare const issue: Parameters<StudyProcessGoal['issue']>
+instance.issue(...issue)
 ```
 
 ### Call StudyProcessSession methods

@@ -12,6 +12,8 @@ import {
 	buildOllamaJudgeRow,
 	buildOllamaReplies,
 	buildStudyAgentOrigins,
+	countOllamaServed,
+	createAgentObserver,
 	createOllamaFetch,
 	createStudyAgentSummary,
 	createStudyAgentTrace,
@@ -24,11 +26,15 @@ import {
 	createStudySinkFixture,
 	createStudyStoreFixture,
 	importStudyErrorCopy,
+	pickOllamaReply,
 	readOllamaMessages,
 	readOllamaToolResults,
 	readProviderStream,
 	readSettled,
 	requireStudyRecord,
+	STUDY_AGENT_MESSAGES,
+	STUDY_AGENT_OPTIONS,
+	STUDY_AGENT_TOOLS,
 	STUDY_EXECUTION_CASES,
 	STUDY_OLLAMA_PROVIDER,
 	STUDY_PROFILE_SETTINGS,
@@ -38,6 +44,7 @@ import {
 	STUDY_SCRIPT_MESSAGES,
 	STUDY_SCRIPT_VALID_RESPONSES,
 	STUDY_SUMMARY_MESSAGES,
+	StudyLog,
 } from './setupStudy.js'
 import { StudyError } from '../src/core/errors.js'
 import { StudyAgentScript } from '../src/server/agents/StudyAgentScript.js'
@@ -488,6 +495,31 @@ describe('study protocol fixtures', () => {
 		expect(wire.requests.map(({ path }) => path)).toEqual(['/api/chat', '/api/tags', '/api/chat'])
 	})
 
+	it('counts the requests that claimed a queued reply and picks the head reply only for its own path', () => {
+		const tags = { path: '/api/tags', body: 'tags' }
+		const chat = { path: '/api/chat', body: 'chat' }
+		expect(countOllamaServed([])).toBe(0)
+		expect(countOllamaServed([undefined, tags, undefined, chat])).toBe(2)
+		expect(pickOllamaReply([tags, chat], [], '/api/tags')).toBe(tags)
+		expect(pickOllamaReply([tags, chat], [], '/api/chat')).toBeUndefined()
+		expect(pickOllamaReply([tags, chat], [undefined, tags], '/api/chat')).toBe(chat)
+		expect(pickOllamaReply([tags], [tags], '/api/tags')).toBeUndefined()
+	})
+
+	it('receives a request an aborted signal refuses without claiming its queued reply', async () => {
+		const queued = [{ path: '/api/chat', body: 'chat' }]
+		const wire = createOllamaFetch(queued)
+		const controller = new AbortController()
+		controller.abort()
+		await expect(
+			wire.fetch('http://127.0.0.1/api/chat', { signal: controller.signal }),
+		).rejects.toMatchObject({ name: 'AbortError' })
+		expect(wire.requests.map(({ path }) => path)).toEqual(['/api/chat'])
+		expect(wire.replies).toEqual(queued)
+		expect(await (await wire.fetch('http://127.0.0.1/api/chat')).text()).toBe('chat')
+		expect(wire.replies).toEqual([])
+	})
+
 	it('reads the tool receipts of a chat request in message order and refuses a malformed message', () => {
 		const body = JSON.stringify({
 			messages: [
@@ -526,6 +558,69 @@ describe('study protocol fixtures', () => {
 		}
 	})
 })
+
+describe('study fixture observation views', () => {
+	const row = { event: 'lookup', goal: 'write', value: { id: 'order-1' } }
+
+	it('lends one live view of the records a log owns, in the order they were appended', () => {
+		const log = new StudyLog<string>()
+		const first = log.entries
+		expect(first).toEqual([])
+		log.append('a')
+		log.append('b')
+		expect(first).toEqual(['a', 'b'])
+		expect(log.entries).toBe(first)
+		expect(new StudyLog<string>().entries).not.toBe(first)
+	})
+
+	it('shows a sink fixture reference its later accepted and offered rows', async () => {
+		const fixture = createStudySinkFixture({ refuse: { error: new Error('Full'), row: 1 } })
+		const rows = fixture.rows
+		const offered = fixture.offered
+		expect([rows.length, offered.length]).toEqual([0, 0])
+		await fixture.sink.append(row)
+		await expect(fixture.sink.append({ ...row, event: 'summary' })).rejects.toThrow('Full')
+		expect(rows.map(({ event }) => event)).toEqual(['lookup'])
+		expect(offered.map(({ event }) => event)).toEqual(['lookup', 'summary'])
+		expect(fixture.rows).toBe(rows)
+		expect(fixture.offered).toBe(offered)
+	})
+
+	it('shows an observer fixture reference its later readings and requests', async () => {
+		const fixture = createAgentObserver(createOllamaFetch(), undefined, false)
+		const readings = fixture.readings
+		const requests = fixture.requests
+		expect([readings.length, requests.length]).toEqual([0, 0])
+		await fixture.observer.generate(
+			STUDY_AGENT_MESSAGES,
+			new AbortController().signal,
+			STUDY_AGENT_TOOLS,
+			STUDY_AGENT_OPTIONS,
+		)
+		expect([readings.length, requests.length]).toEqual([1, 1])
+		expect(requests[0]?.messages).toEqual(STUDY_AGENT_MESSAGES)
+		expect(fixture.readings).toBe(readings)
+		expect(fixture.requests).toBe(requests)
+	})
+
+	it('shows a fetch fixture reference the requests it receives later, an aborted one included', async () => {
+		const wire = createOllamaFetch([{ path: '/api/chat', body: 'chat' }])
+		const requests = wire.requests
+		expect(requests).toEqual([])
+		await wire.fetch('http://127.0.0.1/api/chat', { method: 'POST', body: '{"a":1}' })
+		const controller = new AbortController()
+		controller.abort()
+		await expect(
+			wire.fetch('http://127.0.0.1/api/tags', { signal: controller.signal }),
+		).rejects.toMatchObject({ name: 'AbortError' })
+		expect(requests).toEqual([
+			{ path: '/api/chat', body: '{"a":1}' },
+			{ path: '/api/tags', body: '' },
+		])
+		expect(wire.requests).toBe(requests)
+	})
+})
+
 describe('study settlement reader', () => {
 	it('reads a pending promise as unsettled and a fulfilled or rejected promise as settled', async () => {
 		const pending = Promise.withResolvers<void>()

@@ -30,7 +30,8 @@ export class StudyGradings {
 	readonly #labelsBytes: Uint8Array | undefined
 	readonly #labelsDigest: string | undefined
 	readonly #packet: StudyPacketBundle | undefined
-	#tail: Promise<unknown> = Promise.resolve()
+	// The writes not yet settled; a write joins when called and leaves when it settles, and each waits for every earlier one.
+	readonly #writes = new Set<Promise<string>>()
 
 	/**
 	 * Owns exact imported grading bytes without writing any custody files.
@@ -84,8 +85,13 @@ export class StudyGradings {
 			const bytes = encodeStudyJSON(snapshot)
 			if (bytes.byteLength > STUDY_CUSTODY_BYTES)
 				throw new StudyError('CAPACITY', 'Grading exceeds the metadata allowance')
-			const operation = this.#tail.then(() => this.#write(snapshot, bytes))
-			this.#tail = operation.catch(() => undefined)
+			const previous = Promise.allSettled([...this.#writes])
+			const operation = previous.then(() => this.#write(snapshot, bytes))
+			this.#writes.add(operation)
+			void operation.then(
+				() => this.#writes.delete(operation),
+				() => this.#writes.delete(operation),
+			)
 			return operation
 		} catch (error) {
 			return Promise.reject(error)

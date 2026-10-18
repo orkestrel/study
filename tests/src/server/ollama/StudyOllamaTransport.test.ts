@@ -1,6 +1,7 @@
 import type { JudgeInterface } from '@orkestrel/agent'
 import { describe, expect, it } from 'vitest'
 import { parseJSON } from '@orkestrel/contract'
+import { extractTiming } from '@orkestrel/ollama'
 import { captureError, createRecorder, requireValue } from '@orkestrel/test'
 import { StudyAgentJudge } from '../../../../src/core/agents/StudyAgentJudge.js'
 import { StudyError } from '../../../../src/core/errors.js'
@@ -1048,6 +1049,35 @@ describe('StudyOllamaTransport', () => {
 		} finally {
 			await off.close()
 			await on.close()
+		}
+	})
+
+	it('runs the timing extractor once, on the terminal row of a streamed reply', async () => {
+		const reply = buildOllamaStream(['Re', 'ceipt'], {
+			prompt: 7,
+			completion: 2,
+			fields: { total_duration: 1234 },
+		})
+		const extractions = createRecorder<readonly [Readonly<Record<string, unknown>>]>()
+		const fixture = await createOllamaTransportFixture([{ path: '/api/chat', body: reply }], {
+			observe: true,
+			timing: (record) => {
+				extractions.handler(record)
+				return extractTiming(record)
+			},
+		})
+		try {
+			const provider = createOllamaTransportProvider(fixture.transport, fixture.server.url)
+			const result = await provider.generate(STUDY_AGENT_MESSAGES, new AbortController().signal)
+			expect(result.content).toBe('Receipt')
+			expect(extractions.count).toBe(1)
+			expect(extractions.calls[0]?.[0]).toMatchObject({ done: true, total_duration: 1234 })
+			const wire = requireStudyRecord(
+				fixture.goal.evidence.find((row) => row.event === 'wire')?.value,
+			)
+			expect(wire.timing).toMatchObject({ durations: { total: 1234 } })
+		} finally {
+			await fixture.close()
 		}
 	})
 })

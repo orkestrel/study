@@ -8,7 +8,7 @@ import { StudyRequest } from './StudyRequest.js'
 /** Admits request ceilings across every enclosing scope before dispatch. */
 export class StudyMeter implements StudyMeterInterface {
 	#options: StudyMeterOptions
-	#pending = new Set<symbol>()
+	readonly #pending = new Set<symbol>()
 	#usage: readonly StudyUsage[] = []
 	#closed = false
 

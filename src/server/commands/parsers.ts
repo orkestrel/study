@@ -48,17 +48,18 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 					: command === 'label'
 						? ['--grading', '--labels']
 						: ['--grading']
-	const tokens = arguments_.slice(2)
-	const pairs = tokens.flatMap((flag, index) =>
+	const tokens: ReadonlyArray<string | undefined> = arguments_.slice(2)
+	// Positions, not present elements: a sparse token array keeps each hole as an absent flag or value.
+	const pairs = [...tokens.entries()].flatMap(([index, flag]) =>
 		index % 2 === 0 ? [{ flag, value: tokens[index + 1] }] : [],
 	)
 	// Reversed so the earliest index of each flag is the one the lookup retains.
 	const firsts = new Map(pairs.map(({ flag }, index) => [flag, index] as const).reverse())
 	for (const [index, { flag, value }] of pairs.entries()) {
-		if (!allowed.includes(flag))
+		if (flag === undefined || !allowed.includes(flag))
 			throw new StudyError(
 				'CONFIG',
-				JSON.stringify(flag) +
+				JSON.stringify(flag ?? '<end>') +
 					' is not a ' +
 					command +
 					' flag; accepts ' +
@@ -74,7 +75,9 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 			)
 	}
 	const flags = new Map(
-		pairs.flatMap(({ flag, value }) => (value === undefined ? [] : [[flag, value] as const])),
+		pairs.flatMap(({ flag, value }) =>
+			flag === undefined || value === undefined ? [] : [[flag, value] as const],
+		),
 	)
 	if (command === 'check' || command === 'execute') {
 		if (!isStudyCustodyName(target))

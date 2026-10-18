@@ -34,8 +34,8 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 	readonly #options: StudyOllamaTransportOptions
 	readonly #abort = new AbortController()
 	readonly #wires = new Set<StudyOllamaExchange>()
-	// The bound goal; it joins at `prepare` and leaves at `clear` or `close`. An admitted request keeps the goal it was admitted under.
-	readonly #goals = new Set<StudyOllamaGoal>()
+	// The bound goal; `prepare` binds it and `clear` or `close` releases it. An admitted request keeps the goal it was admitted under.
+	#goal: StudyOllamaGoal | undefined
 	// Wraps the first retained failure so a thrown undefined or null is still a presence.
 	#fault: { readonly error: unknown } | undefined
 	#count = 0
@@ -60,15 +60,15 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		this.check()
 		if (this.#wires.size !== 0)
 			throw new StudyError('FAULT', 'Previous model response is still open')
-		if (this.#goals.size !== 0) throw new StudyError('FAULT', 'Previous goal is still bound')
-		this.#goals.add(new StudyOllamaGoal(activity))
+		if (this.#goal !== undefined) throw new StudyError('FAULT', 'Previous goal is still bound')
+		this.#goal = new StudyOllamaGoal(activity)
 	}
 
 	/** Ends the bound goal so another goal can be prepared; a request already admitted keeps its own goal.
 	 * @returns Nothing; a transport with no bound goal stays unbound, and a closed transport stays closed.
 	 */
 	clear(): void {
-		this.#goals.clear()
+		this.#goal = undefined
 	}
 
 	/** Refuses work after any retained failure or cancellation.
@@ -98,7 +98,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 			})
 			const value: unknown = await response.json()
 			validateStudyOllamaInventory(value, this.#options.models)
-			const [goal] = this.#goals
+			const goal = this.#goal
 			if (goal === undefined) throw new StudyError('FAULT', 'Inventory has no goal attribution')
 			const activity = goal.activity
 			const models = Object.values(this.#options.models)
@@ -145,7 +145,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		original?: StudyAgentDispatch,
 	): Promise<Response> {
 		this.check()
-		const [goal] = this.#goals
+		const goal = this.#goal
 		if (goal === undefined) throw new StudyError('FAULT', 'Model dispatch outside an active goal')
 		const activity = goal.activity
 		try {
@@ -207,7 +207,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 	async close(): Promise<void> {
 		this.#abort.abort(new StudyError('FAULT', 'Ollama transport closed'))
 		await Promise.all([...this.#wires].map((wire) => this.#cancel(wire, this.#abort.signal.reason)))
-		this.#goals.clear()
+		this.#goal = undefined
 	}
 
 	// Buffers a non-2xx body under the wire bounds and parses it once at its end, because an error body is one JSON document, not rows.
@@ -269,8 +269,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 					validateStudyOllamaInventory(value, this.#options.models)
 				else readStudyOllamaSupport(value, this.#options.room.context)
 			} else if (wire.request.role === 'judge') {
-				const row: unknown = JSON.parse(wire.text)
-				wire.observe(readStudyOllamaTerminal(row, wire.request), this.#time(row))
+				this.#observe(wire, JSON.parse(wire.text))
 			} else this.#rows(wire, true)
 			if (wire.request.role !== 'metadata' && wire.terminal === undefined)
 				throw new StudyError('FAULT', 'Ollama response has no terminal row')
@@ -291,9 +290,14 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 			if (line.trim() === '') continue
 			if (wire.terminal !== undefined)
 				throw new StudyError('FAULT', 'Ollama emitted a row after its terminal')
-			const row: unknown = JSON.parse(line)
-			wire.observe(readStudyOllamaTerminal(row, wire.request), this.#time(row))
+			this.#observe(wire, JSON.parse(line))
 		}
+	}
+
+	// Validates a row against the wire's request and retains it; the timing extractor runs only on a terminal row.
+	#observe(wire: StudyOllamaExchange, row: unknown): void {
+		const terminal = readStudyOllamaTerminal(row, wire.request)
+		wire.observe(terminal, terminal === undefined ? undefined : this.#time(row))
 	}
 
 	// Reads the daemon timing of a terminal row when timing is observed.

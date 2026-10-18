@@ -105,20 +105,20 @@ describe('StudyAgentObserver', () => {
 
 	it('hands the recorder the exact pre-encoding request, keeping omitted members omitted', async () => {
 		const wire = createOllamaFetch()
-		const { observer, readings, requests } = createAgentObserver(wire, undefined, false)
+		const watched = createAgentObserver(wire, undefined, false)
 		const signal = new AbortController().signal
 		const schema = { type: 'object', properties: { count: { type: 'number' } } }
-		await observer.generate(messages, signal)
-		await observer.generate(messages, signal, tools, { think: false, schema })
-		await observer.generate(messages, signal, [], undefined)
-		const [bare, full, empty] = requests
+		await watched.observer.generate(messages, signal)
+		await watched.observer.generate(messages, signal, tools, { think: false, schema })
+		await watched.observer.generate(messages, signal, [], undefined)
+		const [bare, full, empty] = watched.requests
 		expect(Object.keys(bare ?? {})).toEqual(['messages'])
 		expect(bare?.messages).toBe(messages)
 		expect(full).toEqual({ messages, tools, options: { think: false, schema } })
 		expect(Object.keys(empty ?? {})).toEqual(['messages', 'tools'])
 		// Every reading is the actual Agent estimate of the request handed over beside it.
-		expect(readings.map((reading) => reading.estimate)).toEqual(
-			requests.map((request) => estimateRequest(request)),
+		expect(watched.readings.map((reading) => reading.estimate)).toEqual(
+			watched.requests.map((request) => estimateRequest(request)),
 		)
 		const parts = measureRequest(full ?? { messages })
 		expect(parts.tools).toBeGreaterThan(0)
@@ -235,10 +235,10 @@ describe('StudyAgentObserver', () => {
 		const wire = createOllamaFetch([
 			{ path: '/api/chat', body: STUDY_OLLAMA_PARTIAL_ROW, open: true },
 		])
-		const { observer, readings } = createAgentObserver(wire, STUDY_AGENT_GAUGE, true)
+		const watched = createAgentObserver(wire, STUDY_AGENT_GAUGE, true)
 		const controller = new AbortController()
-		const stream = observer.stream(messages, controller.signal, tools, options)
-		expect(readings).toHaveLength(1)
+		const stream = watched.observer.stream(messages, controller.signal, tools, options)
+		expect(watched.readings).toHaveLength(1)
 		expect(wire.requests).toEqual([])
 		await stream.next()
 		controller.abort()
@@ -246,7 +246,7 @@ describe('StudyAgentObserver', () => {
 			() => undefined,
 			() => undefined,
 		)
-		expect(readings).toHaveLength(1)
+		expect(watched.readings).toHaveLength(1)
 	})
 
 	it('forwards identity and the declared replay policy, reporting none when the real provider reports none', () => {
@@ -270,9 +270,9 @@ describe('StudyAgentObserver', () => {
 		const manager = createConversationManager()
 		const conversation = manager.add({})
 		try {
-			const { observer, readings } = createAgentObserver(wire, undefined, false)
+			const watched = createAgentObserver(wire, undefined, false)
 			const measured: number[] = []
-			const agent = new Agent(observer, {
+			const agent = new Agent(watched.observer, {
 				conversations: manager,
 				strict: true,
 				limit: 8,
@@ -290,9 +290,9 @@ describe('StudyAgentObserver', () => {
 			try {
 				const result = await agent.generate({ signal: new AbortController().signal })
 				expect(result.content).toBe('Receipt retained.')
-				expect(readings).toHaveLength(1)
+				expect(watched.readings).toHaveLength(1)
 				expect(measured.length).toBeGreaterThan(0)
-				expect(new Set(measured)).toEqual(new Set([readings[0]?.estimate]))
+				expect(new Set(measured)).toEqual(new Set([watched.readings[0]?.estimate]))
 				expect(wire.requests.filter((entry) => entry.path === '/api/chat')).toHaveLength(1)
 			} finally {
 				agent.emitter.destroy()
@@ -344,8 +344,8 @@ describe('StudyAgentObserver', () => {
 				}),
 			)
 			try {
-				const { observer, readings } = createAgentObserver(wire, STUDY_AGENT_GAUGE, true)
-				const agent = new Agent(observer, {
+				const watched = createAgentObserver(wire, STUDY_AGENT_GAUGE, true)
+				const agent = new Agent(watched.observer, {
 					conversations: manager,
 					tools: toolbox,
 					strict: true,
@@ -361,7 +361,7 @@ describe('StudyAgentObserver', () => {
 					const sent = wire.requests.filter((entry) => entry.path === '/api/chat')
 					expect(sent).toHaveLength(chats)
 					expect(wire.replies).toHaveLength(unsent)
-					expect(readings.map((reading) => reading.projected)).toEqual(
+					expect(watched.readings.map((reading) => reading.projected)).toEqual(
 						sent.map(() => STUDY_AGENT_PROJECTION),
 					)
 					// A completed tool turn feeds its receipt to the follow-up request; a stopped one never runs the tool.

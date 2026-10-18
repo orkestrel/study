@@ -99,8 +99,11 @@ import {
 	buildOllamaCall,
 	buildOllamaRow,
 	buildOllamaStream,
+	countOllamaServed,
 	createStudyMeterFixture,
+	pickOllamaReply,
 	readOllamaDefault,
+	StudyLog,
 	STUDY_JUDGE_OPTIONS,
 	STUDY_OLLAMA_OPTIONS,
 	STUDY_OLLAMA_PARTIAL_ROW,
@@ -1078,22 +1081,20 @@ export async function createOllamaServer(
 	answer?: StudyMCPAnswer,
 ): Promise<OllamaServerFixture> {
 	const queue = Object.freeze([...replies])
-	const served: OllamaReplyFixture[] = []
-	const requests: OllamaRequestFixture[] = []
-	const owned: Array<string | undefined> = []
+	const requests = new StudyLog<OllamaRequestFixture>()
+	const served = new StudyLog<OllamaReplyFixture | undefined>()
+	const owners = new StudyLog<string | undefined>()
 	const server = createServer(async (request, response) => {
 		const chunks: Buffer[] = []
 		for await (const chunk of request)
 			chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
 		const path = request.url ?? ''
 		const text = Buffer.concat(chunks).toString('utf8')
-		requests.push({ path, body: text })
+		const supplied = pickOllamaReply(queue, served.entries, path)
+		requests.append({ path, body: text })
+		served.append(supplied)
 		const header = request.headers['x-study-owned']
-		owned.push(typeof header === 'string' ? header : undefined)
-		// Each served reply is a step result; the unserved view derives from the queue past them.
-		const next = queue[served.length]
-		const supplied = next?.path === path ? next : undefined
-		if (supplied !== undefined) served.push(supplied)
+		owners.append(typeof header === 'string' ? header : undefined)
 		const body = supplied?.body ?? answer?.(path, text) ?? readOllamaDefault(path)
 		response.writeHead(supplied?.status ?? 200)
 		if (supplied?.open === true) response.write(body)
@@ -1108,10 +1109,10 @@ export async function createOllamaServer(
 		throw new Error('Missing Ollama fixture address')
 	return {
 		url: `http://127.0.0.1:${address.port}`,
-		requests,
-		owned,
+		requests: requests.entries,
+		owned: owners.entries,
 		get replies(): readonly OllamaReplyFixture[] {
-			return queue.slice(served.length)
+			return queue.slice(countOllamaServed(served.entries))
 		},
 		close: () =>
 			new Promise<void>((resolveClose, reject) => {
@@ -1205,18 +1206,18 @@ export function createOllamaContext(signal = new AbortController().signal): Olla
 		},
 		signal,
 	)
-	const evidence: StudyEvidence[] = []
+	const appended = new StudyLog<StudyEvidence>()
 	return {
 		context: {
 			signal,
 			meter: meter.meter,
 			evidence: {
 				append: async (row) => {
-					evidence.push(row)
+					appended.append(row)
 				},
 			},
 		},
-		evidence,
+		evidence: appended.entries,
 		meter,
 		usage: () =>
 			meter.meter.usage.map(({ role, calls, tokens, bytes }) => ({ role, calls, tokens, bytes })),
@@ -1652,8 +1653,10 @@ export function collectStudyRoots(names: readonly string[]): readonly string[] {
 export async function createMCPFixture(
 	outcomes: ReadonlyArray<string | Error>,
 ): Promise<StudyMCPFixture> {
-	const calls: Array<Readonly<Record<string, unknown>>> = []
-	const methods: string[] = []
+	// The sequence is the fixture's own copy, so a caller changing its array later changes no outcome.
+	const sequence = Object.freeze([...outcomes])
+	const executed = new StudyLog<Readonly<Record<string, unknown>>>()
+	const posted = new StudyLog<string>()
 	const tools = createToolManager()
 	tools.add(
 		createTool({
@@ -1662,8 +1665,8 @@ export async function createMCPFixture(
 			parameters: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
 			execute: (args) => {
 				// The recorded calls are the fixture's own record, so the next outcome is the one past them.
-				const outcome = outcomes[calls.length]
-				calls.push({ ...args })
+				const outcome = sequence[executed.entries.length]
+				executed.append({ ...args })
 				if (outcome === undefined) throw new Error('No scripted outcome remains')
 				if (outcome instanceof Error) throw outcome
 				return outcome
@@ -1685,7 +1688,7 @@ export async function createMCPFixture(
 	server.use(async (request, _context, next) => {
 		if (request.method === 'POST') {
 			const message = parseJSON(await request.clone().text())
-			if (isRecord(message) && typeof message.method === 'string') methods.push(message.method)
+			if (isRecord(message) && typeof message.method === 'string') posted.append(message.method)
 		}
 		return next()
 	})
@@ -1693,8 +1696,8 @@ export async function createMCPFixture(
 		const port = await server.start()
 		return {
 			url: `http://127.0.0.1:${port}/mcp`,
-			calls,
-			methods,
+			calls: executed.entries,
+			methods: posted.entries,
 			close: async () => {
 				await server.stop()
 				await server.destroy()
@@ -1717,7 +1720,7 @@ export async function createMCPProxy(
 	target: string,
 	interference: StudyMCPInterference,
 ): Promise<StudyMCPProxy> {
-	const intercepted: unknown[] = []
+	const interfered = new StudyLog<unknown>()
 	const proxy = createServer(async (request, response) => {
 		const chunks: Buffer[] = []
 		for await (const chunk of request)
@@ -1725,7 +1728,7 @@ export async function createMCPProxy(
 		const body = Buffer.concat(chunks).toString('utf8')
 		const message = parseJSON(body)
 		if (isRecord(message) && message.method === 'tools/call') {
-			intercepted.push(message.id)
+			interfered.append(message.id)
 			if (interference === 'reset') request.socket.destroy()
 			else if (interference === 'status') {
 				response.writeHead(503, { 'content-type': 'text/plain' })
@@ -1773,7 +1776,7 @@ export async function createMCPProxy(
 	if (address === null || typeof address === 'string') throw new Error('Missing MCP proxy address')
 	return {
 		url: `http://127.0.0.1:${address.port}/mcp`,
-		intercepted,
+		intercepted: interfered.entries,
 		close: () =>
 			new Promise<void>((done, reject) => {
 				proxy.closeAllConnections()

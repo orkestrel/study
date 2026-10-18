@@ -2,7 +2,7 @@ import { createScratch } from '@orkestrel/test/server'
 import { appendFile, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { buildCompactCustodyManifest, buildStudyRubric } from '../../../setupStudy.js'
+import { buildCompactCustodyManifest, buildStudyRubric, readSettled } from '../../../setupStudy.js'
 import {
 	buildCustodyGrading,
 	buildCustodyLabels,
@@ -98,6 +98,27 @@ describe('StudyGradings', () => {
 					),
 				),
 			).toEqual(original)
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('settles a later write only after every earlier write settled', async () => {
+		const scratch = createScratch()
+		try {
+			const result = await retainStudyFixture(
+				join(scratch.path, 'result'),
+				buildCompactCustodyManifest(),
+			)
+			const rubric = buildStudyRubric()
+			const grades = new StudyGradings({ result, rubric: encodeStudyJSON(rubric) })
+			const grading = buildCustodyGrading(result, rubric)
+			const first = grades.write(grading)
+			// Refused after the same verification the first write needs, so it would settle first if unqueued.
+			const second = grades.write({ ...grading, rubric: 'f'.repeat(64) })
+			await expect(second).rejects.toMatchObject({ code: 'EVIDENCE' })
+			expect(await readSettled(first)).toBe(true)
+			expect(scratch.names('result/grades')).toEqual([await first])
 		} finally {
 			scratch.destroy()
 		}

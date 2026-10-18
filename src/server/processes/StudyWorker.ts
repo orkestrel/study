@@ -28,7 +28,7 @@ export class StudyWorker {
 	#closing = false
 	#duration = 1000
 	#executed = false
-	#evidence = new Set<Promise<void>>()
+	readonly #evidence = new Set<Promise<void>>()
 
 	/** Serves the inherited IPC channel until its parent disconnects.
 	 * @returns Completion after channel and acquired session cleanup.

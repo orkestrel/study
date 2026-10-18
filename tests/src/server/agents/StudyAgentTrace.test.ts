@@ -1,6 +1,7 @@
 import type { ProviderRequest } from '@orkestrel/agent'
 import { describe, expect, it } from 'vitest'
 import { AgentError, estimateRequest } from '@orkestrel/agent'
+import { createRecorder, requireValue } from '@orkestrel/test'
 import { StudyError } from '../../../../src/core/errors.js'
 import { buildStudyAgentRevision } from '../../../../src/server/agents/helpers.js'
 import {
@@ -361,6 +362,32 @@ describe('StudyAgentTrace', () => {
 		held.resolve()
 		await pending
 		expect(sink.rows.map((row) => row.event)).toEqual(['first', 'late'])
+		expect(trace.goal).toBe(undefined)
+	})
+
+	it('refuses a flush the sink starts before its own append returns and records the row once', async () => {
+		const { trace } = createStudyAgentTrace(true)
+		const other = createStudySinkFixture()
+		const reentries =
+			createRecorder<readonly [PromiseLike<ReadonlyArray<PromiseSettledResult<void>>>]>()
+		const sink = createStudySinkFixture({
+			during: () => {
+				reentries.handler(Promise.allSettled([trace.flush(other.sink)]))
+			},
+		})
+		trace.start('write')
+		trace.append('first', { id: 1 })
+		await trace.flush(sink.sink)
+		expect(reentries.count).toBe(1)
+		const [settled] = requireValue(reentries.calls[0])
+		expect(await settled).toMatchObject([
+			{
+				status: 'rejected',
+				reason: { code: 'CONFIG', message: 'Trace flush is already pending' },
+			},
+		])
+		expect(sink.rows.map((row) => row.event)).toEqual(['first'])
+		expect(other.offered).toEqual([])
 		expect(trace.goal).toBe(undefined)
 	})
 

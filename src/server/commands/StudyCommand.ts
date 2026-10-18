@@ -96,17 +96,20 @@ export class StudyCommand {
 		if (definition.name !== request.target)
 			throw new StudyError('CONFIG', 'Study name differs from its selected directory')
 		const bundle = resolveStudyPath(join(this.#root, 'studies'), definition.driver)
-		const scenarios: StudyScenario[] = []
-		const fixtures: StudyCommandArtifact[] = []
+		const steps: Array<{
+			readonly scenario: StudyScenario
+			readonly fixture: StudyCommandArtifact
+		}> = []
 		for (const id of definition.scenarios) {
 			signal.throwIfAborted()
 			const path = `scenarios/${id}.json`
 			const bytes = await readStudyBytes(resolveStudyPath(bundle, path), STUDY_CUSTODY_BYTES)
 			const scenario = parseStudyScenario(decodeStudyJSON(bytes))
 			if (scenario.id !== id) throw new StudyError('CONFIG', 'Scenario identity is incompatible')
-			scenarios.push(scenario)
-			fixtures.push({ path, digest: hashStudyBytes(bytes) })
+			steps.push({ scenario, fixture: { path, digest: hashStudyBytes(bytes) } })
 		}
+		const scenarios = steps.map((step) => step.scenario)
+		const fixtures = steps.map((step) => step.fixture)
 		const profileBytes = await readStudyBytes(
 			resolveStudyPath(bundle, `profiles/${request.profile}.json`),
 			STUDY_CUSTODY_BYTES,

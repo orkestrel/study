@@ -1,6 +1,20 @@
 import type { StudyContext } from '../../core/types.js'
 
-/** Holds one goal's parent context and the worker admission sequence it issues while the goal runs. */
+/** Holds one goal's parent context and the worker admission sequence it issues while the goal runs.
+ * @example Issue worker admissions in sequence
+ * ```ts
+ * import type { StudyContext } from '@orkestrel/study'
+ * import { StudyProcessGoal } from '@orkestrel/study/server'
+ *
+ * declare const context: StudyContext
+ *
+ * const goal = new StudyProcessGoal(context)
+ * goal.issue(2) // undefined
+ * goal.issue(1) // 1
+ * goal.issue(1) // undefined
+ * goal.issue(2) // 2
+ * ```
+ */
 export class StudyProcessGoal {
 	readonly #context: StudyContext
 	#issued = 0

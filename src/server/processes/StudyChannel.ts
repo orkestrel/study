@@ -9,7 +9,7 @@ import { isStudyFrame, isStudyProcessFailure } from './validators.js'
 export class StudyChannel {
 	#options: StudyChannelOptions
 	#control = new StudyControl()
-	#pending = new Map<number, StudyResponse>()
+	readonly #pending = new Map<number, StudyResponse>()
 	#next = 0
 	#received = 0
 	readonly #working = new Set<Promise<void>>()

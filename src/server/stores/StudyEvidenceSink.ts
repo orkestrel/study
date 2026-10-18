@@ -8,8 +8,11 @@ import { isStudyCustodyEvidence } from './validators.js'
 export class StudyEvidenceSink implements StudyCustodySinkInterface {
 	readonly #options: StudyEvidenceOptions
 	readonly #goals = new Map<string, number>()
+	// The admitted writes not yet settled; a write joins when admitted and leaves when it settles, and each waits for every earlier one.
+	readonly #writes = new Set<Promise<void>>()
 	#bytes = 0
-	#tail: Promise<void> = Promise.resolve()
+	// Wraps the first failed write so every later append and the close refuse with that failure.
+	#fault: { readonly error: unknown } | undefined
 	#closing: Promise<void> | undefined
 
 	/**
@@ -39,10 +42,14 @@ export class StudyEvidenceSink implements StudyCustodySinkInterface {
 			this.#options.budget.reserve(bytes.byteLength)
 			this.#goals.set(evidence.goal, used)
 			this.#bytes += bytes.byteLength
-			this.#tail = this.#tail.then(async () => {
-				await this.#options.file.writeFile(bytes)
-			})
-			return this.#tail
+			const previous = Promise.allSettled([...this.#writes])
+			const write = previous.then(() => this.#write(bytes))
+			this.#writes.add(write)
+			void write.then(
+				() => this.#writes.delete(write),
+				() => this.#writes.delete(write),
+			)
+			return write
 		} catch (error) {
 			return Promise.reject(error)
 		}
@@ -53,13 +60,25 @@ export class StudyEvidenceSink implements StudyCustodySinkInterface {
 	 * @returns Nothing when the evidence descriptor has closed
 	 */
 	close(): Promise<void> {
-		this.#closing ??= this.#tail
+		this.#closing ??= Promise.allSettled([...this.#writes])
 			.then(async () => {
+				if (this.#fault !== undefined) throw this.#fault.error
 				await this.#options.file.sync()
 			})
 			.finally(async () => {
 				await this.#options.file.close()
 			})
 		return this.#closing
+	}
+
+	// Writes after every earlier write settled, and refuses once any earlier write failed.
+	async #write(bytes: Uint8Array): Promise<void> {
+		if (this.#fault !== undefined) throw this.#fault.error
+		try {
+			await this.#options.file.writeFile(bytes)
+		} catch (error) {
+			this.#fault ??= { error }
+			throw error
+		}
 	}
 }

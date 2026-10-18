@@ -24,6 +24,7 @@ import {
 	collectStudyRoots,
 	createMCPFixture,
 	createMCPProxy,
+	createOllamaContext,
 	createOllamaExchange,
 	createOllamaServer,
 	resolveStudyEntry,
@@ -496,6 +497,100 @@ describe('study server fixtures', () => {
 			await server.close()
 		}
 		await expect(fetch(server.url, { method: 'POST', body: '{}' })).rejects.toThrow('fetch failed')
+	})
+	it('keeps the MCP fixture outcome sequence it was created with after the caller changes its array', async () => {
+		const outcomes: Array<string | Error> = ['original']
+		const server = await createMCPFixture(outcomes)
+		const client = createMCPClient({
+			transport: new HTTPClientTransport({ url: server.url, timeout: 2000 }),
+			timeout: 2000,
+		})
+		try {
+			outcomes.fill('changed')
+			outcomes.push('extra')
+			await client.connect()
+			expect(await client.call('lookup', { id: 'a' })).toEqual({
+				resultType: 'complete',
+				value: 'original',
+			})
+			await expect(client.call('lookup', { id: 'b' })).rejects.toThrow('No scripted outcome')
+			expect(server.calls).toEqual([{ id: 'a' }, { id: 'b' }])
+		} finally {
+			await client.disconnect()
+			await server.close()
+		}
+	})
+	it('shows a retained MCP fixture reference its later calls and methods', async () => {
+		const server = await createMCPFixture(['shipped Monday'])
+		const calls = server.calls
+		const methods = server.methods
+		const client = createMCPClient({
+			transport: new HTTPClientTransport({ url: server.url, timeout: 2000 }),
+			timeout: 2000,
+		})
+		try {
+			expect([calls.length, methods.length]).toEqual([0, 0])
+			await client.connect()
+			await client.call('lookup', { id: 'a' })
+			expect(calls).toEqual([{ id: 'a' }])
+			expect(methods).toContain('tools/call')
+			expect(server.calls).toBe(calls)
+			expect(server.methods).toBe(methods)
+		} finally {
+			await client.disconnect()
+			await server.close()
+		}
+	})
+	it('shows a retained MCP proxy reference the ids it interferes with later', async () => {
+		const server = await createMCPFixture(['unreached'])
+		const proxy = await createMCPProxy(server.url, 'status')
+		const intercepted = proxy.intercepted
+		const client = createMCPClient({
+			transport: new HTTPClientTransport({ url: proxy.url, timeout: 300 }),
+			timeout: 300,
+		})
+		try {
+			await client.connect()
+			expect(intercepted).toEqual([])
+			await client.call('lookup', { id: 'a' }).catch(() => undefined)
+			expect(intercepted).toHaveLength(1)
+			expect(proxy.intercepted).toBe(intercepted)
+		} finally {
+			await client.disconnect()
+			await proxy.close()
+			await server.close()
+		}
+	})
+	it('shows a retained Ollama peer reference its later requests and owners', async () => {
+		const peer = await createOllamaServer()
+		const requests = peer.requests
+		const owned = peer.owned
+		try {
+			expect([requests.length, owned.length]).toEqual([0, 0])
+			await fetch(`${peer.url}/api/tags`, {
+				method: 'POST',
+				body: '{}',
+				headers: { 'x-study-owned': 'recorded' },
+			})
+			expect(requests.map((request) => request.path)).toEqual(['/api/tags'])
+			expect(owned).toEqual(['recorded'])
+			expect(peer.requests).toBe(requests)
+			expect(peer.owned).toBe(owned)
+		} finally {
+			await peer.close()
+		}
+	})
+	it('shows a retained goal context reference the evidence appended later', async () => {
+		const goal = createOllamaContext()
+		try {
+			const evidence = goal.evidence
+			expect(evidence).toEqual([])
+			await goal.context.evidence.append(buildStudyEvidenceRow('a'))
+			expect(evidence).toEqual([buildStudyEvidenceRow('a')])
+			expect(goal.evidence).toBe(evidence)
+		} finally {
+			goal.close()
+		}
 	})
 	it('forwards discovery through the MCP proxy and interferes only with tool calls, then releases its port', async () => {
 		for (const interference of ['status', 'reset', 'held', 'invalid', 'error'] as const) {

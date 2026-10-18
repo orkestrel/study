@@ -15,7 +15,7 @@ export class StudyScope implements StudyScopeInterface {
 	#bytes: Budget<number>
 	#timeout: Timeout
 	#listeners = new Abort()
-	#pending = new Map<symbol, StudyCharge>()
+	readonly #pending = new Map<symbol, StudyCharge>()
 	#started = performance.now()
 	#closed = false
 

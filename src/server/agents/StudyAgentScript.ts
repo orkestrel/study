@@ -19,8 +19,8 @@ export class StudyAgentScript implements ProviderInterface {
 	readonly id = randomUUID()
 	readonly name = 'scripted-study'
 	readonly #bytes: number
-	// The prepared goal; it joins at `prepare` and leaves at `clear`. A running stream keeps the goal it took its response from.
-	readonly #goals = new Set<StudyAgentScriptGoal>()
+	// The prepared goal; `prepare` binds it and `clear` releases it. A running stream keeps the goal it took its response from.
+	#goal: StudyAgentScriptGoal | undefined
 	// The responses being served; a response joins when its stream starts and leaves when the stream settles.
 	readonly #serving = new Set<StudyAgentResponse>()
 
@@ -44,7 +44,8 @@ export class StudyAgentScript implements ProviderInterface {
 	prepare(plan: StudyAgentPlan): void {
 		if (this.#serving.size !== 0)
 			throw new StudyError('CONFIG', 'Cannot replace a running scripted workload')
-		if (this.#goals.size !== 0) throw new StudyError('CONFIG', 'Scripted goal is already prepared')
+		if (this.#goal !== undefined)
+			throw new StudyError('CONFIG', 'Scripted goal is already prepared')
 		if (!isArray(plan.responses) || !plan.responses.every(isStudyAgentResponse))
 			throw new StudyError('CONFIG', 'Scripted response sequence is invalid')
 		// Own the declared calls so later caller mutation cannot change a served response; the
@@ -55,7 +56,7 @@ export class StudyAgentScript implements ProviderInterface {
 		}))
 		if (!isArray(owned) || !owned.every(isStudyAgentResponse))
 			throw new StudyError('CONFIG', 'Scripted response sequence is invalid')
-		this.#goals.add(new StudyAgentScriptGoal({ ...plan, responses: Object.freeze(owned) }))
+		this.#goal = new StudyAgentScriptGoal({ ...plan, responses: Object.freeze(owned) })
 	}
 
 	/**
@@ -63,7 +64,7 @@ export class StudyAgentScript implements ProviderInterface {
 	 * @returns Nothing; a provider with no prepared goal stays unprepared
 	 */
 	clear(): void {
-		this.#goals.clear()
+		this.#goal = undefined
 	}
 
 	/**
@@ -90,7 +91,7 @@ export class StudyAgentScript implements ProviderInterface {
 		messages: readonly Message[],
 		signal: AbortSignal,
 	): AsyncGenerator<ProviderDelta, ProviderResult> {
-		const [goal] = this.#goals
+		const goal = this.#goal
 		if (goal === undefined || this.#serving.size !== 0)
 			throw new StudyError('CONFIG', 'Scripted provider is unavailable')
 		const response = goal.take()

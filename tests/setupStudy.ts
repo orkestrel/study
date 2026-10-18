@@ -76,6 +76,33 @@ import { StudyAgentObserver } from '../src/core/agents/StudyAgentObserver.js'
 import { StudyAgentSummary } from '../src/server/agents/StudyAgentSummary.js'
 import { StudyAgentTrace } from '../src/server/agents/StudyAgentTrace.js'
 
+/** Owns the records one fixture observes in arrival order and lends them as one live, readonly view.
+ *
+ * A reference taken from `entries` sees every record appended later, as the arrays fixtures returned before did.
+ * @example Keep a live view of a fixture's records
+ * ```ts
+ * const log = new StudyLog<string>()
+ * const seen = log.entries
+ * log.append('first')
+ * seen // ['first']
+ * ```
+ */
+export class StudyLog<TEntry> {
+	readonly #entries: TEntry[] = []
+
+	/** Reports every record appended so far; the same live view for the log's whole life. */
+	get entries(): readonly TEntry[] {
+		return this.#entries
+	}
+
+	/** Appends one final record after the earlier ones.
+	 * @param entry - The observed record.
+	 */
+	append(entry: TEntry): void {
+		this.#entries.push(entry)
+	}
+}
+
 /** Evaluates a distinct copy of the real study error module, tagged the way captured loading tags an import.
  * @param label - The copy's tag; equal labels share one evaluation.
  * @returns The copy's own class, construction and guard.
@@ -974,18 +1001,18 @@ export function readOllamaDefault(path: string): string {
  */
 export function createOllamaFetch(replies: readonly OllamaReplyFixture[] = []): OllamaFetchFixture {
 	const queue = Object.freeze([...replies])
-	const served: OllamaReplyFixture[] = []
-	const requests: OllamaRequestFixture[] = []
+	const requests = new StudyLog<OllamaRequestFixture>()
+	const served = new StudyLog<OllamaReplyFixture | undefined>()
 	return {
 		fetch: async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
 			const path = new URL(input instanceof Request ? input.url : input).pathname
-			requests.push({ path, body: typeof init?.body === 'string' ? init.body : '' })
 			const signal = init?.signal ?? undefined
+			// A request an aborted signal refuses is received but claims no queued reply.
+			const supplied =
+				signal?.aborted === true ? undefined : pickOllamaReply(queue, served.entries, path)
+			requests.append({ path, body: typeof init?.body === 'string' ? init.body : '' })
+			served.append(supplied)
 			signal?.throwIfAborted()
-			// Each served reply is a step result; the unserved view derives from the queue past them.
-			const next = queue[served.length]
-			const supplied = next?.path === path ? next : undefined
-			if (supplied !== undefined) served.push(supplied)
 			const bytes = new TextEncoder().encode(supplied?.body ?? readOllamaDefault(path))
 			return new Response(
 				new ReadableStream<Uint8Array>({
@@ -1002,11 +1029,34 @@ export function createOllamaFetch(replies: readonly OllamaReplyFixture[] = []): 
 				{ status: supplied?.status ?? 200 },
 			)
 		},
-		requests,
+		requests: requests.entries,
 		get replies(): readonly OllamaReplyFixture[] {
-			return queue.slice(served.length)
+			return queue.slice(countOllamaServed(served.entries))
 		},
 	}
+}
+
+/** Counts the queued replies a protocol fixture has already served.
+ * @param served - The reply each received request claimed, undefined where no queued reply matched it.
+ * @returns How many of those requests consumed a queued reply.
+ */
+export function countOllamaServed(served: ReadonlyArray<OllamaReplyFixture | undefined>): number {
+	return served.filter((reply) => reply !== undefined).length
+}
+
+/** Picks the queued reply the next request claims: the first unserved reply, only when its path is the request's.
+ * @param queue - The queued replies in serving order.
+ * @param served - The reply each earlier request claimed, undefined where no queued reply matched it.
+ * @param path - The requested path.
+ * @returns The claimed reply, or undefined when the next queued reply is for another path or none remains.
+ */
+export function pickOllamaReply(
+	queue: readonly OllamaReplyFixture[],
+	served: ReadonlyArray<OllamaReplyFixture | undefined>,
+	path: string,
+): OllamaReplyFixture | undefined {
+	const next = queue[countOllamaServed(served)]
+	return next?.path === path ? next : undefined
 }
 
 /** Drains a provider stream, keeping both the yielded deltas and the returned result.
@@ -1110,19 +1160,19 @@ export function createAgentObserver(
 		...(replay === undefined ? {} : { replay }),
 		options: STUDY_OLLAMA_OPTIONS,
 	})
-	const readings: StudyAgentReading[] = []
-	const requests: ProviderRequest[] = []
+	const readings = new StudyLog<StudyAgentReading>()
+	const requests = new StudyLog<ProviderRequest>()
 	const observer = new StudyAgentObserver({
 		provider: inner,
 		runtime: createAgentRuntime(),
 		gauge,
 		enforced,
 		record: (reading, request) => {
-			readings.push(reading)
-			requests.push(request)
+			readings.append(reading)
+			requests.append(request)
 		},
 	})
-	return { observer, inner, readings, requests }
+	return { observer, inner, readings: readings.entries, requests: requests.entries }
 }
 
 /** Supplies the exact Ollama `options` a one-token judge fixture sends. */
@@ -1203,18 +1253,18 @@ export function buildStudyAgentOrigins(messages: readonly Message[]): JSONValue 
  * @returns The sink, its accepted rows and every offered row, the refused one included.
  */
 export function createStudySinkFixture(options: StudySinkFixtureOptions = {}): StudySinkFixture {
-	const rows: StudyEvidence[] = []
-	const offered: StudyEvidence[] = []
+	const accepted = new StudyLog<StudyEvidence>()
+	const received = new StudyLog<StudyEvidence>()
 	const sink: StudySinkInterface = {
 		async append(evidence): Promise<void> {
 			await options.during?.()
-			const row = offered.length
-			offered.push(evidence)
+			const row = received.entries.length
+			received.append(evidence)
 			if (options.refuse !== undefined && options.refuse.row === row) throw options.refuse.error
-			rows.push(evidence)
+			accepted.append(evidence)
 		},
 	}
-	return { sink, rows, offered }
+	return { sink, rows: accepted.entries, offered: received.entries }
 }
 
 /** Creates a real trace over the actual Agent runtime and a recorded failure owner.

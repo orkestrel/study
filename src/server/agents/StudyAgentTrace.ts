@@ -22,9 +22,10 @@ export class StudyAgentTrace {
 	readonly #options: StudyAgentTraceOptions
 	// Dispatch identities per role; one current dispatch cannot be overtaken by another of its role
 	// because the consumer awaits each request before the next of that role.
-	readonly #slots = new Map<StudyAgentRole, StudyAgentDispatch>()
-	// The goal in flight; it joins at `start` and leaves when its flush settles.
-	readonly #goals = new Set<StudyAgentTraceGoal>()
+	// Each dispatch replaces the map, so a reader never sees one change in place.
+	#slots: ReadonlyMap<StudyAgentRole, StudyAgentDispatch> = new Map()
+	// The goal in flight; `start` binds it and its flush releases it when it settles.
+	#goal: StudyAgentTraceGoal | undefined
 	// The flushes in flight; a flush joins when it starts and leaves when it settles.
 	readonly #flushes = new Set<Promise<void>>()
 	#ordinal = 0
@@ -39,8 +40,7 @@ export class StudyAgentTrace {
 
 	/** Reports the active goal; undefined between goals. */
 	get goal(): string | undefined {
-		const [running] = this.#goals
-		return running?.goal
+		return this.#goal?.goal
 	}
 
 	/** Begins a goal's rows. Ordinals, dispatch numbers and role identities continue from earlier goals.
@@ -48,8 +48,8 @@ export class StudyAgentTrace {
 	 * @throws StudyError - Thrown with code `CONFIG` when a goal is already active; the active goal and its rows stay unchanged.
 	 */
 	start(goal: string): void {
-		if (this.#goals.size !== 0) throw new StudyError('CONFIG', 'Trace goal is already active')
-		this.#goals.add(new StudyAgentTraceGoal(goal))
+		if (this.#goal !== undefined) throw new StudyError('CONFIG', 'Trace goal is already active')
+		this.#goal = new StudyAgentTraceGoal(goal)
 	}
 
 	/** Retains one domain row for the active goal, whether or not observation is enabled; a row outside a goal is dropped.
@@ -57,8 +57,7 @@ export class StudyAgentTrace {
 	 * @param value - The JSON evidence value.
 	 */
 	append(event: string, value: JSONValue): void {
-		const [running] = this.#goals
-		running?.append(event, value)
+		this.#goal?.append(event, value)
 	}
 
 	/** Appends the retained rows in order, including rows added during the flush, and ends the goal even when custody refuses a row.
@@ -67,15 +66,16 @@ export class StudyAgentTrace {
 	 * @throws StudyError - Thrown with code `CONFIG` when another flush is pending; the pending flush is untouched.
 	 */
 	async flush(evidence: StudySinkInterface): Promise<void> {
-		const [running] = this.#goals
+		const running = this.#goal
 		if (running === undefined) return
 		if (this.#flushes.size !== 0) throw new StudyError('CONFIG', 'Trace flush is already pending')
-		const flushing = running.flush(evidence)
+		// The flush joins the registry before the sink can run, so a sink that re-enters `flush` meets it.
+		const flushing = Promise.resolve().then(() => running.flush(evidence))
 		this.#flushes.add(flushing)
 		try {
 			await flushing
 		} finally {
-			this.#goals.delete(running)
+			if (this.#goal === running) this.#goal = undefined
 			this.#flushes.delete(flushing)
 		}
 	}
@@ -89,8 +89,7 @@ export class StudyAgentTrace {
 		const estimate = this.#options.runtime.estimateRequest(request)
 		const projected = projectStudyAgentRequest(gauge, estimate)
 		const stamp = this.measure('admission', 'agent', request, { estimate, projected }, undefined)
-		const [running] = this.#goals
-		running?.admit(stamp)
+		this.#goal?.admit(stamp)
 		return projected
 	}
 
@@ -174,9 +173,7 @@ export class StudyAgentTrace {
 
 	// Reads the active goal only while observation is enabled.
 	#observed(): StudyAgentTraceGoal | undefined {
-		if (!this.#options.observe) return undefined
-		const [running] = this.#goals
-		return running
+		return this.#options.observe ? this.#goal : undefined
 	}
 
 	// Numbers the dispatch, retains its context row and makes it the role's current identity.
@@ -188,7 +185,7 @@ export class StudyAgentTrace {
 		const id = ++this.#dispatches
 		const stamp = this.measure('dispatch', role, request, reading, id)
 		const dispatch = Object.freeze({ id, revision: stamp?.revision ?? undefined })
-		this.#slots.set(role, dispatch)
+		this.#slots = new Map([...this.#slots, [role, dispatch]])
 		return dispatch
 	}
 

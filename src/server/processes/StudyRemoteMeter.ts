@@ -13,8 +13,8 @@ export class StudyRemoteMeter implements StudyRemoteMeterInterface {
 	#options: StudyRemoteMeterOptions
 	#next = 0
 	#admissions = 0
-	#tickets = new Map<number, AbortController>()
-	#pending = new Set<Promise<void>>()
+	readonly #tickets = new Map<number, AbortController>()
+	readonly #pending = new Set<Promise<void>>()
 	#usage: StudyUsage[] = []
 	#closed = false
 

@@ -143,11 +143,12 @@ describe('StudyChannel', () => {
 		const scratch = createScratch()
 		const peer = createStudyPeer(
 			scratch,
-			`const frames = []
+			`const release = new Promise(resolve => process.on('message', control => {
+	if (control?.control === 'release') resolve()
+}))
 process.on('message', frame => {
-	if (frame?.control === 'release') { for (const request of frames) process.send({id:request.id,operation:'reply',value:request.value}); return }
 	if (frame?.operation !== 'goal') return
-	frames.push(frame)
+	void release.then(() => process.send({id:frame.id,operation:'reply',value:frame.value}))
 })`,
 		)
 		const channel = new StudyChannel({
@@ -155,6 +156,8 @@ process.on('message', frame => {
 			handle: async () => true,
 			abort: () => undefined,
 		})
+		const diagnostics = createRecorder<readonly [chunk: unknown]>()
+		peer.child.stderr?.on('data', diagnostics.handler)
 		try {
 			const pending = Array.from({ length: STUDY_PENDING_LIMIT }, (_, index) =>
 				channel.request('goal', { index }),
@@ -171,6 +174,11 @@ process.on('message', frame => {
 					Promise.all(pending),
 				),
 			).resolves.toEqual(Array.from({ length: STUDY_PENDING_LIMIT }, (_, index) => ({ index })))
+			// The peer registers its listeners once, so Node reports no leak; the pipe is complete once the peer closes.
+			await peer.close()
+			expect(diagnostics.calls.map(([chunk]) => String(chunk)).join('')).not.toContain(
+				'MaxListenersExceededWarning',
+			)
 		} finally {
 			channel.close()
 			await peer.close()
