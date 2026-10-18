@@ -425,7 +425,7 @@ describe('StudySeries', () => {
 			store: custody.store,
 			signal: new AbortController().signal,
 		}).execute()
-		expect(waits.calls.at(-1)?.[0] ?? 0).toBeGreaterThanOrEqual(manifest.bounds.goal.duration)
+		expect(waits.calls.map(([wait]) => wait >= manifest.bounds.goal.duration)).toEqual([true])
 		expect(first?.executed).toBe(true)
 		expect(first?.failure?.cause).toBe('deadline')
 		expect(first?.observations.map((observation) => observation.executed)).toEqual([true, false])

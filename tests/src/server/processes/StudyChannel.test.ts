@@ -1,6 +1,7 @@
 import { isRecord } from '@orkestrel/contract'
 import { createRecorder, waitForAbort, waitForCondition } from '@orkestrel/test'
 import { createScratch } from '@orkestrel/test/server'
+import { isDeepStrictEqual } from 'node:util'
 import { describe, expect, it } from 'vitest'
 import { StudyChannel } from '../../../../src/server/processes/StudyChannel.js'
 import {
@@ -127,7 +128,7 @@ describe('StudyChannel', () => {
 			)
 			expect(result).toBe('original')
 			expect(original.calls).toEqual([['admit']])
-			expect(replacement.count).toBe(0)
+			expect(replacement.calls).toEqual([])
 			expect(first.child.listenerCount('message')).toBe(1)
 			channel.close()
 			expect(first.child.listenerCount('message')).toBe(0)
@@ -186,6 +187,89 @@ process.on('message', frame => {
 		}
 	}, 10000)
 
+	it('refuses the request past the limit even when each handler admits the next request before it suspends', async () => {
+		const scratch = createScratch()
+		const peer = createStudyPeer(scratch, `process.on('message', () => {})`)
+		const handled = createRecorder<readonly [number]>()
+		const channel = new StudyChannel({
+			endpoint: peer.child,
+			handle: async (_operation, value) => {
+				const id = isRecord(value) && typeof value.id === 'number' ? value.id : 0
+				handled.handler(id)
+				// The next request arrives while this handler is still on its synchronous path.
+				if (id < STUDY_PENDING_LIMIT + 6)
+					peer.child.emit('message', { id: id + 1, operation: 'goal', value: { id: id + 1 } })
+				return true
+			},
+			abort: () => undefined,
+		})
+		try {
+			peer.child.emit('message', { id: 1, operation: 'goal', value: { id: 1 } })
+			await waitForAbort(channel.signal)
+			expect(handled.calls.map(([id]) => id)).toEqual(
+				Array.from({ length: STUDY_PENDING_LIMIT }, (_, index) => index + 1),
+			)
+			expect(channel.signal.reason).toMatchObject({
+				failure: {
+					cause: 'infrastructure',
+					message: 'Out-of-order or excessive study IPC request',
+				},
+			})
+		} finally {
+			channel.close()
+			await peer.close()
+			scratch.destroy()
+		}
+	})
+
+	it('answers an admitted request under the id it arrived with when another listener edits the frame while the handler is pending', async () => {
+		for (const rejected of [false, true]) {
+			const scratch = createScratch()
+			const peer = createStudyPeer(
+				scratch,
+				`process.on('message', frame => process.send({receipt:frame})); process.send({id:1,operation:'goal',value:'accepted'})`,
+			)
+			const gate = Promise.withResolvers<boolean>()
+			const handled = createRecorder<readonly [unknown]>()
+			const edited = createRecorder<[]>()
+			const receipts = createRecorder<readonly [unknown]>()
+			const channel = new StudyChannel({
+				endpoint: peer.child,
+				handle: (_operation, value) => {
+					handled.handler(value)
+					return gate.promise
+				},
+				abort: () => undefined,
+			})
+			try {
+				peer.child.on('message', (value: unknown) => {
+					if (!isRecord(value)) return
+					if ('receipt' in value) {
+						receipts.handler(value.receipt)
+						return
+					}
+					value.id = 99
+					edited.handler()
+				})
+				await waitForCondition('the peer request is edited', () => edited.count === 1, {
+					budget: 3000,
+				})
+				expect(handled.calls).toEqual([['accepted']])
+				if (rejected) gate.reject(new Error('boundary refusal'))
+				else gate.resolve(true)
+				await waitForCondition('the peer received the answer', () => receipts.count === 1, {
+					budget: 3000,
+				})
+				expect(receipts.calls).toMatchObject([[{ id: 1, operation: rejected ? 'error' : 'reply' }]])
+			} finally {
+				gate.resolve(true)
+				channel.close()
+				await peer.close()
+				scratch.destroy()
+			}
+		}
+	}, 15000)
+
 	it('closes on the 65th inbound request, refuses its work and rejects pending outbound work', async () => {
 		const scratch = createScratch()
 		const peer = createStudyPeer(
@@ -197,6 +281,7 @@ process.on('message', frame => {
 		)
 		const gate = Promise.withResolvers<void>()
 		const active = createRecorder<[]>()
+		const accepted = Array.from({ length: STUDY_PENDING_LIMIT }, () => [])
 		const replied = createRecorder<readonly [unknown]>()
 		const channel = new StudyChannel({
 			endpoint: peer.child,
@@ -216,14 +301,14 @@ process.on('message', frame => {
 			peer.child.send({ control: 'start' })
 			await waitForCondition(
 				'accepted handlers are active',
-				() => active.count === STUDY_PENDING_LIMIT,
+				() => isDeepStrictEqual(active.calls, accepted),
 				{
 					budget: 3000,
 					interval: 10,
 				},
 			)
 			await waitForAbort(channel.signal)
-			expect(active.count).toBe(STUDY_PENDING_LIMIT)
+			expect(active.calls).toEqual(accepted)
 			expect(channel.signal.reason).toMatchObject({
 				failure: {
 					cause: 'infrastructure',

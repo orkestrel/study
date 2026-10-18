@@ -99,9 +99,8 @@ import {
 	buildOllamaCall,
 	buildOllamaRow,
 	buildOllamaStream,
-	countOllamaServed,
 	createStudyMeterFixture,
-	pickOllamaReply,
+	OllamaReplyQueue,
 	readOllamaDefault,
 	StudyLog,
 	STUDY_JUDGE_OPTIONS,
@@ -1083,9 +1082,8 @@ export async function createOllamaServer(
 	replies: readonly OllamaReplyFixture[] = [],
 	answer?: StudyMCPAnswer,
 ): Promise<OllamaServerFixture> {
-	const queue = Object.freeze([...replies])
+	const queue = new OllamaReplyQueue(replies)
 	const requests = new StudyLog<OllamaRequestFixture>()
-	const served = new StudyLog<OllamaReplyFixture | undefined>()
 	const owners = new StudyLog<string | undefined>()
 	const server = createServer(async (request, response) => {
 		const chunks: Buffer[] = []
@@ -1093,9 +1091,8 @@ export async function createOllamaServer(
 			chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
 		const path = request.url ?? ''
 		const text = Buffer.concat(chunks).toString('utf8')
-		const supplied = pickOllamaReply(queue, served.entries, path)
+		const supplied = queue.claim(path)
 		requests.append({ path, body: text })
-		served.append(supplied)
 		const header = request.headers['x-study-owned']
 		owners.append(typeof header === 'string' ? header : undefined)
 		const body = supplied?.body ?? answer?.(path, text) ?? readOllamaDefault(path)
@@ -1115,7 +1112,7 @@ export async function createOllamaServer(
 		requests: requests.entries,
 		owned: owners.entries,
 		get replies(): readonly OllamaReplyFixture[] {
-			return queue.slice(countOllamaServed(served.entries))
+			return queue.remaining
 		},
 		close: () =>
 			new Promise<void>((resolveClose, reject) => {

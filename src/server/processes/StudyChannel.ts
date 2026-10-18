@@ -12,7 +12,7 @@ export class StudyChannel {
 	readonly #pending = new Map<number, StudyResponse>()
 	#next = 0
 	#received = 0
-	readonly #working = new Set<Promise<void>>()
+	readonly #working = new Set<symbol>()
 	#message: (value: unknown) => void
 	#disconnect: () => void
 	#error: (error: Error) => void
@@ -124,20 +124,16 @@ export class StudyChannel {
 			throw failureToStudyError(
 				createStudyProcessFailure('Out-of-order or excessive study IPC request'),
 			)
-		this.#received = value.id
-		const working = this.#respond(value.id, value.operation, value.value)
+		const id = value.id
+		this.#received = id
+		// The request joins the registry before its handler can run, so a request the handler admits
+		// on its synchronous path meets the limit.
+		const working = Symbol('request')
 		this.#working.add(working)
 		try {
-			await working
-		} finally {
-			this.#working.delete(working)
-		}
-	}
-
-	// Hands one accepted request to its domain handler and sends the reply, or the error that stopped it.
-	async #respond(id: number, operation: StudyOperation, value: JSONValue): Promise<void> {
-		try {
-			const result = await this.#options.handle(operation, value)
+			const result = await this.#options.handle(value.operation, value.value)
+			// The admitted id answers both outcomes: another listener on the shared endpoint may edit
+			// the borrowed frame while the handler is pending.
 			await this.#send({ id, operation: 'reply', value: result })
 		} catch (error) {
 			await this.#send({
@@ -145,6 +141,8 @@ export class StudyChannel {
 				operation: 'error',
 				value: valueToWire(readStudyFailure(error)),
 			})
+		} finally {
+			this.#working.delete(working)
 		}
 	}
 }

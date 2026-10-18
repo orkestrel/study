@@ -811,7 +811,7 @@ describe('StudyOllamaTransport', () => {
 				}
 				expect(outcomes).toHaveLength(2)
 				for (const outcome of outcomes) expect(outcome.error).toBe(thrown)
-				expect(calls.count).toBe(1)
+				expect(calls.calls).toEqual([[]])
 			} finally {
 				await fixture.close()
 			}
@@ -1070,8 +1070,7 @@ describe('StudyOllamaTransport', () => {
 			const provider = createOllamaTransportProvider(fixture.transport, fixture.server.url)
 			const result = await provider.generate(STUDY_AGENT_MESSAGES, new AbortController().signal)
 			expect(result.content).toBe('Receipt')
-			expect(extractions.count).toBe(1)
-			expect(extractions.calls[0]?.[0]).toMatchObject({ done: true, total_duration: 1234 })
+			expect(extractions.calls).toMatchObject([[{ done: true, total_duration: 1234 }]])
 			const wire = requireStudyRecord(
 				fixture.goal.evidence.find((row) => row.event === 'wire')?.value,
 			)

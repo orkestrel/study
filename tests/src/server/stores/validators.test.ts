@@ -6,7 +6,9 @@ import {
 	buildCompactCustodyManifest,
 	buildCustodyAttempt,
 	buildCustodyManifest,
+	buildStudyFailure,
 	buildStudyObservation,
+	buildStudySparse,
 	STUDY_EXECUTION_CASES,
 } from '../../../setupStudy.js'
 import { decodeStudyJSON, encodeStudyJSON } from '../../../../src/server/helpers.js'
@@ -43,7 +45,7 @@ describe('custody validators', () => {
 			},
 		})
 		expect(isStudyCustodyEvidence(evidence)).toBe(false)
-		expect(reads.count).toBe(0)
+		expect(reads.calls).toEqual([])
 		expect(
 			isStudyCustodyEvidence({
 				event: 'saved',
@@ -138,6 +140,38 @@ describe('custody validators', () => {
 		expect(isStudyCustodyAttempt(record, manifest)).toBe(valid)
 		// An undefined member leaves the record once it crosses custody bytes and must read the same.
 		expect(isStudyCustodyAttempt(decodeStudyJSON(encodeStudyJSON(record)), manifest)).toBe(valid)
+	})
+
+	it('refuses an observation hole behind a failed executed goal as it refuses one anywhere else', () => {
+		const manifest = buildCompactCustodyManifest()
+		const trial = manifest.schedule[0]
+		if (trial === undefined) throw new Error('Missing trial')
+		const attempt = buildCustodyAttempt(manifest, trial)
+		const failure = buildStudyFailure()
+		const failed = buildStudyObservation('write', true, { product: undefined, failure })
+		const record = { ...attempt, failure }
+		// The dense record with the same first goal is lawful, so only the hole decides.
+		expect(
+			isStudyCustodyAttempt(
+				{ ...record, observations: [failed, buildStudyObservation('read', false)] },
+				manifest,
+			),
+		).toBe(true)
+		expect(
+			isStudyCustodyAttempt(
+				{ ...record, observations: buildStudySparse(2, [[0, failed]]) },
+				manifest,
+			),
+		).toBe(false)
+		expect(
+			isStudyCustodyAttempt(
+				{
+					...record,
+					observations: buildStudySparse(2, [[1, buildStudyObservation('read', false)]]),
+				},
+				manifest,
+			),
+		).toBe(false)
 	})
 
 	it('serializes every required execution fact and reads the bytes back', () => {

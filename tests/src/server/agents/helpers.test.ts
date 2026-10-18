@@ -208,10 +208,10 @@ describe('readStudyAgentMessages', () => {
 				},
 			]),
 		).toEqual([{ role: 'tool', content: 'alpha', call: 'recalled' }])
-		expect({ role: roles.count, content: contents.count, call: calls.count }).toEqual({
-			role: 1,
-			content: 1,
-			call: 1,
+		expect({ role: roles.calls, content: contents.calls, call: calls.calls }).toEqual({
+			role: [[]],
+			content: [[]],
+			call: [[]],
 		})
 		expect(
 			readStudyAgentMessages([{ role: 'tool', content: 'alpha', call: 'recalled', extra: true }]),

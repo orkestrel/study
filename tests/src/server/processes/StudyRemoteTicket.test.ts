@@ -28,12 +28,16 @@ describe('StudyRemoteTicket', () => {
 		} satisfies StudyUsage
 		ticket.finish(usage)
 		expect(original.calls).toEqual([['finish', usage]])
-		expect(replacement.count).toBe(0)
+		expect(replacement.calls).toEqual([])
 		selected.abort()
-		expect(aborts.count).toBe(1)
+		expect(aborts.calls.map(([event]) => [event.type, event.target])).toEqual([
+			['abort', selected.signal],
+		])
 		expect(ticket.signal.aborted).toBe(true)
 		foreign.abort()
-		expect(aborts.count).toBe(1)
+		expect(aborts.calls.map(([event]) => [event.type, event.target])).toEqual([
+			['abort', selected.signal],
+		])
 		expect(() => ticket.finish(usage)).toThrow(/settled more than once/)
 		expect(original.calls).toEqual([
 			['finish', usage],
@@ -46,7 +50,7 @@ describe('StudyRemoteTicket', () => {
 				},
 			],
 		])
-		expect(replacement.count).toBe(0)
+		expect(replacement.calls).toEqual([])
 	})
 
 	it('derives settled from its own settlement and never from the signal', () => {

@@ -1,7 +1,8 @@
 import type { ProviderRequest } from '@orkestrel/agent'
+import type { StudyEvidence } from '../../../../src/core/types.js'
 import { describe, expect, it } from 'vitest'
 import { AgentError, estimateRequest } from '@orkestrel/agent'
-import { createRecorder, requireValue } from '@orkestrel/test'
+import { createRecorder } from '@orkestrel/test'
 import { StudyError } from '../../../../src/core/errors.js'
 import { buildStudyAgentRevision } from '../../../../src/server/agents/helpers.js'
 import {
@@ -365,6 +366,31 @@ describe('StudyAgentTrace', () => {
 		expect(trace.goal).toBe(undefined)
 	})
 
+	it('offers the first row to the sink before the flush call returns', async () => {
+		const { trace } = createStudyAgentTrace(true)
+		const appended = createRecorder<readonly [StudyEvidence]>()
+		trace.start('write')
+		trace.append('first', { id: 1 })
+		const pending = trace.flush({
+			append: async (row) => {
+				appended.handler(row)
+			},
+		})
+		expect(appended.calls).toEqual([[{ event: 'first', goal: 'write', value: { id: 1 } }]])
+		await pending
+		expect(trace.goal).toBe(undefined)
+	})
+
+	it('ends a goal with no rows before the flush call returns', async () => {
+		const { trace } = createStudyAgentTrace(true)
+		trace.start('write')
+		const pending = trace.flush(createStudySinkFixture().sink)
+		expect(trace.goal).toBe(undefined)
+		expect(() => trace.start('read')).not.toThrow()
+		await pending
+		expect(trace.goal).toBe('read')
+	})
+
 	it('refuses a flush the sink starts before its own append returns and records the row once', async () => {
 		const { trace } = createStudyAgentTrace(true)
 		const other = createStudySinkFixture()
@@ -378,13 +404,13 @@ describe('StudyAgentTrace', () => {
 		trace.start('write')
 		trace.append('first', { id: 1 })
 		await trace.flush(sink.sink)
-		expect(reentries.count).toBe(1)
-		const [settled] = requireValue(reentries.calls[0])
-		expect(await settled).toMatchObject([
-			{
-				status: 'rejected',
-				reason: { code: 'CONFIG', message: 'Trace flush is already pending' },
-			},
+		expect(await Promise.all(reentries.calls.map(([settled]) => settled))).toMatchObject([
+			[
+				{
+					status: 'rejected',
+					reason: { code: 'CONFIG', message: 'Trace flush is already pending' },
+				},
+			],
 		])
 		expect(sink.rows.map((row) => row.event)).toEqual(['first'])
 		expect(other.offered).toEqual([])

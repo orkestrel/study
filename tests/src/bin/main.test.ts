@@ -599,7 +599,11 @@ describe('built study executable', () => {
 				code: 0,
 				output: '',
 			})
-			expect((scratch.read('agent.log') ?? '').trim().split(/\r\n|\n/)).toHaveLength(1)
+			const evaluators = (scratch.read('agent.log') ?? '')
+				.trim()
+				.split(/\r\n|\n/)
+				.map(Number)
+			expect(evaluators.map((pid) => isRunning(pid))).toEqual([false])
 			scratch.write(
 				'agent/dist/index.js',
 				`${scratch.read('agent/dist/index.js') ?? ''}\n// Changed agent bytes\n`,

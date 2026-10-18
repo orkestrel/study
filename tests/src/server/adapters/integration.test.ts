@@ -139,7 +139,7 @@ describe('admitted Agent over the admitted MCP core client', () => {
 					expect(executed.code).toBe(1)
 					expect(attempt.failure).toMatchObject({ cause: 'infrastructure', role: 'tool' })
 					// The first goal's single interfered call is the only one: no retry and no later goal.
-					expect(proxy.intercepted).toHaveLength(1)
+					expect(proxy.intercepted).toEqual([expect.any(Number)])
 					expect(server.calls).toEqual([])
 					expect(
 						attempt.observations.filter((observation) => observation.product !== undefined),

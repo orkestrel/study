@@ -1,5 +1,5 @@
 import type { JSONValue } from '@orkestrel/contract'
-import type { StudyEvidence, StudySinkInterface } from '../../core/types.js'
+import type { StudyEvidence } from '../../core/types.js'
 import type { StudyAgentStamp } from './types.js'
 
 /** Holds one goal's retained trace rows, its latest admission and its last refused identity. */
@@ -19,6 +19,11 @@ export class StudyAgentTraceGoal {
 	/** Reports the goal the rows belong to. */
 	get goal(): string {
 		return this.#goal
+	}
+
+	/** Reports every row retained so far; the same live view for the goal's whole life, which sees each row retained later. */
+	get rows(): readonly StudyEvidence[] {
+		return this.#rows
 	}
 
 	/** Reports the goal's latest admission stamp; undefined before one, or when the latest was not observed. */
@@ -49,13 +54,5 @@ export class StudyAgentTraceGoal {
 		if (this.#refused === error) return false
 		this.#refused = error
 		return true
-	}
-
-	/** Appends every retained row in order, including rows retained while earlier rows are being appended.
-	 * @param evidence - The sink that takes custody of each row.
-	 * @returns Completion after the last row; rejects with the first custody refusal and appends nothing after it.
-	 */
-	async flush(evidence: StudySinkInterface): Promise<void> {
-		for (const row of this.#rows) await evidence.append(row)
 	}
 }

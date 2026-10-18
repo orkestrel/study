@@ -42,33 +42,30 @@ export function buildStudyPacketLinks(
 	result: StudySealedResult,
 	rubric: StudyRubric,
 ): readonly StudyPacketLink[] {
-	const pairs = result.manifest.schedule.flatMap((trial) =>
+	// The pairs are produced one at a time, and a hole is a position that reads as absent, so a hole
+	// refuses after the links before it were counted, as visiting each position in turn does.
+	const pairs = result.manifest.schedule.values().flatMap((trial) =>
 		rubric.criteria
+			.values()
 			.filter(
 				(criterion) => criterion.method === 'semantic' && criterion.scenario === trial.scenario,
 			)
 			.map((criterion) => ({ trial, criterion })),
 	)
-	// Every SHA-256 digest is 64 hexadecimal characters, so a link's encoded size is known before its
-	// digests are computed, and the allowance bounds the hashing.
-	const placeholder = hashStudyBytes('')
-	pairs.reduce((bytes, { trial, criterion }) => {
-		const total =
-			bytes +
-			encodeStudyJSON({
-				trial: `t-${placeholder}`,
-				criterion: `c-${placeholder}`,
-				source: { trial: trial.id, criterion: criterion.id },
-			}).byteLength
-		if (total > STUDY_CUSTODY_BYTES)
+	// Each record carries the encoded bytes of every link up to and including its own.
+	const records: Array<{ readonly link: StudyPacketLink; readonly bytes: number }> = []
+	for (const { trial, criterion } of pairs) {
+		const link = {
+			trial: `t-${hashStudyBytes(encodeStudyJSON([result.seal.id, 'trial', trial.id]))}`,
+			criterion: `c-${hashStudyBytes(encodeStudyJSON([result.seal.id, 'criterion', criterion.id]))}`,
+			source: { trial: trial.id, criterion: criterion.id },
+		}
+		const bytes = (records.at(-1)?.bytes ?? 256) + encodeStudyJSON(link).byteLength
+		if (bytes > STUDY_CUSTODY_BYTES)
 			throw new StudyError('CAPACITY', 'Semantic packet mapping exceeds its custody allowance')
-		return total
-	}, 256)
-	const links: StudyPacketLink[] = pairs.map(({ trial, criterion }) => ({
-		trial: `t-${hashStudyBytes(encodeStudyJSON([result.seal.id, 'trial', trial.id]))}`,
-		criterion: `c-${hashStudyBytes(encodeStudyJSON([result.seal.id, 'criterion', criterion.id]))}`,
-		source: { trial: trial.id, criterion: criterion.id },
-	}))
+		records.push({ link, bytes })
+	}
+	const links = records.map(({ link }) => link)
 	return Object.freeze(
 		links.sort((left, right) =>
 			`${left.trial}/${left.criterion}` < `${right.trial}/${right.criterion}`
@@ -99,8 +96,11 @@ export function buildStudyPacket(
 ): StudyPacketBundle | undefined {
 	const links = buildStudyPacketLinks(result, rubric)
 	if (links.length === 0) return undefined
-	// An entry is undefined where its link refers to an absent horizon; the fold below refuses it in link order.
-	const candidates = links.map((link): StudyPacketEntry | undefined => {
+	const opening = encodeStudyJSON({ disclosure: STUDY_PACKET_DISCLOSURE, entries: [] }).byteLength
+	// Each link is looked up, refused or counted before the next one is read; each record carries the
+	// encoded bytes of every entry up to and including its own.
+	const records: Array<{ readonly entry: StudyPacketEntry; readonly length: number }> = []
+	for (const link of links) {
 		const trial = result.manifest.schedule.find((entry) => entry.id === link.source.trial)
 		const criterion = rubric.criteria.find((entry) => entry.id === link.source.criterion)
 		const scenario = result.manifest.scenarios.find((entry) => entry.id === trial?.scenario)
@@ -108,28 +108,21 @@ export function buildStudyPacket(
 		const observation = result.attempts
 			.find((entry) => entry.trial.id === link.source.trial)
 			?.observations.find((entry) => entry.goal === criterion?.goal)
-		return criterion === undefined || goal === undefined || observation === undefined
-			? undefined
-			: {
-					trial: link.trial,
-					criterion: link.criterion,
-					input: goal.input,
-					product: observation.product,
-					assertion: criterion.assertion,
-				}
-	})
-	candidates.reduce(
-		(length, entry) => {
-			if (entry === undefined)
-				throw new StudyError('EVIDENCE', 'Semantic packet refers to an absent sealed horizon')
-			const next = length + encodeStudyJSON(entry).byteLength
-			if (next > STUDY_CUSTODY_BYTES)
-				throw new StudyError('CAPACITY', 'Semantic packet content exceeds its custody allowance')
-			return next
-		},
-		encodeStudyJSON({ disclosure: STUDY_PACKET_DISCLOSURE, entries: [] }).byteLength,
-	)
-	const entries = candidates.flatMap((entry) => (entry === undefined ? [] : [entry]))
+		if (criterion === undefined || goal === undefined || observation === undefined)
+			throw new StudyError('EVIDENCE', 'Semantic packet refers to an absent sealed horizon')
+		const entry = {
+			trial: link.trial,
+			criterion: link.criterion,
+			input: goal.input,
+			product: observation.product,
+			assertion: criterion.assertion,
+		}
+		const length = (records.at(-1)?.length ?? opening) + encodeStudyJSON(entry).byteLength
+		if (length > STUDY_CUSTODY_BYTES)
+			throw new StudyError('CAPACITY', 'Semantic packet content exceeds its custody allowance')
+		records.push({ entry, length })
+	}
+	const entries = records.map(({ entry }) => entry)
 	return Object.freeze({
 		content: encodeStudyJSON({ disclosure: STUDY_PACKET_DISCLOSURE, entries }),
 		mapping: encodeStudyJSON({

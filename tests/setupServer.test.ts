@@ -553,7 +553,7 @@ describe('study server fixtures', () => {
 			await client.connect()
 			expect(intercepted).toEqual([])
 			await client.call('lookup', { id: 'a' }).catch(() => undefined)
-			expect(intercepted).toHaveLength(1)
+			expect(intercepted).toEqual([expect.any(Number)])
 			expect(proxy.intercepted).toBe(intercepted)
 		} finally {
 			await client.disconnect()
@@ -608,7 +608,7 @@ describe('study server fixtures', () => {
 					(error: unknown) => error,
 				)
 				expect(refused).toBeInstanceOf(Error)
-				expect(proxy.intercepted).toHaveLength(1)
+				expect(proxy.intercepted).toEqual([expect.any(Number)])
 				expect(server.calls).toEqual([])
 				expect(server.methods.filter((method) => method === 'tools/call')).toEqual([])
 				expect(server.methods).toContain('tools/list')

@@ -8,11 +8,12 @@ import {
 	buildStudyObservation,
 	buildStudyOperationAttempts,
 	buildStudyProfile,
+	buildStudyHole,
 	buildStudySettingsProfile,
+	buildStudySparse,
 	buildOllamaJudgeRow,
 	buildOllamaReplies,
 	buildStudyAgentOrigins,
-	countOllamaServed,
 	createAgentObserver,
 	createOllamaFetch,
 	createStudyAgentSummary,
@@ -26,7 +27,7 @@ import {
 	createStudySinkFixture,
 	createStudyStoreFixture,
 	importStudyErrorCopy,
-	pickOllamaReply,
+	OllamaReplyQueue,
 	readOllamaMessages,
 	readOllamaToolResults,
 	readProviderStream,
@@ -164,6 +165,31 @@ describe('study meter fixture lifecycle', () => {
 		expect(fixture.control.failure).toBeUndefined()
 		expect(fixture.meter.usage).toHaveLength(1)
 		expect(() => fixture.meter.admit({ role: 'tool', tokens: 0, bytes: 1 })).toThrow(/closed/)
+	})
+})
+
+describe('study sparse fixture', () => {
+	it('builds absent positions, not undefined elements, and keeps the length they count', () => {
+		const sparse = buildStudySparse(4, [
+			[0, 'a'],
+			[2, 'c'],
+		])
+		expect(sparse).toHaveLength(4)
+		expect(Object.keys(sparse)).toEqual(['0', '2'])
+		expect(1 in sparse).toBe(false)
+		expect(3 in sparse).toBe(false)
+		expect(buildStudySparse(2, [])).toHaveLength(2)
+		expect(Object.keys(buildStudySparse(2, []))).toEqual([])
+	})
+
+	it('copies an array with one absent position and leaves the source untouched', () => {
+		const source = ['a', 'b', 'c']
+		const hole = buildStudyHole(source, 1)
+		expect(hole).toHaveLength(3)
+		expect(Object.keys(hole)).toEqual(['0', '2'])
+		expect(1 in hole).toBe(false)
+		expect(source).toEqual(['a', 'b', 'c'])
+		expect(buildStudyHole(source, 0)).not.toBe(buildStudyHole(source, 0))
 	})
 })
 
@@ -314,12 +340,12 @@ describe('study agent trace fixtures', () => {
 	it('builds a trace over a recorded latch that refuses with the supplied value', () => {
 		const free = createStudyAgentTrace(true)
 		free.latch.check()
-		expect(free.latch.checks.count).toBe(1)
+		expect(free.latch.checks.calls).toEqual([[]])
 		expect(free.trace.goal).toBe(undefined)
 		const failure = new Error('Latched')
 		const refused = createStudyAgentTrace(false, { error: failure })
 		expect(() => refused.latch.check()).toThrow(failure)
-		expect(refused.latch.checks.count).toBe(1)
+		expect(refused.latch.checks.calls).toEqual([[]])
 	})
 
 	it('builds a summary whose real provider answers the queued wire reply and whose signal defaults live', async () => {
@@ -333,7 +359,7 @@ describe('study agent trace fixtures', () => {
 			'Queued recap',
 		)
 		expect(fixture.wire.requests.map(({ path }) => path)).toEqual(['/api/chat'])
-		expect(fixture.latch.checks.count).toBe(2)
+		expect(fixture.latch.checks.calls).toEqual([[], []])
 	})
 
 	it('builds the raw judge answer as one length-finished token with top logprobs and spreads overrides last', () => {
@@ -495,15 +521,28 @@ describe('study protocol fixtures', () => {
 		expect(wire.requests.map(({ path }) => path)).toEqual(['/api/chat', '/api/tags', '/api/chat'])
 	})
 
-	it('counts the requests that claimed a queued reply and picks the head reply only for its own path', () => {
+	it('claims the head reply only for its own path and then serves the next one', () => {
 		const tags = { path: '/api/tags', body: 'tags' }
 		const chat = { path: '/api/chat', body: 'chat' }
-		expect(countOllamaServed([])).toBe(0)
-		expect(countOllamaServed([undefined, tags, undefined, chat])).toBe(2)
-		expect(pickOllamaReply([tags, chat], [], '/api/tags')).toBe(tags)
-		expect(pickOllamaReply([tags, chat], [], '/api/chat')).toBeUndefined()
-		expect(pickOllamaReply([tags, chat], [undefined, tags], '/api/chat')).toBe(chat)
-		expect(pickOllamaReply([tags], [tags], '/api/tags')).toBeUndefined()
+		const queue = new OllamaReplyQueue([tags, chat])
+		expect(queue.remaining).toEqual([tags, chat])
+		expect(queue.claim('/api/chat')).toBeUndefined()
+		expect(queue.remaining).toEqual([tags, chat])
+		expect(queue.claim('/api/tags')).toBe(tags)
+		expect(queue.remaining).toEqual([chat])
+		expect(queue.claim('/api/tags')).toBeUndefined()
+		expect(queue.claim('/api/chat')).toBe(chat)
+		expect(queue.remaining).toEqual([])
+		expect(queue.claim('/api/chat')).toBeUndefined()
+	})
+
+	it('owns its replies after the caller changes the array it was built from', () => {
+		const tags = { path: '/api/tags', body: 'tags' }
+		const replies = [tags]
+		const queue = new OllamaReplyQueue(replies)
+		replies.splice(0, replies.length, { path: '/api/chat', body: 'chat' })
+		expect(queue.claim('/api/chat')).toBeUndefined()
+		expect(queue.claim('/api/tags')).toBe(tags)
 	})
 
 	it('receives a request an aborted signal refuses without claiming its queued reply', async () => {

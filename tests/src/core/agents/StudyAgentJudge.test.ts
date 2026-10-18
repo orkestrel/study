@@ -23,7 +23,7 @@ describe('StudyAgentJudge', () => {
 		const expected = await plain.ask(STUDY_JUDGE_REQUEST, signal)
 		expect(await judge.ask(STUDY_JUDGE_REQUEST, signal)).toEqual(expected)
 		expect(judgedWire.requests).toEqual(plainWire.requests)
-		expect(latch.checks.count).toBe(1)
+		expect(latch.checks.calls).toEqual([[]])
 		expect(latch.failures.calls).toEqual([])
 	})
 

@@ -13,13 +13,12 @@ describe('StudyEvidenceSink', () => {
 		const first = await open(join(scratch.path, 'first.jsonl'), 'wx')
 		const second = await open(join(scratch.path, 'second.jsonl'), 'wx')
 		try {
-			const reservations = createRecorder<readonly [number]>()
 			const options = {
 				file: first,
 				goals: ['write'],
 				goal: 100,
 				trial: 100,
-				budget: { reserve: reservations.handler },
+				budget: { reserve: createRecorder<readonly [number]>().handler },
 			}
 			const sink = new StudyEvidenceSink(options)
 			const appending = sink.append({ event: 'saved', goal: 'write', value: true })
@@ -102,7 +101,9 @@ describe('StudyEvidenceSink', () => {
 				sink.append({ event: 'saved', goal: 'read', value: true }),
 			).rejects.toMatchObject({ code: 'CAPACITY' })
 			await sink.close()
-			expect(reservations.count).toBe(1)
+			expect(reservations.calls).toEqual([
+				[Buffer.byteLength('{"event":"saved","goal":"write","value":true}\n')],
+			])
 			expect(await readFile(join(scratch.path, 'evidence.jsonl'), 'utf8')).toBe(
 				'{"event":"saved","goal":"write","value":true}\n',
 			)
@@ -143,13 +144,12 @@ describe('StudyEvidenceSink', () => {
 		try {
 			const file = await open(join(scratch.path, 'evidence.jsonl'), 'wx')
 			await file.close()
-			const reservations = createRecorder<readonly [number]>()
 			const sink = new StudyEvidenceSink({
 				file,
 				goals: ['write'],
 				goal: 100,
 				trial: 100,
-				budget: { reserve: reservations.handler },
+				budget: { reserve: createRecorder<readonly [number]>().handler },
 			})
 			await expect(
 				sink.append({ event: 'saved', goal: 'write', value: true }),
@@ -195,13 +195,12 @@ describe('StudyEvidenceSink', () => {
 			scratch.write('evidence.jsonl', '')
 			// A read-only descriptor stays open for the sync, so only the writes fail.
 			const file = await open(join(scratch.path, 'evidence.jsonl'), 'r')
-			const reservations = createRecorder<readonly [number]>()
 			const sink = new StudyEvidenceSink({
 				file,
 				goals: ['write'],
 				goal: 100,
 				trial: 100,
-				budget: { reserve: reservations.handler },
+				budget: { reserve: createRecorder<readonly [number]>().handler },
 			})
 			const row = { event: 'saved', goal: 'write', value: true }
 			const first = await sink.append(row).then(

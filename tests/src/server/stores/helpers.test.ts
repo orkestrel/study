@@ -6,8 +6,11 @@ import { describe, expect, it } from 'vitest'
 import {
 	buildCompactCustodyManifest,
 	buildCustodyManifest,
+	buildStudyHole,
 	buildStudyRubric,
+	buildStudySparse,
 } from '../../../setupStudy.js'
+import { STUDY_CUSTODY_BYTES } from '../../../../src/server/stores/constants.js'
 import { buildCustodyPacketLabeling, retainStudyFixture } from '../../../setupServer.js'
 import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
 import {
@@ -260,6 +263,94 @@ describe('study custody helpers', () => {
 			const partialAttempt = await readStudyResult(scratch.path)
 			expect(partialAttempt.status).toBe('interrupted')
 			expect(partialAttempt.attempts).toEqual([])
+		} finally {
+			scratch.destroy()
+		}
+	})
+})
+
+describe('study packet construction over sparse and oversized declarations', () => {
+	it('refuses a hole in the criteria or the schedule instead of skipping the position', async () => {
+		const scratch = createScratch()
+		try {
+			const result = await retainStudyFixture(
+				join(scratch.path, 'result'),
+				buildCompactCustodyManifest(),
+			)
+			const rubric = buildStudyRubric()
+			const digest = hashStudyBytes(encodeStudyJSON(rubric))
+			// The dense declarations build, so only the hole decides.
+			expect(buildStudyPacketLinks(result, rubric)).toHaveLength(2)
+			for (const index of rubric.criteria.keys()) {
+				const sparse = { ...rubric, criteria: buildStudyHole(rubric.criteria, index) }
+				expect(() => buildStudyPacketLinks(result, sparse)).toThrow(TypeError)
+				expect(() => buildStudyPacket(result, sparse, digest)).toThrow(TypeError)
+			}
+			for (const index of result.manifest.schedule.keys()) {
+				const sparse = {
+					...result,
+					manifest: {
+						...result.manifest,
+						schedule: buildStudyHole(result.manifest.schedule, index),
+					},
+				}
+				expect(() => buildStudyPacketLinks(sparse, rubric)).toThrow(TypeError)
+				expect(() => buildStudyPacket(sparse, rubric, digest)).toThrow(TypeError)
+			}
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('counts a link that exceeds the custody allowance before it reaches a later hole', async () => {
+		const scratch = createScratch()
+		try {
+			const result = await retainStudyFixture(
+				join(scratch.path, 'result'),
+				buildCompactCustodyManifest(),
+			)
+			const semantic = buildStudyRubric().criteria.find(
+				(criterion) => criterion.method === 'semantic',
+			)
+			if (semantic === undefined) throw new Error('Missing semantic criterion')
+			const oversized = { ...semantic, id: 'x'.repeat(STUDY_CUSTODY_BYTES) }
+			const rubric = { version: '1', criteria: buildStudySparse(2, [[0, oversized]]) }
+			expect(() => buildStudyPacketLinks(result, rubric)).toThrow(
+				'Semantic packet mapping exceeds its custody allowance',
+			)
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('refuses an absent horizon in link order before it reads a later hole', async () => {
+		const scratch = createScratch()
+		try {
+			const result = await retainStudyFixture(join(scratch.path, 'result'), buildCustodyManifest())
+			const rubric = buildStudyRubric()
+			const digest = hashStudyBytes(encodeStudyJSON(rubric))
+			const trimmed = {
+				...result,
+				manifest: {
+					...result.manifest,
+					scenarios: result.manifest.scenarios.map((scenario) => ({
+						...scenario,
+						goals: scenario.goals.slice(0, 1),
+					})),
+				},
+			}
+			// With every goal present the packet builds, so the absent goal and the hole are the only causes.
+			expect(buildStudyPacket(result, rubric, digest)).toBeDefined()
+			expect(() => buildStudyPacket(trimmed, rubric, digest)).toThrow(
+				'Semantic packet refers to an absent sealed horizon',
+			)
+			expect(() =>
+				buildStudyPacket(
+					{ ...trimmed, attempts: buildStudyHole(trimmed.attempts, trimmed.attempts.length - 1) },
+					rubric,
+					digest,
+				),
+			).toThrow('Semantic packet refers to an absent sealed horizon')
 		} finally {
 			scratch.destroy()
 		}

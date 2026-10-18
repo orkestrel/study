@@ -332,6 +332,34 @@ describe('gradeStudyEvidence', () => {
 		).toThrow(refusal)
 	})
 
+	it('reads each criterion after the preceding predicate returned, so a predicate that replaces the next one changes the next judgment', () => {
+		const input = buildStudyAdjudication()
+		const criteria = input.rubric.criteria.map((criterion) => ({ ...criterion }))
+		const second = requireValue(criteria[1])
+		const grade = createStudyRowGrade()
+		const history = createRecorder<readonly [criterion: string]>()
+		const judgments = gradeStudyEvidence(
+			{ ...input, rubric: { ...input.rubric, criteria } },
+			(target) => {
+				history.handler(target.criterion.id)
+				if (target.criterion.id === 'first-operational')
+					criteria[1] = { ...second, id: 'replacement' }
+				return grade(target)
+			},
+		)
+		expect(history.calls).toEqual([
+			['first-operational'],
+			['replacement'],
+			['first-read'],
+			['second-operational'],
+			['second-saved'],
+			['second-read'],
+		])
+		expect(judgments.map((judgment) => judgment.criterion)).toEqual(
+			history.calls.map(([criterion]) => criterion),
+		)
+	})
+
 	it('yields one unknown judgment for every declared pair when no evidence was retained', () => {
 		const judgments = gradeStudyEvidence(buildStudyAdjudication(), createStudyRowGrade())
 		expect(judgments.map((judgment) => `${judgment.trial}/${judgment.criterion}`)).toEqual([

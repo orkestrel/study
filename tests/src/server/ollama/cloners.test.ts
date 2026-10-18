@@ -72,7 +72,7 @@ describe('buildStudyOllamaTransportOptions', () => {
 			},
 		})
 		buildStudyOllamaTransportOptions(caller)
-		expect({ room: room.count, strict: strict.count }).toEqual({ room: 1, strict: 1 })
+		expect({ room: room.calls, strict: strict.calls }).toEqual({ room: [[]], strict: [[]] })
 	})
 })
 
@@ -106,7 +106,7 @@ describe('buildStudyOllamaSnapshot', () => {
 			},
 		})
 		const snapshot = buildStudyOllamaSnapshot(chat, init, undefined)
-		expect(reads.count).toBe(1)
+		expect(reads.calls).toEqual([[]])
 		expect(new Headers(snapshot.init?.headers).get('x-study-owned')).toBe('original')
 	})
 

@@ -27,7 +27,7 @@ describe('process validators', () => {
 			// Frame reads only after its enumerable-key cardinality passes.
 			Object.assign(hostile, { id: 0, operation: 'goal', value: true })
 			expect(guard(hostile)).toBe(false)
-			expect(reads.count).toBeGreaterThan(0)
+			expect(reads.calls).toEqual([[]])
 			const revoked = Proxy.revocable({}, {})
 			revoked.revoke()
 			expect(guard(revoked.proxy)).toBe(false)
@@ -46,7 +46,7 @@ describe('process validators', () => {
 			},
 		)
 		expect(isStudyFrame(hostile)).toBe(false)
-		expect(reads.count).toBe(1)
+		expect(reads.calls).toEqual([[]])
 	})
 
 	it('refuses foreign envelopes and invalid domain leaves', () => {

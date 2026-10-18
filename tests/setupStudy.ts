@@ -545,6 +545,34 @@ export function buildStudyFailure(
 }
 
 /**
+ * Builds an array whose listed positions hold a value and whose other positions are absent rather than undefined.
+ * @param length - The array length, which counts the absent positions
+ * @param present - The position and value of each present element
+ * @returns A fresh sparse array a literal cannot express
+ */
+export function buildStudySparse<T>(
+	length: number,
+	present: ReadonlyArray<readonly [number, T]>,
+): T[] {
+	const sparse = new Array<T>(length)
+	for (const [index, value] of present) sparse[index] = value
+	return sparse
+}
+
+/**
+ * Copies an array and leaves one position absent rather than undefined.
+ * @param source - The array to copy
+ * @param index - The position left absent
+ * @returns A fresh sparse array with the source's length
+ */
+export function buildStudyHole<T>(source: readonly T[], index: number): T[] {
+	return buildStudySparse(
+		source.length,
+		source.flatMap((value, at) => (at === index ? [] : [[at, value] as const])),
+	)
+}
+
+/**
  * Builds a retained goal outcome that carries an explicit execution fact.
  * @param goal - The declared goal identity
  * @param executed - True for a dispatched goal, false for a goal never dispatched
@@ -1000,18 +1028,15 @@ export function readOllamaDefault(path: string): string {
  * @returns The fetch function, the received requests, and the unserved replies.
  */
 export function createOllamaFetch(replies: readonly OllamaReplyFixture[] = []): OllamaFetchFixture {
-	const queue = Object.freeze([...replies])
+	const queue = new OllamaReplyQueue(replies)
 	const requests = new StudyLog<OllamaRequestFixture>()
-	const served = new StudyLog<OllamaReplyFixture | undefined>()
 	return {
 		fetch: async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
 			const path = new URL(input instanceof Request ? input.url : input).pathname
 			const signal = init?.signal ?? undefined
 			// A request an aborted signal refuses is received but claims no queued reply.
-			const supplied =
-				signal?.aborted === true ? undefined : pickOllamaReply(queue, served.entries, path)
+			const supplied = signal?.aborted === true ? undefined : queue.claim(path)
 			requests.append({ path, body: typeof init?.body === 'string' ? init.body : '' })
-			served.append(supplied)
 			signal?.throwIfAborted()
 			const bytes = new TextEncoder().encode(supplied?.body ?? readOllamaDefault(path))
 			return new Response(
@@ -1031,32 +1056,48 @@ export function createOllamaFetch(replies: readonly OllamaReplyFixture[] = []): 
 		},
 		requests: requests.entries,
 		get replies(): readonly OllamaReplyFixture[] {
-			return queue.slice(countOllamaServed(served.entries))
+			return queue.remaining
 		},
 	}
 }
 
-/** Counts the queued replies a protocol fixture has already served.
- * @param served - The reply each received request claimed, undefined where no queued reply matched it.
- * @returns How many of those requests consumed a queued reply.
+/** Serves a protocol fixture's queued replies in order, each to the first request that names its path.
+ *
+ * The queue owns its own copy of the replies and counts the replies it has served in a field of its own.
+ * @example Claim the head reply by its path
+ * ```ts
+ * const queue = new OllamaReplyQueue([{ path: '/api/tags', body: 'tags' }])
+ * queue.claim('/api/chat') // undefined
+ * queue.claim('/api/tags') // { path: '/api/tags', body: 'tags' }
+ * queue.remaining // []
+ * ```
  */
-export function countOllamaServed(served: ReadonlyArray<OllamaReplyFixture | undefined>): number {
-	return served.filter((reply) => reply !== undefined).length
-}
+export class OllamaReplyQueue {
+	readonly #replies: readonly OllamaReplyFixture[]
+	#served = 0
 
-/** Picks the queued reply the next request claims: the first unserved reply, only when its path is the request's.
- * @param queue - The queued replies in serving order.
- * @param served - The reply each earlier request claimed, undefined where no queued reply matched it.
- * @param path - The requested path.
- * @returns The claimed reply, or undefined when the next queued reply is for another path or none remains.
- */
-export function pickOllamaReply(
-	queue: readonly OllamaReplyFixture[],
-	served: ReadonlyArray<OllamaReplyFixture | undefined>,
-	path: string,
-): OllamaReplyFixture | undefined {
-	const next = queue[countOllamaServed(served)]
-	return next?.path === path ? next : undefined
+	/** Creates a queue over its own copy of the replies.
+	 * @param replies - The queued replies in serving order.
+	 */
+	constructor(replies: readonly OllamaReplyFixture[]) {
+		this.#replies = Object.freeze([...replies])
+	}
+
+	/** Reports the queued replies no request has claimed yet, in serving order. */
+	get remaining(): readonly OllamaReplyFixture[] {
+		return this.#replies.slice(this.#served)
+	}
+
+	/** Claims the first unserved reply when its path is the request's.
+	 * @param path - The requested path.
+	 * @returns The claimed reply, or undefined when the next queued reply is for another path or none remains.
+	 */
+	claim(path: string): OllamaReplyFixture | undefined {
+		const next = this.#replies[this.#served]
+		if (next?.path !== path) return undefined
+		this.#served += 1
+		return next
+	}
 }
 
 /** Drains a provider stream, keeping both the yielded deltas and the returned result.

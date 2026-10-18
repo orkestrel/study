@@ -122,37 +122,43 @@ export function gradeStudyEvidence(
 		)
 			throw new StudyError('CONFIG', 'Grading criterion references an undeclared goal')
 	}
+	// Iterators pull each trial and criterion only after the preceding predicate returned, so a
+	// predicate that edits the caller's live arrays changes what the next judgment names.
 	return Object.freeze(
-		schedule.flatMap((trial) => {
-			const attempt = retained.get(trial.id)
-			const rows: readonly StudyEvidence[] =
-				attempt === undefined ? Object.freeze([]) : (evidence[trial.id] ?? Object.freeze([]))
-			return rubric.criteria
-				.filter((criterion) => criterion.scenario === trial.scenario)
-				.map((criterion): StudyJudgment => {
-					const target: StudyGradeTarget = Object.freeze({
-						trial,
-						criterion,
-						attempt,
-						evidence: rows,
+		schedule
+			.values()
+			.flatMap((trial) => {
+				const attempt = retained.get(trial.id)
+				const rows: readonly StudyEvidence[] =
+					attempt === undefined ? Object.freeze([]) : (evidence[trial.id] ?? Object.freeze([]))
+				return rubric.criteria
+					.values()
+					.filter((criterion) => criterion.scenario === trial.scenario)
+					.map((criterion): StudyJudgment => {
+						const target: StudyGradeTarget = Object.freeze({
+							trial,
+							criterion,
+							attempt,
+							evidence: rows,
+						})
+						const reading = grade(target)
+						if (!isRecord(reading) || !isArray(reading.references))
+							throw new StudyError('EVIDENCE', 'Grading predicate returned an invalid reading')
+						const judgment = {
+							trial: trial.id,
+							criterion: criterion.id,
+							verdict: reading.verdict,
+							method: reading.method,
+							reason: reading.reason,
+							references: Object.freeze(
+								reading.references.map((reference) => buildStudyReference(target, reference)),
+							),
+						}
+						if (!isStudyJudgment(judgment))
+							throw new StudyError('EVIDENCE', 'Grading predicate returned an invalid judgment')
+						return Object.freeze(judgment)
 					})
-					const reading = grade(target)
-					if (!isRecord(reading) || !isArray(reading.references))
-						throw new StudyError('EVIDENCE', 'Grading predicate returned an invalid reading')
-					const judgment = {
-						trial: trial.id,
-						criterion: criterion.id,
-						verdict: reading.verdict,
-						method: reading.method,
-						reason: reading.reason,
-						references: Object.freeze(
-							reading.references.map((reference) => buildStudyReference(target, reference)),
-						),
-					}
-					if (!isStudyJudgment(judgment))
-						throw new StudyError('EVIDENCE', 'Grading predicate returned an invalid judgment')
-					return Object.freeze(judgment)
-				})
-		}),
+			})
+			.toArray(),
 	)
 }

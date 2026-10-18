@@ -252,8 +252,9 @@ export function isStudyCustodyAttempt(
 		)
 			return false
 		// An executed goal needs an executed attempt and no earlier goal that was unexecuted or failed,
-		// so it lies at or before the first goal that was unexecuted or failed.
-		const observations = value.observations
+		// so it lies at or before the first goal that was unexecuted or failed. A hole reads as an
+		// absent observation, which refuses the record, as visiting every position does.
+		const observations = Array.from(value.observations)
 		const stop = observations.findIndex(
 			(observation) => !observation.executed || observation.failure !== undefined,
 		)

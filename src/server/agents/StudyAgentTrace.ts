@@ -26,8 +26,8 @@ export class StudyAgentTrace {
 	#slots: ReadonlyMap<StudyAgentRole, StudyAgentDispatch> = new Map()
 	// The goal in flight; `start` binds it and its flush releases it when it settles.
 	#goal: StudyAgentTraceGoal | undefined
-	// The flushes in flight; a flush joins when it starts and leaves when it settles.
-	readonly #flushes = new Set<Promise<void>>()
+	// The goals being flushed; a goal joins when its flush starts and leaves when the flush settles.
+	readonly #flushes = new Set<StudyAgentTraceGoal>()
 	#ordinal = 0
 	#dispatches = 0
 
@@ -69,14 +69,13 @@ export class StudyAgentTrace {
 		const running = this.#goal
 		if (running === undefined) return
 		if (this.#flushes.size !== 0) throw new StudyError('CONFIG', 'Trace flush is already pending')
-		// The flush joins the registry before the sink can run, so a sink that re-enters `flush` meets it.
-		const flushing = Promise.resolve().then(() => running.flush(evidence))
-		this.#flushes.add(flushing)
+		// The goal joins the registry before the sink can run, so a sink that re-enters `flush` meets it.
+		this.#flushes.add(running)
 		try {
-			await flushing
+			for (const row of running.rows) await evidence.append(row)
 		} finally {
-			if (this.#goal === running) this.#goal = undefined
-			this.#flushes.delete(flushing)
+			this.#goal = undefined
+			this.#flushes.delete(running)
 		}
 	}
 

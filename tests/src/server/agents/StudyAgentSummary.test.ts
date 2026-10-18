@@ -331,7 +331,7 @@ describe('StudyAgentSummary', () => {
 		})
 		fixture.trace.start('write')
 		await expect(fixture.summary.summarize(STUDY_SUMMARY_MESSAGES, undefined)).rejects.toBe(reason)
-		expect(fixture.latch.checks.count).toBe(0)
+		expect(fixture.latch.checks.calls).toEqual([])
 		expect(fixture.wire.requests).toEqual([])
 		await expect(
 			fixture.summary.summarize(STUDY_SUMMARY_MESSAGES, new AbortController().signal),
@@ -349,7 +349,7 @@ describe('StudyAgentSummary', () => {
 		})
 		fixture.trace.start('write')
 		await expect(fixture.summary.summarize(STUDY_SUMMARY_MESSAGES, undefined)).rejects.toBe(failure)
-		expect(fixture.latch.checks.count).toBe(1)
+		expect(fixture.latch.checks.calls).toEqual([[]])
 		expect(fixture.wire.requests).toEqual([])
 	})
 
