@@ -6,7 +6,7 @@ import type {
 	StudyRubric,
 	StudyScenario,
 } from '../../core/types.js'
-import type { StudyArtifacts } from '../processes/StudyArtifacts.js'
+import type { StudyArtifactLoader } from '../processes/StudyArtifactLoader.js'
 import type { StudyPacketBundle } from '../stores/types.js'
 
 /** Holds the trusted application entry and repository location. */
@@ -68,7 +68,7 @@ export interface StudyPreparation {
 	readonly rubric: StudyRubric
 	readonly profile: StudyProfile
 	readonly identity: StudyIdentity
-	readonly artifacts: StudyArtifacts
+	readonly artifacts: StudyArtifactLoader
 	readonly source: string
 }
 

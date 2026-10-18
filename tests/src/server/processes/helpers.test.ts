@@ -24,7 +24,7 @@ import {
 	computeStudyProfileDigest,
 	createStudyProcessFailure,
 	terminateStudyChild,
-	toStudyWire,
+	valueToWire,
 	resolveStudyInstrument,
 	validateStudyRuntime,
 } from '../../../../src/server/processes/helpers.js'
@@ -68,7 +68,7 @@ describe('process helpers', () => {
 		expect(
 			computeStudyProfileDigest({ ...profile, room: { ...profile.room, output: 33 } }),
 		).not.toBe(computeStudyProfileDigest(profile))
-		expect(toStudyWire({ optional: undefined, value: 1 })).toEqual({ value: 1 })
+		expect(valueToWire({ optional: undefined, value: 1 })).toEqual({ value: 1 })
 		expect(createStudyProcessFailure('lost')).toEqual({
 			cause: 'infrastructure',
 			message: 'lost',
@@ -79,8 +79,8 @@ describe('process helpers', () => {
 		const base = buildStudyProfile()
 		const omitted = { ...base }
 		Reflect.deleteProperty(omitted, 'settings')
-		expect(JSON.stringify(toStudyWire(base))).not.toContain('settings')
-		expect(JSON.stringify(toStudyWire(omitted))).toBe(JSON.stringify(toStudyWire(base)))
+		expect(JSON.stringify(valueToWire(base))).not.toContain('settings')
+		expect(JSON.stringify(valueToWire(omitted))).toBe(JSON.stringify(valueToWire(base)))
 		expect(computeStudyProfileDigest(omitted)).toBe(computeStudyProfileDigest(base))
 		const digests = [base, ...STUDY_PROFILE_SETTINGS.map(buildStudySettingsProfile)].map(
 			computeStudyProfileDigest,
@@ -98,7 +98,7 @@ describe('process helpers', () => {
 		const undeclared = { ...base, room: { ...base.room, recap: undefined } }
 		const omitted = { ...base, room: { ...base.room } }
 		Reflect.deleteProperty(omitted.room, 'recap')
-		expect(JSON.stringify(toStudyWire(undeclared))).not.toContain('recap')
+		expect(JSON.stringify(valueToWire(undeclared))).not.toContain('recap')
 		expect(computeStudyProfileDigest(omitted)).toBe(computeStudyProfileDigest(undeclared))
 		expect(computeStudyProfileDigest(undeclared)).not.toBe(computeStudyProfileDigest(base))
 	})

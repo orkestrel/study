@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { StudySeries } from '../../../../src/core/engines/index.js'
 import type { StudyProduct } from '../../../../src/core/types.js'
-import { StudyResults } from '../../../../src/server/stores/StudyResults.js'
+import { StudyResultStore } from '../../../../src/server/stores/StudyResultStore.js'
 import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
 import { readStudyResult } from '../../../../src/server/stores/helpers.js'
 import { StudyEvidenceSink } from '../../../../src/server/stores/StudyEvidenceSink.js'
@@ -20,7 +20,7 @@ import {
 	STUDY_CUSTODY_MUTATIONS,
 } from '../../../setupStudy.js'
 
-describe('StudyResults', () => {
+describe('StudyResultStore', () => {
 	it('owns an exact scheduled trial by value across its filesystem awaits', async () => {
 		const scratch = createScratch()
 		const sinks: StudyEvidenceSink[] = []
@@ -29,7 +29,7 @@ describe('StudyResults', () => {
 			const original = manifest.schedule[0]
 			if (original === undefined) throw new Error('Missing fixture trial')
 			const directory = join(scratch.path, 'result')
-			const results = new StudyResults({ directory, manifest })
+			const results = new StudyResultStore({ directory, manifest })
 			await results.create()
 			const copy = { ...original }
 			const starting = results.start(copy)
@@ -68,7 +68,7 @@ describe('StudyResults', () => {
 				},
 			})
 			const directory = join(scratch.path, 'result')
-			const results = new StudyResults({ directory, manifest })
+			const results = new StudyResultStore({ directory, manifest })
 			await results.create()
 			for (const trial of manifest.schedule) {
 				const sink = await results.start(trial)
@@ -92,14 +92,14 @@ describe('StudyResults', () => {
 		try {
 			const manifest = buildCustodyManifest()
 			const directory = join(scratch.path, 'result')
-			const results = new StudyResults({ directory, manifest })
+			const results = new StudyResultStore({ directory, manifest })
 			expect(scratch.has('result')).toBe(false)
 			await mkdir(directory)
 			await expect(results.create()).rejects.toMatchObject({ code: 'EEXIST' })
 			expect(scratch.names('result')).toEqual([])
 			scratch.write('occupied/original.txt', 'keep')
 			await expect(
-				new StudyResults({ directory: join(scratch.path, 'occupied'), manifest }).create(),
+				new StudyResultStore({ directory: join(scratch.path, 'occupied'), manifest }).create(),
 			).rejects.toMatchObject({ code: 'EEXIST' })
 			expect(scratch.read('occupied/original.txt')).toBe('keep')
 		} finally {
@@ -113,7 +113,7 @@ describe('StudyResults', () => {
 			const manifest = buildCustodyManifest()
 			const trial = manifest.schedule[0]
 			if (trial === undefined) throw new Error('Missing fixture trial')
-			const results = new StudyResults({ directory: join(scratch.path, 'result'), manifest })
+			const results = new StudyResultStore({ directory: join(scratch.path, 'result'), manifest })
 			await results.create()
 			const sink = await results.start(trial)
 			const first = sink.append({ event: 'saved', goal: 'write', value: 1 })
@@ -153,7 +153,7 @@ describe('StudyResults', () => {
 		const scratch = createScratch()
 		try {
 			const manifest = buildCustodyManifest()
-			const results = new StudyResults({ directory: join(scratch.path, 'result'), manifest })
+			const results = new StudyResultStore({ directory: join(scratch.path, 'result'), manifest })
 			await results.create()
 			for (const trial of manifest.schedule) {
 				await results.start(trial)
@@ -206,7 +206,7 @@ describe('StudyResults', () => {
 			const trial = manifest.schedule[0]
 			if (trial === undefined) throw new Error('Missing trial')
 			const directory = join(scratch.path, 'result')
-			const results = new StudyResults({ directory, manifest })
+			const results = new StudyResultStore({ directory, manifest })
 			await results.create()
 			const sink = await results.start(trial)
 			await expect(
@@ -263,7 +263,7 @@ describe('StudyResults', () => {
 					},
 				})
 				const directory = join(scratch.path, 'result')
-				const results = new StudyResults({ directory, manifest })
+				const results = new StudyResultStore({ directory, manifest })
 				await results.create()
 				const attempts = await new StudySeries({
 					manifest,
@@ -304,7 +304,7 @@ describe('StudyResults', () => {
 				series: 16384,
 			})
 			const directory = join(scratch.path, 'result')
-			const results = new StudyResults({ directory, manifest })
+			const results = new StudyResultStore({ directory, manifest })
 			await results.create()
 			const oversized = 'x'.repeat(manifest.bounds.series.bytes + 1)
 			const driver = createStudyDriverFixture({
@@ -363,7 +363,7 @@ describe('StudyResults', () => {
 				series: 2300,
 			})
 			const directory = join(scratch.path, 'result')
-			const results = new StudyResults({ directory, manifest })
+			const results = new StudyResultStore({ directory, manifest })
 			await results.create()
 			const driver = createStudyDriverFixture({
 				execute: async (): Promise<StudyProduct> => ({ value: 'x'.repeat(1100), partial: false }),
@@ -433,7 +433,7 @@ describe('StudyResults', () => {
 			const manifest = buildCompactCustodyManifest()
 			const trial = manifest.schedule[0]
 			if (trial === undefined) throw new Error('Missing fixture trial')
-			const results = new StudyResults({ directory: join(scratch.path, 'result'), manifest })
+			const results = new StudyResultStore({ directory: join(scratch.path, 'result'), manifest })
 			await results.create()
 			const sink = await results.start(trial)
 			if (sink instanceof StudyEvidenceSink) sinks.push(sink)

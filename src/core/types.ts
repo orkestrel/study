@@ -302,7 +302,7 @@ export interface StudyJudgment {
 }
 
 /** Holds imported semantic judgments and their accountable origin. */
-export interface StudyLabels {
+export interface StudyLabeling {
 	readonly packet: string
 	readonly labeler: string
 	readonly version: string

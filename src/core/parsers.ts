@@ -1,7 +1,7 @@
 import type {
 	StudyDefinition,
 	StudyGrading,
-	StudyLabels,
+	StudyLabeling,
 	StudyProfile,
 	StudyRubric,
 	StudyScenario,
@@ -12,7 +12,7 @@ import { normalizeStudyProfile } from './helpers.js'
 import {
 	isStudyDefinition,
 	isStudyGrading,
-	isStudyLabels,
+	isStudyLabeling,
 	isStudyProfile,
 	isStudyRubric,
 	isStudyScenario,
@@ -135,12 +135,12 @@ export function parseStudyGrading(value: unknown): StudyGrading {
  * @throws StudyError - Thrown when evidence is invalid or cannot be owned
  * @example
  * ```ts
- * parseStudyLabels(evidence)
+ * parseStudyLabeling(evidence)
  * ```
  */
-export function parseStudyLabels(value: unknown): StudyLabels {
+export function parseStudyLabeling(value: unknown): StudyLabeling {
 	try {
-		if (!isStudyLabels(value)) throw new StudyError('EVIDENCE', 'Invalid study labels')
+		if (!isStudyLabeling(value)) throw new StudyError('EVIDENCE', 'Invalid study labels')
 		const snapshot = cloneJSONValue({
 			...value,
 			usage: value.usage.map(({ tokens, bytes, ...usage }) => ({
@@ -149,7 +149,7 @@ export function parseStudyLabels(value: unknown): StudyLabels {
 				...(bytes === undefined ? {} : { bytes }),
 			})),
 		})
-		if (isStudyLabels(snapshot)) return snapshot
+		if (isStudyLabeling(snapshot)) return snapshot
 	} catch {
 		throw new StudyError('EVIDENCE', 'Invalid or unreadable study labels')
 	}

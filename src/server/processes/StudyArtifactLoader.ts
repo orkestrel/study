@@ -1,9 +1,13 @@
-import type { StudyArtifactIdentity, StudyArtifactModules, StudyArtifactOptions } from './types.js'
+import type {
+	StudyArtifactIdentity,
+	StudyArtifactModule,
+	StudyArtifactLoaderOptions,
+} from './types.js'
 import type { StudyAdapterInterface } from '../adapters/types.js'
 import { dirname, isAbsolute } from 'node:path'
 import { readFileSync } from 'node:fs'
 import { StudyError } from '../../core/errors.js'
-import { Artifacts } from '../artifacts/Artifacts.js'
+import { ArtifactLoader } from '../artifacts/ArtifactLoader.js'
 import { readStudyAdapter } from '../adapters/helpers.js'
 import { hashStudyBytes } from '../helpers.js'
 import { readStudyBytes } from '../stores/helpers.js'
@@ -16,16 +20,16 @@ import {
 } from './helpers.js'
 
 /** Binds consumer instrumentation separately from selected executable identities. */
-export class StudyArtifacts {
-	#options: StudyArtifactOptions
-	#loader: Artifacts | undefined
-	#instrument: Artifacts | undefined
+export class StudyArtifactLoader {
+	#options: StudyArtifactLoaderOptions
+	#loader: ArtifactLoader | undefined
+	#instrument: ArtifactLoader | undefined
 	#identity: StudyArtifactIdentity | undefined
 	#entry: string | undefined
 	/** Owns resolved built and consumer source selections.
 	 * @param options - The trusted host, adapter, and profile.
 	 */
-	constructor(options: StudyArtifactOptions) {
+	constructor(options: StudyArtifactLoaderOptions) {
 		this.#options = structuredClone(options)
 		if (
 			![
@@ -51,10 +55,10 @@ export class StudyArtifacts {
 		const roots = [...new Set([...profile.roots, instrument])]
 		validateStudyRuntime(instrument, roots)
 		const source = { root: dirname(this.#options.adapter), entry: this.#options.adapter }
-		this.#instrument = new Artifacts({ entries: [], roots, source, instrument })
+		this.#instrument = new ArtifactLoader({ entries: [], roots, source, instrument })
 		const entry = hashStudyBytes(await readStudyBytes(this.#options.entry, STUDY_CUSTODY_BYTES))
 		this.#entry = entry
-		this.#loader = new Artifacts({
+		this.#loader = new ArtifactLoader({
 			entries: collectStudyEntries(profile),
 			roots,
 			source,
@@ -82,7 +86,7 @@ export class StudyArtifacts {
 	/** Loads admitted built namespaces inside the trial child.
 	 * @returns The agent, subject and optional provider; a shared entry loads once and keeps each role.
 	 */
-	async load(): Promise<StudyArtifactModules> {
+	async load(): Promise<StudyArtifactModule> {
 		await this.inspect()
 		if (this.#loader === undefined)
 			throw new StudyError('CONFIG', 'Artifact inspection is required')

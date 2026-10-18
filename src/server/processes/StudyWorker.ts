@@ -11,8 +11,8 @@ import {
 import { StudyError } from '../../core/errors.js'
 import { isStudyGoal, isStudyProduct, isStudyProfile } from '../../core/validators.js'
 import { STUDY_PROCESS_LABEL } from './constants.js'
-import { computeStudyProfileDigest, createStudyProcessFailure, toStudyWire } from './helpers.js'
-import { StudyArtifacts } from './StudyArtifacts.js'
+import { computeStudyProfileDigest, createStudyProcessFailure, valueToWire } from './helpers.js'
+import { StudyArtifactLoader } from './StudyArtifactLoader.js'
 import { StudyChannel } from './StudyChannel.js'
 import { StudyRemoteMeter } from './StudyRemoteMeter.js'
 import { isStudyIdentity, isStudyProcessFailure, isStudyTrial } from './validators.js'
@@ -21,7 +21,7 @@ import { isStudyIdentity, isStudyProcessFailure, isStudyTrial } from './validato
 export class StudyWorker {
 	#control = new StudyControl()
 	#channel: StudyChannel | undefined
-	#artifacts: StudyArtifacts | undefined
+	#artifacts: StudyArtifactLoader | undefined
 	#session: StudySessionInterface | undefined
 	readonly #meters = new Set<StudyRemoteMeter>()
 	#opening = false
@@ -105,7 +105,7 @@ export class StudyWorker {
 				'Worker opening declaration is invalid or driver is unsupported',
 			)
 		this.#duration = value.profile.bounds.request.duration
-		this.#artifacts = new StudyArtifacts({
+		this.#artifacts = new StudyArtifactLoader({
 			entry: value.entry,
 			root: value.root,
 			profile: value.profile,
@@ -129,7 +129,7 @@ export class StudyWorker {
 		})
 		this.#session = await driver.open(value.trial, this.#control.signal)
 		if (this.#control.failure !== undefined) throw failureToStudyError(this.#control.failure)
-		return toStudyWire({ ...identity, pid: process.pid })
+		return valueToWire({ ...identity, pid: process.pid })
 	}
 
 	async #goal(value: JSONValue): Promise<JSONValue> {
@@ -149,7 +149,7 @@ export class StudyWorker {
 				this.#session.execute(value, {
 					signal: this.#control.signal,
 					meter,
-					evidence: { append: (evidence) => this.#append(toStudyWire(evidence)) },
+					evidence: { append: (evidence) => this.#append(valueToWire(evidence)) },
 				}),
 			)
 			await meter.close()
@@ -157,7 +157,7 @@ export class StudyWorker {
 			if (this.#control.failure !== undefined) throw failureToStudyError(this.#control.failure)
 			if (!isStudyProduct(product))
 				throw new StudyError('FAULT', 'Worker driver returned an invalid product')
-			return toStudyWire(product)
+			return valueToWire(product)
 		} finally {
 			this.#meters.delete(meter)
 		}

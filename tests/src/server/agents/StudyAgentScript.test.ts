@@ -511,14 +511,14 @@ describe('StudyAgentScript', () => {
 		try {
 			const script = new StudyAgentScript({ bytes: 1000 })
 			const fixture = createStudyScriptFixture(meter, [
-				buildStudyScriptResponse({ content: 'done', cancel: true }),
+				buildStudyScriptResponse({ content: 'done', abort: true }),
 			])
 			script.prepare(fixture.plan)
 			expect(await script.generate(STUDY_SCRIPT_MESSAGES, meter.control.signal)).toEqual({
 				content: 'done',
 			})
 			expect(fixture.rows.calls.map(([row]) => row.event)).toEqual(['provider', 'workload'])
-			expect(fixture.rows.calls[1]?.[0].value).toEqual({ cancelled: true })
+			expect(fixture.rows.calls[1]?.[0].value).toEqual({ aborted: true })
 			expect(meter.meter.usage).toHaveLength(1)
 			expect(meter.meter.usage[0]?.bytes).toBeGreaterThan(0)
 			expect(fixture.workload.signal.aborted).toBe(true)

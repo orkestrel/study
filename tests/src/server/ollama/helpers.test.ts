@@ -7,7 +7,7 @@ import { readStudyFailure } from '../../../../src/core/engines/helpers.js'
 import {
 	buildStudyOllamaModels,
 	buildStudyOllamaRaw,
-	buildStudyOllamaSettings,
+	buildStudyOllamaOptions,
 	buildStudyOllamaTiming,
 	readStudyOllamaDigest,
 	readStudyOllamaFailure,
@@ -89,37 +89,37 @@ describe('buildStudyOllamaModels', () => {
 	})
 })
 
-describe('buildStudyOllamaSettings', () => {
+describe('buildStudyOllamaOptions', () => {
 	it('adds both native fields as false for a strict policy', () => {
-		const settings = buildStudyOllamaSettings({ ...agentPolicy, strict: true })
+		const settings = buildStudyOllamaOptions({ ...agentPolicy, strict: true })
 		expect(settings.truncate).toBe(false)
 		expect(settings.shift).toBe(false)
 		expect(Object.keys(settings)).toEqual(['model', 'options', 'think', 'truncate', 'shift'])
 	})
 
 	it('omits both native keys for a policy that is not strict', () => {
-		const settings = buildStudyOllamaSettings({ ...agentPolicy, strict: false })
+		const settings = buildStudyOllamaOptions({ ...agentPolicy, strict: false })
 		expect('truncate' in settings).toBe(false)
 		expect('shift' in settings).toBe(false)
 		expect(Object.keys(settings)).toEqual(['model', 'options', 'think'])
 	})
 
 	it('keeps a false think flag and the policy model', () => {
-		const settings = buildStudyOllamaSettings({ ...agentPolicy, think: false })
+		const settings = buildStudyOllamaOptions({ ...agentPolicy, think: false })
 		expect(settings.think).toBe(false)
 		expect(settings.model).toBe(agentPolicy.model)
-		expect(buildStudyOllamaSettings({ ...agentPolicy, think: true }).think).toBe(true)
+		expect(buildStudyOllamaOptions({ ...agentPolicy, think: true }).think).toBe(true)
 	})
 
 	it('carries the options object by identity with its key order', () => {
-		const settings = buildStudyOllamaSettings(agentPolicy)
+		const settings = buildStudyOllamaOptions(agentPolicy)
 		expect(settings.options).toBe(agentPolicy.options)
 		expect(Object.keys(requireValue(settings.options))).toEqual(Object.keys(STUDY_OLLAMA_OPTIONS))
 	})
 
 	it('projects no length allowance', () => {
-		expect('length' in buildStudyOllamaSettings({ ...agentPolicy, length: true })).toBe(false)
-		expect('length' in buildStudyOllamaSettings(judgePolicy)).toBe(false)
+		expect('length' in buildStudyOllamaOptions({ ...agentPolicy, length: true })).toBe(false)
+		expect('length' in buildStudyOllamaOptions(judgePolicy)).toBe(false)
 	})
 })
 

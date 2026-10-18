@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { expect, it } from 'vitest'
-import { Artifacts } from '../../../../src/server/artifacts/Artifacts.js'
+import { ArtifactLoader } from '../../../../src/server/artifacts/ArtifactLoader.js'
 import { readArtifact } from '../../../../src/server/artifacts/helpers.js'
 import { Resolution } from '../../../../src/server/artifacts/Resolution.js'
 import { createArtifactWorker } from '../../../setupServer.js'
@@ -61,20 +61,20 @@ it('admits loader builtins only from an explicitly recorded captured instrument 
 			instrument,
 			source: { root: sourceRoot, entry: sourceEntry },
 		}
-		expect(new Artifacts(options).inspect().instrument).toBe(instrument)
-		expect(new Artifacts(options).inspect().digest).not.toBe(
-			new Artifacts({
+		expect(new ArtifactLoader(options).inspect().instrument).toBe(instrument)
+		expect(new ArtifactLoader(options).inspect().digest).not.toBe(
+			new ArtifactLoader({
 				entries: options.entries,
 				roots: options.roots,
 				source: options.source,
 			}).inspect().digest,
 		)
-		expect(() => new Artifacts({ ...options, instrument: sourceRoot }).inspect()).toThrow(
+		expect(() => new ArtifactLoader({ ...options, instrument: sourceRoot }).inspect()).toThrow(
 			/admitted package root/,
 		)
 		const worker = createArtifactWorker(
 			scratch,
-			`const options = ${JSON.stringify(options)}; if (process.argv[2] === 'untrusted') delete options.instrument; const artifacts = new Artifacts(options); const namespace = await artifacts.load(options.source.entry); assert.equal(namespace.value, 'function:function'); console.log('instrument-loaded')`,
+			`const options = ${JSON.stringify(options)}; if (process.argv[2] === 'untrusted') delete options.instrument; const artifacts = new ArtifactLoader(options); const namespace = await artifacts.load(options.source.entry); assert.equal(namespace.value, 'function:function'); console.log('instrument-loaded')`,
 		)
 		const trusted = spawnSync(process.execPath, [worker], { encoding: 'utf8', timeout: 15000 })
 		expect(trusted.status).toBe(0)

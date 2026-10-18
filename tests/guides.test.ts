@@ -138,11 +138,11 @@ await new GuideCommand({
 	})
 
 	it('seals complete custody, reads the same identity, and detects changed execution bytes', async () => {
-		const { StudyResults, readStudyResult } = server
+		const { StudyResultStore, readStudyResult } = server
 		const scratch = createScratch()
 		const manifest = buildCustodyManifest()
 		const directory = join(scratch.path, 'result')
-		const results = new StudyResults({ directory, manifest })
+		const results = new StudyResultStore({ directory, manifest })
 		try {
 			const attempts = manifest.schedule.map((trial) => buildCustodyAttempt(manifest, trial))
 			await results.create()
@@ -169,7 +169,7 @@ await new GuideCommand({
 
 	it('executes the titled helper examples against their claimed values', () => {
 		const { matchesStudyKeys } = core
-		const { decodeStudyJSON, encodeStudyJSON, hashStudyBytes, isStudyAdapter, toStudyWire } = server
+		const { decodeStudyJSON, encodeStudyJSON, hashStudyBytes, isStudyAdapter, valueToWire } = server
 		const { parseStudyArguments } = server
 		expect(matchesStudyKeys({ id: 'one' }, ['id'])).toBe(true)
 		expect(matchesStudyKeys({ id: 'one', extra: true }, ['id'])).toBe(false)
@@ -178,7 +178,7 @@ await new GuideCommand({
 		expect(hashStudyBytes('retained evidence')).toMatch(/^[a-f0-9]{64}$/)
 		expect(hashStudyBytes('changed evidence')).not.toBe(hashStudyBytes('retained evidence'))
 		expect(isStudyAdapter({})).toBe(false)
-		expect(toStudyWire({ state: 'ready', failure: undefined })).toEqual({ state: 'ready' })
+		expect(valueToWire({ state: 'ready', failure: undefined })).toEqual({ state: 'ready' })
 		expect(parseStudyArguments(['check', 'files', '--profile', 'local'])).toEqual({
 			command: 'check',
 			target: 'files',
@@ -231,7 +231,7 @@ await new GuideCommand({
 	})
 
 	it('pins Ollama models and projects a role policy onto provider options', () => {
-		const { buildStudyOllamaModels, buildStudyOllamaSettings } = server
+		const { buildStudyOllamaModels, buildStudyOllamaOptions } = server
 		const policy = {
 			model: 'model',
 			options: STUDY_OLLAMA_OPTIONS,
@@ -248,15 +248,15 @@ await new GuideCommand({
 			digest: { model: 'a'.repeat(64), judge: undefined },
 		}
 		expect(Object.keys(buildStudyOllamaModels(unjudged))).toEqual(['model'])
-		expect(buildStudyOllamaSettings(policy)).toEqual({
+		expect(buildStudyOllamaOptions(policy)).toEqual({
 			model: 'model',
 			options: STUDY_OLLAMA_OPTIONS,
 			think: false,
 			truncate: false,
 			shift: false,
 		})
-		expect(buildStudyOllamaSettings(policy).options).toBe(STUDY_OLLAMA_OPTIONS)
-		expect(Object.keys(buildStudyOllamaSettings({ ...policy, strict: false }))).toEqual([
+		expect(buildStudyOllamaOptions(policy).options).toBe(STUDY_OLLAMA_OPTIONS)
+		expect(Object.keys(buildStudyOllamaOptions({ ...policy, strict: false }))).toEqual([
 			'model',
 			'options',
 			'think',
@@ -340,7 +340,7 @@ await new GuideCommand({
 	})
 
 	it('inspects captured package bytes without executing them and refuses drift', async () => {
-		const { Artifacts } = server
+		const { ArtifactLoader } = server
 		const scratch = createScratch()
 		try {
 			scratch.write(
@@ -350,7 +350,7 @@ await new GuideCommand({
 			scratch.write('dist/index.js', 'throw new Error("Inspection must not evaluate this entry")')
 			const root = realpathSync(scratch.path)
 			const entry = realpathSync(join(root, 'dist', 'index.js'))
-			const artifacts = new Artifacts({ roots: [root], entries: [entry] })
+			const artifacts = new ArtifactLoader({ roots: [root], entries: [entry] })
 			const inventory = artifacts.inspect()
 			const selected = inventory.entries.includes(entry) // true
 			artifacts.verify()
@@ -373,7 +373,10 @@ await new GuideCommand({
 			const result = await retainStudyFixture(join(scratch.path, 'result'))
 			const rubric = buildStudyRubric()
 			const grading = buildCustodyGrading(result, rubric)
-			const versions = new server.StudyGradings({ result, rubric: server.encodeStudyJSON(rubric) })
+			const versions = new server.StudyGradingStore({
+				result,
+				rubric: server.encodeStudyJSON(rubric),
+			})
 			const id = await versions.write(grading)
 			expect(await versions.read(id)).toEqual(grading)
 			expect(await versions.write(grading)).toBe(id)

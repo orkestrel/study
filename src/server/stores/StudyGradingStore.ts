@@ -1,11 +1,11 @@
-import type { StudyGrading, StudyLabels, StudyRubric } from '../../core/types.js'
-import type { StudyGradingOptions, StudyPacketBundle, StudySealedResult } from './types.js'
+import type { StudyGrading, StudyLabeling, StudyRubric } from '../../core/types.js'
+import type { StudyGradingStoreOptions, StudyPacketBundle, StudySealedResult } from './types.js'
 import { canonicalStringify } from '@orkestrel/contract'
 import { lstat, mkdir, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { StudyError } from '../../core/errors.js'
 import { computeStudyScores } from '../../core/helpers.js'
-import { parseStudyGrading, parseStudyLabels, parseStudyRubric } from '../../core/parsers.js'
+import { parseStudyGrading, parseStudyLabeling, parseStudyRubric } from '../../core/parsers.js'
 import { isStudyDigest } from '../../core/validators.js'
 import { decodeStudyJSON, encodeStudyJSON, hashStudyBytes } from '../helpers.js'
 import { STUDY_CUSTODY_BYTES } from './constants.js'
@@ -15,18 +15,18 @@ import {
 	computeStudyPacketDigest,
 	readStudyBytes,
 	readStudyResult,
-	translateStudyPacketLabels,
+	translateStudyPacketLabeling,
 	writeStudyBytes,
 } from './helpers.js'
 
 /** Retains immutable deterministic grading versions independently of execution bytes. */
-export class StudyGradings {
+export class StudyGradingStore {
 	readonly #directory: string
 	readonly #seal: string
 	readonly #rubric: StudyRubric
 	readonly #rubricBytes: Uint8Array
 	readonly #rubricDigest: string
-	readonly #labels: StudyLabels | undefined
+	readonly #labels: StudyLabeling | undefined
 	readonly #labelsBytes: Uint8Array | undefined
 	readonly #labelsDigest: string | undefined
 	readonly #packet: StudyPacketBundle | undefined
@@ -38,7 +38,7 @@ export class StudyGradings {
 	 * @param options - The verified execution and exact rubric and optional labels bytes
 	 * @throws StudyError - Thrown when imported bytes exceed bounds or fail validation
 	 */
-	constructor(options: StudyGradingOptions) {
+	constructor(options: StudyGradingStoreOptions) {
 		if (options.result.status !== 'sealed')
 			throw new StudyError('CUSTODY', 'Grading requires a sealed execution')
 		if (
@@ -57,7 +57,7 @@ export class StudyGradings {
 		this.#labels =
 			this.#labelsBytes === undefined
 				? undefined
-				: parseStudyLabels(decodeStudyJSON(this.#labelsBytes))
+				: parseStudyLabeling(decodeStudyJSON(this.#labelsBytes))
 		if (
 			options.packet !== undefined &&
 			(options.packet.content.byteLength > STUDY_CUSTODY_BYTES ||
@@ -162,14 +162,14 @@ export class StudyGradings {
 		return grading
 	}
 
-	async #retrieve(directory: string, digest: string): Promise<StudyLabels> {
+	async #retrieve(directory: string, digest: string): Promise<StudyLabeling> {
 		const bytes = await readStudyBytes(
 			join(directory, `${digest}.labels.json`),
 			STUDY_CUSTODY_BYTES,
 		)
 		if (hashStudyBytes(bytes) !== digest)
 			throw new StudyError('CUSTODY', 'Labels bytes differ from the grading identity')
-		return parseStudyLabels(decodeStudyJSON(bytes))
+		return parseStudyLabeling(decodeStudyJSON(bytes))
 	}
 
 	async #write(grading: StudyGrading, bytes: Uint8Array): Promise<string> {
@@ -224,7 +224,7 @@ export class StudyGradings {
 		grading: StudyGrading,
 		result: StudySealedResult,
 		rubric: StudyRubric,
-		labels: StudyLabels | undefined,
+		labels: StudyLabeling | undefined,
 		packet: StudyPacketBundle | undefined,
 	): void {
 		if (grading.result !== result.seal.id)
@@ -244,7 +244,9 @@ export class StudyGradings {
 		if (labels !== undefined && packet === undefined)
 			throw new StudyError('EVIDENCE', 'Imported labels require a retained semantic packet')
 		const translated =
-			labels === undefined ? [] : translateStudyPacketLabels(result, rubric, grading.rubric, labels)
+			labels === undefined
+				? []
+				: translateStudyPacketLabeling(result, rubric, grading.rubric, labels)
 		for (const trial of result.manifest.schedule) {
 			for (const criterion of rubric.criteria) {
 				if (criterion.scenario !== trial.scenario) continue

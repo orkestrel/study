@@ -8,7 +8,7 @@ import {
 	STUDY_PROCESS_LABEL,
 } from '../../../../src/server/processes/constants.js'
 import { StudyProcessSession } from '../../../../src/server/processes/StudyProcessSession.js'
-import { toStudyWire } from '../../../../src/server/processes/helpers.js'
+import { valueToWire } from '../../../../src/server/processes/helpers.js'
 import { isStudyFrame } from '../../../../src/server/processes/validators.js'
 import {
 	buildStudySessionOptions,
@@ -72,9 +72,9 @@ process.on('message', frame => {
 				})
 			expect(frames.map((frame) => frame.operation)).toEqual(['open', 'abort', 'close'])
 			expect(frames[0]?.value).toMatchObject({
-				trial: toStudyWire(declared.trial),
-				profile: toStudyWire(declared.profile),
-				identity: toStudyWire(declared.identity),
+				trial: valueToWire(declared.trial),
+				profile: valueToWire(declared.profile),
+				identity: valueToWire(declared.identity),
 			})
 			expect(foreign.signal.aborted).toBe(false)
 		} finally {

@@ -1,6 +1,6 @@
 import type {
 	ArtifactInventory,
-	ArtifactOptions,
+	ArtifactLoaderOptions,
 	ArtifactPackage,
 	ArtifactSource,
 	ArtifactTally,
@@ -28,9 +28,9 @@ import { Resolution } from './Resolution.js'
  * Loads trusted code, not a hostile-code sandbox. Native process APIs, eval and external
  * services are not replayed. One inventory may load per process; terminate it afterwards.
  */
-export class Artifacts {
+export class ArtifactLoader {
 	static #active = false
-	#options: ArtifactOptions
+	#options: ArtifactLoaderOptions
 	#inventory: ArtifactInventory | undefined
 	#sources: readonly ArtifactSource[] = []
 	#token: string | undefined
@@ -38,7 +38,7 @@ export class Artifacts {
 	/** Captures selections without reading or executing selected modules.
 	 * @param options - Canonical built selections and optional consumer source selection.
 	 */
-	constructor(options: ArtifactOptions) {
+	constructor(options: ArtifactLoaderOptions) {
 		if (options.roots.length > ARTIFACT_ROOTS || options.entries.length > ARTIFACT_FILES)
 			throw new ArtifactError('Artifact selection exceeds its limit')
 		this.#options = {
@@ -170,7 +170,8 @@ export class Artifacts {
 		if (!inventory.entries.includes(entry))
 			throw new ArtifactError('Artifact entry was not selected')
 		if (this.#token === undefined) {
-			if (Artifacts.#active) throw new ArtifactError('Artifact loading requires a fresh process')
+			if (ArtifactLoader.#active)
+				throw new ArtifactError('Artifact loading requires a fresh process')
 			const token = randomUUID()
 			const resolution = new Resolution({
 				token,
@@ -184,7 +185,7 @@ export class Artifacts {
 				load: (href, context, next) => resolution.load(href, context, next),
 			})
 			this.#token = token
-			Artifacts.#active = true
+			ArtifactLoader.#active = true
 		}
 		const url = pathToFileURL(entry)
 		url.searchParams.set('artifact', this.#token)

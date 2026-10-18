@@ -2,7 +2,7 @@ import type { StudyTaskOptions, StudyTaskRequest, StudyTaskResult } from './type
 import { isRecord } from '@orkestrel/contract'
 import { StudyError } from '../../core/errors.js'
 import { STUDY_FRAME_BYTES, STUDY_TASK_DURATION } from './constants.js'
-import { toStudyWire } from './helpers.js'
+import { valueToWire } from './helpers.js'
 import { StudyTaskChild } from './StudyTaskChild.js'
 
 /** Bounds adapter evaluation by an independent native parent timer. */
@@ -24,7 +24,7 @@ export class StudyTask {
 		const duration = this.#options.duration ?? STUDY_TASK_DURATION
 		if (!Number.isSafeInteger(duration) || duration <= 0 || duration > STUDY_TASK_DURATION)
 			throw new StudyError('CONFIG', 'Adapter deadline must be finite and at most 60 seconds')
-		const input = toStudyWire({ ...this.#options, ...request })
+		const input = valueToWire({ ...this.#options, ...request })
 		if (!isRecord(input)) throw new StudyError('CONFIG', 'Adapter input must be an object')
 		if (Buffer.byteLength(JSON.stringify(input)) > STUDY_FRAME_BYTES)
 			throw new StudyError('CONFIG', 'Adapter input exceeds the frame allowance')

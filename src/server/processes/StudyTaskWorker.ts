@@ -11,7 +11,7 @@ import {
 	parseStudyScenario,
 } from '../../core/parsers.js'
 import { isStudyJudgment } from '../../core/validators.js'
-import { Artifacts } from '../artifacts/Artifacts.js'
+import { ArtifactLoader } from '../artifacts/ArtifactLoader.js'
 import { readStudyAdapter } from '../adapters/helpers.js'
 import { hashStudyBytes } from '../helpers.js'
 import { STUDY_CUSTODY_BYTES } from '../stores/constants.js'
@@ -27,7 +27,7 @@ import {
 	computeStudyInstrumentDigest,
 	resolveStudyInstrument,
 	validateStudyRuntime,
-	toStudyWire,
+	valueToWire,
 } from './helpers.js'
 
 /** Evaluates only admitted instrumentation in a disposable native child. */
@@ -69,7 +69,7 @@ export class StudyTaskWorker {
 		// unreachable from every adapter import edge while shared admitted packages still load.
 		const profile =
 			value.operation === 'validate' ? parseStudyProfile(value.input.profile) : undefined
-		const loader = new Artifacts({
+		const loader = new ArtifactLoader({
 			entries: [],
 			roots,
 			instrument: runtime,
@@ -88,7 +88,7 @@ export class StudyTaskWorker {
 				? this.#grade(adapter, value.input)
 				: this.#validate(adapter, value.input, profile)
 		loader.verify()
-		return toStudyWire({ instrument, value: output })
+		return valueToWire({ instrument, value: output })
 	}
 
 	#validate(

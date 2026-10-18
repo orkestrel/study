@@ -5,18 +5,18 @@ import { describe, expect, it } from 'vitest'
 import { buildCompactCustodyManifest, buildStudyRubric, readSettled } from '../../../setupStudy.js'
 import {
 	buildCustodyGrading,
-	buildCustodyLabels,
-	buildCustodyPacketLabels,
+	buildCustodyLabeling,
+	buildCustodyPacketLabeling,
 	retainStudyFixture,
 } from '../../../setupServer.js'
-import { StudyGradings } from '../../../../src/server/stores/StudyGradings.js'
+import { StudyGradingStore } from '../../../../src/server/stores/StudyGradingStore.js'
 import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
 import {
 	buildStudyPacket,
 	computeStudyPacketDigest,
 } from '../../../../src/server/stores/helpers.js'
 
-describe('StudyGradings', () => {
+describe('StudyGradingStore', () => {
 	it('binds neutral packet and private map bytes and refuses forged, tampered or foreign packet custody', async () => {
 		const scratch = createScratch()
 		try {
@@ -29,7 +29,7 @@ describe('StudyGradings', () => {
 			const packet = buildStudyPacket(result, rubric, base.rubric)
 			if (packet === undefined) throw new Error('Missing packet fixture')
 			const grading = { ...base, packet: computeStudyPacketDigest(packet) }
-			const store = new StudyGradings({ result, rubric: encodeStudyJSON(rubric), packet })
+			const store = new StudyGradingStore({ result, rubric: encodeStudyJSON(rubric), packet })
 			const original = await readFile(join(result.directory, 'execution', 'manifest.json'))
 			const id = await store.write(grading)
 			expect(await store.write(grading)).toBe(id)
@@ -43,18 +43,18 @@ describe('StudyGradings', () => {
 			await expect(store.read(later)).rejects.toMatchObject({ code: 'CUSTODY' })
 			const forged = { ...packet, mapping: encodeStudyJSON({ entries: [] }) }
 			await expect(
-				new StudyGradings({ result, rubric: encodeStudyJSON(rubric), packet: forged }).write({
+				new StudyGradingStore({ result, rubric: encodeStudyJSON(rubric), packet: forged }).write({
 					...grading,
 					packet: computeStudyPacketDigest(forged),
 				}),
 			).rejects.toMatchObject({ code: 'CUSTODY' })
-			const labels = buildCustodyPacketLabels(result, rubric)
+			const labels = buildCustodyPacketLabeling(result, rubric)
 			const foreign = {
 				...labels,
 				judgments: labels.judgments.map((judgment) => ({ ...judgment, criterion: 'first-write' })),
 			}
 			await expect(
-				new StudyGradings({
+				new StudyGradingStore({
 					result,
 					rubric: encodeStudyJSON(rubric),
 					packet,
@@ -74,7 +74,7 @@ describe('StudyGradings', () => {
 				buildCompactCustodyManifest(),
 			)
 			const rubric = buildStudyRubric()
-			const grades = new StudyGradings({ result, rubric: encodeStudyJSON(rubric) })
+			const grades = new StudyGradingStore({ result, rubric: encodeStudyJSON(rubric) })
 			const original = await Promise.all(
 				result.seal.files.map((file) =>
 					readFile(join(result.directory, 'execution', ...file.path.split('/'))),
@@ -84,7 +84,7 @@ describe('StudyGradings', () => {
 			const [id, duplicate] = await Promise.all([grades.write(grading), grades.write(grading)])
 			expect(duplicate).toBe(id)
 			expect(
-				await new StudyGradings({ result, rubric: encodeStudyJSON(rubric) }).write(grading),
+				await new StudyGradingStore({ result, rubric: encodeStudyJSON(rubric) }).write(grading),
 			).toBe(id)
 			expect(await grades.read(id)).toEqual({ ...grading, labels: undefined })
 			expect(await grades.read('f'.repeat(64))).toBeUndefined()
@@ -111,7 +111,7 @@ describe('StudyGradings', () => {
 				buildCompactCustodyManifest(),
 			)
 			const rubric = buildStudyRubric()
-			const grades = new StudyGradings({ result, rubric: encodeStudyJSON(rubric) })
+			const grades = new StudyGradingStore({ result, rubric: encodeStudyJSON(rubric) })
 			const grading = buildCustodyGrading(result, rubric)
 			const first = grades.write(grading)
 			// Refused after the same verification the first write needs, so it would settle first if unqueued.
@@ -132,17 +132,17 @@ describe('StudyGradings', () => {
 				buildCompactCustodyManifest(),
 			)
 			const rubric = buildStudyRubric()
-			const originalLabels = buildCustodyLabels(result)
+			const originalLabels = buildCustodyLabeling(result)
 			const base = buildCustodyGrading(result, rubric, originalLabels)
 			const packet = buildStudyPacket(result, rubric, base.rubric)
 			if (packet === undefined) throw new Error('Missing packet fixture')
-			const labels = buildCustodyPacketLabels(result, rubric)
+			const labels = buildCustodyPacketLabeling(result, rubric)
 			const grading = {
 				...base,
 				labels: hashStudyBytes(encodeStudyJSON(labels)),
 				packet: computeStudyPacketDigest(packet),
 			}
-			const first = new StudyGradings({
+			const first = new StudyGradingStore({
 				result,
 				rubric: encodeStudyJSON(rubric),
 				labels: encodeStudyJSON(labels),
@@ -150,7 +150,7 @@ describe('StudyGradings', () => {
 			})
 			const id = await first.write(grading)
 			const changed = { ...labels, labeler: 'human-v2' }
-			const second = new StudyGradings({
+			const second = new StudyGradingStore({
 				result,
 				rubric: encodeStudyJSON(rubric),
 				labels: encodeStudyJSON(changed),
@@ -179,7 +179,7 @@ describe('StudyGradings', () => {
 				buildCompactCustodyManifest(),
 			)
 			const rubric = buildStudyRubric()
-			const grades = new StudyGradings({ result, rubric: encodeStudyJSON(rubric) })
+			const grades = new StudyGradingStore({ result, rubric: encodeStudyJSON(rubric) })
 			const grading = buildCustodyGrading(result, rubric)
 			await expect(grades.write({ ...grading, judgments: [] })).rejects.toMatchObject({
 				code: 'EVIDENCE',
@@ -220,7 +220,7 @@ describe('StudyGradings', () => {
 				buildCompactCustodyManifest(),
 			)
 			const rubric = buildStudyRubric()
-			const grades = new StudyGradings({ result, rubric: encodeStudyJSON(rubric) })
+			const grades = new StudyGradingStore({ result, rubric: encodeStudyJSON(rubric) })
 			const grading = buildCustodyGrading(result, rubric)
 			const id = await grades.write(grading)
 			const artifact = join(result.directory, 'grades', id, `${grading.rubric}.rubric.json`)

@@ -1,12 +1,12 @@
 import type { StudyEvidence } from '../../core/types.js'
-import type { StudyCustodySinkInterface, StudyEvidenceOptions } from './types.js'
+import type { StudyCustodySinkInterface, StudyEvidenceSinkOptions } from './types.js'
 import { StudyError } from '../../core/errors.js'
 import { encodeStudyJSON } from '../helpers.js'
 import { isStudyCustodyEvidence } from './validators.js'
 
 /** Retains admitted evidence in order and closes admission before terminal records. */
 export class StudyEvidenceSink implements StudyCustodySinkInterface {
-	readonly #options: StudyEvidenceOptions
+	readonly #options: StudyEvidenceSinkOptions
 	readonly #goals = new Map<string, number>()
 	// The admitted writes not yet settled; a write joins when admitted and leaves when it settles, and each waits for every earlier one.
 	readonly #writes = new Set<Promise<void>>()
@@ -19,7 +19,7 @@ export class StudyEvidenceSink implements StudyCustodySinkInterface {
 	 * Owns the descriptor selection and constraints while retaining the live file and budget.
 	 * @param options - The owned descriptor, goal names, and byte admission bounds
 	 */
-	constructor(options: StudyEvidenceOptions) {
+	constructor(options: StudyEvidenceSinkOptions) {
 		this.#options = { ...options, goals: [...options.goals] }
 	}
 

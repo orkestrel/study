@@ -20,15 +20,15 @@ import { buildStudySchedule, validateStudyInputs } from '../../core/helpers.js'
 import {
 	parseStudyDefinition,
 	parseStudyGrading,
-	parseStudyLabels,
+	parseStudyLabeling,
 	parseStudyProfile,
 	parseStudyRubric,
 	parseStudyScenario,
 } from '../../core/parsers.js'
 import { StudySeries } from '../../core/engines/StudySeries.js'
-import { StudyArtifacts } from '../processes/StudyArtifacts.js'
+import { StudyArtifactLoader } from '../processes/StudyArtifactLoader.js'
 import { StudyProcessDriver } from '../processes/StudyProcessDriver.js'
-import { computeStudyProfileDigest, toStudyWire } from '../processes/helpers.js'
+import { computeStudyProfileDigest, valueToWire } from '../processes/helpers.js'
 import { decodeStudyJSON, encodeStudyJSON, hashStudyBytes } from '../helpers.js'
 import { STUDY_CUSTODY_BYTES, STUDY_PACKET_DISCLOSURE } from '../stores/constants.js'
 import {
@@ -37,10 +37,10 @@ import {
 	computeStudyPacketDigest,
 	readStudyBytes,
 	readStudyResult,
-	translateStudyPacketLabels,
+	translateStudyPacketLabeling,
 } from '../stores/helpers.js'
-import { StudyGradings } from '../stores/StudyGradings.js'
-import { StudyResults } from '../stores/StudyResults.js'
+import { StudyGradingStore } from '../stores/StudyGradingStore.js'
+import { StudyResultStore } from '../stores/StudyResultStore.js'
 import { StudyTask } from '../processes/StudyTask.js'
 import { isStudyJudgment } from '../../core/validators.js'
 import { STUDY_COMMAND_DURATION, STUDY_COMMAND_GRADER } from './constants.js'
@@ -129,7 +129,7 @@ export class StudyCommand {
 		if (definition.purpose === 'quality' && profile.qualification === undefined)
 			throw new StudyError('CONFIG', 'Quality studies require a capacity qualification')
 		signal.throwIfAborted()
-		const artifacts = new StudyArtifacts({
+		const artifacts = new StudyArtifactLoader({
 			root: this.#root,
 			entry: this.#entry,
 			profile,
@@ -167,7 +167,7 @@ export class StudyCommand {
 			preparation.profile.bounds,
 			preparation.definition,
 		)
-		return toStudyWire({
+		return valueToWire({
 			command: 'check',
 			study: preparation.definition.name,
 			purpose: preparation.definition.purpose,
@@ -222,7 +222,7 @@ export class StudyCommand {
 				roots: JSON.stringify(preparation.profile.roots),
 			},
 		}
-		const store = new StudyResults({ directory, manifest })
+		const store = new StudyResultStore({ directory, manifest })
 		await store.create()
 		const scratch = await mkdtemp(join(parent, 'scratch-'))
 		try {
@@ -238,7 +238,7 @@ export class StudyCommand {
 			const attempts = await new StudySeries({ manifest, driver, store, signal }).execute()
 			preparation.artifacts.verify()
 			const seal = await store.seal()
-			return toStudyWire({
+			return valueToWire({
 				command: 'execute',
 				status: attempts.some((attempt) => attempt.failure !== undefined)
 					? 'operational-failure'
@@ -301,13 +301,13 @@ export class StudyCommand {
 			judgments,
 			...(packet === undefined ? {} : { packet: computeStudyPacketDigest(packet) }),
 		}
-		const store = new StudyGradings({
+		const store = new StudyGradingStore({
 			result,
 			rubric: bytes,
 			...(packet === undefined ? {} : { packet }),
 		})
 		const id = await store.write(grading)
-		return toStudyWire({
+		return valueToWire({
 			command: 'grade',
 			result: result.manifest.id,
 			grading: id,
@@ -330,8 +330,8 @@ export class StudyCommand {
 		if (previous.packet === undefined || previous.grading.packet === undefined)
 			throw new StudyError('EVIDENCE', 'Selected grading has no semantic packet')
 		const bytes = await readStudyBytes(this.#file(request.labels), STUDY_CUSTODY_BYTES)
-		const labels = parseStudyLabels(decodeStudyJSON(bytes))
-		const translated = translateStudyPacketLabels(
+		const labels = parseStudyLabeling(decodeStudyJSON(bytes))
+		const translated = translateStudyPacketLabeling(
 			result,
 			previous.rubric,
 			previous.grading.rubric,
@@ -364,14 +364,14 @@ export class StudyCommand {
 				}
 			}),
 		}
-		const store = new StudyGradings({
+		const store = new StudyGradingStore({
 			result,
 			rubric: previous.bytes,
 			labels: bytes,
 			packet: previous.packet,
 		})
 		const id = await store.write(grading)
-		return toStudyWire({
+		return valueToWire({
 			command: 'label',
 			result: result.manifest.id,
 			previous: request.grading,
@@ -386,8 +386,8 @@ export class StudyCommand {
 		const context = await this.#grading(result, request.grading)
 		signal.throwIfAborted()
 		const labels =
-			context.labels === undefined ? undefined : parseStudyLabels(decodeStudyJSON(context.labels))
-		return toStudyWire({
+			context.labels === undefined ? undefined : parseStudyLabeling(decodeStudyJSON(context.labels))
+		return valueToWire({
 			command: 'report',
 			grading: request.grading,
 			report: computeStudyReport(result, context.rubric, context.grading),
@@ -430,7 +430,7 @@ export class StudyCommand {
 			STUDY_CUSTODY_BYTES,
 		)
 		const rubric = parseStudyRubric(decodeStudyJSON(bytes))
-		const grading = await new StudyGradings({ result, rubric: bytes }).read(id)
+		const grading = await new StudyGradingStore({ result, rubric: bytes }).read(id)
 		if (grading === undefined)
 			throw new StudyError('CUSTODY', `Selected grading is missing: ${directory}`)
 		const packet =

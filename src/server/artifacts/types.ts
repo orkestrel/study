@@ -15,7 +15,7 @@ export interface ArtifactSourceOptions {
 }
 
 /** Selects built packages and an optional separate consumer source graph. */
-export interface ArtifactOptions {
+export interface ArtifactLoaderOptions {
 	readonly entries: readonly string[]
 	readonly roots: readonly string[]
 	readonly source?: ArtifactSourceOptions

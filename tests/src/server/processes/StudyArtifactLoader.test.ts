@@ -2,10 +2,10 @@ import { createScratch } from '@orkestrel/test/server'
 import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { StudyArtifacts } from '../../../../src/server/processes/StudyArtifacts.js'
+import { StudyArtifactLoader } from '../../../../src/server/processes/StudyArtifactLoader.js'
 import { buildStudyProfile } from '../../../setupStudy.js'
 
-describe('StudyArtifacts', () => {
+describe('StudyArtifactLoader', () => {
 	it('inspects complete built inventory without executing selected entries and binds instrument drift', async () => {
 		const scratch = createScratch()
 		try {
@@ -21,7 +21,7 @@ describe('StudyArtifacts', () => {
 			const subject = scratch.write('dist/index.js', 'throw new Error("subject must not execute")')
 			scratch.write('dist/unused.js', 'export const unused = true')
 			const profile = { ...buildStudyProfile(), agent: subject, subject, roots: [scratch.path] }
-			const artifacts = new StudyArtifacts({
+			const artifacts = new StudyArtifactLoader({
 				entry,
 				adapter,
 				root: realpathSync(resolve('.')),
@@ -36,7 +36,7 @@ describe('StudyArtifacts', () => {
 			expect(await artifacts.inspect()).toEqual(identity)
 			scratch.write('dist/unused.js', 'export const unused = false')
 			expect(() => artifacts.verify()).toThrow(/inventory drifted/)
-			const renewed = new StudyArtifacts({
+			const renewed = new StudyArtifactLoader({
 				entry,
 				adapter,
 				root: realpathSync(resolve('.')),
@@ -46,11 +46,12 @@ describe('StudyArtifacts', () => {
 			scratch.write('instrument.cjs', 'throw new Error("changed instrument")')
 			expect(() => renewed.verify()).toThrow(/instrument bytes drifted/)
 			expect(
-				() => new StudyArtifacts({ entry: 'relative.cjs', adapter, root: resolve('.'), profile }),
+				() =>
+					new StudyArtifactLoader({ entry: 'relative.cjs', adapter, root: resolve('.'), profile }),
 			).toThrow(/absolute/)
 			expect(
 				() =>
-					new StudyArtifacts({
+					new StudyArtifactLoader({
 						entry,
 						adapter,
 						root: resolve('.'),
@@ -94,23 +95,23 @@ describe('StudyArtifacts', () => {
 			if (first === undefined || second === undefined) throw new Error('Missing occurrence')
 			const options = { entry, adapter, root: realpathSync(resolve('.')) }
 			const profile = { ...buildStudyProfile(), subject, roots }
-			const selectedFirst = await new StudyArtifacts({
+			const selectedFirst = await new StudyArtifactLoader({
 				...options,
 				profile: { ...profile, agent: first },
 			}).inspect()
-			const selectedSecond = await new StudyArtifacts({
+			const selectedSecond = await new StudyArtifactLoader({
 				...options,
 				profile: { ...profile, agent: second },
 			}).inspect()
 			expect(selectedFirst.subject).toBe(selectedFirst.agent)
 			expect(selectedFirst.agent).not.toBe(selectedSecond.agent)
-			const repeated = await new StudyArtifacts({
+			const repeated = await new StudyArtifactLoader({
 				...options,
 				profile: { ...profile, agent: first },
 			}).inspect()
 			expect(repeated).toEqual(selectedFirst)
 			scratch.write('first/dist/index.js', 'throw new Error("first changed")')
-			const changed = await new StudyArtifacts({
+			const changed = await new StudyArtifactLoader({
 				...options,
 				profile: { ...profile, agent: first },
 			}).inspect()

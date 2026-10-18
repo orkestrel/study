@@ -70,7 +70,7 @@ export interface StudyAgentSummaryOptions {
  * Declares one scripted reply.
  * @remarks
  * `content` and `calls` are the reply the provider returns. `consume` names the prior tool result
- * the reply consumes; undefined consumes none. `cancel`: if `true`, the reply cancels the goal's
+ * the reply consumes; undefined consumes none. `abort`: if `true`, the reply aborts the goal's
  * workload; if `false` or undefined, it does not. `tokens` and `bytes` override the admitted
  * token count and byte charge of the reply; undefined keeps the defaults.
  */
@@ -78,7 +78,7 @@ export interface StudyAgentResponse {
 	readonly content: string
 	readonly calls: NonNullable<ProviderResult['tools']>
 	readonly consume: string | undefined
-	readonly cancel: boolean | undefined
+	readonly abort: boolean | undefined
 	readonly tokens: number | undefined
 	readonly bytes: number | undefined
 }

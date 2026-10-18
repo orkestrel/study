@@ -16,12 +16,12 @@ import { STUDY_DRAIN_DURATION } from './constants.js'
  * @returns A JSON-compatible snapshot.
  * @example Project a wire value
  * ```ts
- * import { toStudyWire } from '@orkestrel/study/server'
+ * import { valueToWire } from '@orkestrel/study/server'
  *
- * toStudyWire({ state: 'ready', failure: undefined }) // { state: 'ready' }
+ * valueToWire({ state: 'ready', failure: undefined }) // { state: 'ready' }
  * ```
  */
-export function toStudyWire(value: unknown): JSONValue {
+export function valueToWire(value: unknown): JSONValue {
 	const parsed: unknown = JSON.parse(JSON.stringify(value))
 	if (!isJSONValue(parsed)) throw new StudyError('FAULT', 'Invalid study wire value')
 	return parsed
@@ -40,7 +40,7 @@ export function createStudyProcessFailure(message: string): StudyFailure {
  * @returns The SHA256 digest of the canonical JSON wire representation.
  */
 export function computeStudyProfileDigest(profile: StudyProfile): string {
-	const encoded = canonicalStringify(toStudyWire(profile))
+	const encoded = canonicalStringify(valueToWire(profile))
 	if (encoded === undefined) throw new StudyError('CONFIG', 'Study profile is not JSON-compatible')
 	return hashStudyBytes(encoded)
 }

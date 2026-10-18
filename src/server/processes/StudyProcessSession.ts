@@ -20,7 +20,7 @@ import {
 import { StudyError } from '../../core/errors.js'
 import { isStudyProduct, isStudyUsage } from '../../core/validators.js'
 import { STUDY_LOG_BYTES, STUDY_PROCESS_LABEL, STUDY_WORKER_OPERATION } from './constants.js'
-import { createStudyProcessFailure, drainStudyChild, toStudyWire } from './helpers.js'
+import { createStudyProcessFailure, drainStudyChild, valueToWire } from './helpers.js'
 import { StudyChannel } from './StudyChannel.js'
 import { StudyProcessGoal } from './StudyProcessGoal.js'
 import { isStudyCharge, isStudyEvidence, isStudyProcessFailure } from './validators.js'
@@ -97,7 +97,7 @@ export class StudyProcessSession implements StudySessionInterface {
 		)
 		this.#control.signal.addEventListener(
 			'abort',
-			() => this.#channel?.abort(toStudyWire({ failure: this.#control.failure })),
+			() => this.#channel?.abort(valueToWire({ failure: this.#control.failure })),
 			{ once: true, signal: this.#listeners.signal },
 		)
 		child.stdout?.on('data', (value: Buffer) => this.#readLog(value))
@@ -109,7 +109,7 @@ export class StudyProcessSession implements StudySessionInterface {
 			}).wait(
 				this.#channel.request(
 					'open',
-					toStudyWire({ ...this.#options, signal: undefined, directory }),
+					valueToWire({ ...this.#options, signal: undefined, directory }),
 				),
 			),
 		)
@@ -144,11 +144,11 @@ export class StudyProcessSession implements StudySessionInterface {
 		)
 		control.signal.addEventListener(
 			'abort',
-			() => this.#channel?.abort(toStudyWire({ failure: control.failure })),
+			() => this.#channel?.abort(valueToWire({ failure: control.failure })),
 			{ once: true, signal: listeners.signal },
 		)
 		try {
-			const product = await control.wait(this.#channel.request('goal', toStudyWire(goal)))
+			const product = await control.wait(this.#channel.request('goal', valueToWire(goal)))
 			if (this.#tickets.size !== 0 || this.#appends.size !== 0)
 				throw new StudyError('FAULT', 'Worker goal ended with unsettled admission or evidence')
 			if (!isStudyProduct(product)) throw new StudyError('FAULT', 'Worker product is invalid')
@@ -185,7 +185,7 @@ export class StudyProcessSession implements StudySessionInterface {
 				'abort',
 				() =>
 					this.#channel?.abort(
-						toStudyWire({ id, failure: readStudyFailure(ticket.signal.reason) }),
+						valueToWire({ id, failure: readStudyFailure(ticket.signal.reason) }),
 					),
 				{ once: true, signal: listeners.signal },
 			)

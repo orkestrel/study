@@ -10,7 +10,7 @@ import {
 	isStudyGoal,
 	isStudyGrading,
 	isStudyJudgment,
-	isStudyLabels,
+	isStudyLabeling,
 	isStudyLimit,
 	isStudyName,
 	isStudyProduct,
@@ -268,16 +268,16 @@ it('requires nonnegative known usage and honest semantic-label provenance', () =
 	expect(isStudyUsage({ ...usage, calls: -0, duration: -0, tokens: -0, bytes: -0 })).toBe(true)
 	expect(isStudyUsage({ ...usage, role: 'foreign' })).toBe(false)
 	expect(isStudyUsage({ ...usage, typo: true })).toBe(false)
-	expect(isStudyLabels(labels)).toBe(true)
-	expect(isStudyLabels({ ...labels, labeler: ' ' })).toBe(false)
-	expect(isStudyLabels({ ...labels, packet: '' })).toBe(false)
-	expect(isStudyLabels({ ...labels, judgments: [buildStudyJudgment('r1-s1-a1')] })).toBe(false)
-	expect(isStudyLabels({ ...labels, judgments: [...labels.judgments, ...labels.judgments] })).toBe(
-		false,
-	)
-	expect(isStudyLabels({ ...labels, usage: Array(1) })).toBe(false)
-	expect(isStudyLabels({ ...labels, usage: Object.assign([usage], { typo: true }) })).toBe(false)
-	expect(isStudyLabels({ ...labels, typo: true })).toBe(false)
+	expect(isStudyLabeling(labels)).toBe(true)
+	expect(isStudyLabeling({ ...labels, labeler: ' ' })).toBe(false)
+	expect(isStudyLabeling({ ...labels, packet: '' })).toBe(false)
+	expect(isStudyLabeling({ ...labels, judgments: [buildStudyJudgment('r1-s1-a1')] })).toBe(false)
+	expect(
+		isStudyLabeling({ ...labels, judgments: [...labels.judgments, ...labels.judgments] }),
+	).toBe(false)
+	expect(isStudyLabeling({ ...labels, usage: Array(1) })).toBe(false)
+	expect(isStudyLabeling({ ...labels, usage: Object.assign([usage], { typo: true }) })).toBe(false)
+	expect(isStudyLabeling({ ...labels, typo: true })).toBe(false)
 })
 
 it('accepts JSON products with partial status and refuses non-JSON or hostile output', () => {
@@ -368,7 +368,7 @@ it('contains hostile property reads and cyclic unknown data in total guards', ()
 	)
 	expect(isStudyProfile(hostile)).toBe(false)
 	expect(isStudyRubric(hostile)).toBe(false)
-	expect(isStudyLabels(hostile)).toBe(false)
+	expect(isStudyLabeling(hostile)).toBe(false)
 	expect(isStudyGrading(hostile)).toBe(false)
 	const cycle: Record<string, unknown> = {}
 	cycle.self = cycle

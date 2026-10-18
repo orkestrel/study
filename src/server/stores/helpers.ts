@@ -1,7 +1,7 @@
 import type {
 	StudyAttempt,
 	StudyJudgment,
-	StudyLabels,
+	StudyLabeling,
 	StudyManifest,
 	StudyRubric,
 } from '../../core/types.js'
@@ -168,14 +168,14 @@ export function computeStudyPacketDigest(packet: StudyPacketBundle): string {
  * @throws StudyError - Thrown when the packet or a label identity is foreign
  * @example
  * ```ts
- * translateStudyPacketLabels(result, rubric, rubricDigest, labels)
+ * translateStudyPacketLabeling(result, rubric, rubricDigest, labels)
  * ```
  */
-export function translateStudyPacketLabels(
+export function translateStudyPacketLabeling(
 	result: StudySealedResult,
 	rubric: StudyRubric,
 	digest: string,
-	labels: StudyLabels,
+	labels: StudyLabeling,
 ): readonly StudyJudgment[] {
 	const packet = buildStudyPacket(result, rubric, digest)
 	if (packet === undefined || labels.packet !== hashStudyBytes(packet.content))

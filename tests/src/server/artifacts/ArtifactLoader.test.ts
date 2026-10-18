@@ -4,7 +4,7 @@ import { closeSync, ftruncateSync, openSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { expect, it } from 'vitest'
-import { Artifacts } from '../../../../src/server/artifacts/Artifacts.js'
+import { ArtifactLoader } from '../../../../src/server/artifacts/ArtifactLoader.js'
 import {
 	ARTIFACT_BYTES,
 	ARTIFACT_DEPTH,
@@ -27,7 +27,7 @@ it('admits distinct same-name package roots and preserves native provider depend
 		const providerEntry = join(provider, 'dist', 'index.js')
 		const marker = join(dependency, 'evaluated.txt')
 		const options = { entries: [entry, providerEntry], roots: [subject, dependency, provider] }
-		const inventory = new Artifacts(options).inspect()
+		const inventory = new ArtifactLoader(options).inspect()
 		expect(inventory.packages.filter((item) => item.name === 'same-name')).toEqual(
 			[subject, dependency]
 				.toSorted()
@@ -44,14 +44,14 @@ it('admits distinct same-name package roots and preserves native provider depend
 		)
 		expect(scratch.has(marker)).toBe(false)
 		expect(() =>
-			new Artifacts({ ...options, roots: [subject, provider, subject] }).inspect(),
+			new ArtifactLoader({ ...options, roots: [subject, provider, subject] }).inspect(),
 		).toThrow('Artifact package identity is duplicated: same-name')
 		const worker = createArtifactWorker(
 			scratch,
 			`
 const options = ${JSON.stringify(options)}
 const selection = process.argv[2] === 'omitted' ? { ...options, roots: options.roots.filter((root) => root !== ${JSON.stringify(dependency)}) } : options
-const artifacts = new Artifacts(selection)
+const artifacts = new ArtifactLoader(selection)
 const subject: unknown = await artifacts.load(${JSON.stringify(entry)})
 assert.ok(typeof subject === 'object' && subject !== null && 'value' in subject)
 assert.equal(subject.value, 11)
@@ -143,12 +143,12 @@ it('captures separate built and source inventories and drives native confined ex
 			roots: [subject, dependency],
 			source: { root: sourceRoot, entry: sourceEntry },
 		}
-		const artifacts = new Artifacts(options)
+		const artifacts = new ArtifactLoader(options)
 		const inventory = artifacts.inspect()
 		scratch.write('subject/studies/example/rubric.json', '{"hidden":"first"}\n')
-		expect(new Artifacts(options).inspect().digest).toBe(inventory.digest)
+		expect(new ArtifactLoader(options).inspect().digest).toBe(inventory.digest)
 		scratch.write('subject/studies/example/rubric.json', '{"hidden":"changed"}\n')
-		expect(new Artifacts(options).inspect().digest).toBe(inventory.digest)
+		expect(new ArtifactLoader(options).inspect().digest).toBe(inventory.digest)
 		expect(scratch.has(marker)).toBe(false)
 		expect(inventory.node).toBe(process.version)
 		expect(inventory.runtime.arguments).toEqual(process.execArgv)
@@ -158,38 +158,39 @@ it('captures separate built and source inventories and drives native confined ex
 		expect(inventory.files.map((file) => file.path)).toContain(sourcePart)
 		expect(inventory.files.map((file) => file.path)).not.toContain(join(sourceRoot, 'types.d.ts'))
 		expect(
-			new Artifacts({ entries: [], roots: [], source: options.source }).inspect().packages,
+			new ArtifactLoader({ entries: [], roots: [], source: options.source }).inspect().packages,
 		).toEqual([])
-		expect(() => new Artifacts({ entries: [], roots: [] }).inspect()).toThrow(/empty/)
-		expect(() => new Artifacts({ ...options, roots: ['relative'] }).inspect()).toThrow(
+		expect(() => new ArtifactLoader({ entries: [], roots: [] }).inspect()).toThrow(/empty/)
+		expect(() => new ArtifactLoader({ ...options, roots: ['relative'] }).inspect()).toThrow(
 			/canonical package root/,
 		)
-		expect(() => new Artifacts({ ...options, roots: [subject, subject] }).inspect()).toThrow(
+		expect(() => new ArtifactLoader({ ...options, roots: [subject, subject] }).inspect()).toThrow(
 			/duplicated/,
 		)
 		expect(() =>
-			new Artifacts({ ...options, entries: [join(subject, 'src/index.js')] }).inspect(),
+			new ArtifactLoader({ ...options, entries: [join(subject, 'src/index.js')] }).inspect(),
 		).toThrow(/built ESM/)
 		expect(() =>
-			new Artifacts({
+			new ArtifactLoader({
 				...options,
 				source: { root: sourceRoot, entry: join(sourceRoot, 'missing.ts') },
 			}).inspect(),
 		).toThrow(/source entry/)
 		expect(() =>
-			new Artifacts({ ...options, source: { root: sourceRoot, entry } }).inspect(),
+			new ArtifactLoader({ ...options, source: { root: sourceRoot, entry } }).inspect(),
 		).toThrow(/source entry/)
 		expect(
-			() => new Artifacts({ entries: [], roots: Array(ARTIFACT_ROOTS + 1).fill(subject) }),
+			() => new ArtifactLoader({ entries: [], roots: Array(ARTIFACT_ROOTS + 1).fill(subject) }),
 		).toThrow(/limit/)
 		expect(
-			() => new Artifacts({ entries: Array(ARTIFACT_FILES + 1).fill(entry), roots: [subject] }),
+			() =>
+				new ArtifactLoader({ entries: Array(ARTIFACT_FILES + 1).fill(entry), roots: [subject] }),
 		).toThrow(/limit/)
 		const worker = createArtifactWorker(
 			scratch,
 			`
 const options = ${JSON.stringify(options)}
-const artifacts = new Artifacts(options)
+const artifacts = new ArtifactLoader(options)
 artifacts.inspect()
 if (process.argv[2] === 'drift') writeFileSync(${JSON.stringify(part)}, 'export const value = 8\\n')
 if (process.argv[2] === 'source-drift') writeFileSync(${JSON.stringify(sourcePart)}, 'export const value: number = 6\\n')
@@ -202,7 +203,7 @@ if (process.argv[2] === 'late-drift') writeFileSync(${JSON.stringify(late)}, 'ex
 const later = await namespace.late()
 assert.equal(later.value, 11)
 if (process.argv[2] === 'verify') writeFileSync(${JSON.stringify(part)}, 'export const value = 8\\n')
-if (process.argv[2] === 'fresh') await new Artifacts(options).load(${JSON.stringify(entry)})
+if (process.argv[2] === 'fresh') await new ArtifactLoader(options).load(${JSON.stringify(entry)})
 artifacts.verify()
 console.log('native-loaded:' + namespace.total + ':19:11')
 `,
@@ -282,7 +283,7 @@ console.log('native-loaded:' + namespace.total + ':19:11')
 		expect(throwing.status).not.toBe(0)
 		expect(throwing.stderr).toContain('source-top-level-failure')
 		scratch.write(sourceEntry, 'export enum Unsupported { Value }\n')
-		expect(() => new Artifacts(options).inspect()).toThrow(/not supported/)
+		expect(() => new ArtifactLoader(options).inspect()).toThrow(/not supported/)
 		scratch.write(sourceEntry, "export { value } from '../outside.js'\n")
 		scratch.write('subject/studies/outside.ts', 'export const value = 42\n')
 		const escape = spawnSync(process.execPath, [worker], { encoding: 'utf8', timeout: 15000 })
@@ -305,13 +306,13 @@ console.log('native-loaded:' + namespace.total + ':19:11')
 		expect(builtin.stderr).toContain('alternate loader is unsupported')
 		scratch.write(sourceEntry, original)
 		scratch.write('subject/studies/example/part.js', 'export const value = 99\n')
-		expect(() => new Artifacts(options).inspect()).toThrow(/ambiguous/)
+		expect(() => new ArtifactLoader(options).inspect()).toThrow(/ambiguous/)
 		scratch.remove('subject/studies/example/part.js')
 		scratch.link('subject/studies/example/linked', scratch.ensure('outside'))
-		expect(() => new Artifacts(options).inspect()).toThrow(/links are unsupported/)
+		expect(() => new ArtifactLoader(options).inspect()).toThrow(/links are unsupported/)
 		scratch.remove('subject/studies/example/linked')
 		scratch.write(sourcePart, 'export const value: number = 6\n')
-		expect(new Artifacts(options).inspect().digest).not.toBe(inventory.digest)
+		expect(new ArtifactLoader(options).inspect().digest).not.toBe(inventory.digest)
 		expect(() => artifacts.verify()).toThrow(/drifted/)
 		const changedSource = spawnSync(process.execPath, [worker, 'changed'], {
 			encoding: 'utf8',
@@ -334,11 +335,11 @@ console.log('native-loaded:' + namespace.total + ':19:11')
 		} finally {
 			closeSync(descriptor)
 		}
-		expect(() => new Artifacts(options).inspect()).toThrow(/byte limit/)
+		expect(() => new ArtifactLoader(options).inspect()).toThrow(/byte limit/)
 		scratch.remove(oversized)
 		const sourceOnly = createArtifactWorker(
 			scratch,
-			`const options = ${JSON.stringify({ entries: [], roots: [], source: { root: sourceRoot, entry: sourcePart } })}; const artifacts = new Artifacts(options); const namespace = await artifacts.load(options.source.entry); assert.equal(namespace.value, 5); console.log('source-only-loaded')`,
+			`const options = ${JSON.stringify({ entries: [], roots: [], source: { root: sourceRoot, entry: sourcePart } })}; const artifacts = new ArtifactLoader(options); const namespace = await artifacts.load(options.source.entry); assert.equal(namespace.value, 5); console.log('source-only-loaded')`,
 		)
 		const isolated = spawnSync(process.execPath, [sourceOnly], { encoding: 'utf8', timeout: 15000 })
 		expect(isolated.status).toBe(0)
@@ -378,13 +379,13 @@ it('refuses excluded built entries at direct and transitive edges while shared a
 			roots: [subject],
 			source: { root: sourceRoot, entry: sourceEntry },
 		}
-		expect(new Artifacts({ ...options, excluded: [entry] }).inspect().digest).toBe(
-			new Artifacts(options).inspect().digest,
+		expect(new ArtifactLoader({ ...options, excluded: [entry] }).inspect().digest).toBe(
+			new ArtifactLoader(options).inspect().digest,
 		)
 		const load = `.load(${JSON.stringify(sourceEntry)})\nconsole.log('excluded-loaded:' + namespace.value)\n`
 		const worker = createArtifactWorker(
 			scratch,
-			`const namespace = await new Artifacts(${JSON.stringify({ ...options, excluded: [entry] })})${load}`,
+			`const namespace = await new ArtifactLoader(${JSON.stringify({ ...options, excluded: [entry] })})${load}`,
 		)
 		const allowed = spawnSync(process.execPath, [worker], { encoding: 'utf8', timeout: 15000 })
 		expect({ status: allowed.status, stderr: allowed.status === 0 ? '' : allowed.stderr }).toEqual({
@@ -404,7 +405,7 @@ it('refuses excluded built entries at direct and transitive edges while shared a
 		}
 		createArtifactWorker(
 			scratch,
-			`const namespace = await new Artifacts(${JSON.stringify(options)})${load}`,
+			`const namespace = await new ArtifactLoader(${JSON.stringify(options)})${load}`,
 		)
 		const control = spawnSync(process.execPath, [worker], { encoding: 'utf8', timeout: 15000 })
 		expect({ status: control.status, stderr: control.status === 0 ? '' : control.stderr }).toEqual({
@@ -425,7 +426,7 @@ it('refuses file counts, aggregate bytes, traversal populations and depth at fin
 		for (const index of Array.from({ length: ARTIFACT_FILES + 1 }).keys())
 			scratch.write(join(source, `${index}.ts`), '')
 		expect(() =>
-			new Artifacts({
+			new ArtifactLoader({
 				entries: [],
 				roots: [],
 				source: { root: source, entry: join(source, '0.ts') },
@@ -441,7 +442,7 @@ it('refuses file counts, aggregate bytes, traversal populations and depth at fin
 			}
 		}
 		expect(() =>
-			new Artifacts({
+			new ArtifactLoader({
 				entries: [],
 				roots: [],
 				source: { root: bytes, entry: join(bytes, '0.ts') },
@@ -457,7 +458,7 @@ it('refuses file counts, aggregate bytes, traversal populations and depth at fin
 		}).keys())
 			scratch.write(`visits/dist/${index}.txt`, '')
 		expect(() =>
-			new Artifacts({
+			new ArtifactLoader({
 				entries: [join(visits, 'dist/0.js')],
 				roots: Array(ARTIFACT_ROOTS).fill(visits),
 			}).inspect(),
@@ -468,7 +469,7 @@ it('refuses file counts, aggregate bytes, traversal populations and depth at fin
 		)
 		const entry = scratch.write(join(directory, 'index.ts'), '')
 		expect(() =>
-			new Artifacts({ entries: [], roots: [], source: { root: depth, entry } }).inspect(),
+			new ArtifactLoader({ entries: [], roots: [], source: { root: depth, entry } }).inspect(),
 		).toThrow('depth limit')
 	} finally {
 		await destroyScratch(scratch)

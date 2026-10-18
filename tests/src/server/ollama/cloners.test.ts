@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { captureError, createRecorder, requireValue } from '@orkestrel/test'
 import {
-	buildStudyOllamaOptions,
+	buildStudyOllamaTransportOptions,
 	buildStudyOllamaSnapshot,
 } from '../../../../src/server/ollama/cloners.js'
 import { STUDY_OLLAMA_ORIGIN } from '../../../setupStudy.js'
@@ -11,9 +11,9 @@ const options = buildOllamaTransportOptions(STUDY_OLLAMA_ORIGIN)
 const agentPolicy = requireValue(options.roles.agent)
 const chat = `${STUDY_OLLAMA_ORIGIN}/api/chat`
 
-describe('buildStudyOllamaOptions', () => {
+describe('buildStudyOllamaTransportOptions', () => {
 	it('owns frozen copies of every data member and leaves the caller objects mutable', () => {
-		const owned = buildStudyOllamaOptions(options)
+		const owned = buildStudyOllamaTransportOptions(options)
 		expect(owned).toEqual(options)
 		expect(owned.signal).toBe(options.signal)
 		expect(owned.timing).toBe(options.timing)
@@ -43,7 +43,7 @@ describe('buildStudyOllamaOptions', () => {
 			roles: { agent: { ...agentPolicy, options: { ...agentPolicy.options } } },
 		}
 		Reflect.set(caller.roles, 'summary', undefined)
-		const owned = buildStudyOllamaOptions(caller)
+		const owned = buildStudyOllamaTransportOptions(caller)
 		Reflect.set(caller.room, 'context', 1)
 		Reflect.set(caller.roles.agent, 'strict', true)
 		Reflect.set(caller.roles.agent.options, 'num_predict', 1)
@@ -71,7 +71,7 @@ describe('buildStudyOllamaOptions', () => {
 				return false
 			},
 		})
-		buildStudyOllamaOptions(caller)
+		buildStudyOllamaTransportOptions(caller)
 		expect({ room: room.count, strict: strict.count }).toEqual({ room: 1, strict: 1 })
 	})
 })

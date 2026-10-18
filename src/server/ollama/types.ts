@@ -42,7 +42,7 @@ export interface StudyOllamaPolicy {
  * `truncate` and `shift` are present, and `false`, only when the policy is strict; the policy's
  * `length` allowance is transport-only and projects nothing.
  */
-export type StudyOllamaSettings = Pick<
+export type StudyOllamaOptions = Pick<
 	OllamaOptions,
 	'model' | 'think' | 'options' | 'truncate' | 'shift'
 >

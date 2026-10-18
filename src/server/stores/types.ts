@@ -9,13 +9,13 @@ import type { FileHandle } from 'node:fs/promises'
 import type { JSONValue } from '@orkestrel/contract'
 
 /** Holds the inert execution store configuration. */
-export interface StudyResultOptions {
+export interface StudyResultStoreOptions {
 	readonly directory: string
 	readonly manifest: StudyManifest
 }
 
 /** Owns execution custody from exclusive creation through complete sealing. */
-export interface StudyResultsInterface extends StudyStoreInterface {
+export interface StudyResultStoreInterface extends StudyStoreInterface {
 	/** Exclusively creates the result directory and initial manifest bytes.
 	 * @returns A promise that resolves after the manifest is synchronized.
 	 */
@@ -61,7 +61,7 @@ export interface StudySealedResult {
 export type StudyResultReading = StudyInterruptedResult | StudySealedResult
 
 /** Holds imported grading artifacts independently of execution. */
-export interface StudyGradingOptions {
+export interface StudyGradingStoreOptions {
 	readonly result: StudySealedResult
 	readonly rubric: Uint8Array
 	readonly labels?: Uint8Array
@@ -113,7 +113,7 @@ export interface StudyCustodySinkInterface extends StudySinkInterface {
 }
 
 /** Holds the owned evidence descriptor and byte admission constraints. */
-export interface StudyEvidenceOptions {
+export interface StudyEvidenceSinkOptions {
 	readonly file: FileHandle
 	readonly goals: readonly string[]
 	readonly goal: number

@@ -143,11 +143,11 @@ export class StudyAgentScript implements ProviderInterface {
 					bytes,
 					duration: Math.ceil(performance.now() - started),
 				})
-				if (response.cancel === true) {
+				if (response.abort === true) {
 					await plan.context.evidence.append({
 						event: 'workload',
 						goal: plan.goal,
-						value: { cancelled: true },
+						value: { aborted: true },
 					})
 					plan.workload.abort(new Error('Declared workload cancellation'))
 				}

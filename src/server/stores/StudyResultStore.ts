@@ -6,8 +6,8 @@ import type {
 } from '../../core/types.js'
 import type {
 	StudyCustodyPhase,
-	StudyResultOptions,
-	StudyResultsInterface,
+	StudyResultStoreOptions,
+	StudyResultStoreInterface,
 	StudySeal,
 	StudyTrialCustody,
 } from './types.js'
@@ -30,7 +30,7 @@ import { StudyEvidenceSink } from './StudyEvidenceSink.js'
 import { isStudyCustodyAttempt, isStudyCustodyManifest, isStudyCustodyTrial } from './validators.js'
 
 /** Owns append-only execution bytes and seals only a complete terminal population. */
-export class StudyResults implements StudyResultsInterface {
+export class StudyResultStore implements StudyResultStoreInterface {
 	readonly #directory: string
 	readonly #manifest: StudyManifest
 	readonly #trials = new Map<string, StudyTrialCustody>()
@@ -43,7 +43,7 @@ export class StudyResults implements StudyResultsInterface {
 	 * @param options - The new result directory and execution declaration
 	 * @throws StudyError - Thrown when the manifest is invalid
 	 */
-	constructor(options: StudyResultOptions) {
+	constructor(options: StudyResultStoreOptions) {
 		if (!isStudyCustodyManifest(options.manifest))
 			throw new StudyError('CONFIG', 'Invalid execution manifest')
 		const snapshot = decodeStudyJSON(encodeStudyJSON(options.manifest))

@@ -31,8 +31,8 @@ import {
 	resolveStudyPackage,
 	sumStudyCalls,
 	buildCustodyGrading,
-	buildCustodyLabels,
-	buildCustodyPacketLabels,
+	buildCustodyLabeling,
+	buildCustodyPacketLabeling,
 	buildStudyCheckReply,
 	buildStudyCLI,
 	buildStudyLibrary,
@@ -177,7 +177,7 @@ describe('study server fixtures', () => {
 		try {
 			const worker = createArtifactWorker(
 				scratch,
-				"assert.equal(typeof Artifacts, 'function'); console.log('artifact-ready')",
+				"assert.equal(typeof ArtifactLoader, 'function'); console.log('artifact-ready')",
 			)
 			expect(
 				execFileSync(process.execPath, [worker], {
@@ -406,7 +406,7 @@ describe('study server fixtures', () => {
 			const result = await retainStudyFixture(join(scratch.path, 'result'))
 			const rubric = buildStudyRubric()
 			const grading = buildCustodyGrading(result, rubric)
-			const neutral = buildCustodyPacketLabels(result, rubric)
+			const neutral = buildCustodyPacketLabeling(result, rubric)
 			expect(neutral.packet).not.toBe(result.seal.id)
 			expect(neutral.judgments[0]?.trial).not.toBe(result.manifest.schedule[0]?.id)
 			expect(neutral.judgments[0]?.criterion).not.toBe('first-read')
@@ -416,7 +416,7 @@ describe('study server fixtures', () => {
 					.filter((judgment) => judgment.method === 'human')
 					.every((judgment) => judgment.verdict === 'unknown'),
 			).toBe(true)
-			const labels = buildCustodyLabels(result, 'supplied-human')
+			const labels = buildCustodyLabeling(result, 'supplied-human')
 			expect(labels.labeler).toBe('supplied-human')
 			expect(labels.created).toBe('2026-10-14T12:00:00.000Z')
 			expect(buildCustodyGrading(result, rubric, labels).judgments).toEqual(

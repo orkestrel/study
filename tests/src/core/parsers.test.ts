@@ -2,7 +2,7 @@ import { expect, it } from 'vitest'
 import {
 	parseStudyDefinition,
 	parseStudyGrading,
-	parseStudyLabels,
+	parseStudyLabeling,
 	parseStudyProfile,
 	parseStudyRubric,
 	parseStudyScenario,
@@ -10,7 +10,7 @@ import {
 import {
 	isStudyDefinition,
 	isStudyGrading,
-	isStudyLabels,
+	isStudyLabeling,
 	isStudyProfile,
 	isStudyRubric,
 	isStudyScenario,
@@ -143,12 +143,12 @@ it('parses real JSON grading and labels without coercion and preserves unknown t
 		usage: [{ role: 'judge', calls: 0, tokens: undefined, bytes: undefined, duration: 0 }],
 		judgments: [buildStudyJudgment('r1-s1-a1', 'first-read', 'unknown', 'human')],
 	}
-	const parsedLabels = parseStudyLabels(labels)
-	expect(isStudyLabels(parsedLabels)).toBe(true)
+	const parsedLabels = parseStudyLabeling(labels)
+	expect(isStudyLabeling(parsedLabels)).toBe(true)
 	expect(parsedLabels.usage[0]?.tokens).toBeUndefined()
 	expect(parsedLabels.usage[0]?.bytes).toBeUndefined()
 	expect(Object.isFrozen(parsedLabels.usage[0])).toBe(true)
-	expect(parseStudyLabels(JSON.parse(JSON.stringify(labels)))).toEqual(parsedLabels)
+	expect(parseStudyLabeling(JSON.parse(JSON.stringify(labels)))).toEqual(parsedLabels)
 })
 
 it('rejects unknown keys, unsafe limits, malformed JSON shapes and hostile reads with coded errors', () => {
@@ -166,7 +166,7 @@ it('rejects unknown keys, unsafe limits, malformed JSON shapes and hostile reads
 	).toThrow(StudyError)
 	expect(() => parseStudyRubric({ ...buildStudyRubric(), criteria: [] })).toThrow(StudyError)
 	expect(() => parseStudyGrading({})).toThrow(expect.objectContaining({ code: 'EVIDENCE' }))
-	expect(() => parseStudyLabels({})).toThrow(expect.objectContaining({ code: 'EVIDENCE' }))
+	expect(() => parseStudyLabeling({})).toThrow(expect.objectContaining({ code: 'EVIDENCE' }))
 	expect(() =>
 		parseStudyScenario(
 			new Proxy(

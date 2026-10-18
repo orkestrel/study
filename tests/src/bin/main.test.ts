@@ -19,7 +19,7 @@ import {
 	readStudyCheck,
 	writeStudyAgent,
 	writeStudyConsumer,
-	buildCustodyPacketLabels,
+	buildCustodyPacketLabeling,
 } from '../../setupServer.js'
 import { parseStudyRubric } from '../../../src/core/parsers.js'
 import { STUDY_COMMAND_INVALID_ARGUMENTS } from '../../setupStudy.js'
@@ -257,7 +257,7 @@ describe('built study executable', () => {
 			const rubric = parseStudyRubric(
 				parseJSON(scratch.read('studies/assessment/rubric.json') ?? ''),
 			)
-			const labels = buildCustodyPacketLabels(sealed, rubric)
+			const labels = buildCustodyPacketLabeling(sealed, rubric)
 			const path = scratch.write('labels.json', JSON.stringify(labels))
 			const labeled = await executeStudyCLI(entry, scratch.path, [
 				'label',
@@ -886,7 +886,7 @@ describe('built study executable', () => {
 			)
 			const labels = scratch.write(
 				'labels.json',
-				JSON.stringify(buildCustodyPacketLabels(sealed, rubric)),
+				JSON.stringify(buildCustodyPacketLabeling(sealed, rubric)),
 			)
 			const labeled: string[] = []
 			for (const grading of [first.grading, second.grading]) {
@@ -1118,7 +1118,7 @@ describe('built study executable', () => {
 				)
 				scratch.write(
 					'subject/dist/index.js',
-					`import {Artifacts} from ${JSON.stringify(pathToFileURL(runtimeLibrary).href)}; const artifacts=new Artifacts(${JSON.stringify({ entries: [target], roots: [outside] })}); const namespace=await artifacts.load(${JSON.stringify(target)}); export const prefix=namespace.prefix`,
+					`import {ArtifactLoader} from ${JSON.stringify(pathToFileURL(runtimeLibrary).href)}; const artifacts=new ArtifactLoader(${JSON.stringify({ entries: [target], roots: [outside] })}); const namespace=await artifacts.load(${JSON.stringify(target)}); export const prefix=namespace.prefix`,
 				)
 				const checked = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
 				expect({ code: checked.code, output: checked.code === 0 ? '' : checked.output }).toEqual({

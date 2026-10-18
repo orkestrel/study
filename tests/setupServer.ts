@@ -8,7 +8,7 @@ import type {
 	StudyCriterion,
 	StudyEvidence,
 	StudyGrading,
-	StudyLabels,
+	StudyLabeling,
 	StudyManifest,
 	StudyObservation,
 	StudyRole,
@@ -51,7 +51,7 @@ import { StudyTask } from '../src/server/processes/StudyTask.js'
 import { STUDY_TASK_DURATION } from '../src/server/processes/constants.js'
 import { STUDY_LAUNCH_BYTES } from '../src/server/launchers/constants.js'
 import { collectStudyEvidence } from '../src/server/commands/helpers.js'
-import { StudyResults } from '../src/server/stores/StudyResults.js'
+import { StudyResultStore } from '../src/server/stores/StudyResultStore.js'
 import {
 	buildStudyPacket,
 	buildStudyPacketLinks,
@@ -196,7 +196,7 @@ registerHooks({ resolve(specifier, context, next) {
  if (context.parentURL?.startsWith(${JSON.stringify(library)}) && (specifier.startsWith('./') || specifier.startsWith('../')) && specifier.endsWith('.js')) return next(new URL(specifier.slice(0, -3) + '.ts', context.parentURL).href, context)
  return next(specifier, context)
 } })
-const { Artifacts } = await import(${JSON.stringify(`${library}server/artifacts/Artifacts.ts`)})
+const { ArtifactLoader } = await import(${JSON.stringify(`${library}server/artifacts/ArtifactLoader.ts`)})
 ${body}
 `,
 	)
@@ -517,12 +517,12 @@ process.stdout.write(String(code) + '\\n', () => process.exit(0))
  * @param labeler - The supplied accountable labeler; Default: human-v1
  * @returns Original imported neutral labels ready for exact-byte custody
  */
-export function buildCustodyPacketLabels(
+export function buildCustodyPacketLabeling(
 	result: StudySealedResult,
 	rubric: StudyRubric,
 	labeler = 'human-v1',
-): StudyLabels {
-	const original = buildCustodyLabels(result, labeler)
+): StudyLabeling {
+	const original = buildCustodyLabeling(result, labeler)
 	const packet = buildStudyPacket(result, rubric, hashStudyBytes(encodeStudyJSON(rubric)))
 	const link = buildStudyPacketLinks(result, rubric).find(
 		(entry) =>
@@ -558,7 +558,7 @@ export async function retainStudyFixture(
 	manifest: StudyManifest = buildCustodyManifest(),
 	rows: readonly StudyEvidence[] = STUDY_FIXTURE_ROWS,
 ): Promise<StudySealedResult> {
-	const results = new StudyResults({ directory, manifest })
+	const results = new StudyResultStore({ directory, manifest })
 	await results.create()
 	for (const trial of manifest.schedule) {
 		const sink = await results.start(trial)
@@ -630,7 +630,7 @@ export function buildStudyReportResult(
 export function buildCustodyGrading(
 	result: StudySealedResult,
 	rubric: StudyRubric = buildStudyRubric(),
-	labels?: StudyLabels,
+	labels?: StudyLabeling,
 ): StudyGrading {
 	return {
 		result: result.seal.id,
@@ -670,7 +670,10 @@ export function buildCustodyGrading(
  * @param labeler - The supplied accountable labeler
  * @returns The inert labels artifact
  */
-export function buildCustodyLabels(result: StudySealedResult, labeler = 'human-v1'): StudyLabels {
+export function buildCustodyLabeling(
+	result: StudySealedResult,
+	labeler = 'human-v1',
+): StudyLabeling {
 	const trial = result.manifest.schedule[0]
 	if (trial === undefined) throw new Error('Fixture has no trial')
 	return {

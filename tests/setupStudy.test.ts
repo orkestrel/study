@@ -408,13 +408,13 @@ describe('study script fixtures', () => {
 			content: '',
 			calls: [],
 			consume: undefined,
-			cancel: undefined,
+			abort: undefined,
 			tokens: undefined,
 			bytes: undefined,
 		})
-		expect(buildStudyScriptResponse({ content: 'done', cancel: true })).toMatchObject({
+		expect(buildStudyScriptResponse({ content: 'done', abort: true })).toMatchObject({
 			content: 'done',
-			cancel: true,
+			abort: true,
 			calls: [],
 		})
 	})

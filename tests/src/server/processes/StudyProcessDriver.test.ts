@@ -9,7 +9,7 @@ import {
 	buildCustodyManifest,
 	createStudyMeterFixture,
 } from '../../../setupStudy.js'
-import { StudyResults } from '../../../../src/server/stores/StudyResults.js'
+import { StudyResultStore } from '../../../../src/server/stores/StudyResultStore.js'
 import { join } from 'node:path'
 
 describe('StudyProcessDriver', () => {
@@ -34,7 +34,7 @@ describe('StudyProcessDriver', () => {
 			const goal = manifest.scenarios[0]?.goals[0]
 			if (trial === undefined || goal === undefined) throw new Error('Fixture trial missing')
 			const profile = { ...buildStudyProfile(), bounds: manifest.bounds }
-			const store = new StudyResults({ directory: join(scratch.path, 'result'), manifest })
+			const store = new StudyResultStore({ directory: join(scratch.path, 'result'), manifest })
 			await store.create()
 			const evidence = await store.start(trial)
 			const driver = new StudyProcessDriver({

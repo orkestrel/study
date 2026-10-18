@@ -6,7 +6,7 @@ import type {
 	StudyErrorCode,
 	StudyGrading,
 	StudyJudgment,
-	StudyLabels,
+	StudyLabeling,
 	StudyGoal,
 	StudyLimit,
 	StudyProduct,
@@ -502,10 +502,10 @@ export function isStudyJudgment(value: unknown): value is StudyJudgment {
  * @returns True if provenance, usage and semantic judgments are valid; false otherwise
  * @example
  * ```ts
- * isStudyLabels({}) // false
+ * isStudyLabeling({}) // false
  * ```
  */
-export function isStudyLabels(value: unknown): value is StudyLabels {
+export function isStudyLabeling(value: unknown): value is StudyLabeling {
 	return holds(() => {
 		return (
 			isRecord(value) &&

@@ -34,7 +34,7 @@ export interface StudyTaskResult {
 }
 
 /** Holds the trusted instrument and caller-selected built artifact locations. */
-export interface StudyArtifactOptions {
+export interface StudyArtifactLoaderOptions {
 	readonly entry: string
 	readonly root: string
 	readonly profile: StudyProfile
@@ -50,14 +50,14 @@ export interface StudyArtifactIdentity {
 }
 
 /** Holds actual namespaces loaded only during worker execution. */
-export interface StudyArtifactModules {
+export interface StudyArtifactModule {
 	readonly agent: unknown
 	readonly subject: unknown
 	readonly provider: unknown
 }
 
 /** Holds the parent-owned fresh trial process configuration. */
-export interface StudyProcessOptions extends StudyArtifactOptions {
+export interface StudyProcessOptions extends StudyArtifactLoaderOptions {
 	readonly identity: StudyIdentity
 	readonly driver: string
 	readonly directory: string

@@ -17,7 +17,7 @@ import { StudyError } from '../../core/errors.js'
  * @param options - The caller's transport configuration
  * @returns The owned configuration, not yet validated
  */
-export function buildStudyOllamaOptions(
+export function buildStudyOllamaTransportOptions(
 	options: StudyOllamaTransportOptions,
 ): StudyOllamaTransportOptions {
 	const { url, room, limit, models, roles, signal, observe, timing } = options

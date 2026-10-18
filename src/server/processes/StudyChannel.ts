@@ -2,7 +2,7 @@ import type { StudyChannelOptions, StudyFrame, StudyOperation, StudyResponse } f
 import type { JSONValue } from '@orkestrel/contract'
 import { StudyControl, failureToStudyError, readStudyFailure } from '../../core/engines/index.js'
 import { STUDY_FRAME_BYTES, STUDY_PENDING_LIMIT } from './constants.js'
-import { createStudyProcessFailure, toStudyWire } from './helpers.js'
+import { createStudyProcessFailure, valueToWire } from './helpers.js'
 import { isStudyFrame, isStudyProcessFailure } from './validators.js'
 
 /** Correlates bounded IPC work and rejects every outstanding request on transport failure. */
@@ -143,7 +143,7 @@ export class StudyChannel {
 			await this.#send({
 				id,
 				operation: 'error',
-				value: toStudyWire(readStudyFailure(error)),
+				value: valueToWire(readStudyFailure(error)),
 			})
 		}
 	}

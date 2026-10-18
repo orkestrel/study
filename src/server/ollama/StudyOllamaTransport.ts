@@ -12,7 +12,7 @@ import { isRecord, parseJSON } from '@orkestrel/contract'
 import { StudyError } from '../../core/errors.js'
 import { readStudyFailure } from '../../core/engines/helpers.js'
 import { buildStudyAgentDispatch } from '../../core/agents/helpers.js'
-import { buildStudyOllamaOptions, buildStudyOllamaSnapshot } from './cloners.js'
+import { buildStudyOllamaSnapshot, buildStudyOllamaTransportOptions } from './cloners.js'
 import { StudyOllamaExchange } from './StudyOllamaExchange.js'
 import { StudyOllamaGoal } from './StudyOllamaGoal.js'
 import {
@@ -46,7 +46,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 	 * @param options - Origin, room, request limit, pinned inventory, role policies, and cancellation.
 	 */
 	constructor(options: StudyOllamaTransportOptions) {
-		const owned = buildStudyOllamaOptions(options)
+		const owned = buildStudyOllamaTransportOptions(options)
 		validateStudyOllamaRoles(owned.roles, owned.models)
 		this.#options = owned
 	}
@@ -180,7 +180,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 					pull: (controller) => this.#pull(wire, controller),
 					// A consumer cancel without a reason is the only absence; any thrown value keeps its identity.
 					cancel: (reason: unknown) =>
-						this.#cancel(
+						this.#failWire(
 							wire,
 							reason === undefined
 								? new StudyError('FAULT', 'Ollama response cancelled before its end')
@@ -206,14 +206,16 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 	 */
 	async close(): Promise<void> {
 		this.#abort.abort(new StudyError('FAULT', 'Ollama transport closed'))
-		await Promise.all([...this.#wires].map((wire) => this.#cancel(wire, this.#abort.signal.reason)))
+		await Promise.all(
+			[...this.#wires].map((wire) => this.#failWire(wire, this.#abort.signal.reason)),
+		)
 		this.#goal = undefined
 	}
 
 	// Buffers a non-2xx body under the wire bounds and parses it once at its end, because an error body is one JSON document, not rows.
 	async #refuse(wire: StudyOllamaExchange): Promise<never> {
 		const failure = await this.#diagnose(wire)
-		await this.#cancel(wire, failure)
+		await this.#failWire(wire, failure)
 		throw failure
 	}
 
@@ -279,7 +281,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 			controller.close()
 		} catch (error) {
 			this.fail(error)
-			await this.#cancel(wire, error)
+			await this.#failWire(wire, error)
 			controller.error(error)
 		}
 	}
@@ -437,7 +439,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		}
 	}
 
-	async #cancel(wire: StudyOllamaExchange, error: unknown): Promise<void> {
+	async #failWire(wire: StudyOllamaExchange, error: unknown): Promise<void> {
 		if (wire.settled) return
 		this.fail(error)
 		wire.settle()
@@ -446,7 +448,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		try {
 			if (!wire.ticket.signal.aborted) wire.ticket.fail({ ...failure, role: wire.request.role })
 			await wire.activity.context.evidence.append({
-				event: 'wire-failure',
+				event: 'failure',
 				goal: wire.activity.goal,
 				value: {
 					role: wire.request.role,

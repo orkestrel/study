@@ -169,7 +169,7 @@ describe('StudyOllamaTransport', () => {
 				expect(fixture.goal.usage()).toEqual([
 					{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
 				])
-				const failure = fixture.goal.evidence.find((row) => row.event === 'wire-failure')
+				const failure = fixture.goal.evidence.find((row) => row.event === 'failure')
 				expect(failure?.value).toMatchObject({ role: 'agent', path: '/api/chat', status: 200 })
 				expect(fixture.goal.evidence.some((row) => row.event === 'wire')).toBe(false)
 			} finally {
@@ -196,7 +196,7 @@ describe('StudyOllamaTransport', () => {
 				expect(fixture.goal.usage()).toEqual([
 					{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
 				])
-				const failure = fixture.goal.evidence.find((row) => row.event === 'wire-failure')
+				const failure = fixture.goal.evidence.find((row) => row.event === 'failure')
 				expect(failure?.value).toMatchObject({ role: 'agent', path: '/api/chat', status: 200 })
 				expect(fixture.goal.evidence.some((row) => row.event === 'wire')).toBe(false)
 				await provider.generate(STUDY_AGENT_MESSAGES, signal).then(
@@ -233,7 +233,7 @@ describe('StudyOllamaTransport', () => {
 					{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
 				])
 				const failure = requireStudyRecord(
-					fixture.goal.evidence.find((row) => row.event === 'wire-failure')?.value,
+					fixture.goal.evidence.find((row) => row.event === 'failure')?.value,
 				)
 				expect(failure).toMatchObject({ role: 'agent', status })
 				// Observation is off, so the retained failure holds only its unobserved members.
@@ -279,7 +279,7 @@ describe('StudyOllamaTransport', () => {
 				expect(usage).toEqual([[role, 10 + completion]])
 				const wire = fixture.goal.evidence.find((row) => row.event === 'wire')
 				expect(wire?.value).toMatchObject({ role, prompt: 10, completion, finish: 'stop' })
-				expect(fixture.goal.evidence.some((row) => row.event === 'wire-failure')).toBe(false)
+				expect(fixture.goal.evidence.some((row) => row.event === 'failure')).toBe(false)
 				expect(readStudyFailure(captureError(() => fixture.transport.check()))).toEqual({
 					cause: 'capacity',
 					message,
@@ -333,7 +333,7 @@ describe('StudyOllamaTransport', () => {
 			expect(fixture.goal.usage()).toEqual([
 				{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
 			])
-			expect(fixture.goal.evidence.map((row) => row.event)).toEqual(['dispatch', 'wire-failure'])
+			expect(fixture.goal.evidence.map((row) => row.event)).toEqual(['dispatch', 'failure'])
 			const [sent, failure] = fixture.goal.evidence.map((row) => requireStudyRecord(row.value))
 			expect(Object.keys(failure ?? {}).sort()).toEqual([
 				'bytes',
@@ -722,7 +722,7 @@ describe('StudyOllamaTransport', () => {
 			expect(fixture.goal.usage()).toEqual([
 				{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
 			])
-			const failure = fixture.goal.evidence.find((row) => row.event === 'wire-failure')
+			const failure = fixture.goal.evidence.find((row) => row.event === 'failure')
 			expect(failure?.value).toMatchObject({ role: 'agent', reason: 'Ollama transport closed' })
 			const retained = captureError(() => fixture.transport.check())
 			expect(readStudyFailure(retained).message).toBe('Ollama transport closed')

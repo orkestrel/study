@@ -4,7 +4,7 @@ import type { StudyProvider, StudyRole, StudyRoom } from '../../core/types.js'
 import type {
 	StudyOllamaPolicy,
 	StudyOllamaRequest,
-	StudyOllamaSettings,
+	StudyOllamaOptions,
 	StudyOllamaTerminal,
 	StudyOllamaTransportOptions,
 } from './types.js'
@@ -44,7 +44,7 @@ export function buildStudyOllamaModels(
  * @param policy - The role's declared wire policy
  * @returns The model, think flag, options object, and the strict native fields when declared
  */
-export function buildStudyOllamaSettings(policy: StudyOllamaPolicy): StudyOllamaSettings {
+export function buildStudyOllamaOptions(policy: StudyOllamaPolicy): StudyOllamaOptions {
 	return {
 		model: policy.model,
 		options: policy.options,

@@ -4,7 +4,7 @@ import { isRecord } from '@orkestrel/contract'
 import { failureToStudyError, readStudyFailure } from '../../core/engines/index.js'
 import { StudyError } from '../../core/errors.js'
 import { isStudyUsage } from '../../core/validators.js'
-import { createStudyProcessFailure, toStudyWire } from './helpers.js'
+import { createStudyProcessFailure, valueToWire } from './helpers.js'
 import { StudyRemoteTicket } from './StudyRemoteTicket.js'
 import { isStudyProcessFailure } from './validators.js'
 
@@ -44,7 +44,7 @@ export class StudyRemoteMeter implements StudyRemoteMeterInterface {
 		this.#admissions++
 		try {
 			const response = await this.#options.control.wait(
-				this.#options.channel.request('admit', toStudyWire({ id, charge })),
+				this.#options.channel.request('admit', valueToWire({ id, charge })),
 			)
 			if (!isRecord(response) || response.id !== id)
 				throw new StudyError('FAULT', 'Worker admission grant is invalid')
@@ -101,7 +101,7 @@ export class StudyRemoteMeter implements StudyRemoteMeterInterface {
 		const work = this.#options.channel
 			.request(
 				operation,
-				toStudyWire(operation === 'finish' ? { id, usage: accepted } : { id, failure: accepted }),
+				valueToWire(operation === 'finish' ? { id, usage: accepted } : { id, failure: accepted }),
 			)
 			.then(
 				() => {

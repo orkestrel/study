@@ -8,7 +8,7 @@ import {
 	buildCustodyManifest,
 	buildStudyRubric,
 } from '../../../setupStudy.js'
-import { buildCustodyPacketLabels, retainStudyFixture } from '../../../setupServer.js'
+import { buildCustodyPacketLabeling, retainStudyFixture } from '../../../setupServer.js'
 import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
 import {
 	checkStudyDirectory,
@@ -22,7 +22,7 @@ import {
 	scanStudyExecution,
 	scanStudyTree,
 	validateStudyEvidenceBytes,
-	translateStudyPacketLabels,
+	translateStudyPacketLabeling,
 	writeStudyBytes,
 } from '../../../../src/server/stores/helpers.js'
 
@@ -56,8 +56,8 @@ describe('study custody helpers', () => {
 			expect(computeStudyPacketDigest({ ...packet, mapping: encodeStudyJSON({}) })).not.toBe(
 				computeStudyPacketDigest(packet),
 			)
-			const labels = buildCustodyPacketLabels(result, rubric)
-			expect(translateStudyPacketLabels(result, rubric, digest, labels)).toMatchObject([
+			const labels = buildCustodyPacketLabeling(result, rubric)
+			expect(translateStudyPacketLabeling(result, rubric, digest, labels)).toMatchObject([
 				{
 					trial: result.manifest.schedule[0]?.id,
 					criterion: 'first-read',
@@ -66,10 +66,10 @@ describe('study custody helpers', () => {
 				},
 			])
 			expect(() =>
-				translateStudyPacketLabels(result, rubric, digest, { ...labels, packet: 'f'.repeat(64) }),
+				translateStudyPacketLabeling(result, rubric, digest, { ...labels, packet: 'f'.repeat(64) }),
 			).toThrow('different semantic packet')
 			expect(() =>
-				translateStudyPacketLabels(result, rubric, digest, {
+				translateStudyPacketLabeling(result, rubric, digest, {
 					...labels,
 					judgments: labels.judgments.map((judgment) => ({
 						...judgment,
