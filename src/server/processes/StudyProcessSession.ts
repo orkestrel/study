@@ -22,6 +22,7 @@ import { isStudyProduct, isStudyUsage } from '../../core/validators.js'
 import { STUDY_LOG_BYTES, STUDY_PROCESS_LABEL, STUDY_WORKER_OPERATION } from './constants.js'
 import { createStudyProcessFailure, drainStudyChild, toStudyWire } from './helpers.js'
 import { StudyChannel } from './StudyChannel.js'
+import { StudyProcessGoal } from './StudyProcessGoal.js'
 import { isStudyCharge, isStudyEvidence, isStudyProcessFailure } from './validators.js'
 
 /** Keeps admission and evidence custody in the parent of one fresh trial process. */
@@ -33,10 +34,9 @@ export class StudyProcessSession implements StudySessionInterface {
 	#channel: StudyChannel | undefined
 	#exit: Promise<void> | undefined
 	#closing: Promise<void> | undefined
-	#context: StudyContext | undefined
-	#tickets = new Map<number, StudyParentTicket>()
-	#ticket = 0
-	#evidence = 0
+	readonly #goals = new Set<StudyProcessGoal>()
+	readonly #tickets = new Map<number, StudyParentTicket>()
+	readonly #appends = new Set<Promise<void>>()
 	#logs = 0
 	#started = false
 	#deadline: ReturnType<typeof setTimeout> | undefined
@@ -129,11 +129,11 @@ export class StudyProcessSession implements StudySessionInterface {
 	 * @returns The retained child product after every admitted operation settles.
 	 */
 	async execute(goal: StudyGoal, context: StudyContext): Promise<StudyProduct> {
-		if (this.#context !== undefined || this.#closing !== undefined || this.#channel === undefined)
+		if (this.#goals.size !== 0 || this.#closing !== undefined || this.#channel === undefined)
 			throw new StudyError('FAULT', 'Study process cannot execute in its current state')
 		if (this.#control.failure !== undefined) throw failureToStudyError(this.#control.failure)
-		this.#context = context
-		this.#ticket = 0
+		const running = new StudyProcessGoal(context)
+		this.#goals.add(running)
 		const listeners = new AbortController()
 		const control = new StudyControl(context.signal)
 		this.#control.signal.addEventListener(
@@ -149,7 +149,7 @@ export class StudyProcessSession implements StudySessionInterface {
 		)
 		try {
 			const product = await control.wait(this.#channel.request('goal', toStudyWire(goal)))
-			if (this.#tickets.size !== 0 || this.#evidence !== 0)
+			if (this.#tickets.size !== 0 || this.#appends.size !== 0)
 				throw new StudyError('FAULT', 'Worker goal ended with unsettled admission or evidence')
 			if (!isStudyProduct(product)) throw new StudyError('FAULT', 'Worker product is invalid')
 			return product
@@ -159,7 +159,7 @@ export class StudyProcessSession implements StudySessionInterface {
 		} finally {
 			listeners.abort()
 			control.close()
-			this.#context = undefined
+			this.#goals.delete(running)
 		}
 	}
 
@@ -170,13 +170,14 @@ export class StudyProcessSession implements StudySessionInterface {
 	}
 
 	async #handle(operation: StudyOperation, value: JSONValue): Promise<JSONValue> {
-		const context = this.#context
-		if (context === undefined) throw new StudyError('FAULT', 'Worker requested work outside a goal')
+		const [running] = this.#goals
+		if (running === undefined) throw new StudyError('FAULT', 'Worker requested work outside a goal')
+		const context = running.context
 		if (operation === 'admit') {
-			if (!isRecord(value) || value.id !== this.#ticket + 1 || !isStudyCharge(value.charge))
+			if (!isRecord(value) || !isStudyCharge(value.charge))
 				throw new StudyError('FAULT', 'Invalid worker admission')
-			this.#ticket++
-			const id = this.#ticket
+			const id = running.issue(value.id)
+			if (id === undefined) throw new StudyError('FAULT', 'Invalid worker admission')
 			const ticket = await context.meter.admit(value.charge)
 			const listeners = new AbortController()
 			this.#tickets.set(id, { ticket, listeners })
@@ -210,12 +211,13 @@ export class StudyProcessSession implements StudySessionInterface {
 		}
 		if (operation === 'evidence') {
 			if (!isStudyEvidence(value)) throw new StudyError('FAULT', 'Invalid worker evidence')
-			this.#evidence++
+			const appending = context.evidence.append(value)
+			this.#appends.add(appending)
 			try {
-				await context.evidence.append(value)
+				await appending
 				return true
 			} finally {
-				this.#evidence--
+				this.#appends.delete(appending)
 			}
 		}
 		throw new StudyError('FAULT', 'Worker requested a forbidden operation')
@@ -230,7 +232,30 @@ export class StudyProcessSession implements StudySessionInterface {
 	}
 
 	async #close(): Promise<void> {
-		let failure: unknown
+		const failure = await this.#acknowledge()
+		for (const entry of this.#tickets.values()) {
+			entry.listeners.abort()
+			if (!entry.ticket.signal.aborted) {
+				try {
+					entry.ticket.fail(
+						this.#control.failure ??
+							createStudyProcessFailure('Worker closed with an unfinished request'),
+					)
+				} catch {
+					/* First parent failure is already retained. */
+				}
+			}
+		}
+		this.#tickets.clear()
+		this.#listeners.abort()
+		this.#channel?.close(failure)
+		await this.#terminate()
+		this.#control.close()
+		if (failure !== undefined) throw failure
+	}
+
+	// Asks the worker to clean up and returns the failure that stopped it, or undefined when it acknowledged.
+	async #acknowledge(): Promise<unknown> {
 		try {
 			if (this.#channel !== undefined && !this.#channel.signal.aborted) {
 				const closed = await new StudyDeadline({
@@ -240,29 +265,10 @@ export class StudyProcessSession implements StudySessionInterface {
 				if (closed !== true)
 					throw new StudyError('FAULT', 'Worker cleanup acknowledgment is invalid')
 			}
+			return undefined
 		} catch (error) {
-			failure = error
-		} finally {
-			for (const entry of this.#tickets.values()) {
-				entry.listeners.abort()
-				if (!entry.ticket.signal.aborted) {
-					try {
-						entry.ticket.fail(
-							this.#control.failure ??
-								createStudyProcessFailure('Worker closed with an unfinished request'),
-						)
-					} catch {
-						/* First parent failure is already retained. */
-					}
-				}
-			}
-			this.#tickets.clear()
-			this.#listeners.abort()
-			this.#channel?.close(failure)
-			await this.#terminate()
-			this.#control.close()
+			return error
 		}
-		if (failure !== undefined) throw failure
 	}
 
 	async #terminate(): Promise<void> {

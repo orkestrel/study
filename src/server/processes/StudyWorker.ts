@@ -23,7 +23,7 @@ export class StudyWorker {
 	#channel: StudyChannel | undefined
 	#artifacts: StudyArtifacts | undefined
 	#session: StudySessionInterface | undefined
-	#meter: StudyRemoteMeter | undefined
+	readonly #meters = new Set<StudyRemoteMeter>()
 	#opening = false
 	#closing = false
 	#duration = 1000
@@ -136,14 +136,14 @@ export class StudyWorker {
 		if (
 			this.#session === undefined ||
 			this.#channel === undefined ||
-			this.#meter !== undefined ||
+			this.#meters.size !== 0 ||
 			this.#closing ||
 			this.#control.failure !== undefined ||
 			!isStudyGoal(value)
 		)
 			throw new StudyError('FAULT', 'Worker goal is invalid or out of order')
 		const meter = new StudyRemoteMeter({ channel: this.#channel, control: this.#control })
-		this.#meter = meter
+		this.#meters.add(meter)
 		try {
 			const product = await this.#control.wait(
 				this.#session.execute(value, {
@@ -159,14 +159,14 @@ export class StudyWorker {
 				throw new StudyError('FAULT', 'Worker driver returned an invalid product')
 			return toStudyWire(product)
 		} finally {
-			this.#meter = undefined
+			this.#meters.delete(meter)
 		}
 	}
 
 	#append(value: JSONValue): Promise<void> {
 		if (
 			this.#channel === undefined ||
-			this.#meter === undefined ||
+			this.#meters.size === 0 ||
 			this.#control.failure !== undefined
 		)
 			return Promise.reject(new StudyError('FAULT', 'Worker evidence is outside an active goal'))
@@ -193,9 +193,10 @@ export class StudyWorker {
 			throw new StudyError('FAULT', 'Worker cancellation is malformed')
 		if (value.id === undefined) this.#control.fail(value.failure)
 		else {
-			if (typeof value.id !== 'number' || this.#meter === undefined)
+			const [meter] = this.#meters
+			if (typeof value.id !== 'number' || meter === undefined)
 				throw new StudyError('FAULT', 'Worker ticket cancellation is foreign')
-			this.#meter.abort(value.id, value.failure)
+			meter.abort(value.id, value.failure)
 		}
 	}
 }

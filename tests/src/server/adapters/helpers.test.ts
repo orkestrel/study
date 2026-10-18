@@ -1,6 +1,6 @@
 import type { StudyEvidence } from '../../../../src/core/types.js'
 import type { StudyGradeTarget } from '../../../../src/server/adapters/types.js'
-import { createRecorder, requireValue } from '@orkestrel/test'
+import { captureError, createRecorder, requireValue } from '@orkestrel/test'
 import { createScratch } from '@orkestrel/test/server'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -418,12 +418,7 @@ describe('buildStudyReference', () => {
 	it('refuses a reference that is not a record with a study refusal rather than a raw TypeError', () => {
 		for (const hostile of STUDY_HOSTILE_REFERENCES) {
 			const args = [target, hostile]
-			let caught: unknown
-			try {
-				Reflect.apply(buildStudyReference, undefined, args)
-			} catch (error) {
-				caught = error
-			}
+			const caught = captureError(() => Reflect.apply(buildStudyReference, undefined, args))
 			expect(isStudyError(caught)).toBe(true)
 			expect(caught).toMatchObject({ code: 'EVIDENCE' })
 		}
@@ -475,12 +470,7 @@ describe('gradeStudyEvidence sparse evidence', () => {
 				references: [hostile],
 			}
 			const args = [base, () => reading]
-			let caught: unknown
-			try {
-				Reflect.apply(gradeStudyEvidence, undefined, args)
-			} catch (error) {
-				caught = error
-			}
+			const caught = captureError(() => Reflect.apply(gradeStudyEvidence, undefined, args))
 			expect(isStudyError(caught)).toBe(true)
 			expect(caught).toMatchObject({ code: 'EVIDENCE' })
 		}

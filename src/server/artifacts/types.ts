@@ -64,6 +64,12 @@ export interface ArtifactSource extends ArtifactFile {
 	readonly source: Uint8Array
 }
 
+/** Counts the directory entries visited and the file bytes admitted so far in one capture. */
+export interface ArtifactTally {
+	readonly visits: number
+	readonly bytes: number
+}
+
 /** Supplies the private namespace and separate source selection to resolution. */
 export interface ArtifactHookInput {
 	readonly token: string

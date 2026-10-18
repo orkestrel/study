@@ -1,5 +1,6 @@
 import type { JSONValue } from '@orkestrel/contract'
-import type { StudyEvidence, StudyAttempt } from '../../core/types.js'
+import type { StudyEvidence, StudyAttempt, StudyProfile } from '../../core/types.js'
+import type { StudyAdapterInterface } from '../adapters/types.js'
 import { arrayOf, isArray, isRecord, isString } from '@orkestrel/contract'
 import { dirname } from 'node:path'
 import { isStudyError, StudyError } from '../../core/errors.js'
@@ -37,17 +38,14 @@ export class StudyTaskWorker {
 			throw new StudyError('CONFIG', 'Adapter worker requires inherited IPC')
 		process.channel?.ref()
 		const value: unknown = await new Promise((resolve) => process.once('message', resolve))
-		let response: JSONValue
-		try {
-			response = await this.#execute(value)
-		} catch (error) {
-			response = {
-				error: error instanceof Error ? error.message : String(error),
-				code: isStudyError(error) ? error.code : 'FAULT',
-			}
-		}
-		if (Buffer.byteLength(JSON.stringify(response)) > STUDY_FRAME_BYTES)
-			response = { error: 'Adapter result exceeds the frame allowance', code: 'FAULT' }
+		const outcome = await this.#execute(value).catch((error: unknown): JSONValue => ({
+			error: error instanceof Error ? error.message : String(error),
+			code: isStudyError(error) ? error.code : 'FAULT',
+		}))
+		const response: JSONValue =
+			Buffer.byteLength(JSON.stringify(outcome)) > STUDY_FRAME_BYTES
+				? { error: 'Adapter result exceeds the frame allowance', code: 'FAULT' }
+				: outcome
 		await new Promise<void>((resolve, reject) =>
 			process.send?.(response, (error: Error | null) =>
 				error === null ? resolve() : reject(error),
@@ -83,48 +81,61 @@ export class StudyTaskWorker {
 			loader.inspect().digest,
 		)
 		const adapter = readStudyAdapter(await loader.load(value.adapter))
-		let output: unknown
-		if (profile !== undefined) {
-			if (!isArray(value.input.scenarios))
-				throw new StudyError('CONFIG', 'Adapter scenarios are invalid')
-			adapter.validate({
-				definition: parseStudyDefinition(value.input.definition),
-				scenarios: value.input.scenarios.map(parseStudyScenario),
-				rubric: parseStudyRubric(value.input.rubric),
-				profile,
-			})
-			output = true
-		} else if (value.operation === 'grade') {
-			if (
-				!isStudyCustodyManifest(value.input.manifest) ||
-				!isArray(value.input.attempts) ||
-				!isRecord(value.input.evidence)
-			)
-				throw new StudyError('CONFIG', 'Adapter grading input is invalid')
-			const manifest = value.input.manifest
-			const attempts: readonly unknown[] = value.input.attempts
-			if (
-				!attempts.every((retained): retained is StudyAttempt =>
-					isStudyCustodyAttempt(retained, manifest),
-				)
-			)
-				throw new StudyError('CONFIG', 'Adapter attempts are invalid')
-			const evidence: Record<string, readonly StudyEvidence[]> = {}
-			for (const [trial, records] of Object.entries(value.input.evidence)) {
-				if (!isArray(records) || !records.every(isStudyCustodyEvidence))
-					throw new StudyError('CONFIG', 'Adapter evidence is invalid')
-				evidence[trial] = records
-			}
-			output = adapter.grade({
-				manifest,
-				attempts,
-				rubric: parseStudyRubric(value.input.rubric),
-				evidence,
-			})
-			if (!isArray(output) || !output.every(isStudyJudgment))
-				throw new StudyError('FAULT', 'Adapter returned invalid judgments')
-		} else throw new StudyError('CONFIG', 'Unknown adapter operation')
+		if (profile === undefined && value.operation !== 'grade')
+			throw new StudyError('CONFIG', 'Unknown adapter operation')
+		const output: unknown =
+			profile === undefined
+				? this.#grade(adapter, value.input)
+				: this.#validate(adapter, value.input, profile)
 		loader.verify()
 		return toStudyWire({ instrument, value: output })
+	}
+
+	#validate(
+		adapter: StudyAdapterInterface,
+		input: Readonly<Record<string, unknown>>,
+		profile: StudyProfile,
+	): true {
+		if (!isArray(input.scenarios)) throw new StudyError('CONFIG', 'Adapter scenarios are invalid')
+		adapter.validate({
+			definition: parseStudyDefinition(input.definition),
+			scenarios: input.scenarios.map(parseStudyScenario),
+			rubric: parseStudyRubric(input.rubric),
+			profile,
+		})
+		return true
+	}
+
+	#grade(adapter: StudyAdapterInterface, input: Readonly<Record<string, unknown>>): unknown {
+		if (
+			!isStudyCustodyManifest(input.manifest) ||
+			!isArray(input.attempts) ||
+			!isRecord(input.evidence)
+		)
+			throw new StudyError('CONFIG', 'Adapter grading input is invalid')
+		const manifest = input.manifest
+		const attempts: readonly unknown[] = input.attempts
+		if (
+			!attempts.every((retained): retained is StudyAttempt =>
+				isStudyCustodyAttempt(retained, manifest),
+			)
+		)
+			throw new StudyError('CONFIG', 'Adapter attempts are invalid')
+		const evidence: Record<string, readonly StudyEvidence[]> = Object.fromEntries(
+			Object.entries(input.evidence).map(([trial, records]) => {
+				if (!isArray(records) || !records.every(isStudyCustodyEvidence))
+					throw new StudyError('CONFIG', 'Adapter evidence is invalid')
+				return [trial, records]
+			}),
+		)
+		const output = adapter.grade({
+			manifest,
+			attempts,
+			rubric: parseStudyRubric(input.rubric),
+			evidence,
+		})
+		if (!isArray(output) || !output.every(isStudyJudgment))
+			throw new StudyError('FAULT', 'Adapter returned invalid judgments')
+		return output
 	}
 }

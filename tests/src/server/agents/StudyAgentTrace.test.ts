@@ -49,6 +49,38 @@ describe('StudyAgentTrace', () => {
 		])
 	})
 
+	it('starts the second goal rows, admission and refused identity fresh while ordinals, dispatch numbers and role identities continue', async () => {
+		const { trace } = createStudyAgentTrace(true)
+		const sink = createStudySinkFixture()
+		const window = new AgentError('WINDOW', 'Full', { context: { consumed: 700, max: 600 } })
+		trace.start('write')
+		trace.admit(first, STUDY_AGENT_GAUGE)
+		trace.translate(window)
+		await trace.flush(sink.sink)
+		trace.start('read')
+		trace.translate(window)
+		trace.record(reading, first)
+		await trace.flush(sink.sink)
+		const goals = ['write', 'read'].map((goal) => sink.rows.filter((row) => row.goal === goal))
+		expect(sink.rows.map((row) => row.goal)).toEqual(['write', 'write', 'read', 'read', 'read'])
+		const [write, read] = goals.map((rows) =>
+			rows.map((row) => ({ event: row.event, value: requireStudyRecord(row.value) })),
+		)
+		expect(write?.map((row) => [row.event, row.value.stage, row.value.ordinal])).toEqual([
+			['context', 'admission', 1],
+			['refusal', undefined, 1],
+		])
+		// The admission and the refused identity of the earlier goal are gone: the same error is refused again, with no admission.
+		expect(read?.map((row) => [row.event, row.value.stage, row.value.ordinal])).toEqual([
+			['refusal', undefined, null],
+			['context', 'dispatch', 2],
+			['estimate', undefined, undefined],
+		])
+		expect(read?.[0]?.value.revision).toBe(null)
+		expect(read?.[1]?.value.dispatch).toBe(1)
+		expect(trace.canonical('agent')?.id).toBe(1)
+	})
+
 	it('retains the exact dispatch context and estimate rows in field order', async () => {
 		const { trace } = createStudyAgentTrace(true)
 		const sink = createStudySinkFixture()
@@ -259,11 +291,10 @@ describe('StudyAgentTrace', () => {
 
 	it('walks the live buffer so a row appended during the flush is retained', async () => {
 		const { trace } = createStudyAgentTrace(true)
-		let added = false
 		const sink = createStudySinkFixture({
 			during: () => {
-				if (added) return
-				added = true
+				// The hook runs before each append, so the sink holds a row exactly after the first.
+				if (sink.rows.length > 0) return
 				trace.append('late', { id: 'late' })
 			},
 		})

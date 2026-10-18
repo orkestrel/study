@@ -1,5 +1,6 @@
 import { createScratch } from '@orkestrel/test/server'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { readdirSync } from 'node:fs'
+import { mkdir, open, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
@@ -16,8 +17,10 @@ import {
 	computeStudyPacketDigest,
 	computeStudySealId,
 	readStudyBytes,
+	readStudyHandle,
 	readStudyResult,
 	scanStudyExecution,
+	scanStudyTree,
 	validateStudyEvidenceBytes,
 	translateStudyPacketLabels,
 	writeStudyBytes,
@@ -156,6 +159,66 @@ describe('study custody helpers', () => {
 		)
 	})
 
+	it('refuses the earlier of an over-allowance goal and an invalid goal line in line order', () => {
+		const manifest = buildCustodyManifest()
+		const trial = manifest.schedule[0]
+		if (trial === undefined) throw new Error('Missing trial')
+		const heavy = Buffer.from(
+			encodeStudyJSON({ event: 'saved', goal: 'write', value: 'x'.repeat(2500) }),
+		).toString()
+		const foreign = Buffer.from(
+			encodeStudyJSON({ event: 'saved', goal: 'foreign', value: true }),
+		).toString()
+		expect(() =>
+			validateStudyEvidenceBytes(Buffer.from(heavy + heavy + foreign), manifest, trial.id),
+		).toThrow('goal allowance')
+		expect(() =>
+			validateStudyEvidenceBytes(Buffer.from(heavy + foreign + heavy + heavy), manifest, trial.id),
+		).toThrow('invalid goal')
+		expect(() =>
+			validateStudyEvidenceBytes(Buffer.from(foreign + heavy), manifest, trial.id),
+		).toThrow('invalid goal')
+		expect(() =>
+			validateStudyEvidenceBytes(Buffer.from(heavy + heavy), manifest, trial.id),
+		).toThrow('goal allowance')
+	})
+
+	it('scans an execution tree in read order and carries the series allowance across sibling directories', async () => {
+		const scratch = createScratch()
+		try {
+			const manifest = buildCustodyManifest()
+			const trials = manifest.schedule.slice(0, 2).map((trial) => trial.id)
+			scratch.write('manifest.json', '0123456789')
+			for (const id of trials) {
+				scratch.write(`trials/${id}/attempt.json`, '0123456789')
+				scratch.write(`trials/${id}/evidence.jsonl`, '0123456789')
+			}
+			const known = new Set(trials)
+			const listed = readdirSync(join(scratch.path, 'trials'))
+			const found = await scanStudyTree(scratch.path, '', known, 50)
+			expect(found.map((file) => file.path)).toEqual([
+				'manifest.json',
+				...[...listed]
+					.reverse()
+					.flatMap((id) =>
+						readdirSync(join(scratch.path, 'trials', id)).map((name) => `trials/${id}/${name}`),
+					),
+			])
+			expect(found.every((file) => file.bytes === 10)).toBe(true)
+			await expect(scanStudyTree(scratch.path, '', known, 49)).rejects.toMatchObject({
+				code: 'CUSTODY',
+			})
+			await expect(
+				scanStudyTree(scratch.path, '', new Set(trials.slice(0, 1)), 50),
+			).rejects.toMatchObject({
+				code: 'CUSTODY',
+				message: 'Execution contains an unknown directory',
+			})
+		} finally {
+			scratch.destroy()
+		}
+	})
+
 	it('returns interrupted metadata from an empty creation and inventories exact regular files', async () => {
 		const scratch = createScratch()
 		try {
@@ -197,6 +260,31 @@ describe('study custody helpers', () => {
 			const partialAttempt = await readStudyResult(scratch.path)
 			expect(partialAttempt.status).toBe('interrupted')
 			expect(partialAttempt.attempts).toEqual([])
+		} finally {
+			scratch.destroy()
+		}
+	})
+})
+
+describe('readStudyHandle', () => {
+	it('fills a buffer from the start of the file and returns the bytes it read', async () => {
+		const scratch = createScratch()
+		try {
+			const handle = await open(scratch.write('bytes.bin', 'abcdef'), 'r')
+			try {
+				const whole = Buffer.alloc(6)
+				expect(await readStudyHandle(handle, whole)).toBe(whole)
+				expect(whole.toString()).toBe('abcdef')
+				const short = await readStudyHandle(handle, Buffer.alloc(9))
+				expect(short.length).toBe(6)
+				expect(short.toString()).toBe('abcdef')
+				expect((await readStudyHandle(handle, Buffer.alloc(0))).length).toBe(0)
+				const resumed = Buffer.alloc(6)
+				expect(await readStudyHandle(handle, resumed, 4)).toBe(resumed)
+				expect(resumed.subarray(4).toString()).toBe('ef')
+			} finally {
+				await handle.close()
+			}
 		} finally {
 			scratch.destroy()
 		}

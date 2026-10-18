@@ -136,32 +136,34 @@ export class StudyGradings {
 		if (hashStudyBytes(rubricBytes) !== grading.rubric)
 			throw new StudyError('CUSTODY', 'Rubric bytes differ from the grading identity')
 		const rubric = parseStudyRubric(decodeStudyJSON(rubricBytes))
-		let labels: StudyLabels | undefined
-		if (grading.labels !== undefined) {
-			const labelsBytes = await readStudyBytes(
-				join(directory, `${grading.labels}.labels.json`),
-				STUDY_CUSTODY_BYTES,
-			)
-			if (hashStudyBytes(labelsBytes) !== grading.labels)
-				throw new StudyError('CUSTODY', 'Labels bytes differ from the grading identity')
-			labels = parseStudyLabels(decodeStudyJSON(labelsBytes))
-		}
-		let packet: StudyPacketBundle | undefined
-		if (grading.packet !== undefined) {
-			packet = {
-				content: await readStudyBytes(
-					join(directory, `${grading.packet}.packet.json`),
-					STUDY_CUSTODY_BYTES,
-				),
-				mapping: await readStudyBytes(
-					join(directory, `${grading.packet}.mapping.json`),
-					STUDY_CUSTODY_BYTES,
-				),
-			}
-		}
+		const labels =
+			grading.labels === undefined ? undefined : await this.#retrieve(directory, grading.labels)
+		const packet: StudyPacketBundle | undefined =
+			grading.packet === undefined
+				? undefined
+				: {
+						content: await readStudyBytes(
+							join(directory, `${grading.packet}.packet.json`),
+							STUDY_CUSTODY_BYTES,
+						),
+						mapping: await readStudyBytes(
+							join(directory, `${grading.packet}.mapping.json`),
+							STUDY_CUSTODY_BYTES,
+						),
+					}
 		this.#validate(grading, result, rubric, labels, packet)
 		await this.#verifyResult()
 		return grading
+	}
+
+	async #retrieve(directory: string, digest: string): Promise<StudyLabels> {
+		const bytes = await readStudyBytes(
+			join(directory, `${digest}.labels.json`),
+			STUDY_CUSTODY_BYTES,
+		)
+		if (hashStudyBytes(bytes) !== digest)
+			throw new StudyError('CUSTODY', 'Labels bytes differ from the grading identity')
+		return parseStudyLabels(decodeStudyJSON(bytes))
 	}
 
 	async #write(grading: StudyGrading, bytes: Uint8Array): Promise<string> {

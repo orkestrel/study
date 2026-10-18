@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { captureError, requireValue } from '@orkestrel/test'
+import { captureError, createRecorder, requireValue } from '@orkestrel/test'
 import {
 	buildStudyOllamaOptions,
 	buildStudyOllamaSnapshot,
@@ -54,24 +54,25 @@ describe('buildStudyOllamaOptions', () => {
 	})
 
 	it('reads each caller member once', () => {
-		const reads = { room: 0, strict: 0 }
+		const room = createRecorder<[]>()
+		const strict = createRecorder<[]>()
 		const caller = { ...options, room: { ...options.room }, roles: { agent: { ...agentPolicy } } }
 		Object.defineProperty(caller, 'room', {
 			enumerable: true,
 			get: () => {
-				reads.room += 1
+				room.handler()
 				return options.room
 			},
 		})
 		Object.defineProperty(caller.roles.agent, 'strict', {
 			enumerable: true,
 			get: () => {
-				reads.strict += 1
+				strict.handler()
 				return false
 			},
 		})
 		buildStudyOllamaOptions(caller)
-		expect(reads).toEqual({ room: 1, strict: 1 })
+		expect({ room: room.count, strict: strict.count }).toEqual({ room: 1, strict: 1 })
 	})
 })
 
@@ -95,17 +96,17 @@ describe('buildStudyOllamaSnapshot', () => {
 	})
 
 	it('reads the caller headers once and clones them from the copied settings', () => {
-		let reads = 0
+		const reads = createRecorder<[]>()
 		const init: RequestInit = { method: 'POST' }
 		Object.defineProperty(init, 'headers', {
 			enumerable: true,
 			get: () => {
-				reads += 1
+				reads.handler()
 				return { 'x-study-owned': 'original' }
 			},
 		})
 		const snapshot = buildStudyOllamaSnapshot(chat, init, undefined)
-		expect(reads).toBe(1)
+		expect(reads.count).toBe(1)
 		expect(new Headers(snapshot.init?.headers).get('x-study-owned')).toBe('original')
 	})
 

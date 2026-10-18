@@ -14,9 +14,10 @@ import { requireValue, waitForEvent } from '@orkestrel/test'
 import { createScratch, isRunning } from '@orkestrel/test/server'
 import { fork } from 'node:child_process'
 import { realpathSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { parse, resolve } from 'node:path'
 import { STUDY_DRAIN_DURATION } from '../../../../src/server/processes/constants.js'
 import {
+	collectStudyAncestors,
 	collectStudyEntries,
 	drainStudyChild,
 	computeStudyInstrumentDigest,
@@ -176,4 +177,17 @@ describe('process helpers', () => {
 			scratch.destroy()
 		}
 	}, 15000)
+})
+
+describe('collectStudyAncestors', () => {
+	it('lists a directory and every parent up to the filesystem root, nearest first', () => {
+		const start = resolve('tmp', 'units', 'ancestors')
+		const ancestors = collectStudyAncestors(start)
+		expect(ancestors[0]).toBe(start)
+		expect(ancestors.at(-1)).toBe(parse(start).root)
+		expect(ancestors).toContain(resolve('tmp'))
+		expect(ancestors.indexOf(resolve('tmp', 'units'))).toBe(1)
+		expect(new Set(ancestors).size).toBe(ancestors.length)
+		expect(collectStudyAncestors(parse(start).root)).toEqual([parse(start).root])
+	})
 })

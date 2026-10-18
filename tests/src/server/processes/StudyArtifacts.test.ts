@@ -75,16 +75,22 @@ describe('StudyArtifacts', () => {
 			)
 			const adapter = scratch.write('adapter/index.ts', 'export const adapter = true')
 			const subject = scratch.write('dist/index.js', 'throw new Error("subject must not execute")')
-			const roots = [scratch.path]
 			const occurrences = ['first', 'second'].map((name) => {
 				scratch.write(
 					`${name}/package.json`,
 					JSON.stringify({ name: 'fixture-agent', version: '1.0.0', type: 'module' }),
 				)
-				roots.push(scratch.ensure(name))
-				return scratch.write(`${name}/dist/index.js`, `throw new Error("${name} must not execute")`)
+				const root = scratch.ensure(name)
+				return {
+					root,
+					agent: scratch.write(
+						`${name}/dist/index.js`,
+						`throw new Error("${name} must not execute")`,
+					),
+				}
 			})
-			const [first, second] = occurrences
+			const roots = [scratch.path, ...occurrences.map(({ root }) => root)]
+			const [first, second] = occurrences.map(({ agent }) => agent)
 			if (first === undefined || second === undefined) throw new Error('Missing occurrence')
 			const options = { entry, adapter, root: realpathSync(resolve('.')) }
 			const profile = { ...buildStudyProfile(), subject, roots }

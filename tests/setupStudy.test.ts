@@ -12,9 +12,11 @@ import {
 	buildOllamaJudgeRow,
 	buildOllamaReplies,
 	buildStudyAgentOrigins,
+	createOllamaFetch,
 	createStudyAgentSummary,
 	createStudyAgentTrace,
 	createStudyDriverFixture,
+	createStudyLeaseFixture,
 	createStudyMeterFixture,
 	buildStudyScriptResponse,
 	createStudyScriptFixture,
@@ -23,6 +25,9 @@ import {
 	createStudyStoreFixture,
 	importStudyErrorCopy,
 	readOllamaMessages,
+	readOllamaToolResults,
+	readProviderStream,
+	readSettled,
 	requireStudyRecord,
 	STUDY_EXECUTION_CASES,
 	STUDY_OLLAMA_PROVIDER,
@@ -30,10 +35,12 @@ import {
 	STUDY_SCRIPT_CALL,
 	STUDY_SCRIPT_INVALID_RESPONSES,
 	STUDY_SCRIPT_MANY_CALLS,
+	STUDY_SCRIPT_MESSAGES,
 	STUDY_SCRIPT_VALID_RESPONSES,
 	STUDY_SUMMARY_MESSAGES,
 } from './setupStudy.js'
 import { StudyError } from '../src/core/errors.js'
+import { StudyAgentScript } from '../src/server/agents/StudyAgentScript.js'
 
 describe('study error module copies', () => {
 	it('evaluates one distinct real error module per tag', async () => {
@@ -88,13 +95,9 @@ describe('study boundary fixtures', () => {
 		if (trial === undefined || goal === undefined) throw new Error('Missing fixture declaration')
 		const signal = new AbortController().signal
 		const opening = fixture.driver.open(trial, signal)
-		let settled = false
-		void opening.then(() => {
-			settled = true
-		})
 		await Promise.resolve()
 		expect(fixture.opened.count).toBe(1)
-		expect(settled).toBe(false)
+		expect(await readSettled(opening)).toBe(false)
 		resolvers.resolve()
 		const session = await opening
 		const meter = createStudyMeterFixture()
@@ -108,6 +111,26 @@ describe('study boundary fixtures', () => {
 			meter.close()
 		}
 		expect(fixture.executed.calls).toEqual([[goal.id]])
+	})
+	it('rejects each session close with the supplied error after recording the call', async () => {
+		const closing = new Error('Close refused')
+		const fixture = createStudyDriverFixture({ closing })
+		const trial = buildCompactCustodyManifest().schedule[0]
+		if (trial === undefined) throw new Error('Missing fixture trial')
+		const session = await fixture.driver.open(trial, new AbortController().signal)
+		await expect(session.close()).rejects.toBe(closing)
+		expect(fixture.closed.calls).toEqual([[trial.id]])
+	})
+	it('leases the first scheduled trial over recording fixtures and releases its owner', async () => {
+		const fixture = createStudyLeaseFixture({ opening: Promise.resolve() })
+		expect(fixture.trial).toEqual(buildCompactCustodyManifest().schedule[0])
+		await fixture.lease.open()
+		expect(fixture.custody.started.calls).toEqual([[fixture.trial]])
+		expect(fixture.driver.opened.calls).toEqual([[fixture.trial]])
+		expect(await fixture.lease.close()).toBeUndefined()
+		expect(fixture.driver.closed.count).toBe(1)
+		fixture.close()
+		await expect(fixture.control.wait(Promise.resolve('settled'))).resolves.toBe('settled')
 	})
 	it('records started trials and finished attempts without replicating custody', async () => {
 		const fixture = createStudyStoreFixture()
@@ -273,6 +296,14 @@ describe('study agent trace fixtures', () => {
 		expect(fixture.rows.map(({ event }) => event)).toEqual(['lookup', 'arrival'])
 	})
 
+	it('records every offered row, the refused one included', async () => {
+		const fixture = createStudySinkFixture({ refuse: { error: new Error('Full'), row: 0 } })
+		await expect(fixture.sink.append(row)).rejects.toThrow('Full')
+		await fixture.sink.append({ ...row, event: 'summary' })
+		expect(fixture.offered.map(({ event }) => event)).toEqual(['lookup', 'summary'])
+		expect(fixture.rows.map(({ event }) => event)).toEqual(['summary'])
+	})
+
 	it('builds a trace over a recorded latch that refuses with the supplied value', () => {
 		const free = createStudyAgentTrace(true)
 		free.latch.check()
@@ -435,5 +466,74 @@ describe('study script fixtures', () => {
 			judge: 'judge',
 			digest: { model: 'a'.repeat(64), judge: 'b'.repeat(64) },
 		})
+	})
+})
+
+describe('study protocol fixtures', () => {
+	it('serves queued replies only at the head of the queue and reports the unserved rest', async () => {
+		const queued = [
+			{ path: '/api/tags', body: 'tags' },
+			{ path: '/api/chat', body: 'chat' },
+		] as const
+		const wire = createOllamaFetch(queued)
+		expect(wire.replies).toEqual(queued)
+		// A path that is not at the head of the queue is answered by default and leaves the queue whole.
+		const early = await wire.fetch('http://127.0.0.1/api/chat', { method: 'POST', body: '{}' })
+		expect(await early.text()).not.toBe('chat')
+		expect(wire.replies).toEqual(queued)
+		expect(await (await wire.fetch('http://127.0.0.1/api/tags')).text()).toBe('tags')
+		expect(wire.replies).toEqual([queued[1]])
+		expect(await (await wire.fetch('http://127.0.0.1/api/chat')).text()).toBe('chat')
+		expect(wire.replies).toEqual([])
+		expect(wire.requests.map(({ path }) => path)).toEqual(['/api/chat', '/api/tags', '/api/chat'])
+	})
+
+	it('reads the tool receipts of a chat request in message order and refuses a malformed message', () => {
+		const body = JSON.stringify({
+			messages: [
+				{ role: 'user', content: 'ask' },
+				{ role: 'tool', content: 'first' },
+				{ role: 'assistant', content: 'between' },
+				{ role: 'tool', content: 'second' },
+			],
+		})
+		expect(readOllamaToolResults(body)).toEqual(['first', 'second'])
+		expect(readOllamaToolResults(JSON.stringify({ messages: [] }))).toEqual([])
+		expect(() => readOllamaToolResults('{}')).toThrow('Invalid chat request')
+		expect(() => readOllamaToolResults(JSON.stringify({ messages: [7] }))).toThrow(
+			'Invalid chat message',
+		)
+		expect(() =>
+			readOllamaToolResults(JSON.stringify({ messages: [{ role: 'tool', content: 7 }] })),
+		).toThrow('Invalid tool receipt')
+	})
+
+	it('drains a provider stream into its yielded deltas and its returned result', async () => {
+		const meter = createStudyScriptMeter(1000, 100)
+		try {
+			const fixture = createStudyScriptFixture(meter, [
+				buildStudyScriptResponse({ content: 'looking', calls: [STUDY_SCRIPT_CALL] }),
+			])
+			const script = new StudyAgentScript({ bytes: 1000 })
+			script.prepare(fixture.plan)
+			const drained = await readProviderStream(
+				script.stream(STUDY_SCRIPT_MESSAGES, meter.control.signal),
+			)
+			expect(drained.deltas).toEqual([{ channel: 'content', text: 'looking' }])
+			expect(drained.result).toEqual({ content: 'looking', tools: [STUDY_SCRIPT_CALL] })
+		} finally {
+			meter.close()
+		}
+	})
+})
+describe('study settlement reader', () => {
+	it('reads a pending promise as unsettled and a fulfilled or rejected promise as settled', async () => {
+		const pending = Promise.withResolvers<void>()
+		expect(await readSettled(pending.promise)).toBe(false)
+		pending.resolve()
+		expect(await readSettled(pending.promise)).toBe(true)
+		const refused = Promise.reject(new Error('refused'))
+		expect(await readSettled(refused)).toBe(true)
+		await expect(refused).rejects.toThrow('refused')
 	})
 })

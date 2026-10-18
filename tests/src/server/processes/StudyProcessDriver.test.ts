@@ -16,16 +16,16 @@ describe('StudyProcessDriver', () => {
 	it('denies a real child request before dispatch through the actual parent meter', async () => {
 		const scratch = createScratch()
 		const fixture = createStudyMeterFixture()
-		let session: Awaited<ReturnType<StudyProcessDriver['open']>> | undefined
 		try {
 			const marker = join(scratch.path, 'dispatched.txt')
 			const entry = scratch.write(
 				'peer.cjs',
-				`const fs=require('node:fs'); let goal; process.on('message',frame=>{
+				`const fs=require('node:fs'); process.on('message',frame=>{
 				if(frame.operation==='open')process.send({id:frame.id,operation:'reply',value:{pid:process.pid,...frame.value.identity}})
-				if(frame.operation==='goal'){goal=frame;process.send({id:1,operation:'admit',value:{id:1,charge:{role:'tool',tokens:101,bytes:0}}})}
-				if(frame.operation==='reply'&&frame.id===1&&goal){fs.writeFileSync(${JSON.stringify(marker)},'dispatched');process.send({id:goal.id,operation:'reply',value:{value:true,partial:false}})}
-				if(frame.operation==='error'&&goal)process.send({id:goal.id,operation:'error',value:frame.value})
+				if(frame.operation==='goal'){process.send({id:1,operation:'admit',value:{id:1,charge:{role:'tool',tokens:101,bytes:0}}});process.on('message',settled=>{
+					if(settled.operation==='reply'&&settled.id===1){fs.writeFileSync(${JSON.stringify(marker)},'dispatched');process.send({id:frame.id,operation:'reply',value:{value:true,partial:false}})}
+					if(settled.operation==='error')process.send({id:frame.id,operation:'error',value:settled.value})
+				})}
 				if(frame.operation==='close')process.send({id:frame.id,operation:'reply',value:true})
 			})`,
 			)
@@ -46,29 +46,36 @@ describe('StudyProcessDriver', () => {
 				adapter: entry,
 				profile,
 			})
-			session = await driver.open(trial, new AbortController().signal)
-			await expect(
-				session.execute(goal, { signal: fixture.control.signal, meter: fixture.meter, evidence }),
-			).rejects.toMatchObject({ failure: { cause: 'capacity' } })
-			expect(scratch.has('dispatched.txt')).toBe(false)
-			expect(fixture.meter.usage).toEqual([])
-			await store.finish({
-				trial,
-				observations:
-					manifest.scenarios[0]?.goals.map((declared, index) => ({
-						goal: declared.id,
-						product: undefined,
-						failure: fixture.control.failure,
-						usage: [],
-						duration: 0,
-						executed: index === 0,
-					})) ?? [],
-				failure: fixture.control.failure,
-				duration: 0,
-				executed: true,
-			})
+			const session = await driver.open(trial, new AbortController().signal)
+			try {
+				await expect(
+					session.execute(goal, {
+						signal: fixture.control.signal,
+						meter: fixture.meter,
+						evidence,
+					}),
+				).rejects.toMatchObject({ failure: { cause: 'capacity' } })
+				expect(scratch.has('dispatched.txt')).toBe(false)
+				expect(fixture.meter.usage).toEqual([])
+				await store.finish({
+					trial,
+					observations:
+						manifest.scenarios[0]?.goals.map((declared, index) => ({
+							goal: declared.id,
+							product: undefined,
+							failure: fixture.control.failure,
+							usage: [],
+							duration: 0,
+							executed: index === 0,
+						})) ?? [],
+					failure: fixture.control.failure,
+					duration: 0,
+					executed: true,
+				})
+			} finally {
+				await session.close()
+			}
 		} finally {
-			await session?.close()
 			fixture.close()
 			scratch.destroy()
 		}

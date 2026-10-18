@@ -143,7 +143,7 @@ export function computeStudyFixtureDigest(
 export async function collectStudyEvidence(
 	result: StudySealedResult,
 ): Promise<Readonly<Record<string, readonly StudyEvidence[]>>> {
-	const evidence: Record<string, readonly StudyEvidence[]> = {}
+	const retained: Array<readonly [string, readonly StudyEvidence[]]> = []
 	for (const trial of result.manifest.schedule) {
 		const path = `trials/${trial.id}/evidence.jsonl`
 		const file = result.seal.files.find((entry) => entry.path === path)
@@ -156,15 +156,17 @@ export async function collectStudyEvidence(
 		const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
 		if (text !== '' && !text.endsWith('\n'))
 			throw new StudyError('CUSTODY', 'Evidence is incomplete')
-		const rows: StudyEvidence[] = []
-		for (const line of text.split(/\r\n|\n/).slice(0, -1)) {
-			const row = parseJSON(line)
-			if (!isStudyCustodyEvidence(row)) throw new StudyError('CUSTODY', 'Evidence row is invalid')
-			rows.push(row)
-		}
-		evidence[trial.id] = Object.freeze(rows)
+		const rows = text
+			.split(/\r\n|\n/)
+			.slice(0, -1)
+			.map((line): StudyEvidence => {
+				const row = parseJSON(line)
+				if (!isStudyCustodyEvidence(row)) throw new StudyError('CUSTODY', 'Evidence row is invalid')
+				return row
+			})
+		retained.push([trial.id, Object.freeze(rows)])
 	}
-	return Object.freeze(evidence)
+	return Object.freeze(Object.fromEntries(retained))
 }
 
 /**

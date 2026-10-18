@@ -5,6 +5,7 @@ import type {
 	StudyUsage,
 } from '../../../../src/core/types.js'
 import type { StudyOllamaPolicy } from '../../../../src/server/ollama/types.js'
+import type { StudyOllamaExchange } from '../../../../src/server/ollama/StudyOllamaExchange.js'
 import type { StudyOllamaTransport } from '../../../../src/server/ollama/StudyOllamaTransport.js'
 import type { StudyMeterFixture } from '../../core/engines/types.js'
 import type { OllamaReplyFixture, OllamaRequestFixture } from '../../core/agents/types.js'
@@ -32,6 +33,13 @@ export interface OllamaContextFixture {
 	readonly meter: StudyMeterFixture
 	/** Reads the settled usage of every admitted request without its elapsed clock. */
 	usage(): ReadonlyArray<Omit<StudyUsage, 'duration'>>
+	close(): void
+}
+
+/** Holds an exchange over real goal accounting with one cleanup boundary. */
+export interface OllamaExchangeFixture {
+	readonly exchange: StudyOllamaExchange
+	readonly goal: OllamaContextFixture
 	close(): void
 }
 

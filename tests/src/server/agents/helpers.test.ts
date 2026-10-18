@@ -1,13 +1,26 @@
 import type { Message, ProviderRequest } from '@orkestrel/agent'
+import { createRecorder } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
+import { StudyError } from '../../../../src/core/errors.js'
 import {
 	buildStudyAgentReadings,
 	buildStudyAgentRevision,
+	resolveStudyAgentContent,
 	readStudyAgentMessages,
+	readStudyAgentResult,
 } from '../../../../src/server/agents/helpers.js'
+import { StudyAgentScript } from '../../../../src/server/agents/StudyAgentScript.js'
 import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
-import { STUDY_AGENT_MESSAGES, STUDY_AGENT_TOOLS } from '../../../setupStudy.js'
+import {
+	STUDY_AGENT_MESSAGES,
+	STUDY_AGENT_TOOLS,
+	STUDY_SCRIPT_CALL,
+	STUDY_SCRIPT_MESSAGES,
+	buildStudyScriptResponse,
+	createStudyScriptFixture,
+	createStudyScriptMeter,
+} from '../../../setupStudy.js'
 
 describe('buildStudyAgentRevision', () => {
 	it('hashes the key-sorted canonical rendering exactly as rendered, with no trailing newline', () => {
@@ -97,6 +110,67 @@ describe('buildStudyAgentReadings', () => {
 	})
 })
 
+describe('resolveStudyAgentContent', () => {
+	const request = [
+		{ role: 'tool', content: 'first', call: 'call-1' },
+		{ role: 'user', content: 'ignored', call: 'call-1' },
+		{ role: 'tool', content: 'second', call: 'call-1' },
+		{ role: 'tool', content: 'other', call: 'call-2' },
+	] as const
+
+	it('serves the declared content unless the response consumes a prior tool message', () => {
+		expect(
+			resolveStudyAgentContent(request, buildStudyScriptResponse({ content: 'declared' })),
+		).toBe('declared')
+	})
+
+	it('serves the content of the last tool message the consumed call names', () => {
+		expect(
+			resolveStudyAgentContent(
+				request,
+				buildStudyScriptResponse({ content: '', consume: 'call-1' }),
+			),
+		).toBe('second')
+		expect(
+			resolveStudyAgentContent(
+				request,
+				buildStudyScriptResponse({ content: '', consume: 'call-2' }),
+			),
+		).toBe('other')
+	})
+
+	it('refuses a consumed call that no actual tool message references', () => {
+		expect(() =>
+			resolveStudyAgentContent(
+				request,
+				buildStudyScriptResponse({ content: '', consume: 'call-3' }),
+			),
+		).toThrow('no actual referenced tool result')
+		expect(() =>
+			resolveStudyAgentContent([], buildStudyScriptResponse({ content: '', consume: 'call-1' })),
+		).toThrow(StudyError)
+	})
+})
+
+describe('readStudyAgentResult', () => {
+	it('drains every delta of a scripted stream and returns the assembled result', async () => {
+		const meter = createStudyScriptMeter(1000, 100)
+		try {
+			const script = new StudyAgentScript({ bytes: 1000 })
+			script.prepare(
+				createStudyScriptFixture(meter, [
+					buildStudyScriptResponse({ content: 'looking', calls: [STUDY_SCRIPT_CALL] }),
+				]).plan,
+			)
+			expect(
+				await readStudyAgentResult(script.stream(STUDY_SCRIPT_MESSAGES, meter.control.signal)),
+			).toEqual({ content: 'looking', tools: [STUDY_SCRIPT_CALL] })
+		} finally {
+			meter.close()
+		}
+	})
+})
+
 describe('readStudyAgentMessages', () => {
 	it('projects role, content and call in message order and drops every other member', () => {
 		const messages: readonly Message[] = [
@@ -113,26 +187,32 @@ describe('readStudyAgentMessages', () => {
 	})
 
 	it('projects only dereferenced foreign message fields and refuses malformed provider reads', () => {
-		const reads = { role: 0, content: 0, call: 0 }
+		const roles = createRecorder<[]>()
+		const contents = createRecorder<[]>()
+		const calls = createRecorder<[]>()
 		expect(
 			readStudyAgentMessages([
 				{
 					get role() {
-						reads.role++
+						roles.handler()
 						return 'tool'
 					},
 					get content() {
-						reads.content++
+						contents.handler()
 						return 'alpha'
 					},
 					get call() {
-						reads.call++
+						calls.handler()
 						return 'recalled'
 					},
 				},
 			]),
 		).toEqual([{ role: 'tool', content: 'alpha', call: 'recalled' }])
-		expect(reads).toEqual({ role: 1, content: 1, call: 1 })
+		expect({ role: roles.count, content: contents.count, call: calls.count }).toEqual({
+			role: 1,
+			content: 1,
+			call: 1,
+		})
 		expect(
 			readStudyAgentMessages([{ role: 'tool', content: 'alpha', call: 'recalled', extra: true }]),
 		).toEqual([{ role: 'tool', content: 'alpha', call: 'recalled' }])

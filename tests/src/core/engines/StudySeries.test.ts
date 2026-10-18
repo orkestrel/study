@@ -1,5 +1,5 @@
 import type { StudyFailure, StudyProduct } from '../../../../src/core/types.js'
-import { waitForCondition } from '@orkestrel/test'
+import { createRecorder, waitForCondition } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import { StudySeries } from '../../../../src/core/engines/index.js'
 import { StudyError } from '../../../../src/core/errors.js'
@@ -408,13 +408,13 @@ describe('StudySeries', () => {
 				goal: { ...baseline.bounds.goal, duration: 50 },
 			},
 		}
-		let waited = 0
+		const waits = createRecorder<[number]>()
 		// The synchronous wait outlasts the goal duration before any timer can fire.
 		const driver = createStudyDriverFixture({
 			execute: async (): Promise<StudyProduct> => {
 				const started = performance.now()
 				Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
-				waited = performance.now() - started
+				waits.handler(performance.now() - started)
 				return { value: 'ok', partial: false }
 			},
 		})
@@ -425,7 +425,7 @@ describe('StudySeries', () => {
 			store: custody.store,
 			signal: new AbortController().signal,
 		}).execute()
-		expect(waited).toBeGreaterThanOrEqual(manifest.bounds.goal.duration)
+		expect(waits.calls.at(-1)?.[0] ?? 0).toBeGreaterThanOrEqual(manifest.bounds.goal.duration)
 		expect(first?.executed).toBe(true)
 		expect(first?.failure?.cause).toBe('deadline')
 		expect(first?.observations.map((observation) => observation.executed)).toEqual([true, false])

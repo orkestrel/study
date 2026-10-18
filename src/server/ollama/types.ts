@@ -133,10 +133,13 @@ export interface StudyOllamaWire {
 	readonly sent: number
 	/** Holds the canonical dispatch this wire request was made for, when the caller measured one. */
 	readonly dispatch: StudyAgentDispatch | undefined
-	bytes: number
-	text: string
-	terminal: StudyOllamaTerminal | undefined
+	/** Holds the encoded request bytes plus every response byte counted so far. */
+	readonly bytes: number
+	/** Holds the decoded response text not yet consumed as complete rows. */
+	readonly text: string
+	readonly terminal: StudyOllamaTerminal | undefined
 	/** Holds the daemon timing of the terminal row once observed. */
-	timing: OllamaTiming | undefined
-	settled: boolean
+	readonly timing: OllamaTiming | undefined
+	/** Reports whether the request was accounted, finished or failed. */
+	readonly settled: boolean
 }

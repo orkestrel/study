@@ -1,5 +1,6 @@
 import type { RecorderInterface } from '@orkestrel/test'
 import type { StudyControl, StudyMeter, StudyScope } from '../../../../src/core/engines/index.js'
+import type { StudyTrialLease } from '../../../../src/core/engines/StudyTrialLease.js'
 import type { StudyError } from '../../../../src/core/errors.js'
 import type {
 	StudyAttempt,
@@ -52,6 +53,8 @@ export interface StudyDriverFixtureOptions {
 	readonly opening?: Promise<void>
 	/** Rejects each open with the supplied error after the call is recorded. */
 	readonly refuse?: Error
+	/** Rejects each session close with the supplied error after the call is recorded. */
+	readonly closing?: Error
 }
 
 /** Holds a driver whose every boundary call is recorded. */
@@ -60,6 +63,16 @@ export interface StudyDriverFixture {
 	readonly opened: RecorderInterface<readonly [StudyTrial]>
 	readonly executed: RecorderInterface<readonly [string]>
 	readonly closed: RecorderInterface<readonly [string]>
+}
+
+/** Holds one trial's lease over recording boundary fixtures and its owned failure owner. */
+export interface StudyLeaseFixture {
+	readonly lease: StudyTrialLease
+	readonly control: StudyControl
+	readonly driver: StudyDriverFixture
+	readonly custody: StudyStoreFixture
+	readonly trial: StudyTrial
+	close(): void
 }
 
 /** Holds an in-memory custody consumer whose every boundary call is recorded. */

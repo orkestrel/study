@@ -1,7 +1,8 @@
 import type { StudyLaunchResult } from '../src/server/launchers/types.js'
 import type { ScratchInterface } from '@orkestrel/test/server'
+import type { ChildProcess } from 'node:child_process'
 import { isArray, isInteger, isRecord, parseJSON } from '@orkestrel/contract'
-import { isRunning } from '@orkestrel/test/server'
+import { createScratch, isRunning } from '@orkestrel/test/server'
 import type {
 	StudyAttempt,
 	StudyCriterion,
@@ -29,7 +30,7 @@ import type {
 	StudyTaskMode,
 } from './src/server/processes/types.js'
 import { requireValue, waitForCondition, waitForEvent } from '@orkestrel/test'
-import { execFile, fork } from 'node:child_process'
+import { execFile, fork, spawn } from 'node:child_process'
 import { readFileSync, realpathSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { createRequire, isBuiltin } from 'node:module'
@@ -48,6 +49,7 @@ import {
 } from '../src/server/processes/validators.js'
 import { StudyTask } from '../src/server/processes/StudyTask.js'
 import { STUDY_TASK_DURATION } from '../src/server/processes/constants.js'
+import { STUDY_LAUNCH_BYTES } from '../src/server/launchers/constants.js'
 import { collectStudyEvidence } from '../src/server/commands/helpers.js'
 import { StudyResults } from '../src/server/stores/StudyResults.js'
 import {
@@ -62,6 +64,7 @@ import type { JSONValue } from '@orkestrel/contract'
 import type { OllamaReplyFixture, OllamaRequestFixture } from './src/core/agents/types.js'
 import type {
 	OllamaContextFixture,
+	OllamaExchangeFixture,
 	OllamaFailureFixture,
 	OllamaServerFixture,
 	OllamaStatusFailureFixture,
@@ -82,6 +85,7 @@ import { createMCPRoutes } from '@orkestrel/mcp/server'
 import { createDispatcher } from '@orkestrel/router'
 import { createServer as createHost } from '@orkestrel/server'
 import { createTool, createToolManager } from '@orkestrel/tool'
+import { StudyOllamaExchange } from '../src/server/ollama/StudyOllamaExchange.js'
 import { StudyOllamaTransport } from '../src/server/ollama/StudyOllamaTransport.js'
 import { createServer } from 'node:http'
 import {
@@ -226,6 +230,17 @@ export function createStudyPeer(scratch: ScratchInterface, source: string): Stud
 	})
 }
 
+/** Spawns a finite Node child that runs one inline program with piped output.
+ * @param source - The CommonJS program the child evaluates.
+ * @returns The live child; the caller subscribes before any of its events can fire.
+ */
+export function spawnStudyScript(source: string): ChildProcess {
+	return spawn(process.execPath, ['-e', source], {
+		stdio: ['ignore', 'pipe', 'pipe'],
+		windowsHide: true,
+	})
+}
+
 /** Supplies the instrument identity a valid fixture adapter answers with. */
 export const STUDY_TASK_INSTRUMENT = 'a'.repeat(64)
 
@@ -243,6 +258,31 @@ export const STUDY_TASK_RESPONSES = [
 /** Exercises native deadline and caller-cancellation termination. */
 export const STUDY_TASK_STOPS = ['deadline', 'abort'] as const
 
+/** Names the scratch file where a task adapter records its pid. */
+export const STUDY_TASK_PID = 'task-pid.txt'
+
+/** Writes a finite adapter that records its pid on its first request and answers by mode.
+ * @param scratch - The owned temporary resource holding the adapter and its pid record.
+ * @param mode - How the adapter answers; a held adapter never answers.
+ * @returns The absolute adapter entry path.
+ */
+export function writeStudyTaskAdapter(scratch: ScratchInterface, mode: StudyTaskMode): string {
+	const instrument = JSON.stringify(STUDY_TASK_INSTRUMENT)
+	return scratch.write(
+		`adapter-${mode}.cjs`,
+		`const fs = require('node:fs')
+setTimeout(() => process.exit(0), 20000)
+process.on('message', () => {
+ fs.writeFileSync(${JSON.stringify(join(scratch.path, STUDY_TASK_PID))}, String(process.pid))
+ const mode = ${JSON.stringify(mode)}
+ if (mode === 'valid') process.send({instrument:${instrument},value:true})
+ if (mode === 'malformed') process.send({instrument:'invalid',value:true})
+ if (mode === 'repeated') { process.send({instrument:${instrument},value:true}); process.send({instrument:${instrument},value:'second'}) }
+ if (mode === 'combined-output') { process.stdout.write('x'.repeat(40000)); process.stderr.write('y'.repeat(40000)) }
+})`,
+	)
+}
+
 /** Writes a finite adapter and binds a task to it, recording the adapter pid on its first request.
  * @param scratch - The owned temporary resource holding the adapter and its pid record.
  * @param mode - How the adapter answers; a held adapter never answers.
@@ -254,23 +294,9 @@ export function createStudyTaskFixture(
 	mode: StudyTaskMode,
 	duration: number,
 ): StudyTaskFixture {
-	const instrument = JSON.stringify(STUDY_TASK_INSTRUMENT)
-	const entry = scratch.write(
-		`adapter-${mode}.cjs`,
-		`const fs = require('node:fs')
-setTimeout(() => process.exit(0), 20000)
-process.on('message', () => {
- fs.writeFileSync(${JSON.stringify(join(scratch.path, 'task-pid.txt'))}, String(process.pid))
- const mode = ${JSON.stringify(mode)}
- if (mode === 'valid') process.send({instrument:${instrument},value:true})
- if (mode === 'malformed') process.send({instrument:'invalid',value:true})
- if (mode === 'repeated') { process.send({instrument:${instrument},value:true}); process.send({instrument:${instrument},value:'second'}) }
- if (mode === 'combined-output') { process.stdout.write('x'.repeat(40000)); process.stderr.write('y'.repeat(40000)) }
-})`,
-	)
 	return Object.freeze({
-		task: new StudyTask(buildStudyTaskOptions(entry, duration)),
-		pid: 'task-pid.txt',
+		task: new StudyTask(buildStudyTaskOptions(writeStudyTaskAdapter(scratch, mode), duration)),
+		pid: STUDY_TASK_PID,
 	})
 }
 
@@ -389,21 +415,51 @@ ${body}
 	)
 }
 
+/** Builds the text a fixture check prints for a valid profile.
+ * @param duration - The series duration, in milliseconds, the reply declares.
+ * @returns The JSON reply carrying the bounds and the fixture fingerprint.
+ */
+export function buildStudyCheckReply(duration: number): string {
+	const bounds = buildStudyProfile().bounds
+	return JSON.stringify({
+		bounds: { ...bounds, series: { ...bounds.series, duration } },
+		fingerprint: STUDY_CHECK_FINGERPRINT,
+	})
+}
+
 /** Writes a finite command entry that answers check with a valid reply and exits 0 for any command.
  * @param scratch - The owned temporary resource holding the entry and its records.
  * @param duration - The series duration, in milliseconds, the check reply declares.
  * @returns The absolute entry path.
  */
 export function writeStudyCheckEntry(scratch: ScratchInterface, duration: number): string {
-	const bounds = buildStudyProfile().bounds
-	const reply = JSON.stringify({
-		bounds: { ...bounds, series: { ...bounds.series, duration } },
-		fingerprint: STUDY_CHECK_FINGERPRINT,
-	})
 	return writeStudyLauncherEntry(
 		scratch,
 		20000,
-		`finish(0, command === 'check' ? ${JSON.stringify(reply)} : undefined)`,
+		`finish(0, command === 'check' ? ${JSON.stringify(buildStudyCheckReply(duration))} : undefined)`,
+	)
+}
+
+/** Selects the launch whose check holds before it answers in overlapping-launch fixtures. */
+export const STUDY_HOLD_ARGUMENTS = ['execute', 'files', '--profile', 'hold'] as const
+
+/** Selects the launch whose check overflows the host output allowance in overlapping-launch fixtures. */
+export const STUDY_BURST_ARGUMENTS = ['execute', 'files', '--profile', 'burst'] as const
+
+/** Writes a command entry whose check outcome follows the profile it was asked to check.
+ *
+ * A check for profile `burst` prints one byte past the host output allowance. A check for any other
+ * profile holds briefly, then answers with a valid reply. Any other command exits 0.
+ * @param scratch - The owned temporary resource holding the entry and its records.
+ * @returns The absolute entry path.
+ */
+export function writeStudyBurstEntry(scratch: ScratchInterface): string {
+	return writeStudyLauncherEntry(
+		scratch,
+		20000,
+		`if (command !== 'check') finish(0)
+else if (process.argv[6] === 'burst') process.stdout.write(Buffer.alloc(${String(STUDY_LAUNCH_BYTES + 1)}), () => finish(0))
+else setTimeout(() => finish(0, ${JSON.stringify(buildStudyCheckReply(60000))}), 1200)`,
 	)
 }
 
@@ -768,10 +824,10 @@ export function createStudyRowGrade(): StudyGradeFunction {
 				reason: 'Requires an independent blind semantic label',
 				references: [],
 			}
-		let row: number | undefined
-		for (const [index, entry] of evidence.entries())
-			if (entry.goal === criterion.goal && entry.event === assertion.observation) row = index
-		if (row === undefined)
+		const row = evidence.findLastIndex(
+			(entry) => entry.goal === criterion.goal && entry.event === assertion.observation,
+		)
+		if (row === -1)
 			return {
 				verdict: 'unknown',
 				method: criterion.method,
@@ -924,6 +980,24 @@ export function readStudyCheck(output: string): StudyCheckReading {
 	return { agent: value.identity.agent, fingerprint: value.fingerprint }
 }
 
+/** Creates an owned temporary consumer holding the real file-operation adapter and subject package.
+ * @param write - Writes the consumer into the scratch; Default: the real file-operation adapter and subject package.
+ * @returns The consumer scratch; the caller destroys it.
+ * @throws Error - Thrown when the writer fails, after the scratch is destroyed.
+ */
+export function createStudyConsumer(
+	write: (scratch: ScratchInterface) => void = writeStudyConsumer,
+): ScratchInterface {
+	const scratch = createScratch({ parent: resolve('tmp/units'), prefix: 'runtime-consumer-' })
+	try {
+		write(scratch)
+		return scratch
+	} catch (error) {
+		scratch.destroy()
+		throw error
+	}
+}
+
 /** Writes a real file-operation adapter and a separately selected subject package.
  * @param scratch - The owned temporary consumer; its capacity study needs no qualification.
  */
@@ -1003,7 +1077,8 @@ export async function createOllamaServer(
 	replies: readonly OllamaReplyFixture[] = [],
 	answer?: StudyMCPAnswer,
 ): Promise<OllamaServerFixture> {
-	const queue = [...replies]
+	const queue = Object.freeze([...replies])
+	const served: OllamaReplyFixture[] = []
 	const requests: OllamaRequestFixture[] = []
 	const owned: Array<string | undefined> = []
 	const server = createServer(async (request, response) => {
@@ -1015,7 +1090,10 @@ export async function createOllamaServer(
 		requests.push({ path, body: text })
 		const header = request.headers['x-study-owned']
 		owned.push(typeof header === 'string' ? header : undefined)
-		const supplied = queue[0]?.path === path ? queue.shift() : undefined
+		// Each served reply is a step result; the unserved view derives from the queue past them.
+		const next = queue[served.length]
+		const supplied = next?.path === path ? next : undefined
+		if (supplied !== undefined) served.push(supplied)
 		const body = supplied?.body ?? answer?.(path, text) ?? readOllamaDefault(path)
 		response.writeHead(supplied?.status ?? 200)
 		if (supplied?.open === true) response.write(body)
@@ -1032,7 +1110,9 @@ export async function createOllamaServer(
 		url: `http://127.0.0.1:${address.port}`,
 		requests,
 		owned,
-		replies: queue,
+		get replies(): readonly OllamaReplyFixture[] {
+			return queue.slice(served.length)
+		},
 		close: () =>
 			new Promise<void>((resolveClose, reject) => {
 				server.closeAllConnections()
@@ -1144,11 +1224,51 @@ export function createOllamaContext(signal = new AbortController().signal): Olla
 	}
 }
 
+/** Creates an exchange over real goal accounting, an admitted ticket and an empty response reader.
+ * @param bytes - The encoded request bytes the exchange's tally starts from; Default: 10.
+ * @returns The exchange, its goal accounting and one cleanup boundary.
+ */
+export async function createOllamaExchange(bytes = 10): Promise<OllamaExchangeFixture> {
+	const goal = createOllamaContext()
+	try {
+		return {
+			exchange: new StudyOllamaExchange({
+				activity: { goal: 'first', context: goal.context, checkpoint: undefined },
+				request: {
+					role: 'agent',
+					path: '/api/chat',
+					model: 'model',
+					output: 8,
+					bytes,
+					options: {},
+					strict: false,
+					length: false,
+				},
+				ticket: await goal.context.meter.admit({ role: 'agent', tokens: 1, bytes: 1 }),
+				signal: goal.context.signal,
+				reader: requireValue(new Response('').body).getReader(),
+				decoder: new TextDecoder('utf-8', { fatal: true }),
+				status: 200,
+				started: 0,
+				id: 1,
+				sent: 0,
+				dispatch: undefined,
+				bytes,
+			}),
+			goal,
+			close: () => goal.close(),
+		}
+	} catch (error) {
+		goal.close()
+		throw error
+	}
+}
+
 /** Creates a transport over a fresh loopback fixture and prepares it for one goal with real accounting.
  * @param replies - The fixture's queued replies.
  * @param change - Transport configuration members replacing the defaults.
  * @param checkpoint - The goal's retained public view; undefined retains neither it nor request bodies.
- * @returns The server, goal accounting, prepared transport, and one cleanup boundary.
+ * @returns The server, goal accounting, the transport prepared for goal `first`, and one cleanup boundary that closes the transport and so ends its goal.
  */
 export async function createOllamaTransportFixture(
 	replies: readonly OllamaReplyFixture[] = [],
@@ -1510,8 +1630,9 @@ export function sumStudyCalls(observation: StudyObservation, role: StudyRole): n
 export function collectStudyRoots(names: readonly string[]): readonly string[] {
 	const roots = new Set<string>()
 	const pending = names.map((name) => resolveStudyPackage(resolve('.'), name))
-	for (let root = pending.pop(); root !== undefined; root = pending.pop()) {
-		if (roots.has(root)) continue
+	while (pending.length > 0) {
+		const root = pending.pop()
+		if (root === undefined || roots.has(root)) continue
 		roots.add(root)
 		const manifest = parseJSON(readFileSync(join(root, 'package.json'), 'utf8'))
 		if (!isRecord(manifest) || !isRecord(manifest.dependencies)) continue
@@ -1531,7 +1652,6 @@ export function collectStudyRoots(names: readonly string[]): readonly string[] {
 export async function createMCPFixture(
 	outcomes: ReadonlyArray<string | Error>,
 ): Promise<StudyMCPFixture> {
-	const queue = [...outcomes]
 	const calls: Array<Readonly<Record<string, unknown>>> = []
 	const methods: string[] = []
 	const tools = createToolManager()
@@ -1541,8 +1661,9 @@ export async function createMCPFixture(
 			description: 'Reads an order record',
 			parameters: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
 			execute: (args) => {
+				// The recorded calls are the fixture's own record, so the next outcome is the one past them.
+				const outcome = outcomes[calls.length]
 				calls.push({ ...args })
-				const outcome = queue.shift()
 				if (outcome === undefined) throw new Error('No scripted outcome remains')
 				if (outcome instanceof Error) throw outcome
 				return outcome
@@ -1625,10 +1746,15 @@ export async function createMCPProxy(
 			}
 			return
 		}
-		const headers = new Headers()
-		for (const [name, value] of Object.entries(request.headers))
-			if (value !== undefined && name !== 'host' && name !== 'content-length')
-				headers.set(name, Array.isArray(value) ? value.join(', ') : value)
+		const headers = new Headers(
+			Object.fromEntries(
+				Object.entries(request.headers).flatMap(([name, value]) =>
+					value === undefined || name === 'host' || name === 'content-length'
+						? []
+						: [[name, Array.isArray(value) ? value.join(', ') : value] as const],
+				),
+			),
+		)
 		const reply = await fetch(target, {
 			method: request.method ?? 'POST',
 			headers,
@@ -1679,7 +1805,8 @@ export const STUDY_MCP_GOALS = Object.freeze(['shipped', 'delayed', 'refused'] a
  *
  * It evaluates nothing during validation: the selected namespaces arrive only through `driver`.
  */
-export const STUDY_MCP_ADAPTER = `export function createStudyAdapter() { return {
+export const STUDY_MCP_ADAPTER = `import { AsyncLocalStorage } from 'node:async_hooks'
+export function createStudyAdapter() { return {
  validate(input) {
   if (input.scenarios.some(scenario => scenario.goals.some(goal => typeof goal.input !== 'string'))) throw new Error('Order adapter requires text input')
   if (input.profile.provider === undefined || typeof input.profile.settings?.endpoint !== 'string') throw new Error('Order adapter requires a provider and an endpoint')
@@ -1688,9 +1815,9 @@ export const STUDY_MCP_ADAPTER = `export function createStudyAdapter() { return 
   if ('rubric' in options || 'definition' in options) throw new Error('Grader truth entered driver')
   const { agent, subject, provider, profile } = options
   return { async open(trial, signal) {
-   let goal
+   const goal = new AsyncLocalStorage()
    const metered = async (role, charge, run) => {
-    const ticket = await goal.meter.admit({ role, ...charge })
+    const ticket = await goal.getStore().meter.admit({ role, ...charge })
     const started = performance.now()
     try {
      const outcome = await run(ticket)
@@ -1714,7 +1841,7 @@ export const STUDY_MCP_ADAPTER = `export function createStudyAdapter() { return 
     await client.connect()
     for (const remote of await client.tools())
      runner.context.tools.add({ name: remote.name, description: remote.description, parameters: remote.parameters, execute: async (args, context) => {
-      const ticket = await goal.meter.admit({ role: 'tool', tokens: 0, bytes: 4096 })
+      const ticket = await goal.getStore().meter.admit({ role: 'tool', tokens: 0, bytes: 4096 })
       const started = performance.now()
       try {
        const value = await remote.execute(args, context)
@@ -1740,14 +1867,13 @@ export const STUDY_MCP_ADAPTER = `export function createStudyAdapter() { return 
    }
    return {
     async execute(declared, context) {
-     goal = context
      const receipts = []
      const onTool = (call, result) => receipts.push({ name: call.name, success: result.success, ...(result.success ? { value: result.value ?? null } : { error: result.error }) })
      runner.emitter.on('tool', onTool)
      try {
       runner.context.messages.clear()
       runner.context.messages.add({ role: 'user', content: declared.input })
-      const result = await runner.generate({ signal: context.signal })
+      const result = await goal.run(context, () => runner.generate({ signal: context.signal }))
       for (const receipt of receipts) await context.evidence.append({ event: 'tool', goal: declared.id, value: receipt })
       await context.evidence.append({ event: 'answered', goal: declared.id, value: result.content })
       return { value: result.content, partial: result.partial }

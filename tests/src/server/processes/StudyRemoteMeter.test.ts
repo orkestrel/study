@@ -10,6 +10,7 @@ import { STUDY_PROCESS_LABEL } from '../../../../src/server/processes/constants.
 import { StudyChannel } from '../../../../src/server/processes/StudyChannel.js'
 import { StudyRemoteMeter } from '../../../../src/server/processes/StudyRemoteMeter.js'
 import { createStudyPeer } from '../../../setupServer.js'
+import { readSettled } from '../../../setupStudy.js'
 
 describe('StudyRemoteMeter', () => {
 	it('waits for a real IPC admission grant and settlement acknowledgment before completion', async () => {
@@ -27,15 +28,10 @@ describe('StudyRemoteMeter', () => {
 		const meter = new StudyRemoteMeter({ channel, control })
 		const deadline = new StudyDeadline({ duration: 1000, label: STUDY_PROCESS_LABEL })
 		try {
-			let admitted = false
-			const pending = meter.admit({ role: 'tool', tokens: 1, bytes: 1 }).then((ticket) => {
-				admitted = true
-				return ticket
-			})
-			await Promise.resolve()
-			expect(admitted).toBe(false)
+			const pending = meter.admit({ role: 'tool', tokens: 1, bytes: 1 })
+			expect(await readSettled(pending)).toBe(false)
 			const ticket = await deadline.wait(pending)
-			expect(admitted).toBe(true)
+			expect(await readSettled(pending)).toBe(true)
 			ticket.finish({ role: 'tool', calls: 1, tokens: 1, bytes: 1, duration: 1 })
 			expect(meter.usage).toEqual([])
 			await deadline.wait(meter.close())

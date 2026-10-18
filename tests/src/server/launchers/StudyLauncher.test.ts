@@ -9,14 +9,17 @@ import { STUDY_COMMAND_DURATION } from '../../../../src/server/commands/constant
 import { STUDY_LAUNCH_DURATION } from '../../../../src/server/launchers/constants.js'
 import { StudyLauncher } from '../../../../src/server/launchers/StudyLauncher.js'
 import {
+	STUDY_BURST_ARGUMENTS,
 	STUDY_CHECK_FINGERPRINT,
 	STUDY_CHECK_ARGUMENTS,
 	STUDY_EXECUTE_ARGUMENTS,
+	STUDY_HOLD_ARGUMENTS,
 	STUDY_LAUNCHER_PID,
 	buildStudyLibrary,
 	readStudyCommands,
 	readStudyPid,
 	releaseStudyPid,
+	writeStudyBurstEntry,
 	writeStudyCheckEntry,
 	writeStudyInterruptor,
 	writeStudyLauncherEntry,
@@ -119,6 +122,28 @@ describe('StudyLauncher', () => {
 			scratch.destroy()
 		}
 	}, 20000)
+
+	it('keeps overlapping launches on one launcher apart', async () => {
+		const scratch = createScratch()
+		const launcher = new StudyLauncher({ root: scratch.path, entry: writeStudyBurstEntry(scratch) })
+		const held = launcher.execute(STUDY_HOLD_ARGUMENTS)
+		const burst = launcher.execute(STUDY_BURST_ARGUMENTS)
+		try {
+			const outcomes = await new StudyDeadline({
+				duration: 30000,
+				label: 'launcher overlapping launches observation',
+			}).wait(Promise.allSettled([held, burst]))
+			expect(outcomes.map((outcome) => outcome.status)).toEqual(['fulfilled', 'rejected'])
+			expect(outcomes[0]).toEqual({ status: 'fulfilled', value: 0 })
+			expect(outcomes[1]).toMatchObject({
+				status: 'rejected',
+				reason: new Error('Study command output exceeds the 16 MiB host allowance'),
+			})
+		} finally {
+			await Promise.allSettled([held, burst])
+			scratch.destroy()
+		}
+	}, 40000)
 
 	it('returns 130 and stops the command when interrupted inside an isolated launcher process', async () => {
 		const scratch = createScratch({ parent: resolve('tmp/units'), prefix: 'launcher-interrupt-' })

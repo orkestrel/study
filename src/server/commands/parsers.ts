@@ -48,14 +48,17 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 					: command === 'label'
 						? ['--grading', '--labels']
 						: ['--grading']
-	const flags = new Map<string, string>()
-	for (let index = 2; index < arguments_.length; index += 2) {
-		const flag = arguments_[index]
-		const value = arguments_[index + 1]
-		if (flag === undefined || !allowed.includes(flag))
+	const tokens = arguments_.slice(2)
+	const pairs = tokens.flatMap((flag, index) =>
+		index % 2 === 0 ? [{ flag, value: tokens[index + 1] }] : [],
+	)
+	// Reversed so the earliest index of each flag is the one the lookup retains.
+	const firsts = new Map(pairs.map(({ flag }, index) => [flag, index] as const).reverse())
+	for (const [index, { flag, value }] of pairs.entries()) {
+		if (!allowed.includes(flag))
 			throw new StudyError(
 				'CONFIG',
-				JSON.stringify(flag ?? '<end>') +
+				JSON.stringify(flag) +
 					' is not a ' +
 					command +
 					' flag; accepts ' +
@@ -63,14 +66,16 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 					'. ' +
 					usage,
 			)
-		if (flags.has(flag)) throw new StudyError('CONFIG', flag + ' is duplicate. ' + usage)
+		if (firsts.get(flag) !== index) throw new StudyError('CONFIG', flag + ' is duplicate. ' + usage)
 		if (value === undefined || value === '' || value.startsWith('-'))
 			throw new StudyError(
 				'CONFIG',
 				flag + ' requires a value before ' + JSON.stringify(value ?? '<end>') + '. ' + usage,
 			)
-		flags.set(flag, value)
 	}
+	const flags = new Map(
+		pairs.flatMap(({ flag, value }) => (value === undefined ? [] : [[flag, value] as const])),
+	)
 	if (command === 'check' || command === 'execute') {
 		if (!isStudyCustodyName(target))
 			throw new StudyError(

@@ -20,9 +20,21 @@ export class StudyDeadline implements StudyDeadlineInterface {
 	 */
 	async wait<T>(work: PromiseLike<T>): Promise<T> {
 		const control = new StudyControl()
-		let scope: StudyScope
+		const scope = this.#open(control, work)
 		try {
-			scope = new StudyScope({
+			const result = await control.wait(work)
+			scope.check()
+			return result
+		} finally {
+			scope.close()
+			control.close()
+		}
+	}
+
+	// Opens the deadline scope; an invalid duration closes the owner and keeps the work's late rejection observed.
+	#open(control: StudyControl, work: PromiseLike<unknown>): StudyScope {
+		try {
+			return new StudyScope({
 				limit: { duration: this.#options.duration, calls: 1, tokens: 1, bytes: 1 },
 				control,
 				label: this.#options.label,
@@ -31,14 +43,6 @@ export class StudyDeadline implements StudyDeadlineInterface {
 			Promise.resolve(work).catch(() => undefined)
 			control.close()
 			throw error
-		}
-		try {
-			const result = await control.wait(work)
-			scope.check()
-			return result
-		} finally {
-			scope.close()
-			control.close()
 		}
 	}
 }

@@ -1,4 +1,4 @@
-import { requireValue, waitForCondition, waitForEvent } from '@orkestrel/test'
+import { createRecorder, requireValue, waitForCondition, waitForEvent } from '@orkestrel/test'
 import { createScratch, isRunning } from '@orkestrel/test/server'
 import { execFileSync, fork, spawnSync } from 'node:child_process'
 import { join, resolve } from 'node:path'
@@ -9,11 +9,14 @@ import type { StudyObservation } from '../src/core/types.js'
 import { createMCPClient, HTTPClientTransport } from '@orkestrel/mcp'
 import { existsSync, readFileSync } from 'node:fs'
 import { isStudyBounds } from '../src/core/validators.js'
+import { STUDY_LAUNCH_BYTES } from '../src/server/launchers/constants.js'
 import { buildStudyRubric } from './setupStudy.js'
 import {
+	STUDY_BURST_ARGUMENTS,
 	STUDY_CHECK_FINGERPRINT,
 	STUDY_HOSTILE_REFERENCES,
 	STUDY_LAUNCHER_PID,
+	STUDY_TASK_INSTRUMENT,
 	buildStudyEvidenceRow,
 	buildStudySparseEvidence,
 	admitStudyLibrary,
@@ -21,6 +24,7 @@ import {
 	collectStudyRoots,
 	createMCPFixture,
 	createMCPProxy,
+	createOllamaExchange,
 	createOllamaServer,
 	resolveStudyEntry,
 	resolveStudyPackage,
@@ -28,6 +32,7 @@ import {
 	buildCustodyGrading,
 	buildCustodyLabels,
 	buildCustodyPacketLabels,
+	buildStudyCheckReply,
 	buildStudyCLI,
 	buildStudyLibrary,
 	buildStudySessionOptions,
@@ -41,8 +46,12 @@ import {
 	readStudyPid,
 	releaseStudyPid,
 	retainStudyFixture,
+	spawnStudyScript,
 	writeStudyAgent,
+	writeStudyTaskAdapter,
+	writeStudyBurstEntry,
 	writeStudyCheckEntry,
+	createStudyConsumer,
 	writeStudyConsumer,
 	writeStudyLauncherEntry,
 	writeStudyOrphan,
@@ -90,6 +99,30 @@ describe('study server fixtures', () => {
 		} finally {
 			scratch.destroy()
 		}
+	})
+	it('creates an owned consumer holding the study declarations and removes it on destroy', () => {
+		const scratch = createStudyConsumer()
+		try {
+			expect(scratch.path).toContain('runtime-consumer-')
+			expect(scratch.has('studies/assessment/study.json')).toBe(true)
+			expect(scratch.has('subject/dist/index.js')).toBe(true)
+		} finally {
+			scratch.destroy()
+		}
+		expect(scratch.has('studies/assessment/study.json')).toBe(false)
+	})
+	it('destroys the owned consumer before it rethrows a failed write', () => {
+		const failure = new Error('Consumer write failed')
+		const created = createRecorder<readonly [string]>()
+		expect(() =>
+			createStudyConsumer((scratch) => {
+				created.handler(scratch.path)
+				throw failure
+			}),
+		).toThrow(failure)
+		const [path] = created.calls[0] ?? []
+		if (path === undefined) throw new Error('The writer never received the scratch')
+		expect(existsSync(path)).toBe(false)
 	})
 	it('builds the native CLI and supplies a checkable consumer without importing its subject', async () => {
 		const scratch = createScratch({ parent: resolve('tmp/units'), prefix: 'setup-cli-' })
@@ -182,7 +215,6 @@ describe('study server fixtures', () => {
 	})
 	it('leaves a live detached leaf after its root exits and cleans only the recorded leaf', async () => {
 		const scratch = createScratch()
-		let leaf: number | undefined
 		try {
 			const root = fork(writeStudyOrphan(scratch, 20000), [], {
 				execArgv: [],
@@ -210,14 +242,13 @@ describe('study server fixtures', () => {
 				},
 			)
 			const receipt = requireValue(readStudyOrphan(scratch))
-			leaf = receipt.leaf
 			expect(receipt.root).toBe(root.pid)
 			expect(isRunning(receipt.root)).toBe(false)
 			expect(isRunning(receipt.leaf)).toBe(true)
 			await releaseStudyPid(receipt.leaf)
 			expect(isRunning(receipt.leaf)).toBe(false)
 		} finally {
-			await releaseStudyPid(leaf)
+			await releaseStudyPid(readStudyOrphan(scratch)?.leaf)
 			scratch.destroy()
 		}
 	}, 15000)
@@ -262,6 +293,108 @@ describe('study server fixtures', () => {
 			expect(executed.status).toBe(0)
 			expect(executed.stdout).toBe('')
 			expect(readStudyCommands(scratch)).toEqual(['check files', 'execute files'])
+		} finally {
+			scratch.destroy()
+		}
+	})
+	it('writes an adapter that records its pid and answers a valid request with the fixture instrument', async () => {
+		const scratch = createScratch()
+		const child = fork(writeStudyTaskAdapter(scratch, 'valid'), [], {
+			execArgv: [],
+			silent: true,
+			windowsHide: true,
+		})
+		try {
+			const answered = waitForEvent(
+				(listener: (value: unknown) => void) => {
+					child.once('message', listener)
+					return () => {
+						child.off('message', listener)
+					}
+				},
+				'task adapter answer',
+				{ budget: 5000 },
+			)
+			child.send({ request: true })
+			expect((await answered)[0]).toEqual({ instrument: STUDY_TASK_INSTRUMENT, value: true })
+			expect(readStudyPid(scratch, 'task-pid.txt')).toBe(child.pid)
+		} finally {
+			child.kill()
+			scratch.destroy()
+		}
+	})
+	it('creates an exchange over a real ticket whose tally starts from the request bytes', async () => {
+		const fixture = await createOllamaExchange(7)
+		try {
+			expect(fixture.exchange.bytes).toBe(7)
+			expect(fixture.exchange.request.role).toBe('agent')
+			expect(fixture.exchange.activity.context).toBe(fixture.goal.context)
+			expect(fixture.exchange.ticket.signal.aborted).toBe(false)
+		} finally {
+			fixture.close()
+		}
+	})
+	it('spawns a finite child that evaluates one program with piped output', async () => {
+		const child = spawnStudyScript(
+			"process.stdout.write('out'); process.stderr.write('err'); process.exit(3)",
+		)
+		const closed = waitForEvent(
+			(listener: (code: number | null) => void) => {
+				child.once('close', listener)
+				return () => {
+					child.off('close', listener)
+				}
+			},
+			'script child close',
+			{ budget: 10000 },
+		)
+		const outputs = [child.stdout, child.stderr].map(
+			(stream) =>
+				new Promise<string>((done) => {
+					stream?.setEncoding('utf8')
+					stream?.once('data', (text: string) => done(text))
+				}),
+		)
+		expect((await closed)[0]).toBe(3)
+		expect(await Promise.all(outputs)).toEqual(['out', 'err'])
+	})
+	it('builds a check reply that declares the requested series duration and the fixture fingerprint', () => {
+		const reply: unknown = JSON.parse(buildStudyCheckReply(4200))
+		expect(isRecord(reply) && isStudyBounds(reply.bounds) && reply.bounds.series.duration).toBe(
+			4200,
+		)
+		expect(isRecord(reply) && reply.fingerprint).toBe(STUDY_CHECK_FINGERPRINT)
+	})
+	it('answers a held check after a pause, overflows a burst check and exits 0 for another command', () => {
+		const scratch = createScratch()
+		try {
+			const entry = writeStudyBurstEntry(scratch)
+			const burst = spawnSync(
+				process.execPath,
+				[entry, 'study-command', 'check', 'files', '--profile', 'burst'],
+				{ timeout: 15000, windowsHide: true, maxBuffer: STUDY_LAUNCH_BYTES * 2 },
+			)
+			expect(burst.status).toBe(0)
+			expect(burst.stdout.byteLength).toBe(STUDY_LAUNCH_BYTES + 1)
+			const held = spawnSync(
+				process.execPath,
+				[entry, 'study-command', 'check', 'files', '--profile', 'hold'],
+				{ encoding: 'utf8', timeout: 15000, windowsHide: true },
+			)
+			const reply: unknown = JSON.parse(held.stdout)
+			expect(held.status).toBe(0)
+			expect(isRecord(reply) && reply.fingerprint).toBe(STUDY_CHECK_FINGERPRINT)
+			const executed = spawnSync(
+				process.execPath,
+				[entry, 'study-command', ...STUDY_BURST_ARGUMENTS],
+				{
+					encoding: 'utf8',
+					timeout: 15000,
+					windowsHide: true,
+				},
+			)
+			expect(executed.status).toBe(0)
+			expect(executed.stdout).toBe('')
 		} finally {
 			scratch.destroy()
 		}
@@ -408,6 +541,28 @@ describe('study server fixtures', () => {
 			expect(await tags.text()).toContain('"models"')
 			expect(peer.requests.map((request) => request.path)).toEqual(['/api/chat', '/api/tags'])
 			expect(peer.owned).toEqual([undefined, 'recorded'])
+		} finally {
+			await peer.close()
+		}
+	})
+	it('serves queued replies in order by path and reports the unserved remainder', async () => {
+		const queued = [
+			{ path: '/api/tags', body: 'first' },
+			{ path: '/api/chat', body: 'second' },
+		] as const
+		const peer = await createOllamaServer(queued)
+		try {
+			expect(peer.replies).toEqual(queued)
+			// A path that is not at the head of the queue is answered by default and leaves the queue whole.
+			const early = await fetch(`${peer.url}/api/chat`, { method: 'POST', body: '{}' })
+			expect(await early.text()).not.toBe('second')
+			expect(peer.replies).toEqual(queued)
+			const tags = await fetch(`${peer.url}/api/tags`, { method: 'POST', body: '{}' })
+			expect(await tags.text()).toBe('first')
+			expect(peer.replies).toEqual([queued[1]])
+			const chat = await fetch(`${peer.url}/api/chat`, { method: 'POST', body: '{}' })
+			expect(await chat.text()).toBe('second')
+			expect(peer.replies).toEqual([])
 		} finally {
 			await peer.close()
 		}

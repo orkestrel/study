@@ -7,6 +7,26 @@ const MODULES = Object.freeze({
 	'@orkestrel/study/server': 'src/server',
 })
 
+/**
+ * Declarations deliberately kept out of the barrel, as `computeSymbolKey` strings.
+ *
+ * A class that one-class-per-file evicted from its only owner stays exported from its file and
+ * out of the barrel when its constructor takes a value only that owner produces, or when the
+ * owner's public value is a projection of the instance rather than the instance. Naming it here
+ * makes that intentional, and the second assertion on it fails when a name here stops being
+ * stranded, so the list cannot rot.
+ */
+const INTERNAL: readonly string[] = Object.freeze([
+	'class StudyAgentScriptGoal',
+	'class StudyAgentTraceGoal',
+	'class StudyLaunchChild',
+	'class StudyOllamaExchange',
+	'class StudyOllamaGoal',
+	'class StudyProcessGoal',
+	'class StudyTaskChild',
+	'class StudyTrialLease',
+])
+
 await new GuideCommand({
 	root: new URL('../', import.meta.url),
 	patterns: ['src/**/*.ts', 'tests/**/*.ts', 'guides/*.md', '*.md', 'package.json'],
@@ -62,11 +82,19 @@ await new GuideCommand({
 				expect(guide.surface().length).toBeGreaterThan(0)
 				expect(findMissingSymbols(source.surface(), guide.surface())).toEqual([])
 				expect(findMissingSymbols(guide.surface(), source.surface())).toEqual([])
-				expect(findMissingSymbols(source.exports(), source.surface())).toEqual([])
+				expect(
+					findMissingSymbols(source.exports(), source.surface()).filter(
+						(key) => !INTERNAL.includes(key),
+					),
+				).toEqual([])
 				expect(source.hidden()).toEqual([])
 				expect(guide.surface().filter(({ summary }) => summary === undefined)).toEqual([])
 				expect(source.surface().filter(({ summary }) => summary === undefined)).toEqual([])
 				expect(findDrift(guide, source)).toEqual([])
+			})
+			it('names no symbol internal that the barrel already exports', () => {
+				const stranded = findMissingSymbols(source.exports(), source.surface())
+				expect(INTERNAL.filter((key) => !stranded.includes(key))).toEqual([])
 			})
 			it('keeps methods, examples, self imports, and test links in parity', () => {
 				for (const findings of [

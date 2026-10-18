@@ -24,15 +24,17 @@ import { readOllamaToolResults, requireStudyRecord } from '../../../setupStudy.j
 
 describe('admitted Agent over the admitted MCP core client', () => {
 	const runtime = createScratch({ parent: resolve('tmp/units'), prefix: 'runtime-mcp-' })
-	let entry: string
-	beforeAll(async () => {
-		entry = await buildStudyCLI(runtime)
-	}, 60000)
+	const compiled = Promise.withResolvers<string>()
+	// Registered before the build hook so the scratch is removed even when the build fails.
 	afterAll(async () => {
 		await destroyScratch(runtime)
 	})
+	beforeAll(async () => {
+		compiled.resolve(await buildStudyCLI(runtime))
+	}, 60000)
 
 	it('discovers and calls a real remote tool, returns changed results, and keeps a remote refusal visible', async () => {
+		const entry = await compiled.promise
 		const consumer = createScratch({
 			parent: resolve('tmp/units'),
 			prefix: 'runtime-mcp-consumer-',
@@ -115,6 +117,7 @@ describe('admitted Agent over the admitted MCP core client', () => {
 	it.each(['status', 'reset', 'held', 'invalid', 'error'] as const)(
 		'keeps a %s tool-call failure an infrastructure failure of the tool role and never answers from it',
 		async (interference) => {
+			const entry = await compiled.promise
 			const consumer = createScratch({
 				parent: resolve('tmp/units'),
 				prefix: 'runtime-mcp-failure-',

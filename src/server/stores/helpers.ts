@@ -13,7 +13,8 @@ import type {
 	StudyResultReading,
 	StudySealedResult,
 } from './types.js'
-import { canonicalStringify, parseJSON } from '@orkestrel/contract'
+import type { FileHandle } from 'node:fs/promises'
+import { attempt, canonicalStringify, parseJSON } from '@orkestrel/contract'
 import { constants } from 'node:fs'
 import { lstat, open, readdir } from 'node:fs/promises'
 import { dirname, join, parse, relative, resolve, sep } from 'node:path'
@@ -41,22 +42,33 @@ export function buildStudyPacketLinks(
 	result: StudySealedResult,
 	rubric: StudyRubric,
 ): readonly StudyPacketLink[] {
-	const links: StudyPacketLink[] = []
-	let bytes = 256
-	for (const trial of result.manifest.schedule) {
-		for (const criterion of rubric.criteria) {
-			if (criterion.method !== 'semantic' || criterion.scenario !== trial.scenario) continue
-			const link = {
-				trial: `t-${hashStudyBytes(encodeStudyJSON([result.seal.id, 'trial', trial.id]))}`,
-				criterion: `c-${hashStudyBytes(encodeStudyJSON([result.seal.id, 'criterion', criterion.id]))}`,
+	const pairs = result.manifest.schedule.flatMap((trial) =>
+		rubric.criteria
+			.filter(
+				(criterion) => criterion.method === 'semantic' && criterion.scenario === trial.scenario,
+			)
+			.map((criterion) => ({ trial, criterion })),
+	)
+	// Every SHA-256 digest is 64 hexadecimal characters, so a link's encoded size is known before its
+	// digests are computed, and the allowance bounds the hashing.
+	const placeholder = hashStudyBytes('')
+	pairs.reduce((bytes, { trial, criterion }) => {
+		const total =
+			bytes +
+			encodeStudyJSON({
+				trial: `t-${placeholder}`,
+				criterion: `c-${placeholder}`,
 				source: { trial: trial.id, criterion: criterion.id },
-			}
-			bytes += encodeStudyJSON(link).byteLength
-			if (bytes > STUDY_CUSTODY_BYTES)
-				throw new StudyError('CAPACITY', 'Semantic packet mapping exceeds its custody allowance')
-			links.push(link)
-		}
-	}
+			}).byteLength
+		if (total > STUDY_CUSTODY_BYTES)
+			throw new StudyError('CAPACITY', 'Semantic packet mapping exceeds its custody allowance')
+		return total
+	}, 256)
+	const links: StudyPacketLink[] = pairs.map(({ trial, criterion }) => ({
+		trial: `t-${hashStudyBytes(encodeStudyJSON([result.seal.id, 'trial', trial.id]))}`,
+		criterion: `c-${hashStudyBytes(encodeStudyJSON([result.seal.id, 'criterion', criterion.id]))}`,
+		source: { trial: trial.id, criterion: criterion.id },
+	}))
 	return Object.freeze(
 		links.sort((left, right) =>
 			`${left.trial}/${left.criterion}` < `${right.trial}/${right.criterion}`
@@ -87,11 +99,8 @@ export function buildStudyPacket(
 ): StudyPacketBundle | undefined {
 	const links = buildStudyPacketLinks(result, rubric)
 	if (links.length === 0) return undefined
-	let length = encodeStudyJSON({
-		disclosure: STUDY_PACKET_DISCLOSURE,
-		entries: [],
-	}).byteLength
-	const entries: StudyPacketEntry[] = links.map((link) => {
+	// An entry is undefined where its link refers to an absent horizon; the fold below refuses it in link order.
+	const candidates = links.map((link): StudyPacketEntry | undefined => {
 		const trial = result.manifest.schedule.find((entry) => entry.id === link.source.trial)
 		const criterion = rubric.criteria.find((entry) => entry.id === link.source.criterion)
 		const scenario = result.manifest.scenarios.find((entry) => entry.id === trial?.scenario)
@@ -99,20 +108,28 @@ export function buildStudyPacket(
 		const observation = result.attempts
 			.find((entry) => entry.trial.id === link.source.trial)
 			?.observations.find((entry) => entry.goal === criterion?.goal)
-		if (criterion === undefined || goal === undefined || observation === undefined)
-			throw new StudyError('EVIDENCE', 'Semantic packet refers to an absent sealed horizon')
-		const entry = {
-			trial: link.trial,
-			criterion: link.criterion,
-			input: goal.input,
-			product: observation.product,
-			assertion: criterion.assertion,
-		}
-		length += encodeStudyJSON(entry).byteLength
-		if (length > STUDY_CUSTODY_BYTES)
-			throw new StudyError('CAPACITY', 'Semantic packet content exceeds its custody allowance')
-		return entry
+		return criterion === undefined || goal === undefined || observation === undefined
+			? undefined
+			: {
+					trial: link.trial,
+					criterion: link.criterion,
+					input: goal.input,
+					product: observation.product,
+					assertion: criterion.assertion,
+				}
 	})
+	candidates.reduce(
+		(length, entry) => {
+			if (entry === undefined)
+				throw new StudyError('EVIDENCE', 'Semantic packet refers to an absent sealed horizon')
+			const next = length + encodeStudyJSON(entry).byteLength
+			if (next > STUDY_CUSTODY_BYTES)
+				throw new StudyError('CAPACITY', 'Semantic packet content exceeds its custody allowance')
+			return next
+		},
+		encodeStudyJSON({ disclosure: STUDY_PACKET_DISCLOSURE, entries: [] }).byteLength,
+	)
+	const entries = candidates.flatMap((entry) => (entry === undefined ? [] : [entry]))
 	return Object.freeze({
 		content: encodeStudyJSON({ disclosure: STUDY_PACKET_DISCLOSURE, entries }),
 		mapping: encodeStudyJSON({
@@ -188,14 +205,33 @@ export function translateStudyPacketLabels(
  */
 export async function checkStudyDirectory(directory: string): Promise<string> {
 	const absolute = resolve(directory)
-	let cursor = parse(absolute).root
-	for (const name of relative(cursor, absolute).split(sep).filter(Boolean)) {
-		cursor = join(cursor, name)
-		const stat = await lstat(cursor)
+	const root = parse(absolute).root
+	const names = relative(root, absolute).split(sep).filter(Boolean)
+	for (const [index] of names.entries()) {
+		const stat = await lstat(join(root, ...names.slice(0, index + 1)))
 		if (!stat.isDirectory() || stat.isSymbolicLink())
 			throw new StudyError('CUSTODY', 'Linked or invalid custody directory')
 	}
 	return absolute
+}
+
+/**
+ * Reads from an open file handle into a buffer until the buffer is full or the file ends.
+ * @param handle - The open file handle to read
+ * @param target - The buffer to fill from the start of the file
+ * @param offset - The position in the file and the buffer to continue from; Default: 0
+ * @returns The bytes read, as the whole buffer when the file filled it or as its leading part when the file ended first
+ */
+export async function readStudyHandle(
+	handle: FileHandle,
+	target: Buffer,
+	offset = 0,
+): Promise<Buffer> {
+	if (offset >= target.length) return target
+	const reading = await handle.read(target, offset, target.length - offset, offset)
+	return reading.bytesRead === 0
+		? target.subarray(0, offset)
+		: readStudyHandle(handle, target, offset + reading.bytesRead)
 }
 
 /**
@@ -221,15 +257,10 @@ export async function readStudyBytes(path: string, limit: number): Promise<Uint8
 		const stat = await handle.stat()
 		if (!stat.isFile() || stat.size > limit || stat.dev !== prior.dev || stat.ino !== prior.ino)
 			throw new StudyError('CUSTODY', 'Custody file changed during admission')
-		const bytes = Buffer.alloc(stat.size + 1)
-		let length = 0
-		while (length < bytes.length) {
-			const reading = await handle.read(bytes, length, bytes.length - length, length)
-			if (reading.bytesRead === 0) break
-			length += reading.bytesRead
-		}
-		if (length !== stat.size) throw new StudyError('CUSTODY', 'Custody file changed while reading')
-		return bytes.subarray(0, length)
+		const bytes = await readStudyHandle(handle, Buffer.alloc(stat.size + 1))
+		if (bytes.length !== stat.size)
+			throw new StudyError('CUSTODY', 'Custody file changed while reading')
+		return bytes
 	} finally {
 		await handle.close()
 	}
@@ -272,48 +303,72 @@ export async function scanStudyExecution(
 	manifest: StudyManifest,
 ): Promise<readonly StudyFile[]> {
 	await checkStudyDirectory(directory)
-	const files: StudyFile[] = []
-	const pending = ['']
 	const known = new Set(manifest.schedule.map((trial) => trial.id))
-	let total = 0
-	while (pending.length > 0) {
-		const prefix = pending.pop()
-		if (prefix === undefined) break
-		for (const entry of await readdir(join(directory, ...prefix.split('/').filter(Boolean)), {
-			withFileTypes: true,
-		})) {
-			const path = prefix === '' ? entry.name : `${prefix}/${entry.name}`
-			if (entry.isSymbolicLink())
-				throw new StudyError('CUSTODY', 'Execution contains a symbolic link')
-			if (entry.isDirectory()) {
-				if (path !== 'trials' && !(prefix === 'trials' && known.has(entry.name)))
-					throw new StudyError('CUSTODY', 'Execution contains an unknown directory')
-				pending.push(path)
-				continue
-			}
-			const names = path.split('/')
-			if (
-				!entry.isFile() ||
-				!(
-					path === 'manifest.json' ||
-					(names.length === 3 &&
-						names[0] === 'trials' &&
-						known.has(names[1] ?? '') &&
-						(names[2] === 'attempt.json' || names[2] === 'evidence.jsonl'))
-				)
-			)
-				throw new StudyError('CUSTODY', 'Execution contains an unknown file')
-			const bytes = await readStudyBytes(
-				join(directory, ...names),
-				manifest.bounds.series.bytes - total,
-			)
-			total += bytes.byteLength
-			files.push(Object.freeze({ path, bytes: bytes.byteLength, digest: hashStudyBytes(bytes) }))
-		}
-	}
+	const files = await scanStudyTree(directory, '', known, manifest.bounds.series.bytes)
 	return Object.freeze(
-		files.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0)),
+		[...files].sort((left, right) =>
+			left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
+		),
 	)
+}
+
+/**
+ * Scans one execution directory and the subdirectories it admits, reading each admitted file under the series bytes that remain.
+ * @param directory - The execution directory
+ * @param prefix - The slash-separated path of the scanned directory; the empty string names the execution root
+ * @param known - The scheduled trial identities
+ * @param allowance - The series bytes that remain before this directory
+ * @returns The admitted files in read order: this directory's files, then each admitted subdirectory's, last listed first
+ * @throws StudyError - Thrown when the tree holds a link, an unknown directory or file, or a file beyond the remaining allowance
+ */
+export async function scanStudyTree(
+	directory: string,
+	prefix: string,
+	known: ReadonlySet<string>,
+	allowance: number,
+): Promise<readonly StudyFile[]> {
+	const files: StudyFile[] = []
+	const directories: string[] = []
+	for (const entry of await readdir(join(directory, ...prefix.split('/').filter(Boolean)), {
+		withFileTypes: true,
+	})) {
+		const path = prefix === '' ? entry.name : `${prefix}/${entry.name}`
+		if (entry.isSymbolicLink())
+			throw new StudyError('CUSTODY', 'Execution contains a symbolic link')
+		if (entry.isDirectory()) {
+			if (path !== 'trials' && !(prefix === 'trials' && known.has(entry.name)))
+				throw new StudyError('CUSTODY', 'Execution contains an unknown directory')
+			directories.push(path)
+			continue
+		}
+		const names = path.split('/')
+		if (
+			!entry.isFile() ||
+			!(
+				path === 'manifest.json' ||
+				(names.length === 3 &&
+					names[0] === 'trials' &&
+					known.has(names[1] ?? '') &&
+					(names[2] === 'attempt.json' || names[2] === 'evidence.jsonl'))
+			)
+		)
+			throw new StudyError('CUSTODY', 'Execution contains an unknown file')
+		// A directory admits at most two file names, so the sum over its earlier files is constant work.
+		const bytes = await readStudyBytes(
+			join(directory, ...names),
+			files.reduce((left, file) => left - file.bytes, allowance),
+		)
+		files.push(Object.freeze({ path, bytes: bytes.byteLength, digest: hashStudyBytes(bytes) }))
+	}
+	const remaining = files.reduce((left, file) => left - file.bytes, allowance)
+	// Each step carries the allowance its subtree left, computed once from the step before it.
+	const steps: Array<{ readonly found: readonly StudyFile[]; readonly left: number }> = []
+	for (const child of [...directories].reverse()) {
+		const before = steps.at(-1)?.left ?? remaining
+		const found = await scanStudyTree(directory, child, known, before)
+		steps.push({ found, left: found.reduce((left, file) => left - file.bytes, before) })
+	}
+	return [...files, ...steps.flatMap((step) => step.found)]
 }
 
 /**
@@ -340,20 +395,31 @@ export function validateStudyEvidenceBytes(
 	const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
 	if (text !== '' && !text.endsWith('\n'))
 		throw new StudyError('CUSTODY', 'Evidence ends with a partial record')
-	const goals = new Map<string, number>()
-	for (const line of text.split(/\r\n|\n/).slice(0, -1)) {
-		const evidence = parseJSON(line)
-		if (
-			!isStudyCustodyEvidence(evidence) ||
-			!scenario.goals.some((goal) => goal.id === evidence.goal)
+	// A line's goal is undefined where it is not valid evidence for a declared goal.
+	const records = text
+		.split(/\r\n|\n/)
+		.slice(0, -1)
+		.map((line) => {
+			const evidence = parseJSON(line)
+			return {
+				goal:
+					isStudyCustodyEvidence(evidence) &&
+					scenario.goals.some((goal) => goal.id === evidence.goal)
+						? evidence.goal
+						: undefined,
+				size: Buffer.byteLength(`${line}\n`, 'utf8'),
+			}
+		})
+	// Only the lines before the first invalid one count: an overflow among them is the earlier refusal.
+	const invalid = records.findIndex(({ goal }) => goal === undefined)
+	const admitted = invalid === -1 ? records : records.slice(0, invalid)
+	if (
+		[...Map.groupBy(admitted, ({ goal }) => goal).values()].some(
+			(group) => group.reduce((total, { size }) => total + size, 0) > manifest.bounds.goal.bytes,
 		)
-			throw new StudyError('CUSTODY', 'Evidence refers to an invalid goal')
-		const length = Buffer.byteLength(`${line}\n`, 'utf8')
-		const used = (goals.get(evidence.goal) ?? 0) + length
-		if (used > manifest.bounds.goal.bytes)
-			throw new StudyError('CUSTODY', 'Evidence exceeds a goal allowance')
-		goals.set(evidence.goal, used)
-	}
+	)
+		throw new StudyError('CUSTODY', 'Evidence exceeds a goal allowance')
+	if (invalid !== -1) throw new StudyError('CUSTODY', 'Evidence refers to an invalid goal')
 }
 
 /**
@@ -415,12 +481,9 @@ export async function readStudyResult(directory: string): Promise<StudyResultRea
 		})
 	}
 	const manifestBytes = await readStudyBytes(join(execution, 'manifest.json'), STUDY_CUSTODY_BYTES)
-	let manifest: unknown
-	try {
-		manifest = decodeStudyJSON(manifestBytes)
-	} catch (error) {
-		if (sealed) throw error
-	}
+	const decoded = attempt((): unknown => decodeStudyJSON(manifestBytes))
+	if (!decoded.success && sealed) throw decoded.error
+	const manifest: unknown = decoded.success ? decoded.value : undefined
 	if (!isStudyCustodyManifest(manifest)) {
 		if (sealed) throw new StudyError('CUSTODY', 'Invalid execution manifest')
 		return Object.freeze({
@@ -457,17 +520,14 @@ export async function readStudyResult(directory: string): Promise<StudyResultRea
 		)
 		if (hashStudyBytes(bytes) !== terminal.digest)
 			throw new StudyError('CUSTODY', 'Attempt changed during inventory reading')
-		let attempt: unknown
-		try {
-			attempt = decodeStudyJSON(bytes)
-		} catch (error) {
-			if (sealed) throw error
-		}
-		if (!isStudyCustodyAttempt(attempt, manifest) || attempt.trial.id !== trial.id) {
+		const reading = attempt((): unknown => decodeStudyJSON(bytes))
+		if (!reading.success && sealed) throw reading.error
+		const record: unknown = reading.success ? reading.value : undefined
+		if (!isStudyCustodyAttempt(record, manifest) || record.trial.id !== trial.id) {
 			if (sealed) throw new StudyError('CUSTODY', 'Invalid or foreign terminal attempt')
 			continue
 		}
-		attempts.push(attempt)
+		attempts.push(record)
 	}
 	if (!sealed)
 		return Object.freeze({

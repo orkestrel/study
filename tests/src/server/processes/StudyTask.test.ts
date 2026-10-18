@@ -6,6 +6,7 @@ import { StudyTask } from '../../../../src/server/processes/StudyTask.js'
 import {
 	STUDY_TASK_INSTRUMENT,
 	STUDY_TASK_INVALID_DURATIONS,
+	STUDY_TASK_PID,
 	STUDY_TASK_RESPONSES,
 	STUDY_TASK_STOPS,
 	buildStudyTaskOptions,
@@ -38,7 +39,6 @@ describe('StudyTask', () => {
 	it('verifies the adapter response and stops the child for valid, malformed, repeated and oversized output', async () => {
 		for (const { mode, expected } of STUDY_TASK_RESPONSES) {
 			const scratch = createScratch()
-			let pid: number | undefined
 			try {
 				const fixture = createStudyTaskFixture(scratch, mode, 5000)
 				const result = new StudyDeadline({
@@ -54,14 +54,13 @@ describe('StudyTask', () => {
 					budget: 3000,
 					interval: 10,
 				})
-				pid = requireValue(readStudyPid(scratch, fixture.pid))
-				const recorded = pid
+				const recorded = requireValue(readStudyPid(scratch, fixture.pid))
 				await waitForCondition('recorded StudyTask child stopped', () => !isRunning(recorded), {
 					budget: 3000,
 					interval: 10,
 				})
 			} finally {
-				await releaseStudyPid(pid)
+				await releaseStudyPid(readStudyPid(scratch, STUDY_TASK_PID))
 				scratch.destroy()
 			}
 		}
@@ -71,7 +70,6 @@ describe('StudyTask', () => {
 		for (const mode of STUDY_TASK_STOPS) {
 			const scratch = createScratch()
 			const controller = new AbortController()
-			let pid: number | undefined
 			try {
 				const fixture = createStudyTaskFixture(scratch, 'hold', mode === 'deadline' ? 5000 : 30000)
 				const result = fixture.task.execute(request, controller.signal)
@@ -80,8 +78,7 @@ describe('StudyTask', () => {
 					budget: 4000,
 					interval: 10,
 				})
-				pid = requireValue(readStudyPid(scratch, fixture.pid))
-				const recorded = pid
+				const recorded = requireValue(readStudyPid(scratch, fixture.pid))
 				if (mode === 'abort') controller.abort('caller abort')
 				const outcomes = await new StudyDeadline({
 					duration: mode === 'deadline' ? 10000 : 4000,
@@ -102,11 +99,33 @@ describe('StudyTask', () => {
 				})
 			} finally {
 				controller.abort()
-				await releaseStudyPid(pid)
+				await releaseStudyPid(readStudyPid(scratch, STUDY_TASK_PID))
 				scratch.destroy()
 			}
 		}
 	}, 30000)
+
+	it("keeps one concurrent execution's failure from another on the same task", async () => {
+		const scratch = createScratch()
+		const aborted = new AbortController()
+		try {
+			const fixture = createStudyTaskFixture(scratch, 'valid', 5000)
+			const first = fixture.task.execute(request, aborted.signal)
+			const second = fixture.task.execute(request, new AbortController().signal)
+			aborted.abort('caller abort')
+			const outcomes = await new StudyDeadline({
+				duration: 8000,
+				label: 'concurrent StudyTask observation',
+			}).wait(Promise.allSettled([first, second]))
+			expect(outcomes).toMatchObject([
+				{ status: 'rejected', reason: 'caller abort' },
+				{ status: 'fulfilled', value: { instrument: STUDY_TASK_INSTRUMENT, value: true } },
+			])
+		} finally {
+			await releaseStudyPid(readStudyPid(scratch, STUDY_TASK_PID))
+			scratch.destroy()
+		}
+	}, 15000)
 
 	it('rejects an exited root that leaves a detached leaf holding stdout before its deadline', async () => {
 		const scratch = createScratch()

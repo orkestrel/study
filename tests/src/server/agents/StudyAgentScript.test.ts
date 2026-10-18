@@ -1,5 +1,6 @@
 import type { Message } from '@orkestrel/agent'
 import { describe, expect, it } from 'vitest'
+import { captureError } from '@orkestrel/test'
 import { StudyAgentScript } from '../../../../src/server/agents/StudyAgentScript.js'
 import {
 	STUDY_SCRIPT_CALL,
@@ -143,19 +144,120 @@ describe('StudyAgentScript', () => {
 		}
 	})
 
-	it('validates the declared responses on preparation and keeps the earlier plan after a refusal', async () => {
+	it('refuses a second preparation while a goal is prepared and a stream once the goal is cleared', async () => {
+		const meter = createStudyScriptMeter(1000, 100, 2)
+		try {
+			const script = new StudyAgentScript({ bytes: 1000 })
+			const first = createStudyScriptFixture(meter, [buildStudyScriptResponse({ content: 'a1' })])
+			const second = createStudyScriptFixture(meter, [buildStudyScriptResponse({ content: 'b1' })])
+			script.prepare(first.plan)
+			expect(captureError(() => script.prepare(second.plan))).toMatchObject({
+				code: 'CONFIG',
+				message: 'Scripted goal is already prepared',
+			})
+			expect(await script.generate(STUDY_SCRIPT_MESSAGES, meter.control.signal)).toEqual({
+				content: 'a1',
+			})
+			script.clear()
+			await expect(
+				script.generate(STUDY_SCRIPT_MESSAGES, meter.control.signal),
+			).rejects.toMatchObject({ code: 'CONFIG', message: 'Scripted provider is unavailable' })
+			expect(meter.meter.usage).toHaveLength(1)
+			expect(first.rows.count).toBe(1)
+			expect(second.rows.count).toBe(0)
+			expect(() => script.clear()).not.toThrow()
+			script.prepare(second.plan)
+			expect(await script.generate(STUDY_SCRIPT_MESSAGES, meter.control.signal)).toEqual({
+				content: 'b1',
+			})
+		} finally {
+			meter.close()
+		}
+	})
+
+	it('serves the second goal plan from its first response under the second goal', async () => {
+		const meter = createStudyScriptMeter(1000, 100, 2)
+		try {
+			const script = new StudyAgentScript({ bytes: 1000 })
+			const first = createStudyScriptFixture(meter, [
+				buildStudyScriptResponse({ content: 'a1' }),
+				buildStudyScriptResponse({ content: 'a2' }),
+			])
+			const second = createStudyScriptFixture(meter, [buildStudyScriptResponse({ content: 'b1' })])
+			script.prepare(first.plan)
+			expect(await script.generate(STUDY_SCRIPT_MESSAGES, meter.control.signal)).toEqual({
+				content: 'a1',
+			})
+			script.clear()
+			script.prepare({ ...second.plan, goal: 'second' })
+			expect(await script.generate(STUDY_SCRIPT_MESSAGES, meter.control.signal)).toEqual({
+				content: 'b1',
+			})
+			expect(second.rows.calls.map(([row]) => [row.event, row.goal])).toEqual([
+				['provider', 'second'],
+			])
+			expect(first.rows.calls.map(([row]) => [row.event, row.goal])).toEqual([
+				['provider', 'script'],
+			])
+			// The first goal's unserved a2 is gone with its goal.
+			await expect(
+				script.generate(STUDY_SCRIPT_MESSAGES, meter.control.signal),
+			).rejects.toMatchObject({
+				code: 'CONFIG',
+				message: 'Scripted provider response sequence is exhausted',
+			})
+		} finally {
+			meter.close()
+		}
+	})
+
+	it('finishes a running stream under its own goal when the goal is cleared', async () => {
+		const meter = createStudyScriptMeter(1000, 100, 2)
+		try {
+			const script = new StudyAgentScript({ bytes: 1000 })
+			const first = createStudyScriptFixture(meter, [buildStudyScriptResponse({ content: 'a1' })])
+			const second = createStudyScriptFixture(meter, [buildStudyScriptResponse({ content: 'b1' })])
+			script.prepare(first.plan)
+			const running = script.stream(STUDY_SCRIPT_MESSAGES, meter.control.signal)
+			expect(await running.next()).toEqual({
+				done: false,
+				value: { channel: 'content', text: 'a1' },
+			})
+			script.clear()
+			expect(() => script.prepare(second.plan)).toThrow(
+				'Cannot replace a running scripted workload',
+			)
+			expect(await running.next()).toEqual({ done: true, value: { content: 'a1' } })
+			expect(first.rows.calls.map(([row]) => [row.event, row.goal])).toEqual([
+				['provider', 'script'],
+			])
+			expect(second.rows.count).toBe(0)
+			expect(() => script.prepare(second.plan)).not.toThrow()
+		} finally {
+			meter.close()
+		}
+	})
+
+	it('validates the declared responses on preparation and keeps the prepared goal after a refusal', async () => {
 		const meter = createStudyScriptMeter()
 		try {
 			const script = new StudyAgentScript({ bytes: 1000 })
-			script.prepare(
-				createStudyScriptFixture(meter, [buildStudyScriptResponse({ content: 'kept' })]).plan,
-			)
 			const invalid = createStudyScriptFixture(meter, [
 				buildStudyScriptResponse({
 					calls: [{ id: 'call-1', name: 'lookup', arguments: { n: Number.NaN } }],
 				}),
 			])
 			expect(() => script.prepare(invalid.plan)).toThrow('Scripted response sequence is invalid')
+			await expect(
+				script.generate(STUDY_SCRIPT_MESSAGES, meter.control.signal),
+			).rejects.toMatchObject({ code: 'CONFIG', message: 'Scripted provider is unavailable' })
+			script.prepare(
+				createStudyScriptFixture(meter, [buildStudyScriptResponse({ content: 'kept' })]).plan,
+			)
+			expect(captureError(() => script.prepare(invalid.plan))).toMatchObject({
+				code: 'CONFIG',
+				message: 'Scripted goal is already prepared',
+			})
 			expect(await script.generate(STUDY_SCRIPT_MESSAGES, meter.control.signal)).toEqual({
 				content: 'kept',
 			})
@@ -372,6 +474,7 @@ describe('StudyAgentScript', () => {
 				message: 'Scripted response was abandoned before completion',
 				role: 'agent',
 			})
+			script.clear()
 			expect(() => script.prepare(fixture.plan)).not.toThrow()
 			// Closing the meter finds no unsettled request to replace the recorded failure with.
 			meter.close()

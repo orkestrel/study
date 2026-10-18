@@ -4,6 +4,7 @@ import type {
 	StudyGoal,
 	StudyObservation,
 	StudyProduct,
+	StudyScenario,
 	StudySeriesOptions,
 	StudySessionInterface,
 	StudySinkInterface,
@@ -14,11 +15,12 @@ import { canonicalStringify, cloneJSONValue } from '@orkestrel/contract'
 import { isStudyError, StudyError } from '../errors.js'
 import { buildStudySchedule } from '../helpers.js'
 import { isStudyBounds, isStudyProduct } from '../validators.js'
-import { failureToStudyError, readStudyFailure } from './helpers.js'
+import { readStudyFailure } from './helpers.js'
 import { StudyControl } from './StudyControl.js'
 import { StudyDeadline } from './StudyDeadline.js'
 import { StudyMeter } from './StudyMeter.js'
 import { StudyScope } from './StudyScope.js'
+import { StudyTrialLease } from './StudyTrialLease.js'
 
 /** Executes a frozen serial study schedule with finite admission and sticky failures. */
 export class StudySeries {
@@ -78,100 +80,32 @@ export class StudySeries {
 		const started = performance.now()
 		const scenario = this.#options.manifest.scenarios.find((entry) => entry.id === trial.scenario)
 		if (scenario === undefined) throw new StudyError('CONFIG', 'Scheduled scenario is absent')
-		const observations: StudyObservation[] = []
-		let session: StudySessionInterface | undefined
-		let opening: Promise<StudySessionInterface> | undefined
-		let scope: StudyScope | undefined
-		let evidence: StudySinkInterface | undefined
-		let cleanup: StudyFailure | undefined
 		const prior = control.failure
-		try {
-			if (control.failure === undefined) {
-				series.check()
-				scope = new StudyScope({
-					limit: this.#options.manifest.bounds.trial,
-					control,
-					label: 'Trial',
-				})
-				evidence = await this.#start(trial, control, deadline)
-				series.check()
-				scope.check()
-				opening = this.#open(trial, control, deadline)
-				session = await control.wait(opening)
-			} else evidence = await this.#start(trial, control, deadline)
-			const trialOutput = new Budget({
-				max: this.#options.manifest.bounds.trial.bytes,
-				consumer: (bytes: number) => bytes,
-			})
-			for (const goal of scenario.goals) {
-				if (
-					control.failure !== undefined ||
-					session === undefined ||
-					scope === undefined ||
-					evidence === undefined
-				)
-					break
-				series.check()
-				scope.check()
-				observations.push(
-					await this.#executeGoal(
-						goal,
-						session,
-						evidence,
-						control,
-						[scope, series],
-						[trialOutput, output],
-					),
-				)
-			}
-		} catch (error) {
-			if (isStudyError(error) && error.code === 'CUSTODY') throw error
-			control.fail(readStudyFailure(error))
-		} finally {
-			if (session !== undefined) {
-				try {
-					await deadline.wait(session.close())
-				} catch (error) {
-					cleanup = readStudyFailure(error)
-					control.fail(cleanup)
-				}
-			} else if (opening !== undefined) {
-				try {
-					const late = await deadline.wait(opening)
-					await deadline.wait(late.close())
-				} catch (error) {
-					const late = readStudyFailure(error)
-					if (late.message !== control.failure?.message) cleanup = late
-				}
-			}
-			scope?.close()
-			try {
-				series.check()
-			} catch (error) {
-				control.fail(readStudyFailure(error))
-			}
-		}
+		const lease = new StudyTrialLease(trial, this.#options, control, series, deadline)
+		const executed = await this.#executeGoals(scenario, lease, control, series, output)
+		const cleanup = await this.#release(lease, control, series)
 		const failure = control.failure
-		for (const goal of scenario.goals.slice(observations.length)) {
-			const unexecuted: StudyFailure =
-				failure === undefined
-					? {
-							cause: 'infrastructure',
-							message: 'Goal unexecuted because the trial did not open',
-							role: undefined,
-						}
-					: { ...failure, message: `Goal unexecuted: ${failure.message}` }
-			observations.push(
-				Object.freeze({
+		const observations: readonly StudyObservation[] = [
+			...executed,
+			...scenario.goals.slice(executed.length).map((goal): StudyObservation => {
+				const unexecuted: StudyFailure =
+					failure === undefined
+						? {
+								cause: 'infrastructure',
+								message: 'Goal unexecuted because the trial did not open',
+								role: undefined,
+							}
+						: { ...failure, message: `Goal unexecuted: ${failure.message}` }
+				return Object.freeze({
 					goal: goal.id,
 					product: undefined,
 					failure: unexecuted,
 					usage: Object.freeze([]),
 					duration: 0,
 					executed: false,
-				}),
-			)
-		}
+				})
+			}),
+		]
 		const attempt: StudyAttempt = Object.freeze({
 			trial,
 			observations: Object.freeze(observations),
@@ -197,6 +131,68 @@ export class StudySeries {
 		return attempt
 	}
 
+	// Opens the lease and executes each goal while the trial stays open; a custody refusal releases the lease before it propagates.
+	async #executeGoals(
+		scenario: StudyScenario,
+		lease: StudyTrialLease,
+		control: StudyControl,
+		series: StudyScope,
+		output: Budget<number>,
+	): Promise<readonly StudyObservation[]> {
+		const observations: StudyObservation[] = []
+		try {
+			await lease.open()
+			const trialOutput = new Budget({
+				max: this.#options.manifest.bounds.trial.bytes,
+				consumer: (bytes: number) => bytes,
+			})
+			for (const goal of scenario.goals) {
+				const { session, scope, evidence } = lease
+				if (
+					control.failure !== undefined ||
+					session === undefined ||
+					scope === undefined ||
+					evidence === undefined
+				)
+					break
+				series.check()
+				scope.check()
+				observations.push(
+					await this.#executeGoal(
+						goal,
+						session,
+						evidence,
+						control,
+						[scope, series],
+						[trialOutput, output],
+					),
+				)
+			}
+		} catch (error) {
+			if (isStudyError(error) && error.code === 'CUSTODY') {
+				await this.#release(lease, control, series)
+				throw error
+			}
+			control.fail(readStudyFailure(error))
+		}
+		return observations
+	}
+
+	// Closes the lease, then rechecks the series ceiling, and returns the lease's cleanup failure.
+	async #release(
+		lease: StudyTrialLease,
+		control: StudyControl,
+		series: StudyScope,
+	): Promise<StudyFailure | undefined> {
+		const cleanup = await lease.close()
+		try {
+			series.check()
+		} catch (error) {
+			control.fail(readStudyFailure(error))
+		}
+		return cleanup
+	}
+
 	async #executeGoal(
 		goal: StudyGoal,
 		session: StudySessionInterface,
@@ -209,7 +205,38 @@ export class StudySeries {
 		const bounds = this.#options.manifest.bounds
 		const scope = new StudyScope({ limit: bounds.goal, control, label: 'Goal' })
 		const meter = new StudyMeter({ request: bounds.request, scopes: [scope, ...parents], control })
-		let product: StudyProduct | undefined
+		const product = await this.#produce(
+			goal,
+			session,
+			evidence,
+			control,
+			scope,
+			meter,
+			parents,
+			outputs,
+		)
+		return Object.freeze({
+			goal: goal.id,
+			product,
+			failure: control.failure,
+			usage: meter.usage,
+			duration: Math.ceil(performance.now() - started),
+			executed: true,
+		})
+	}
+
+	// Runs one goal and closes its meter and scope; a late check failure leaves the retained product in place.
+	async #produce(
+		goal: StudyGoal,
+		session: StudySessionInterface,
+		evidence: StudySinkInterface,
+		control: StudyControl,
+		scope: StudyScope,
+		meter: StudyMeter,
+		parents: readonly StudyScope[],
+		outputs: ReadonlyArray<Budget<number>>,
+	): Promise<StudyProduct | undefined> {
+		const bounds = this.#options.manifest.bounds
 		try {
 			const value: unknown = await control.wait(
 				session.execute(goal, { signal: control.signal, meter, evidence }),
@@ -221,60 +248,30 @@ export class StudySeries {
 				partial: value.partial,
 			})
 			const bytes = new TextEncoder().encode(JSON.stringify(candidate.value)).byteLength
-			if (bytes <= bounds.goal.bytes && outputs.every((budget) => bytes <= budget.remaining))
-				product = candidate
-			for (const parent of parents) parent.check()
-			scope.check()
-			if (product === undefined) {
-				control.fail({
-					cause: 'capacity',
-					message: 'Study product exceeded its output allowance',
-					role: undefined,
-				})
-			} else for (const budget of outputs) budget.consume(bytes)
+			const product =
+				bytes <= bounds.goal.bytes && outputs.every((budget) => bytes <= budget.remaining)
+					? candidate
+					: undefined
+			try {
+				for (const parent of parents) parent.check()
+				scope.check()
+				if (product === undefined) {
+					control.fail({
+						cause: 'capacity',
+						message: 'Study product exceeded its output allowance',
+						role: undefined,
+					})
+				} else for (const budget of outputs) budget.consume(bytes)
+			} catch (error) {
+				control.fail(readStudyFailure(error))
+			}
+			return product
 		} catch (error) {
 			control.fail(readStudyFailure(error))
+			return undefined
 		} finally {
 			meter.close()
 			scope.close()
-		}
-		return Object.freeze({
-			goal: goal.id,
-			product,
-			failure: control.failure,
-			usage: meter.usage,
-			duration: Math.ceil(performance.now() - started),
-			executed: true,
-		})
-	}
-
-	async #open(
-		trial: StudyTrial,
-		control: StudyControl,
-		deadline: StudyDeadline,
-	): Promise<StudySessionInterface> {
-		const session = await this.#options.driver.open(trial, control.signal)
-		if (control.failure !== undefined) {
-			await deadline.wait(session.close())
-			throw failureToStudyError(control.failure)
-		}
-		return session
-	}
-
-	async #start(
-		trial: StudyTrial,
-		control: StudyControl,
-		deadline: StudyDeadline,
-	): Promise<StudySinkInterface> {
-		try {
-			const pending = this.#options.store.start(trial)
-			return control.failure === undefined
-				? await control.wait(pending)
-				: await deadline.wait(pending)
-		} catch (error) {
-			control.fail(readStudyFailure(error))
-			const failure = control.failure ?? readStudyFailure(error)
-			throw new StudyError('CUSTODY', failure.message, failure)
 		}
 	}
 }

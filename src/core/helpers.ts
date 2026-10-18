@@ -114,22 +114,20 @@ export function buildStudySchedule(
 		!definition.scenarios.every((id) => ids.has(id))
 	)
 		throw new StudyError('CONFIG', 'Scenario declarations must match the population exactly')
-	const trials: StudyTrial[] = []
-	for (const [repetition, row] of definition.order.entries()) {
-		for (const [scenario, id] of definition.scenarios.entries()) {
-			for (const arm of row) {
-				trials.push(
+	return Object.freeze(
+		[...definition.order.entries()].flatMap(([repetition, row]) =>
+			[...definition.scenarios.entries()].flatMap(([scenario, id]) =>
+				row.map((arm): StudyTrial =>
 					Object.freeze({
 						id: `r${repetition + 1}-s${scenario + 1}-a${definition.arms.indexOf(arm) + 1}`,
 						scenario: id,
 						arm,
 						repetition,
 					}),
-				)
-			}
-		}
-	}
-	return Object.freeze(trials)
+				),
+			),
+		),
+	)
 }
 
 /**
@@ -159,15 +157,18 @@ export function validateStudyInputs(
 		profile.room.output > profile.bounds.request.tokens
 	)
 		throw new StudyError('CONFIG', 'Request allowance does not fit the model room')
-	const covered = new Set<string>()
 	for (const criterion of rubric.criteria) {
 		const scenario = scenarios.find((entry) => entry.id === criterion.scenario)
 		if (scenario === undefined || !scenario.goals.some((goal) => goal.id === criterion.goal))
 			throw new StudyError('CONFIG', 'Criterion references an undeclared goal')
 		if (definition.purpose === 'mechanism' && criterion.method === 'semantic')
 			throw new StudyError('CONFIG', 'Mechanism studies cannot establish semantic quality')
-		covered.add(canonicalStringify([criterion.scenario, criterion.goal]) ?? '')
 	}
+	const covered = new Set(
+		rubric.criteria.map(
+			(criterion) => canonicalStringify([criterion.scenario, criterion.goal]) ?? '',
+		),
+	)
 	for (const scenario of scenarios) {
 		for (const goal of scenario.goals) {
 			if (!covered.has(canonicalStringify([scenario.id, goal.id]) ?? ''))
@@ -226,16 +227,20 @@ export function computeStudyScores(
 		)
 			throw new StudyError('EVIDENCE', 'Criterion is incompatible with the study')
 	}
-	const judgments = new Map<string, (typeof grading.judgments)[number]>()
-	for (const judgment of grading.judgments) {
+	const keyed = grading.judgments.map((judgment) => ({
+		judgment,
+		key: canonicalStringify([judgment.trial, judgment.criterion]) ?? '',
+	}))
+	// Reversed so the earliest index of each key is the one the lookup retains.
+	const firsts = new Map([...keyed.entries()].reverse().map(([index, { key }]) => [key, index]))
+	for (const [index, { judgment, key }] of keyed.entries()) {
 		const trial = trials.get(judgment.trial)
 		const criterion = criteria.get(judgment.criterion)
-		const key = canonicalStringify([judgment.trial, judgment.criterion]) ?? ''
 		if (
 			trial === undefined ||
 			criterion === undefined ||
 			criterion.scenario !== trial.scenario ||
-			judgments.has(key)
+			firsts.get(key) !== index
 		)
 			throw new StudyError('EVIDENCE', 'Duplicate or foreign trial criterion judgment')
 		if (
@@ -244,27 +249,25 @@ export function computeStudyScores(
 				: judgment.method !== criterion.method
 		)
 			throw new StudyError('EVIDENCE', 'Judgment method differs from the criterion')
-		judgments.set(key, judgment)
 	}
+	const judgments = new Map(keyed.map(({ key, judgment }) => [key, judgment]))
 	return Object.freeze(
 		manifest.definition.arms.map((arm): StudyScore => {
-			let total = 0
-			let achieved = 0
-			let unsuccessful = 0
-			let critical = 0
-			for (const trial of expected) {
-				if (trial.arm !== arm) continue
-				for (const criterion of rubric.criteria) {
-					if (criterion.scenario !== trial.scenario) continue
-					total++
-					const judgment = judgments.get(canonicalStringify([trial.id, criterion.id]) ?? '')
-					if (judgment?.verdict === 'achieved') achieved++
-					if (judgment?.verdict === 'unsuccessful') {
-						unsuccessful++
-						if (criterion.critical) critical++
-					}
-				}
-			}
+			const pairs = expected
+				.filter((trial) => trial.arm === arm)
+				.flatMap((trial) =>
+					rubric.criteria
+						.filter((criterion) => criterion.scenario === trial.scenario)
+						.map((criterion) => ({
+							criterion,
+							judgment: judgments.get(canonicalStringify([trial.id, criterion.id]) ?? ''),
+						})),
+				)
+			const refuted = pairs.filter(({ judgment }) => judgment?.verdict === 'unsuccessful')
+			const total = pairs.length
+			const achieved = pairs.filter(({ judgment }) => judgment?.verdict === 'achieved').length
+			const unsuccessful = refuted.length
+			const critical = refuted.filter(({ criterion }) => criterion.critical).length
 			const unknown = total - achieved - unsuccessful
 			return Object.freeze({
 				arm,

@@ -46,12 +46,9 @@ export class StudyScope implements StudyScopeInterface {
 		const prior = this.#options.control.failure
 		if (prior !== undefined) throw failureToStudyError(prior)
 		if (charge === undefined) return
-		let tokens = 0
-		let bytes = 0
-		for (const pending of this.#pending.values()) {
-			tokens += pending.tokens
-			bytes += pending.bytes
-		}
+		const pending = [...this.#pending.values()]
+		const tokens = pending.reduce((total, entry) => total + entry.tokens, 0)
+		const bytes = pending.reduce((total, entry) => total + entry.bytes, 0)
 		if (
 			this.#calls.remaining - this.#pending.size < 1 ||
 			this.#tokens.remaining - tokens < charge.tokens ||

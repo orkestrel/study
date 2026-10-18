@@ -26,6 +26,7 @@ import type {
 	StudyDriverFixture,
 	StudyDriverFixtureOptions,
 	StudyErrorCopy,
+	StudyLeaseFixture,
 	StudyMeterFixture,
 	StudyStoreFixture,
 } from './src/core/engines/types.js'
@@ -68,7 +69,8 @@ import { isRecord, parseJSON } from '@orkestrel/contract'
 import { createOllama, createOllamaJudge } from '@orkestrel/ollama'
 import { createRecorder } from '@orkestrel/test'
 import { vi } from 'vitest'
-import { StudyControl, StudyMeter, StudyScope } from '../src/core/engines/index.js'
+import { StudyControl, StudyDeadline, StudyMeter, StudyScope } from '../src/core/engines/index.js'
+import { StudyTrialLease } from '../src/core/engines/StudyTrialLease.js'
 import { buildStudySchedule } from '../src/core/helpers.js'
 import { StudyAgentObserver } from '../src/core/agents/StudyAgentObserver.js'
 import { StudyAgentSummary } from '../src/server/agents/StudyAgentSummary.js'
@@ -343,7 +345,7 @@ export function createStudyMeterFixture(
 }
 
 /** Creates a consumer-side driver whose sessions are fresh per open and whose calls are recorded.
- * @param options - Optional goal execution, a promise that delays each open result, and an error that rejects each open.
+ * @param options - Optional goal execution, a promise that delays each open result, an error that rejects each open, and an error that rejects each session close.
  * @returns The driver with open, execute, and close observations.
  */
 export function createStudyDriverFixture(
@@ -366,11 +368,48 @@ export function createStudyDriverFixture(
 				},
 				async close(): Promise<void> {
 					closed.handler(trial.id)
+					if (options.closing !== undefined) throw options.closing
 				},
 			}
 		},
 	}
 	return Object.freeze({ driver, opened, executed, closed })
+}
+
+/** Creates one trial's lease over recording boundary fixtures, a real failure owner, series scope and deadline.
+ * @param options - Optional driver fixture behavior, applied to the lease's driver.
+ * @param signal - Optional parent cancellation of the failure owner.
+ * @returns The lease, its failure owner, both boundary fixtures, the leased trial and the owned cleanup.
+ */
+export function createStudyLeaseFixture(
+	options: StudyDriverFixtureOptions = {},
+	signal?: AbortSignal,
+): StudyLeaseFixture {
+	const manifest = buildCompactCustodyManifest()
+	const trial = manifest.schedule[0]
+	if (trial === undefined) throw new Error('Missing fixture trial')
+	const driver = createStudyDriverFixture(options)
+	const custody = createStudyStoreFixture()
+	const control = new StudyControl(signal)
+	const series = new StudyScope({ limit: manifest.bounds.series, control, label: 'Series' })
+	const lease = new StudyTrialLease(
+		trial,
+		{ manifest, driver: driver.driver, store: custody.store, signal: control.signal },
+		control,
+		series,
+		new StudyDeadline({ duration: manifest.bounds.request.duration, label: 'Custody or cleanup' }),
+	)
+	return Object.freeze({
+		lease,
+		control,
+		driver,
+		custody,
+		trial,
+		close(): void {
+			series.close()
+			control.close()
+		},
+	})
 }
 
 /** Creates an in-memory custody consumer that records starts and terminal attempts.
@@ -934,7 +973,8 @@ export function readOllamaDefault(path: string): string {
  * @returns The fetch function, the received requests, and the unserved replies.
  */
 export function createOllamaFetch(replies: readonly OllamaReplyFixture[] = []): OllamaFetchFixture {
-	const queue = [...replies]
+	const queue = Object.freeze([...replies])
+	const served: OllamaReplyFixture[] = []
 	const requests: OllamaRequestFixture[] = []
 	return {
 		fetch: async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
@@ -942,7 +982,10 @@ export function createOllamaFetch(replies: readonly OllamaReplyFixture[] = []): 
 			requests.push({ path, body: typeof init?.body === 'string' ? init.body : '' })
 			const signal = init?.signal ?? undefined
 			signal?.throwIfAborted()
-			const supplied = queue[0]?.path === path ? queue.shift() : undefined
+			// Each served reply is a step result; the unserved view derives from the queue past them.
+			const next = queue[served.length]
+			const supplied = next?.path === path ? next : undefined
+			if (supplied !== undefined) served.push(supplied)
 			const bytes = new TextEncoder().encode(supplied?.body ?? readOllamaDefault(path))
 			return new Response(
 				new ReadableStream<Uint8Array>({
@@ -960,7 +1003,9 @@ export function createOllamaFetch(replies: readonly OllamaReplyFixture[] = []): 
 			)
 		},
 		requests,
-		replies: queue,
+		get replies(): readonly OllamaReplyFixture[] {
+			return queue.slice(served.length)
+		},
 	}
 }
 
@@ -972,12 +1017,25 @@ export async function readProviderStream(
 	stream: AsyncGenerator<ProviderDelta, ProviderResult>,
 ): Promise<ProviderStreamFixture> {
 	const deltas: ProviderDelta[] = []
-	let next = await stream.next()
-	while (!next.done) {
+	for (;;) {
+		const next = await stream.next()
+		if (next.done) return { deltas, result: next.value }
 		deltas.push(next.value)
-		next = await stream.next()
 	}
-	return { deltas, result: next.value }
+}
+
+/** Reads whether a promise has already settled, without waiting for it to.
+ * @param promise - The promise to observe, settled by either fulfilment or rejection.
+ * @returns True if the promise settled within one microtask turn; false while it is still pending.
+ */
+export function readSettled(promise: PromiseLike<unknown>): Promise<boolean> {
+	return Promise.race([
+		Promise.resolve(promise).then(
+			() => true,
+			() => true,
+		),
+		Promise.resolve().then(() => false),
+	])
 }
 
 /** Reads a retained evidence value as a record, refusing any other shape.
@@ -996,14 +1054,12 @@ export function requireStudyRecord(value: unknown): Readonly<Record<string, unkn
 export function readOllamaToolResults(body: string): readonly string[] {
 	const value = parseJSON(body)
 	if (!isRecord(value) || !Array.isArray(value.messages)) throw new Error('Invalid chat request')
-	const receipts: string[] = []
-	for (const message of value.messages) {
+	return value.messages.flatMap((message: unknown) => {
 		if (!isRecord(message)) throw new Error('Invalid chat message')
-		if (message.role !== 'tool') continue
+		if (message.role !== 'tool') return []
 		if (typeof message.content !== 'string') throw new Error('Invalid tool receipt')
-		receipts.push(message.content)
-	}
-	return receipts
+		return [message.content]
+	})
 }
 
 /** Builds one inert chat terminal row that asks for the `lookup` tool.
@@ -1142,22 +1198,23 @@ export function buildStudyAgentOrigins(messages: readonly Message[]): JSONValue 
 	return messages.map((message) => ({ origin: 'history', source: message.id }))
 }
 
-/** Creates a custody sink that records accepted rows and can refuse one row or run a hook on every append.
+/** Creates a custody sink that records every offered row and the accepted ones, and can refuse one row or run a hook on every append.
  * @param options - Optional refusal and append hook.
- * @returns The sink and its accepted rows.
+ * @returns The sink, its accepted rows and every offered row, the refused one included.
  */
 export function createStudySinkFixture(options: StudySinkFixtureOptions = {}): StudySinkFixture {
 	const rows: StudyEvidence[] = []
-	let appended = 0
+	const offered: StudyEvidence[] = []
 	const sink: StudySinkInterface = {
 		async append(evidence): Promise<void> {
 			await options.during?.()
-			const row = appended++
+			const row = offered.length
+			offered.push(evidence)
 			if (options.refuse !== undefined && options.refuse.row === row) throw options.refuse.error
 			rows.push(evidence)
 		},
 	}
-	return { sink, rows }
+	return { sink, rows, offered }
 }
 
 /** Creates a real trace over the actual Agent runtime and a recorded failure owner.

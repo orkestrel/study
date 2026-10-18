@@ -7,10 +7,10 @@
 import type { SpawnSyncReturns } from 'node:child_process'
 import type { TestContext } from 'vitest'
 import { spawnSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import {
 	existsSync,
 	mkdirSync,
-	mkdtempSync,
 	readdirSync,
 	readFileSync,
 	rmSync,
@@ -219,14 +219,20 @@ function isList(value: unknown): value is readonly unknown[] {
 function isPackageTarget(target: string): boolean {
 	if (!target.startsWith('./')) return false
 	for (const segment of target.slice(2).split(/[\\/]/u)) {
-		let decoded = segment
-		try {
-			decoded = decodeURIComponent(segment)
-		} catch {}
-		const normalized = decoded.toLowerCase()
+		const normalized = decodeSegment(segment).toLowerCase()
 		if (normalized === '.' || normalized === '..' || normalized === 'node_modules') return false
 	}
 	return true
+}
+
+// A target segment percent-decoded the way Node reads it. A malformed escape leaves the
+// segment as written, because Node validates the raw spelling in that case.
+function decodeSegment(segment: string): string {
+	try {
+		return decodeURIComponent(segment)
+	} catch {
+		return segment
+	}
 }
 
 function readJson(path: string): unknown {
@@ -255,7 +261,7 @@ function runNpm(args: readonly string[], cwd: string): SpawnSyncReturns<string> 
 	return spawnSync(NPM, [...args], {
 		cwd,
 		encoding: 'utf8',
-		env: { ...process.env, npm_config_cache: join(readScratch(), 'cache') },
+		env: { ...process.env, npm_config_cache: join(SCRATCH, 'cache') },
 		shell: SHELL,
 		windowsHide: true,
 	})
@@ -310,11 +316,16 @@ function matchesFile(path: string): boolean {
 // the containing condition or fallback list unresolved, so the walk continues.
 function targetToDeclaration(target: string, installed: string): string | undefined {
 	if (!isPackageTarget(target)) return undefined
-	let declaration = target
-	if (target.endsWith('.cjs')) declaration = `${target.slice(0, -4)}.d.cts`
-	else if (target.endsWith('.mjs')) declaration = `${target.slice(0, -4)}.d.mts`
-	else if (target.endsWith('.js')) declaration = `${target.slice(0, -3)}.d.ts`
-	else if (!isDeclaration(target)) return undefined
+	const declaration = target.endsWith('.cjs')
+		? `${target.slice(0, -4)}.d.cts`
+		: target.endsWith('.mjs')
+			? `${target.slice(0, -4)}.d.mts`
+			: target.endsWith('.js')
+				? `${target.slice(0, -3)}.d.ts`
+				: isDeclaration(target)
+					? target
+					: undefined
+	if (declaration === undefined) return undefined
 	return matchesFile(join(installed, declaration)) ? declaration : undefined
 }
 
@@ -345,23 +356,20 @@ function resolveDeclaration(
 // The nearest package scope that decides a `.d.ts` declaration's module format. A
 // physical nested manifest starts a scope even when it omits `type` or cannot be
 // parsed. A directory at that spelling is not a manifest, so the walk continues.
-function readPackageType(installed: string, target: string): unknown {
-	let directory = dirname(join(installed, target))
-	while (true) {
-		const path = join(directory, 'package.json')
-		if (matchesFile(path)) {
-			try {
-				const manifest = readJson(path)
-				return isRecord(manifest) ? manifest.type : undefined
-			} catch {
-				return undefined
-			}
+function readPackageType(installed: string, directory: string): unknown {
+	const path = join(directory, 'package.json')
+	if (matchesFile(path)) {
+		try {
+			const manifest = readJson(path)
+			return isRecord(manifest) ? manifest.type : undefined
+		} catch {
+			return undefined
 		}
-		if (directory === installed) return undefined
-		const parent = dirname(directory)
-		if (parent === directory) return undefined
-		directory = parent
 	}
+	if (directory === installed) return undefined
+	const parent = dirname(directory)
+	if (parent === directory) return undefined
+	return readPackageType(installed, parent)
 }
 
 function resolvesBrowser(entry: unknown): boolean {
@@ -384,7 +392,10 @@ function resolvesCommonJS(entry: unknown, installed: string): boolean {
 	if (name.endsWith('.mjs')) return false
 	if (name.endsWith('.node')) return true
 	if (!name.includes('.')) return true
-	return name.endsWith('.js') && readPackageType(installed, target) !== 'module'
+	return (
+		name.endsWith('.js') &&
+		readPackageType(installed, dirname(join(installed, target))) !== 'module'
+	)
 }
 
 // Whether the declaration selected by a typed CommonJS consumer admits that entry.
@@ -395,7 +406,10 @@ function declaresCommonJS(entry: unknown, installed: string): boolean {
 	if (declaration === undefined) return false
 	if (declaration.endsWith('.d.cts')) return true
 	if (declaration.endsWith('.d.mts')) return false
-	return declaration.endsWith('.d.ts') && readPackageType(installed, declaration) !== 'module'
+	return (
+		declaration.endsWith('.d.ts') &&
+		readPackageType(installed, dirname(join(installed, declaration))) !== 'module'
+	)
 }
 
 // Every target an entry names under any condition. A fallback list omits members
@@ -529,16 +543,13 @@ function checkProject(stage: Stage, project: string): readonly string[] {
 	if (refused.length > 0) {
 		throw new Error(`The consumer compiler wrote ${refused} to its error stream`)
 	}
-	const reported: string[] = []
-	for (const line of `${result.stdout ?? ''}`.split(/\r\n|\n/u)) {
-		if (line.trim().length === 0) continue
-		const last = reported.at(-1)
-		// An elaborated diagnostic prints its detail on indented lines under its own
-		// first line, so each of those joins the diagnostic it elaborates.
-		if (/^\s/u.test(line) && last !== undefined) {
-			reported[reported.length - 1] = `${last} ${line.trim()}`
-			continue
-		}
+	const lines = `${result.stdout ?? ''}`.split(/\r\n|\n/u).filter((line) => line.trim().length > 0)
+	// An elaborated diagnostic prints its detail on indented lines under its own
+	// first line, so each of those joins the diagnostic it elaborates.
+	const heads = lines.flatMap((line, index) =>
+		index === 0 || !/^\s/u.test(line) ? [{ line, index }] : [],
+	)
+	for (const { line } of heads) {
 		const located = DIAGNOSTIC_PATTERN.exec(line)?.[1]
 		if (located === undefined) {
 			throw new Error(`The consumer compiler reported ${line}, which names no location`)
@@ -546,8 +557,13 @@ function checkProject(stage: Stage, project: string): readonly string[] {
 		if (resolve(stage.consumer, located) === project) {
 			throw new Error(`The scratch project is itself at fault: ${line}`)
 		}
-		reported.push(line)
 	}
+	const reported = heads.map(({ line, index }, position) =>
+		[
+			line,
+			...lines.slice(index + 1, heads[position + 1]?.index).map((detail) => detail.trim()),
+		].join(' '),
+	)
 	if (reported.length === 0 && result.status !== 0) {
 		throw new Error(`The consumer compiler refused the project: ${readOutput(result)}`)
 	}
@@ -584,13 +600,14 @@ const surfaced: Record<keyof typeof published, true> = declared
 // One consumer module importing every installed entry, written where its own
 // resolution finds the installed package.
 function writeConsumerProbe(stage: Stage, path: string, specifiers: readonly string[]): void {
-	const names: string[] = []
-	const bindings: string[] = []
-	for (const [index, specifier] of specifiers.entries()) {
-		const binding = `entry${String(index)}`
-		names.push(binding)
-		bindings.push(`import * as ${binding} from ${JSON.stringify(specifier)}`)
-	}
+	const imports = specifiers.map((specifier, index) => ({
+		binding: `entry${String(index)}`,
+		specifier,
+	}))
+	const bindings = imports.map(
+		({ binding, specifier }) => `import * as ${binding} from ${JSON.stringify(specifier)}`,
+	)
+	const names = imports.map(({ binding }) => binding)
 	const source = `${bindings.join('\n')}\nexport const surface = [${names.join(', ')}]\n`
 	writeFile(join(stage.consumer, path), source)
 }
@@ -612,8 +629,8 @@ function driveRuntime(stage: Stage, specifier: string, driver: string): readonly
 // published surface back off the installed tree. Every later claim reads this
 // result, so a failure here is raised where it happens rather than once per entry.
 function buildStage(): Stage {
-	const packed = join(readScratch(), 'packed')
-	const consumer = join(readScratch(), 'consumer')
+	const packed = join(SCRATCH, 'packed')
+	const consumer = join(SCRATCH, 'consumer')
 	mkdirSync(packed, { recursive: true })
 	const pack = runNpm(['pack', '--ignore-scripts', '--pack-destination', packed], ROOT)
 	if (pack.status !== 0) throw new Error(`npm pack refused this workspace: ${readOutput(pack)}`)
@@ -638,75 +655,75 @@ function buildStage(): Stage {
 	if (!isRecord(manifest) || !isRecord(manifest.exports)) {
 		throw new Error('The installed manifest publishes no exports map')
 	}
-	const entries: Entry[] = []
-	const targets: string[] = []
-	const subpaths: string[] = []
-	const undeclared: string[] = []
-	const excluded: string[] = []
-	for (const [subpath, entry] of Object.entries(manifest.exports)) {
-		const files = collectTargets(entry)
-		targets.push(...files)
-		subpaths.push(subpath)
+	const mapped = Object.entries(manifest.exports).map(([subpath, entry]) => {
 		const declaration = readDeclaration(entry, installed)
-		// A subpath resolving no declaration is partitioned rather than dropped. It is a
-		// defect when a runtime loads one of its targets for names, because a consumer
-		// importing it compiles against nothing under `node16`. It is an excluded
-		// publication otherwise: the `"./package.json"` manifest pointer and a stylesheet
-		// are published for a reader rather than an importer.
-		if (
-			declaration.module === undefined &&
-			declaration.commonjs === undefined &&
-			declaration.browser === undefined
-		) {
-			if (files.some(isModule)) undeclared.push(subpath)
-			else excluded.push(subpath)
-			continue
-		}
-		const importTarget = resolveTarget(entry, RUNTIME_CONDITIONS.module)
-		const requireTarget = resolveTarget(entry, RUNTIME_CONDITIONS.commonjs)
-		const browserTarget = resolveTarget(entry, RUNTIME_CONDITIONS.browser)
-		const browsable = resolvesBrowser(entry)
-		const shadowed = browsable && requireTarget === browserTarget
-		const requirable = requireTarget !== undefined && !shadowed
-		const loadable = requirable && resolvesCommonJS(entry, installed)
-		entries.push({
+		return {
 			subpath,
-			specifier: subpath === '.' ? name : `${name}${subpath.slice(1)}`,
-			mapping: entry,
-			declaration: {
-				importable: declaration.module !== undefined,
-				requirable: declaration.commonjs !== undefined,
-				browsable: declaration.browser !== undefined,
-			},
-			browsable,
-			importable: importTarget !== undefined && !(browsable && importTarget === browserTarget),
-			requirable,
-			loadable,
+			entry,
+			files: collectTargets(entry),
+			declaration,
+			declared:
+				declaration.module !== undefined ||
+				declaration.commonjs !== undefined ||
+				declaration.browser !== undefined,
+		}
+	})
+	// A subpath resolving no declaration is partitioned rather than dropped. It is a
+	// defect when a runtime loads one of its targets for names, because a consumer
+	// importing it compiles against nothing under `node16`. It is an excluded
+	// publication otherwise: the `"./package.json"` manifest pointer and a stylesheet
+	// are published for a reader rather than an importer.
+	const entries = mapped
+		.filter(({ declared }) => declared)
+		.map(({ subpath, entry, declaration }) => {
+			const importTarget = resolveTarget(entry, RUNTIME_CONDITIONS.module)
+			const requireTarget = resolveTarget(entry, RUNTIME_CONDITIONS.commonjs)
+			const browserTarget = resolveTarget(entry, RUNTIME_CONDITIONS.browser)
+			const browsable = resolvesBrowser(entry)
+			const shadowed = browsable && requireTarget === browserTarget
+			const requirable = requireTarget !== undefined && !shadowed
+			const loadable = requirable && resolvesCommonJS(entry, installed)
+			return {
+				subpath,
+				specifier: subpath === '.' ? name : `${name}${subpath.slice(1)}`,
+				mapping: entry,
+				declaration: {
+					importable: declaration.module !== undefined,
+					requirable: declaration.commonjs !== undefined,
+					browsable: declaration.browser !== undefined,
+				},
+				browsable,
+				importable: importTarget !== undefined && !(browsable && importTarget === browserTarget),
+				requirable,
+				loadable,
+			}
 		})
-	}
+	const targets = mapped.flatMap(({ files }) => files)
+	const subpaths = mapped.map(({ subpath }) => subpath)
+	const undeclared = mapped
+		.filter(({ declared, files }) => !declared && files.some(isModule))
+		.map(({ subpath }) => subpath)
+	const excluded = mapped
+		.filter(({ declared, files }) => !declared && !files.some(isModule))
+		.map(({ subpath }) => subpath)
 	return { consumer, installed, archives, entries, subpaths, undeclared, excluded, targets }
 }
 
-let scratch: string | undefined
-let staged: Stage | undefined
-
-function readScratch(): string {
-	if (scratch === undefined) {
-		throw new Error('The distribution setup has not allocated its scratch directory')
-	}
-	return scratch
-}
+// The scratch directory every claim allocates under. The path is fixed at collection and
+// nothing is created until `beforeAll` runs, so a collection that fails leaves nothing behind.
+const SCRATCH = join(tmpdir(), `distribution-${randomUUID()}`)
+// Resolves with the staged consumer, or with `undefined` when the registry did not answer
+// outside release. `beforeAll` settles it once, and every dependent test awaits it.
+const staging = Promise.withResolvers<Stage | undefined>()
 
 beforeAll(() => {
-	scratch = mkdtempSync(join(tmpdir(), 'distribution-'))
-	mkdirSync(join(scratch, 'cache'), { recursive: true })
-	staged = openStage()
+	mkdirSync(SCRATCH)
+	mkdirSync(join(SCRATCH, 'cache'))
+	staging.resolve(openStage())
 })
 
 afterAll(() => {
-	if (scratch !== undefined) {
-		rmSync(scratch, { force: true, recursive: true, maxRetries: 3, retryDelay: 100 })
-	}
+	rmSync(SCRATCH, { force: true, recursive: true, maxRetries: 3, retryDelay: 100 })
 })
 
 // Installing the packed archive resolves its own runtime dependencies, so an
@@ -722,14 +739,14 @@ function openStage(): Stage | undefined {
 		}
 		return buildStage()
 	} catch (error) {
-		rmSync(readScratch(), { force: true, recursive: true, maxRetries: 3, retryDelay: 100 })
+		rmSync(SCRATCH, { force: true, recursive: true, maxRetries: 3, retryDelay: 100 })
 		throw error
 	}
 }
 
 describe('distribution classifiers', () => {
 	it('classifies synthetic export mappings without a registry stage', () => {
-		const root = join(readScratch(), 'classifiers')
+		const root = join(SCRATCH, 'classifiers')
 		writeFile(
 			join(root, 'package.json'),
 			JSON.stringify({
@@ -797,7 +814,7 @@ describe('distribution classifiers', () => {
 
 // The staged consumer, or a skip naming what the run could not reach. `it.skipIf`
 // carries no reason, so the gate sits here where the test context can state one.
-function requireStage(context: TestContext): Stage {
+function requireStage(context: TestContext, staged: Stage | undefined): Stage {
 	if (staged === undefined) {
 		return context.skip('`npm ping` did not answer, so nothing was packed or installed')
 	}
@@ -805,15 +822,15 @@ function requireStage(context: TestContext): Stage {
 }
 
 describe('installed package consumer', () => {
-	it('packs one archive and installs it in isolation [requires the registry]', (context) => {
-		const stage = requireStage(context)
+	it('packs one archive and installs it in isolation [requires the registry]', async (context) => {
+		const stage = requireStage(context, await staging.promise)
 		expect(stage.archives).toHaveLength(1)
 		expect(existsSync(join(stage.installed, 'package.json'))).toBe(true)
 		expect(stage.entries.length).toBeGreaterThan(0)
 	})
 
-	it('ships every relative target its exports map names [requires the registry]', (context) => {
-		const stage = requireStage(context)
+	it('ships every relative target its exports map names [requires the registry]', async (context) => {
+		const stage = requireStage(context, await staging.promise)
 		const relative = stage.targets.filter((target) => target.startsWith('./'))
 		expect(relative).not.toStrictEqual([])
 		expect(relative.filter((target) => !existsSync(join(stage.installed, target)))).toStrictEqual(
@@ -825,8 +842,8 @@ describe('installed package consumer', () => {
 	// one leaves no trace: no runtime test, no declaration comparison, and no place in
 	// the resolution compile, so the run reports success for a subpath it never
 	// measured.
-	it('declares types for every module it publishes [requires the registry]', (context) => {
-		const stage = requireStage(context)
+	it('declares types for every module it publishes [requires the registry]', async (context) => {
+		const stage = requireStage(context, await staging.promise)
 		const partitioned = [
 			...stage.entries.map((entry) => entry.subpath),
 			...stage.undeclared,
@@ -846,8 +863,8 @@ describe('installed package consumer', () => {
 		expect(untypable.map((entry) => entry.subpath)).toStrictEqual([])
 	})
 
-	it('refuses a subpath its exports map does not name [requires the registry]', (context) => {
-		const stage = requireStage(context)
+	it('refuses a subpath its exports map does not name [requires the registry]', async (context) => {
+		const stage = requireStage(context, await staging.promise)
 		const name = readManifestName(join(stage.installed, 'package.json'))
 		const driver = join(stage.consumer, ESM_DRIVER)
 		const result = runNode([driver, `${name}${ABSENT_SUBPATH}`], stage.consumer)
@@ -859,31 +876,27 @@ describe('installed package consumer', () => {
 	// for every published entry has not been shown to resolve anything at all. Each
 	// module format carries its own control, because a format that resolves nothing
 	// is silent for the same reason a resolution that resolves nothing is.
-	it('compiles a consumer under every module resolution [requires the registry]', (context) => {
-		const stage = requireStage(context)
+	it('compiles a consumer under every module resolution [requires the registry]', async (context) => {
+		const stage = requireStage(context, await staging.promise)
 		const name = readManifestName(join(stage.installed, 'package.json'))
-		const reported: string[] = []
-		const silent: string[] = []
-		for (const driver of RESOLUTIONS) {
-			for (const [extension, format] of FORMATS) {
+		const results = RESOLUTIONS.flatMap((driver) =>
+			FORMATS.flatMap(([extension, format]) => {
 				const written = selectEntries(stage.entries, driver.conditions[format])
-				if (written.length === 0) continue
+				if (written.length === 0) return []
 				const label = `${driver.label}.${extension}`
 				const probe = `probe.${label}`
 				const specifiers = written.map((entry) => entry.specifier)
 				writeConsumerProbe(stage, probe, specifiers)
 				const project = writeProject(stage, probe, driver, [`./${probe}`])
-				for (const message of checkProject(stage, project)) {
-					reported.push(`${label}: ${message}`)
-				}
+				const messages = checkProject(stage, project).map((message) => `${label}: ${message}`)
 				const control = `control.${label}`
 				writeConsumerProbe(stage, control, [`${name}${ABSENT_SUBPATH}`])
 				const refused = writeProject(stage, control, driver, [`./${control}`])
-				if (checkProject(stage, refused).length === 0) silent.push(label)
-			}
-		}
-		expect(reported).toStrictEqual([])
-		expect(silent).toStrictEqual([])
+				return [{ label, messages, silent: checkProject(stage, refused).length === 0 }]
+			}),
+		)
+		expect(results.flatMap(({ messages }) => messages)).toStrictEqual([])
+		expect(results.filter(({ silent }) => silent).map(({ label }) => label)).toStrictEqual([])
 	})
 
 	// This proof drives a Node import and a Node require and carries no browser
@@ -899,16 +912,16 @@ describe('installed package consumer', () => {
 	// later, which leaves nothing measuring it. So it reddens here and names the
 	// subpath a browser branch is owed for. A workspace that gains one deletes this
 	// file and runs the `repair` verb, which writes the variant carrying that branch.
-	it('publishes no browser face this proof cannot drive [requires the registry]', (context) => {
-		const stage = requireStage(context)
+	it('publishes no browser face this proof cannot drive [requires the registry]', async (context) => {
+		const stage = requireStage(context, await staging.promise)
 		const faces = stage.entries.filter((entry) => entry.browsable)
 		expect(faces.map((entry) => entry.subpath)).toStrictEqual([])
 	})
 })
 
 describe('installed entries', () => {
-	it('publishes what it declares to a Node import, and no more', (context) => {
-		const stage = requireStage(context)
+	it('publishes what it declares to a Node import, and no more', async (context) => {
+		const stage = requireStage(context, await staging.promise)
 		const entries = stage.entries.filter((entry) => entry.importable)
 		if (entries.length === 0) return context.skip('No installed entry supports Node import')
 		for (const entry of entries) {
@@ -925,8 +938,8 @@ describe('installed entries', () => {
 		}
 	})
 
-	it('publishes what it declares to a Node require, and no more', (context) => {
-		const stage = requireStage(context)
+	it('publishes what it declares to a Node require, and no more', async (context) => {
+		const stage = requireStage(context, await staging.promise)
 		const entries = stage.entries.filter((entry) => entry.requirable)
 		if (entries.length === 0) return context.skip('No installed entry supports Node require')
 		for (const entry of entries) {
@@ -943,8 +956,8 @@ describe('installed entries', () => {
 		}
 	})
 
-	it('recognizes a study error across the installed import and require copies', (context) => {
-		const stage = requireStage(context)
+	it('recognizes a study error across the installed import and require copies', async (context) => {
+		const stage = requireStage(context, await staging.promise)
 		const entry = stage.entries.find(
 			(candidate) => candidate.subpath === '.' && candidate.importable && candidate.requirable,
 		)

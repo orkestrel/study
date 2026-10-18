@@ -1,6 +1,7 @@
-import type { ProviderRequest } from '@orkestrel/agent'
+import type { ProviderDelta, ProviderRequest, ProviderResult } from '@orkestrel/agent'
 import type { JSONValue } from '@orkestrel/contract'
-import { attempt, canonicalStringify, isArray, isObject } from '@orkestrel/contract'
+import type { StudyAgentResponse } from './types.js'
+import { attempt, canonicalStringify, isArray, isObject, isRecord } from '@orkestrel/contract'
 import { StudyError } from '../../core/errors.js'
 import { hashStudyBytes } from '../helpers.js'
 
@@ -26,26 +27,59 @@ export function buildStudyAgentRevision(request: ProviderRequest): string | unde
  */
 export function buildStudyAgentReadings(result: unknown): JSONValue {
 	if (!isObject(result) || !('readings' in result) || !isArray(result.readings)) return null
-	const readings: JSONValue[] = []
-	for (const entry of result.readings) {
-		if (
-			!isObject(entry) ||
-			!('key' in entry) ||
-			typeof entry.key !== 'string' ||
-			!('phase' in entry) ||
-			typeof entry.phase !== 'string' ||
-			!('outcome' in entry) ||
-			typeof entry.outcome !== 'string'
-		)
-			continue
-		readings.push({
-			key: entry.key,
-			phase: entry.phase,
-			outcome: entry.outcome,
-			duration: 'duration' in entry && typeof entry.duration === 'number' ? entry.duration : null,
-		})
+	return result.readings.flatMap((entry): JSONValue[] =>
+		!isObject(entry) ||
+		!('key' in entry) ||
+		typeof entry.key !== 'string' ||
+		!('phase' in entry) ||
+		typeof entry.phase !== 'string' ||
+		!('outcome' in entry) ||
+		typeof entry.outcome !== 'string'
+			? []
+			: [
+					{
+						key: entry.key,
+						phase: entry.phase,
+						outcome: entry.outcome,
+						duration:
+							'duration' in entry && typeof entry.duration === 'number' ? entry.duration : null,
+					},
+				],
+	)
+}
+
+/**
+ * Resolves the content a scripted response serves, from its declaration or from a prior tool message.
+ * @param request - The projected actual request messages
+ * @param response - The declared response being served
+ * @returns The declared content, or the content of the actual tool message the response consumes
+ * @throws StudyError - Thrown when a consuming response has no actual referenced tool result
+ */
+export function resolveStudyAgentContent(
+	request: readonly JSONValue[],
+	response: StudyAgentResponse,
+): string {
+	if (response.consume === undefined) return response.content
+	const prior = request.findLast(
+		(message) => isRecord(message) && message.role === 'tool' && message.call === response.consume,
+	)
+	if (!isRecord(prior) || typeof prior.content !== 'string')
+		throw new StudyError('FAULT', 'Continuation has no actual referenced tool result')
+	return prior.content
+}
+
+/**
+ * Drains a scripted provider stream into its assembled result.
+ * @param stream - The provider stream to consume to its end
+ * @returns The result the stream returns after its last delta
+ */
+export async function readStudyAgentResult(
+	stream: AsyncGenerator<ProviderDelta, ProviderResult>,
+): Promise<ProviderResult> {
+	for (;;) {
+		const next = await stream.next()
+		if (next.done) return next.value
 	}
-	return readings
 }
 
 /**

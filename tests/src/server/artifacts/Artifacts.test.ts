@@ -422,7 +422,7 @@ it('refuses file counts, aggregate bytes, traversal populations and depth at fin
 	const scratch = createScratch()
 	try {
 		const source = scratch.ensure('files')
-		for (let index = 0; index <= ARTIFACT_FILES; index++)
+		for (const index of Array.from({ length: ARTIFACT_FILES + 1 }).keys())
 			scratch.write(join(source, `${index}.ts`), '')
 		expect(() =>
 			new Artifacts({
@@ -432,7 +432,7 @@ it('refuses file counts, aggregate bytes, traversal populations and depth at fin
 			}).inspect(),
 		).toThrow('file count limit')
 		const bytes = scratch.ensure('bytes')
-		for (let index = 0; index <= ARTIFACT_BYTES / ARTIFACT_FILE_BYTES; index++) {
+		for (const index of Array.from({ length: ARTIFACT_BYTES / ARTIFACT_FILE_BYTES + 1 }).keys()) {
 			const descriptor = openSync(join(bytes, `${index}.ts`), 'w')
 			try {
 				ftruncateSync(descriptor, ARTIFACT_FILE_BYTES)
@@ -452,7 +452,9 @@ it('refuses file counts, aggregate bytes, traversal populations and depth at fin
 			'visits/package.json',
 			JSON.stringify({ name: 'visits', version: '1.0.0', type: 'module' }),
 		)
-		for (let index = 0; index <= Math.ceil(ARTIFACT_VISITS / ARTIFACT_ROOTS); index++)
+		for (const index of Array.from({
+			length: Math.ceil(ARTIFACT_VISITS / ARTIFACT_ROOTS) + 1,
+		}).keys())
 			scratch.write(`visits/dist/${index}.txt`, '')
 		expect(() =>
 			new Artifacts({
@@ -461,9 +463,9 @@ it('refuses file counts, aggregate bytes, traversal populations and depth at fin
 			}).inspect(),
 		).toThrow('traversal limit')
 		const depth = scratch.ensure('depth')
-		let directory = depth
-		for (let index = 0; index <= ARTIFACT_DEPTH; index++)
-			directory = scratch.ensure(join(directory, 'd'))
+		const directory = scratch.ensure(
+			join(depth, ...Array.from({ length: ARTIFACT_DEPTH + 1 }, () => 'd')),
+		)
 		const entry = scratch.write(join(directory, 'index.ts'), '')
 		expect(() =>
 			new Artifacts({ entries: [], roots: [], source: { root: depth, entry } }).inspect(),

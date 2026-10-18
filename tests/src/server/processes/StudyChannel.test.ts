@@ -1,5 +1,5 @@
 import { isRecord } from '@orkestrel/contract'
-import { createRecorder, waitForAbort, waitForCondition, waitForEvent } from '@orkestrel/test'
+import { createRecorder, waitForAbort, waitForCondition } from '@orkestrel/test'
 import { createScratch } from '@orkestrel/test/server'
 import { describe, expect, it } from 'vitest'
 import { StudyChannel } from '../../../../src/server/processes/StudyChannel.js'
@@ -182,46 +182,40 @@ process.on('message', frame => {
 		const scratch = createScratch()
 		const peer = createStudyPeer(
 			scratch,
-			`let replies = 0
-process.on('message', frame => {
-	if (frame?.control === 'start') { for (let id = 1; id <= ${String(STUDY_PENDING_LIMIT + 1)}; id++) process.send({id,operation:'goal',value:{id}}); return }
-	if (frame?.operation === 'reply') { replies++; if (replies === ${String(STUDY_PENDING_LIMIT)}) process.send({control:'replied',count:replies}) }
+			`process.on('message', frame => {
+	if (frame?.control === 'start') { for (const id of Array.from({ length: ${String(STUDY_PENDING_LIMIT + 1)} }, (_, index) => index + 1)) process.send({id,operation:'goal',value:{id}}); return }
+	if (frame?.operation === 'reply') process.send({control:'replied',id:frame.id})
 })`,
 		)
 		const gate = Promise.withResolvers<void>()
-		let active = 0
+		const active = createRecorder<[]>()
+		const replied = createRecorder<readonly [unknown]>()
 		const channel = new StudyChannel({
 			endpoint: peer.child,
 			handle: async () => {
-				active++
+				active.handler()
 				await gate.promise
 				return true
 			},
 			abort: () => undefined,
 		})
 		try {
-			const replied = waitForEvent(
-				(listener: (value: unknown) => void) => {
-					const onMessage = (value: unknown): void => {
-						if (isRecord(value) && value.control === 'replied') listener(value.count)
-					}
-					peer.child.on('message', onMessage)
-					return () => {
-						peer.child.off('message', onMessage)
-					}
-				},
-				'peer received all accepted replies',
-				{ budget: 3000 },
-			)
+			peer.child.on('message', (value: unknown) => {
+				if (isRecord(value) && value.control === 'replied') replied.handler(value.id)
+			})
 			const outbound = channel.request('goal', { held: true })
 			const refused = Promise.allSettled([outbound])
 			peer.child.send({ control: 'start' })
-			await waitForCondition('accepted handlers are active', () => active === STUDY_PENDING_LIMIT, {
-				budget: 3000,
-				interval: 10,
-			})
+			await waitForCondition(
+				'accepted handlers are active',
+				() => active.count === STUDY_PENDING_LIMIT,
+				{
+					budget: 3000,
+					interval: 10,
+				},
+			)
 			await waitForAbort(channel.signal)
-			expect(active).toBe(STUDY_PENDING_LIMIT)
+			expect(active.count).toBe(STUDY_PENDING_LIMIT)
 			expect(channel.signal.reason).toMatchObject({
 				failure: {
 					cause: 'infrastructure',
@@ -240,7 +234,14 @@ process.on('message', frame => {
 				},
 			])
 			gate.resolve()
-			expect((await replied)[0]).toBe(STUDY_PENDING_LIMIT)
+			await waitForCondition(
+				'peer received all accepted replies',
+				() => replied.count === STUDY_PENDING_LIMIT,
+				{ budget: 3000 },
+			)
+			expect(new Set(replied.calls.map(([id]) => id))).toEqual(
+				new Set(Array.from({ length: STUDY_PENDING_LIMIT }, (_, index) => index + 1)),
+			)
 		} finally {
 			gate.resolve()
 			channel.close()

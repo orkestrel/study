@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { StudyError } from '../../core/errors.js'
 import { hashStudyBytes } from '../helpers.js'
 import { STUDY_DRAIN_DURATION } from './constants.js'
@@ -73,18 +74,23 @@ export function computeStudyInstrumentDigest(entry: string, inventory: string): 
  * @returns The canonical study package root.
  */
 export function resolveStudyInstrument(entry: string): string {
-	let directory = dirname(realpathSync(entry))
-	while (true) {
+	const root = collectStudyAncestors(dirname(realpathSync(entry))).find((directory) => {
 		const manifest = join(directory, 'package.json')
-		if (existsSync(manifest)) {
-			const value: unknown = JSON.parse(readFileSync(manifest, 'utf8'))
-			if (isRecord(value) && value.name === '@orkestrel/study') return directory
-		}
-		const parent = dirname(directory)
-		if (parent === directory)
-			throw new StudyError('CONFIG', 'Cannot locate the study runtime package')
-		directory = parent
-	}
+		if (!existsSync(manifest)) return false
+		const value: unknown = JSON.parse(readFileSync(manifest, 'utf8'))
+		return isRecord(value) && value.name === '@orkestrel/study'
+	})
+	if (root === undefined) throw new StudyError('CONFIG', 'Cannot locate the study runtime package')
+	return root
+}
+
+/** Collects a directory and each of its ancestors up to the filesystem root, nearest first.
+ * @param directory - The absolute directory to start from.
+ * @returns The directory followed by every parent directory, ending at the root.
+ */
+export function collectStudyAncestors(directory: string): readonly string[] {
+	const parent = dirname(directory)
+	return parent === directory ? [directory] : [directory, ...collectStudyAncestors(parent)]
 }
 
 /** Refuses a profile that omits the actual host runtime's declared dependency bytes.
@@ -116,14 +122,18 @@ export function validateStudyRuntime(instrument: string, roots: readonly string[
  * @remarks A descendant that outlives an exited root is outside discoverable-tree cleanup; this only stops the parent from waiting on its pipes.
  */
 export function drainStudyChild(child: ChildProcess): void {
-	let timer: ReturnType<typeof setTimeout> | undefined
+	const closed = new AbortController()
 	child.once('exit', () => {
-		timer = setTimeout(() => {
-			child.stdout?.destroy()
-			child.stderr?.destroy()
-		}, STUDY_DRAIN_DURATION)
+		// A close before the allowance ends aborts the wait, which is the only rejection it can have.
+		void delay(STUDY_DRAIN_DURATION, undefined, { signal: closed.signal }).then(
+			() => {
+				child.stdout?.destroy()
+				child.stderr?.destroy()
+			},
+			() => undefined,
+		)
 	})
-	child.once('close', () => clearTimeout(timer))
+	child.once('close', () => closed.abort())
 }
 
 /** Terminates the recorded native process tree under a finite cleanup allowance.
@@ -148,10 +158,12 @@ export function terminateStudyChild(child: ChildProcess): void {
 				.split(/\r\n|\n/)
 				.map((row) => row.trim().split(/\s+/).map(Number))
 			const descendants = new Set([child.pid])
-			for (let index = 0; index < rows.length; index++)
+			// One pass per row bounds the depth of any parent chain the table can hold.
+			rows.forEach(() => {
 				for (const [pid, parent] of rows)
 					if (pid !== undefined && parent !== undefined && descendants.has(parent))
 						descendants.add(pid)
+			})
 			for (const pid of [...descendants].reverse()) {
 				try {
 					process.kill(pid, 'SIGKILL')

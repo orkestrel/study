@@ -12,7 +12,7 @@ export class StudyChannel {
 	#pending = new Map<number, StudyResponse>()
 	#next = 0
 	#received = 0
-	#active = 0
+	readonly #working = new Set<Promise<void>>()
 	#message: (value: unknown) => void
 	#disconnect: () => void
 	#error: (error: Error) => void
@@ -120,23 +120,31 @@ export class StudyChannel {
 			this.#pending.delete(value.id)
 			return
 		}
-		if (value.id !== this.#received + 1 || this.#active >= STUDY_PENDING_LIMIT)
+		if (value.id !== this.#received + 1 || this.#working.size >= STUDY_PENDING_LIMIT)
 			throw failureToStudyError(
 				createStudyProcessFailure('Out-of-order or excessive study IPC request'),
 			)
 		this.#received = value.id
-		this.#active++
+		const working = this.#respond(value.id, value.operation, value.value)
+		this.#working.add(working)
 		try {
-			const result = await this.#options.handle(value.operation, value.value)
-			await this.#send({ id: value.id, operation: 'reply', value: result })
+			await working
+		} finally {
+			this.#working.delete(working)
+		}
+	}
+
+	// Hands one accepted request to its domain handler and sends the reply, or the error that stopped it.
+	async #respond(id: number, operation: StudyOperation, value: JSONValue): Promise<void> {
+		try {
+			const result = await this.#options.handle(operation, value)
+			await this.#send({ id, operation: 'reply', value: result })
 		} catch (error) {
 			await this.#send({
-				id: value.id,
+				id,
 				operation: 'error',
 				value: toStudyWire(readStudyFailure(error)),
 			})
-		} finally {
-			this.#active--
 		}
 	}
 }

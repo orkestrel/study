@@ -3,6 +3,7 @@ import type {
 	ArtifactOptions,
 	ArtifactPackage,
 	ArtifactSource,
+	ArtifactTally,
 } from './types.js'
 import { isNonEmptyString, isRecord } from '@orkestrel/contract'
 import { randomUUID } from 'node:crypto'
@@ -19,7 +20,7 @@ import {
 } from './constants.js'
 import { containsArtifact, hashStudyBytes } from '../helpers.js'
 import { ArtifactError } from './errors.js'
-import { readArtifact } from './helpers.js'
+import { iterateArtifactEntries, readArtifact } from './helpers.js'
 import { Resolution } from './Resolution.js'
 
 /** Captures built ESM and a separate strip-only consumer adapter in a fresh worker.
@@ -33,8 +34,6 @@ export class Artifacts {
 	#inventory: ArtifactInventory | undefined
 	#sources: readonly ArtifactSource[] = []
 	#token: string | undefined
-	#visits = 0
-	#bytes = 0
 
 	/** Captures selections without reading or executing selected modules.
 	 * @param options - Canonical built selections and optional consumer source selection.
@@ -72,8 +71,7 @@ export class Artifacts {
 		)
 			throw new ArtifactError('Artifact instrument must be an admitted package root')
 		const sources = this.#capture()
-		const packages: ArtifactPackage[] = []
-		for (const root of [...this.#options.roots].sort()) {
+		const packages = [...this.#options.roots].sort().map((root, index, sorted): ArtifactPackage => {
 			const manifest = sources.find((file) => file.path === join(root, 'package.json'))
 			if (manifest === undefined) throw new ArtifactError(`Artifact manifest is missing: ${root}`)
 			const value: unknown = JSON.parse(Buffer.from(manifest.source).toString('utf8'))
@@ -84,10 +82,10 @@ export class Artifacts {
 				!isNonEmptyString(value.version)
 			)
 				throw new ArtifactError(`Artifact requires a named, versioned ESM package: ${root}`)
-			if (packages.some((item) => item.root === root))
+			if (sorted.indexOf(root) !== index)
 				throw new ArtifactError(`Artifact package identity is duplicated: ${value.name}`)
-			packages.push(Object.freeze({ root, name: value.name, version: value.version }))
-		}
+			return Object.freeze({ root, name: value.name, version: value.version })
+		})
 		for (const entry of this.#options.entries) {
 			if (
 				!['.js', '.mjs'].includes(extname(entry)) ||
@@ -195,21 +193,28 @@ export class Artifacts {
 		return namespace
 	}
 
+	// Captures every root's manifest and built files, then the optional source graph, threading the visit and byte tally through each step.
 	#capture(): ArtifactSource[] {
-		this.#visits = 0
-		this.#bytes = 0
 		const sources: ArtifactSource[] = []
-		for (const root of this.#options.roots) {
-			if (
-				!isAbsolute(root) ||
-				resolve(root) !== root ||
-				realpathSync(root) !== root ||
-				!lstatSync(root).isDirectory()
-			)
-				throw new ArtifactError(`Artifact requires a canonical package root: ${root}`)
-			this.#append(join(root, 'package.json'), sources)
-			this.#walk(join(root, 'dist'), sources, false, 0)
-		}
+		const tally = this.#options.roots.reduce<ArtifactTally>(
+			(counted, root) => {
+				if (
+					!isAbsolute(root) ||
+					resolve(root) !== root ||
+					realpathSync(root) !== root ||
+					!lstatSync(root).isDirectory()
+				)
+					throw new ArtifactError(`Artifact requires a canonical package root: ${root}`)
+				return this.#walk(
+					join(root, 'dist'),
+					sources,
+					false,
+					0,
+					this.#append(join(root, 'package.json'), sources, counted),
+				)
+			},
+			Object.freeze({ visits: 0, bytes: 0 }),
+		)
 		const source = this.#options.source
 		if (source !== undefined) {
 			if (
@@ -221,20 +226,28 @@ export class Artifacts {
 				)
 			)
 				throw new ArtifactError('Artifact source and built inventories must not overlap')
-			this.#walk(source.root, sources, true, 0)
+			this.#walk(source.root, sources, true, 0, tally)
 		}
 		return sources
 	}
 
-	#append(path: string, sources: ArtifactSource[]): void {
+	// Reads one admitted file under the bytes that remain and returns the tally including it.
+	#append(path: string, sources: ArtifactSource[], tally: ArtifactTally): ArtifactTally {
 		if (sources.length >= ARTIFACT_FILES)
 			throw new ArtifactError('Artifact file count limit exceeded')
-		const file = readArtifact(path, ARTIFACT_BYTES - this.#bytes)
-		this.#bytes += file.size
+		const file = readArtifact(path, ARTIFACT_BYTES - tally.bytes)
 		sources.push(file)
+		return Object.freeze({ visits: tally.visits, bytes: tally.bytes + file.size })
 	}
 
-	#walk(directory: string, sources: ArtifactSource[], source: boolean, depth: number): void {
+	// Visits a directory's entries lazily, so a limit refusal stops reading it, and returns the tally including its subtree.
+	#walk(
+		directory: string,
+		sources: ArtifactSource[],
+		source: boolean,
+		depth: number,
+		tally: ArtifactTally,
+	): ArtifactTally {
 		if (depth > ARTIFACT_DEPTH) throw new ArtifactError('Artifact directory depth limit exceeded')
 		if (
 			!isAbsolute(directory) ||
@@ -245,22 +258,23 @@ export class Artifacts {
 			throw new ArtifactError(`Artifact directory must be canonical and not linked: ${directory}`)
 		const handle = opendirSync(directory)
 		try {
-			for (let entry = handle.readSync(); entry !== null; entry = handle.readSync()) {
-				if (++this.#visits > ARTIFACT_VISITS)
+			return iterateArtifactEntries(handle).reduce<ArtifactTally>((counted, entry) => {
+				const visited = Object.freeze({ visits: counted.visits + 1, bytes: counted.bytes })
+				if (visited.visits > ARTIFACT_VISITS)
 					throw new ArtifactError('Artifact traversal limit exceeded')
 				const path = join(directory, entry.name)
 				if (entry.isSymbolicLink())
 					throw new ArtifactError(`Artifact links are unsupported: ${path}`)
-				if (entry.isDirectory()) this.#walk(path, sources, source, depth + 1)
-				else if (
-					(source ? ['.ts', '.mts', '.js', '.mjs'] : ['.js', '.mjs', '.cjs', '.json']).includes(
-						extname(path),
-					) &&
+				if (entry.isDirectory()) return this.#walk(path, sources, source, depth + 1, visited)
+				return (source
+					? ['.ts', '.mts', '.js', '.mjs']
+					: ['.js', '.mjs', '.cjs', '.json']
+				).includes(extname(path)) &&
 					!path.endsWith('.d.ts') &&
 					!path.endsWith('.d.mts')
-				)
-					this.#append(path, sources)
-			}
+					? this.#append(path, sources, visited)
+					: visited
+			}, tally)
 		} finally {
 			handle.closeSync()
 		}

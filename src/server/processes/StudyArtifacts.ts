@@ -87,9 +87,10 @@ export class StudyArtifacts {
 		if (this.#loader === undefined)
 			throw new StudyError('CONFIG', 'Artifact inspection is required')
 		const profile = this.#options.profile
-		const namespaces = new Map<string, unknown>()
+		const loaded: Array<readonly [string, unknown]> = []
 		for (const entry of collectStudyEntries(profile))
-			namespaces.set(entry, await this.#loader.load(entry))
+			loaded.push([entry, await this.#loader.load(entry)])
+		const namespaces = new Map(loaded)
 		this.verify()
 		const provider = profile.provider
 		return Object.freeze({

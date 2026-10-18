@@ -21,24 +21,25 @@ export function buildStudyOllamaOptions(
 	options: StudyOllamaTransportOptions,
 ): StudyOllamaTransportOptions {
 	const { url, room, limit, models, roles, signal, observe, timing } = options
-	const owned: Record<string, StudyOllamaModel> = {}
-	for (const [label, model] of Object.entries(models)) {
-		const { name, digest } = model
-		owned[label] = Object.freeze({ name, digest })
-	}
-	const policies: Partial<Record<StudyOllamaRole, StudyOllamaPolicy>> = {}
-	for (const role of ['agent', 'summary', 'judge'] as const) {
-		const policy = roles[role]
-		if (policy === undefined) continue
-		const { model, options: wire, think, strict, length } = policy
-		policies[role] = Object.freeze({
-			model,
-			options: Object.freeze({ ...wire }),
-			think,
-			strict,
-			length,
-		})
-	}
+	const owned: Record<string, StudyOllamaModel> = Object.fromEntries(
+		Object.entries(models).map(([label, { name, digest }]) => [
+			label,
+			Object.freeze({ name, digest }),
+		]),
+	)
+	const policies: Partial<Record<StudyOllamaRole, StudyOllamaPolicy>> = Object.fromEntries(
+		(['agent', 'summary', 'judge'] as const).flatMap((role) => {
+			const policy = roles[role]
+			if (policy === undefined) return []
+			const { model, options: wire, think, strict, length } = policy
+			return [
+				[
+					role,
+					Object.freeze({ model, options: Object.freeze({ ...wire }), think, strict, length }),
+				] as const,
+			]
+		}),
+	)
 	const { context, safety } = room
 	const { duration, bytes } = limit
 	return Object.freeze({

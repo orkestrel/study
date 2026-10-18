@@ -409,17 +409,16 @@ export class StudyCommand {
 
 	async #grading(result: StudySealedResult, id: string): Promise<StudyGradingContext> {
 		const directory = join(result.directory, 'grades', id)
-		let raw: Uint8Array
-		try {
-			raw = await readStudyBytes(join(directory, 'grading.json'), STUDY_CUSTODY_BYTES)
-		} catch (error) {
-			if (error instanceof Error && 'code' in error && error.code === 'ENOENT')
-				throw new StudyError(
-					'CUSTODY',
-					`Selected grading is missing: ${join(directory, 'grading.json')}`,
-				)
-			throw error
-		}
+		const raw = await readStudyBytes(join(directory, 'grading.json'), STUDY_CUSTODY_BYTES).catch(
+			(error: unknown) => {
+				if (error instanceof Error && 'code' in error && error.code === 'ENOENT')
+					throw new StudyError(
+						'CUSTODY',
+						`Selected grading is missing: ${join(directory, 'grading.json')}`,
+					)
+				throw error
+			},
+		)
 		if (hashStudyBytes(raw) !== id)
 			throw new StudyError('CUSTODY', 'Selected grading differs from its byte identity')
 		const declared = parseStudyGrading(decodeStudyJSON(raw))
@@ -467,18 +466,16 @@ export class StudyCommand {
 		return isAbsolute(path) ? resolve(path) : resolveStudyPath(this.#root, path)
 	}
 
-	async #temporary(): Promise<string> {
-		let parent = await checkStudyDirectory(this.#root)
-		for (const name of ['tmp', 'studies']) {
-			const directory = join(parent, name)
+	#temporary(): Promise<string> {
+		return ['tmp', 'studies'].reduce(async (previous, name) => {
+			const directory = join(await previous, name)
 			try {
 				await mkdir(directory)
 			} catch (error) {
 				if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error
 			}
-			parent = await checkStudyDirectory(directory)
-		}
-		return parent
+			return checkStudyDirectory(directory)
+		}, checkStudyDirectory(this.#root))
 	}
 
 	async #qualification(preparation: StudyPreparation): Promise<string | undefined> {

@@ -1,6 +1,6 @@
 import type { LedgerGauge, ProviderRequest } from '@orkestrel/agent'
 import type { JSONValue } from '@orkestrel/contract'
-import type { StudyEvidence, StudySinkInterface } from '../../core/types.js'
+import type { StudySinkInterface } from '../../core/types.js'
 import type { StudyAgentDispatch, StudyAgentReading } from '../../core/agents/types.js'
 import type {
 	StudyAgentRole,
@@ -15,6 +15,7 @@ import {
 } from '../../core/agents/helpers.js'
 import { StudyError } from '../../core/errors.js'
 import { buildStudyAgentRevision } from './helpers.js'
+import { StudyAgentTraceGoal } from './StudyAgentTraceGoal.js'
 
 /** Correlates measured Agent requests and retains their evidence across a trial's goals. */
 export class StudyAgentTrace {
@@ -22,11 +23,10 @@ export class StudyAgentTrace {
 	// Dispatch identities per role; one current dispatch cannot be overtaken by another of its role
 	// because the consumer awaits each request before the next of that role.
 	readonly #slots = new Map<StudyAgentRole, StudyAgentDispatch>()
-	#rows: StudyEvidence[] = []
-	#goal: string | undefined
-	#flushing = false
-	#admission: StudyAgentStamp | undefined
-	#refused: unknown
+	// The goal in flight; it joins at `start` and leaves when its flush settles.
+	readonly #goals = new Set<StudyAgentTraceGoal>()
+	// The flushes in flight; a flush joins when it starts and leaves when it settles.
+	readonly #flushes = new Set<Promise<void>>()
 	#ordinal = 0
 	#dispatches = 0
 
@@ -39,7 +39,8 @@ export class StudyAgentTrace {
 
 	/** Reports the active goal; undefined between goals. */
 	get goal(): string | undefined {
-		return this.#goal
+		const [running] = this.#goals
+		return running?.goal
 	}
 
 	/** Begins a goal's rows. Ordinals, dispatch numbers and role identities continue from earlier goals.
@@ -47,11 +48,8 @@ export class StudyAgentTrace {
 	 * @throws StudyError - Thrown with code `CONFIG` when a goal is already active; the active goal and its rows stay unchanged.
 	 */
 	start(goal: string): void {
-		if (this.#goal !== undefined) throw new StudyError('CONFIG', 'Trace goal is already active')
-		this.#rows = []
-		this.#goal = goal
-		this.#admission = undefined
-		this.#refused = undefined
+		if (this.#goals.size !== 0) throw new StudyError('CONFIG', 'Trace goal is already active')
+		this.#goals.add(new StudyAgentTraceGoal(goal))
 	}
 
 	/** Retains one domain row for the active goal, whether or not observation is enabled; a row outside a goal is dropped.
@@ -59,9 +57,8 @@ export class StudyAgentTrace {
 	 * @param value - The JSON evidence value.
 	 */
 	append(event: string, value: JSONValue): void {
-		const goal = this.#goal
-		if (goal === undefined) return
-		this.#rows.push({ event, goal, value })
+		const [running] = this.#goals
+		running?.append(event, value)
 	}
 
 	/** Appends the retained rows in order, including rows added during the flush, and ends the goal even when custody refuses a row.
@@ -70,15 +67,16 @@ export class StudyAgentTrace {
 	 * @throws StudyError - Thrown with code `CONFIG` when another flush is pending; the pending flush is untouched.
 	 */
 	async flush(evidence: StudySinkInterface): Promise<void> {
-		if (this.#goal === undefined) return
-		if (this.#flushing) throw new StudyError('CONFIG', 'Trace flush is already pending')
-		this.#flushing = true
+		const [running] = this.#goals
+		if (running === undefined) return
+		if (this.#flushes.size !== 0) throw new StudyError('CONFIG', 'Trace flush is already pending')
+		const flushing = running.flush(evidence)
+		this.#flushes.add(flushing)
 		try {
-			for (const row of this.#rows) await evidence.append(row)
+			await flushing
 		} finally {
-			this.#rows = []
-			this.#goal = undefined
-			this.#flushing = false
+			this.#goals.delete(running)
+			this.#flushes.delete(flushing)
 		}
 	}
 
@@ -90,13 +88,9 @@ export class StudyAgentTrace {
 	admit(request: ProviderRequest, gauge: LedgerGauge): number {
 		const estimate = this.#options.runtime.estimateRequest(request)
 		const projected = projectStudyAgentRequest(gauge, estimate)
-		this.#admission = this.measure(
-			'admission',
-			'agent',
-			request,
-			{ estimate, projected },
-			undefined,
-		)
+		const stamp = this.measure('admission', 'agent', request, { estimate, projected }, undefined)
+		const [running] = this.#goals
+		running?.admit(stamp)
 		return projected
 	}
 
@@ -108,15 +102,11 @@ export class StudyAgentTrace {
 		const goal = this.#observed()
 		if (goal === undefined) return
 		const dispatch = this.#number('agent', request, reading)
-		this.#rows.push({
-			event: 'estimate',
-			goal,
-			value: {
-				estimate: reading.estimate,
-				projected: reading.projected ?? null,
-				revision: dispatch.revision ?? null,
-				dispatch: dispatch.id,
-			},
+		goal.append('estimate', {
+			estimate: reading.estimate,
+			projected: reading.projected ?? null,
+			revision: dispatch.revision ?? null,
+			dispatch: dispatch.id,
 		})
 	}
 
@@ -139,20 +129,16 @@ export class StudyAgentTrace {
 		if (goal === undefined) return undefined
 		const ordinal = ++this.#ordinal
 		const revision = buildStudyAgentRevision(request) ?? null
-		this.#rows.push({
-			event: 'context',
-			goal,
-			value: {
-				stage,
-				role,
-				ordinal,
-				revision,
-				estimate: reading.estimate,
-				projected: reading.projected ?? null,
-				...(dispatch === undefined ? {} : { dispatch }),
-				parts: buildStudyAgentParts(this.#options.runtime.measureRequest(request)),
-				origins: this.#options.origins(request.messages),
-			},
+		goal.append('context', {
+			stage,
+			role,
+			ordinal,
+			revision,
+			estimate: reading.estimate,
+			projected: reading.projected ?? null,
+			...(dispatch === undefined ? {} : { dispatch }),
+			parts: buildStudyAgentParts(this.#options.runtime.measureRequest(request)),
+			origins: this.#options.origins(request.messages),
 		})
 		return { ordinal, revision }
 	}
@@ -187,8 +173,10 @@ export class StudyAgentTrace {
 	}
 
 	// Reads the active goal only while observation is enabled.
-	#observed(): string | undefined {
-		return this.#options.observe ? this.#goal : undefined
+	#observed(): StudyAgentTraceGoal | undefined {
+		if (!this.#options.observe) return undefined
+		const [running] = this.#goals
+		return running
 	}
 
 	// Numbers the dispatch, retains its context row and makes it the role's current identity.
@@ -207,20 +195,15 @@ export class StudyAgentTrace {
 	// Retains one refusal row per refused error identity in a goal, however many callbacks it traverses.
 	#refuse(error: unknown, translated: unknown): void {
 		const goal = this.#observed()
-		if (translated === error || goal === undefined || this.#refused === error) return
-		this.#refused = error
+		if (translated === error || goal === undefined || !goal.refuse(error)) return
 		const context = this.#options.runtime.isAgentError(error) ? error.context : undefined
-		this.#rows.push({
-			event: 'refusal',
-			goal,
-			value: {
-				cause: 'capacity',
-				role: 'agent',
-				ordinal: this.#admission?.ordinal ?? null,
-				revision: this.#admission?.revision ?? null,
-				consumed: typeof context?.consumed === 'number' ? context.consumed : null,
-				max: typeof context?.max === 'number' ? context.max : null,
-			},
+		goal.append('refusal', {
+			cause: 'capacity',
+			role: 'agent',
+			ordinal: goal.admission?.ordinal ?? null,
+			revision: goal.admission?.revision ?? null,
+			consumed: typeof context?.consumed === 'number' ? context.consumed : null,
+			max: typeof context?.max === 'number' ? context.max : null,
 		})
 	}
 }

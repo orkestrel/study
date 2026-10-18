@@ -1,22 +1,28 @@
 import type { Message, ProviderDelta, ProviderInterface, ProviderResult } from '@orkestrel/agent'
 import type { StudyTicket } from '../../core/types.js'
-import type { StudyAgentPlan, StudyAgentScriptOptions } from './types.js'
-import { cloneJSONValue, isArray, isRecord } from '@orkestrel/contract'
+import type { StudyAgentPlan, StudyAgentResponse, StudyAgentScriptOptions } from './types.js'
+import { cloneJSONValue, isArray } from '@orkestrel/contract'
 import { randomUUID } from 'node:crypto'
 import { StudyError } from '../../core/errors.js'
 import { failStudyTicket } from '../../core/engines/helpers.js'
 import { encodeStudyJSON } from '../helpers.js'
-import { readStudyAgentMessages } from './helpers.js'
+import {
+	resolveStudyAgentContent,
+	readStudyAgentMessages,
+	readStudyAgentResult,
+} from './helpers.js'
 import { isStudyAgentResponse } from './validators.js'
+import { StudyAgentScriptGoal } from './StudyAgentScriptGoal.js'
 
 /** Serves declared inert responses through the actual Agent provider boundary. */
 export class StudyAgentScript implements ProviderInterface {
 	readonly id = randomUUID()
 	readonly name = 'scripted-study'
 	readonly #bytes: number
-	#plan: StudyAgentPlan | undefined
-	#cursor = 0
-	#running = false
+	// The prepared goal; it joins at `prepare` and leaves at `clear`. A running stream keeps the goal it took its response from.
+	readonly #goals = new Set<StudyAgentScriptGoal>()
+	// The responses being served; a response joins when its stream starts and leaves when the stream settles.
+	readonly #serving = new Set<StudyAgentResponse>()
 
 	/**
 	 * Binds the encoded byte bound every served request and response must fit.
@@ -30,13 +36,15 @@ export class StudyAgentScript implements ProviderInterface {
 	}
 
 	/**
-	 * Prepares one goal's declared response sequence and metered operational boundary.
+	 * Prepares one goal's declared response sequence and metered operational boundary until `clear` ends the goal.
 	 * @param plan - The workload's responses and its operational context
 	 * @returns Nothing when the provider is ready
-	 * @throws StudyError - Thrown when a response is still running or a declared response is invalid
+	 * @throws StudyError - Thrown with code `CONFIG` when a response is still running, a goal is already prepared, or a declared response is invalid; a prepared goal stays prepared
 	 */
 	prepare(plan: StudyAgentPlan): void {
-		if (this.#running) throw new StudyError('CONFIG', 'Cannot replace a running scripted workload')
+		if (this.#serving.size !== 0)
+			throw new StudyError('CONFIG', 'Cannot replace a running scripted workload')
+		if (this.#goals.size !== 0) throw new StudyError('CONFIG', 'Scripted goal is already prepared')
 		if (!isArray(plan.responses) || !plan.responses.every(isStudyAgentResponse))
 			throw new StudyError('CONFIG', 'Scripted response sequence is invalid')
 		// Own the declared calls so later caller mutation cannot change a served response; the
@@ -47,8 +55,15 @@ export class StudyAgentScript implements ProviderInterface {
 		}))
 		if (!isArray(owned) || !owned.every(isStudyAgentResponse))
 			throw new StudyError('CONFIG', 'Scripted response sequence is invalid')
-		this.#plan = { ...plan, responses: Object.freeze(owned) }
-		this.#cursor = 0
+		this.#goals.add(new StudyAgentScriptGoal({ ...plan, responses: Object.freeze(owned) }))
+	}
+
+	/**
+	 * Ends the prepared goal so another goal can be prepared; a stream already running keeps serving its own goal.
+	 * @returns Nothing; a provider with no prepared goal stays unprepared
+	 */
+	clear(): void {
+		this.#goals.clear()
 	}
 
 	/**
@@ -58,10 +73,7 @@ export class StudyAgentScript implements ProviderInterface {
 	 * @returns The assembled declared response
 	 */
 	async generate(messages: readonly Message[], signal: AbortSignal): Promise<ProviderResult> {
-		const stream = this.stream(messages, signal)
-		let next = await stream.next()
-		while (!next.done) next = await stream.next()
-		return next.value
+		return readStudyAgentResult(this.stream(messages, signal))
 	}
 
 	/**
@@ -72,34 +84,24 @@ export class StudyAgentScript implements ProviderInterface {
 	 * @remarks
 	 * A stream abandoned after admission, for example by `return`, fails its admitted request with the
 	 * run signal's reason, or a `FAULT` when the signal carries none, and never finishes it as success.
-	 * @throws StudyError - Thrown when responses are exhausted or admission fails
+	 * @throws StudyError - Thrown with code `CONFIG` when no goal is prepared, another response is running, or the responses are exhausted; thrown with the meter's refusal when admission fails
 	 */
 	async *stream(
 		messages: readonly Message[],
 		signal: AbortSignal,
 	): AsyncGenerator<ProviderDelta, ProviderResult> {
-		const plan = this.#plan
-		if (plan === undefined || this.#running)
+		const [goal] = this.#goals
+		if (goal === undefined || this.#serving.size !== 0)
 			throw new StudyError('CONFIG', 'Scripted provider is unavailable')
-		const response = plan.responses[this.#cursor]
+		const response = goal.take()
 		if (response === undefined)
 			throw new StudyError('CONFIG', 'Scripted provider response sequence is exhausted')
-		this.#cursor++
-		this.#running = true
-		let ticket: StudyTicket | undefined
+		const plan = goal.plan
+		this.#serving.add(response)
 		const started = performance.now()
 		try {
 			const request = readStudyAgentMessages(messages)
-			let content = response.content
-			if (response.consume !== undefined) {
-				const prior = request.findLast(
-					(message) =>
-						isRecord(message) && message.role === 'tool' && message.call === response.consume,
-				)
-				if (!isRecord(prior) || typeof prior.content !== 'string')
-					throw new StudyError('FAULT', 'Continuation has no actual referenced tool result')
-				content = prior.content
-			}
+			const content = resolveStudyAgentContent(request, response)
 			const result: ProviderResult = {
 				content,
 				...(response.calls.length === 0 ? {} : { tools: response.calls }),
@@ -107,79 +109,81 @@ export class StudyAgentScript implements ProviderInterface {
 			const bytes = encodeStudyJSON({ request, response: result }).byteLength
 			if (bytes > this.#bytes)
 				throw new StudyError('CAPACITY', 'Scripted request exceeds its encoded workload bound')
+			const ticket = await this.#admit(plan, response)
 			try {
-				ticket = await plan.context.meter.admit({
-					role: 'agent',
-					tokens: response.tokens ?? 1,
-					bytes: response.bytes ?? this.#bytes,
-				})
-			} catch (error) {
+				const bounded = AbortSignal.any([
+					signal,
+					plan.context.signal,
+					plan.context.meter.signal,
+					ticket.signal,
+				])
+				bounded.throwIfAborted()
 				await plan.context.evidence.append({
-					event: 'admission',
+					event: 'provider',
 					goal: plan.goal,
-					value: { role: 'agent', refused: true },
-				})
-				throw error
-			}
-			const bounded = AbortSignal.any([
-				signal,
-				plan.context.signal,
-				plan.context.meter.signal,
-				ticket.signal,
-			])
-			bounded.throwIfAborted()
-			await plan.context.evidence.append({
-				event: 'provider',
-				goal: plan.goal,
-				value: {
-					request,
-					response: {
-						content,
-						calls: response.calls.map((call) => ({
-							id: call.id,
-							name: call.name,
-							arguments: cloneJSONValue(call.arguments),
-						})),
+					value: {
+						request,
+						response: {
+							content,
+							calls: response.calls.map((call) => ({
+								id: call.id,
+								name: call.name,
+								arguments: cloneJSONValue(call.arguments),
+							})),
+						},
 					},
-				},
-			})
-			if (content.length > 0) yield { channel: 'content', text: content }
-			bounded.throwIfAborted()
-			ticket.finish({
-				role: 'agent',
-				calls: 1,
-				tokens: undefined,
-				bytes,
-				duration: Math.ceil(performance.now() - started),
-			})
-			if (response.cancel === true) {
-				await plan.context.evidence.append({
-					event: 'workload',
-					goal: plan.goal,
-					value: { cancelled: true },
 				})
-				plan.workload.abort(new Error('Declared workload cancellation'))
-			}
-			return result
-		} catch (error) {
-			// Clear the ticket before settling so the finally below never settles it a second time.
-			const failed = ticket
-			ticket = undefined
-			if (failed !== undefined) failStudyTicket(failed, error, 'agent')
-			throw error
-		} finally {
-			try {
-				// A consumer that abandons the stream leaves an admitted request unsettled; it never counts as success.
-				if (ticket !== undefined && !ticket.settled)
-					failStudyTicket(
-						ticket,
-						signal.reason ??
-							new StudyError('FAULT', 'Scripted response was abandoned before completion'),
-						'agent',
-					)
+				if (content.length > 0) yield { channel: 'content', text: content }
+				bounded.throwIfAborted()
+				ticket.finish({
+					role: 'agent',
+					calls: 1,
+					tokens: undefined,
+					bytes,
+					duration: Math.ceil(performance.now() - started),
+				})
+				if (response.cancel === true) {
+					await plan.context.evidence.append({
+						event: 'workload',
+						goal: plan.goal,
+						value: { cancelled: true },
+					})
+					plan.workload.abort(new Error('Declared workload cancellation'))
+				}
+				return result
+			} catch (error) {
+				failStudyTicket(ticket, error, 'agent')
+				throw error
 			} finally {
-				this.#running = false
+				// A consumer that abandons the stream leaves an admitted request unsettled; it never counts as success.
+				// A settled ticket is left untouched, so the failure above is never recorded twice.
+				failStudyTicket(
+					ticket,
+					signal.reason ??
+						new StudyError('FAULT', 'Scripted response was abandoned before completion'),
+					'agent',
+				)
 			}
+		} finally {
+			this.#serving.delete(response)
+		}
+	}
+
+	// Admits the response's ceiling, retaining a refused admission as evidence before rethrowing it.
+	async #admit(plan: StudyAgentPlan, response: StudyAgentResponse): Promise<StudyTicket> {
+		try {
+			return await plan.context.meter.admit({
+				role: 'agent',
+				tokens: response.tokens ?? 1,
+				bytes: response.bytes ?? this.#bytes,
+			})
+		} catch (error) {
+			await plan.context.evidence.append({
+				event: 'admission',
+				goal: plan.goal,
+				value: { role: 'agent', refused: true },
+			})
+			throw error
 		}
 	}
 }

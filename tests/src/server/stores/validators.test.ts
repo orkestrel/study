@@ -1,5 +1,6 @@
 import type { StudyFailure, StudyObservation } from '../../../../src/core/types.js'
 import { isRecord } from '@orkestrel/contract'
+import { createRecorder } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
 	buildCompactCustodyManifest,
@@ -33,16 +34,16 @@ describe('custody validators', () => {
 				}),
 			),
 		).toBe(false)
-		let reads = 0
+		const reads = createRecorder<[]>()
 		const evidence = Object.defineProperty({ goal: 'write', value: true }, 'event', {
 			enumerable: true,
 			get() {
-				reads++
+				reads.handler()
 				return 'saved'
 			},
 		})
 		expect(isStudyCustodyEvidence(evidence)).toBe(false)
-		expect(reads).toBe(0)
+		expect(reads.count).toBe(0)
 		expect(
 			isStudyCustodyEvidence({
 				event: 'saved',

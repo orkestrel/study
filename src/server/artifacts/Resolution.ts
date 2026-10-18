@@ -69,29 +69,7 @@ export class Resolution {
 				throw new ArtifactError(`Artifact manifest drifted: ${file.path}`)
 		}
 		const source = this.#input.source
-		let target = initial
-		if (
-			source !== undefined &&
-			parent?.protocol === 'file:' &&
-			containsArtifact(source.root, fileURLToPath(parent)) &&
-			(specifier.startsWith('./') || specifier.startsWith('../'))
-		) {
-			target = new URL(specifier, parent)
-			if (target.search !== '' || target.hash !== '')
-				throw new ArtifactError(`Artifact source URL is unsupported: ${specifier}`)
-			const path = fileURLToPath(target)
-			if (!containsArtifact(source.root, path))
-				throw new ArtifactError(`Artifact source dependency escapes its root: ${specifier}`)
-			const extension = extname(path)
-			if (extension === '.js' || extension === '.mjs') {
-				const substitute = `${path.slice(0, -extension.length)}${extension === '.js' ? '.ts' : '.mts'}`
-				if (this.#files.has(substitute)) {
-					if (this.#files.has(path))
-						throw new ArtifactError(`Artifact source target is ambiguous: ${path}`)
-					target = pathToFileURL(substitute)
-				}
-			}
-		}
+		const target = this.#locate(specifier, parent, initial)
 		if (
 			source !== undefined &&
 			target?.protocol === 'file:' &&
@@ -169,5 +147,31 @@ export class Resolution {
 					: new Uint8Array(file.source),
 			shortCircuit: true,
 		}
+	}
+
+	// Locates a source-local relative edge, substituting the captured TypeScript twin of a
+	// JavaScript specifier; any other edge keeps its initial target.
+	#locate(specifier: string, parent: URL | undefined, initial: URL | undefined): URL | undefined {
+		const source = this.#input.source
+		if (
+			source === undefined ||
+			parent?.protocol !== 'file:' ||
+			!containsArtifact(source.root, fileURLToPath(parent)) ||
+			!(specifier.startsWith('./') || specifier.startsWith('../'))
+		)
+			return initial
+		const target = new URL(specifier, parent)
+		if (target.search !== '' || target.hash !== '')
+			throw new ArtifactError(`Artifact source URL is unsupported: ${specifier}`)
+		const path = fileURLToPath(target)
+		if (!containsArtifact(source.root, path))
+			throw new ArtifactError(`Artifact source dependency escapes its root: ${specifier}`)
+		const extension = extname(path)
+		if (extension !== '.js' && extension !== '.mjs') return target
+		const substitute = `${path.slice(0, -extension.length)}${extension === '.js' ? '.ts' : '.mts'}`
+		if (!this.#files.has(substitute)) return target
+		if (this.#files.has(path))
+			throw new ArtifactError(`Artifact source target is ambiguous: ${path}`)
+		return pathToFileURL(substitute)
 	}
 }

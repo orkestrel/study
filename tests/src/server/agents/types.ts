@@ -21,10 +21,11 @@ export interface StudySinkFixtureOptions {
 	readonly during?: () => void | Promise<void>
 }
 
-/** Holds an evidence sink and the rows it accepted in order. */
+/** Holds an evidence sink, the rows it accepted in order, and every row offered to it, a refused one included. */
 export interface StudySinkFixture {
 	readonly sink: StudySinkInterface
 	readonly rows: readonly StudyEvidence[]
+	readonly offered: readonly StudyEvidence[]
 }
 
 /** Holds a real trace and the recorded failure owner it latches through. */

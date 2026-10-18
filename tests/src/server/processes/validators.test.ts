@@ -1,3 +1,4 @@
+import { createRecorder } from '@orkestrel/test'
 import { buildStudyManifest } from '../../../setupStudy.js'
 import { STUDY_PROCESS_GUARDS } from '../../../setupServer.js'
 import { describe, expect, it } from 'vitest'
@@ -13,12 +14,12 @@ import {
 describe('process validators', () => {
 	it('contains hostile property reads after admitting a plain record', () => {
 		for (const guard of STUDY_PROCESS_GUARDS) {
-			let reads = 0
+			const reads = createRecorder<[]>()
 			const hostile = new Proxy(
 				{},
 				{
 					get() {
-						reads++
+						reads.handler()
 						throw new Error('Hostile property read')
 					},
 				},
@@ -26,7 +27,7 @@ describe('process validators', () => {
 			// Frame reads only after its enumerable-key cardinality passes.
 			Object.assign(hostile, { id: 0, operation: 'goal', value: true })
 			expect(guard(hostile)).toBe(false)
-			expect(reads).toBeGreaterThan(0)
+			expect(reads.count).toBeGreaterThan(0)
 			const revoked = Proxy.revocable({}, {})
 			revoked.revoke()
 			expect(guard(revoked.proxy)).toBe(false)
@@ -34,18 +35,18 @@ describe('process validators', () => {
 	})
 
 	it('contains throwing enumerable-key traps in transport envelopes', () => {
-		let reads = 0
+		const reads = createRecorder<[]>()
 		const hostile = new Proxy(
 			{},
 			{
 				ownKeys() {
-					reads++
+					reads.handler()
 					throw new Error('Hostile key read')
 				},
 			},
 		)
 		expect(isStudyFrame(hostile)).toBe(false)
-		expect(reads).toBe(1)
+		expect(reads.count).toBe(1)
 	})
 
 	it('refuses foreign envelopes and invalid domain leaves', () => {

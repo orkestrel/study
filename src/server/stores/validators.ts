@@ -251,13 +251,15 @@ export function isStudyCustodyAttempt(
 			!value.observations.every((entry) => entry.executed && entry.failure === undefined)
 		)
 			return false
-		let admitting = executed
-		for (const observation of value.observations) {
-			if (!observation.executed) admitting = false
-			else if (admitting) admitting = observation.failure === undefined
-			else return false
-		}
-		return true
+		// An executed goal needs an executed attempt and no earlier goal that was unexecuted or failed,
+		// so it lies at or before the first goal that was unexecuted or failed.
+		const observations = value.observations
+		const stop = observations.findIndex(
+			(observation) => !observation.executed || observation.failure !== undefined,
+		)
+		return observations.every(
+			(observation, index) => !observation.executed || (executed && (stop === -1 || index <= stop)),
+		)
 	})
 }
 

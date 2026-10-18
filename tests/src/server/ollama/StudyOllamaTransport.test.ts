@@ -1,7 +1,7 @@
 import type { JudgeInterface } from '@orkestrel/agent'
 import { describe, expect, it } from 'vitest'
 import { parseJSON } from '@orkestrel/contract'
-import { captureError, requireValue } from '@orkestrel/test'
+import { captureError, createRecorder, requireValue } from '@orkestrel/test'
 import { StudyAgentJudge } from '../../../../src/core/agents/StudyAgentJudge.js'
 import { StudyError } from '../../../../src/core/errors.js'
 import { readStudyFailure } from '../../../../src/core/engines/helpers.js'
@@ -23,6 +23,7 @@ import {
 	STUDY_OLLAMA_STATUS_FAILURES,
 	buildOllamaStrictRoles,
 	buildOllamaTransportOptions,
+	createOllamaContext,
 	createOllamaTransportFixture,
 	createOllamaTransportProvider,
 } from '../../../setupServer.js'
@@ -787,34 +788,207 @@ describe('StudyOllamaTransport', () => {
 		async (_name, thrown) => {
 			const fixture = await createOllamaTransportFixture()
 			try {
-				let calls = 0
+				const calls = createRecorder<[]>()
 				const failing: JudgeInterface = {
 					id: 'judge',
 					name: 'ollama',
 					model: 'judge',
 					ask: () => {
-						calls += 1
+						calls.handler()
 						return Promise.reject(thrown)
 					},
 				}
 				const judge = new StudyAgentJudge(failing, fixture.transport)
 				const signal = new AbortController().signal
 				const outcomes: Array<{ readonly error: unknown }> = []
-				for (let attempt = 0; attempt < 2; attempt += 1) {
+				for (const request of [STUDY_JUDGE_REQUEST, STUDY_JUDGE_REQUEST]) {
 					try {
-						await judge.ask(STUDY_JUDGE_REQUEST, signal)
+						await judge.ask(request, signal)
 					} catch (error) {
 						outcomes.push({ error })
 					}
 				}
 				expect(outcomes).toHaveLength(2)
 				for (const outcome of outcomes) expect(outcome.error).toBe(thrown)
-				expect(calls).toBe(1)
+				expect(calls.count).toBe(1)
 			} finally {
 				await fixture.close()
 			}
 		},
 	)
+
+	describe('goal binding', () => {
+		const unbound = { code: 'FAULT', message: 'Model dispatch outside an active goal' }
+
+		it('refuses dispatch and verification with no bound goal, before admission or any request', async () => {
+			const transport = new StudyOllamaTransport(buildOllamaTransportOptions('http://127.0.0.1:1'))
+			try {
+				await expect(
+					transport.fetch('agent', 'http://127.0.0.1:1/api/chat', {
+						method: 'POST',
+						body: STUDY_OLLAMA_CHAT_BODY,
+					}),
+				).rejects.toMatchObject(unbound)
+				expect(() => transport.check()).not.toThrow()
+				await expect(transport.verify()).rejects.toMatchObject(unbound)
+				expect(captureError(() => transport.check())).toMatchObject(unbound)
+			} finally {
+				await transport.close()
+			}
+		})
+
+		it('ends the bound goal on clear, refuses later dispatch, and binds the next prepared goal', async () => {
+			const reply = buildOllamaStream(['ok'], { prompt: 1, completion: 1 })
+			const fixture = await createOllamaTransportFixture([{ path: '/api/chat', body: reply }])
+			try {
+				fixture.transport.clear()
+				await expect(
+					fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+						method: 'POST',
+						body: STUDY_OLLAMA_CHAT_BODY,
+					}),
+				).rejects.toMatchObject(unbound)
+				expect(fixture.server.requests).toEqual([])
+				expect(fixture.goal.usage()).toEqual([])
+				expect(fixture.goal.evidence).toEqual([])
+				expect(() => fixture.transport.clear()).not.toThrow()
+				fixture.transport.prepare({
+					goal: 'again',
+					context: fixture.goal.context,
+					checkpoint: undefined,
+				})
+				const provider = createOllamaTransportProvider(fixture.transport, fixture.server.url)
+				const result = await provider.generate(STUDY_AGENT_MESSAGES, new AbortController().signal)
+				expect(result.content).toBe('ok')
+				expect(fixture.goal.evidence.map((row) => [row.event, row.goal])).toEqual([
+					['dispatch', 'again'],
+					['wire', 'again'],
+				])
+				await fixture.transport.close()
+				expect(() => fixture.transport.clear()).not.toThrow()
+			} finally {
+				await fixture.close()
+			}
+		})
+
+		it('refuses a second preparation while a goal is bound and keeps the bound goal', async () => {
+			const reply = buildOllamaStream(['ok'], { prompt: 1, completion: 1 })
+			const fixture = await createOllamaTransportFixture([{ path: '/api/chat', body: reply }])
+			try {
+				const next = { goal: 'second', context: fixture.goal.context, checkpoint: undefined }
+				expect(captureError(() => fixture.transport.prepare(next))).toMatchObject({
+					code: 'FAULT',
+					message: 'Previous goal is still bound',
+				})
+				expect(() => fixture.transport.check()).not.toThrow()
+				const provider = createOllamaTransportProvider(fixture.transport, fixture.server.url)
+				await provider.generate(STUDY_AGENT_MESSAGES, new AbortController().signal)
+				expect(fixture.goal.evidence.map((row) => [row.event, row.goal])).toEqual([
+					['dispatch', 'first'],
+					['wire', 'first'],
+				])
+			} finally {
+				await fixture.close()
+			}
+		})
+
+		it('binds each goal evidence and checkpoint to its own goal and carries the previous model across goals', async () => {
+			const reply = buildOllamaStream(['ok'], { prompt: 1, completion: 1 })
+			const fixture = await createOllamaTransportFixture(
+				[
+					{ path: '/api/chat', body: reply },
+					{ path: '/api/chat', body: reply },
+					{ path: '/api/chat', body: reply },
+				],
+				{ observe: true },
+				{ view: 'first' },
+			)
+			const second = createOllamaContext()
+			try {
+				const provider = createOllamaTransportProvider(fixture.transport, fixture.server.url)
+				const signal = new AbortController().signal
+				await provider.generate(STUDY_AGENT_MESSAGES, signal)
+				fixture.transport.clear()
+				fixture.transport.prepare({
+					goal: 'second',
+					context: second.context,
+					checkpoint: { view: 'second' },
+				})
+				await provider.generate(STUDY_AGENT_MESSAGES, signal)
+				await provider.generate(STUDY_AGENT_MESSAGES, signal)
+				const opened = fixture.goal.evidence
+					.filter((row) => row.event === 'dispatch')
+					.map((row) => requireStudyRecord(row.value))
+				const resumed = second.evidence
+					.filter((row) => row.event === 'dispatch')
+					.map((row) => requireStudyRecord(row.value))
+				expect(opened).toHaveLength(1)
+				expect(opened[0]).toMatchObject({ id: 1, previous: null, snapshot: { view: 'first' } })
+				const [carried, later] = resumed
+				expect(carried).toMatchObject({
+					id: 2,
+					previous: 'model',
+					changed: false,
+					snapshot: { view: 'second' },
+				})
+				expect(later).toMatchObject({ id: 3 })
+				expect(later).not.toHaveProperty('snapshot')
+				expect(fixture.goal.evidence.every((row) => row.goal === 'first')).toBe(true)
+				expect(second.evidence.every((row) => row.goal === 'second')).toBe(true)
+				expect(second.evidence.map((row) => row.event)).toEqual([
+					'dispatch',
+					'wire',
+					'dispatch',
+					'wire',
+				])
+			} finally {
+				await fixture.close()
+				second.close()
+			}
+		})
+
+		it('attaches each goal checkpoint to that goal own first dispatch when the next goal is prepared during an admission', async () => {
+			const reply = buildOllamaStream(['ok'], { prompt: 1, completion: 1 })
+			const fixture = await createOllamaTransportFixture(
+				[
+					{ path: '/api/chat', body: reply },
+					{ path: '/api/chat', body: reply },
+				],
+				{ observe: true },
+				{ view: 'first' },
+			)
+			const second = createOllamaContext()
+			try {
+				const url = `${fixture.server.url}/api/chat`
+				const init = { method: 'POST', body: STUDY_OLLAMA_CHAT_BODY }
+				const pending = fixture.transport.fetch('agent', url, init)
+				// Both calls pass: no wire exists yet, so the request is suspended in its admission.
+				fixture.transport.clear()
+				fixture.transport.prepare({
+					goal: 'second',
+					context: second.context,
+					checkpoint: { view: 'second' },
+				})
+				await (await pending).text()
+				await (await fixture.transport.fetch('agent', url, init)).text()
+				expect(fixture.goal.evidence.map((row) => [row.event, row.goal])).toEqual([
+					['dispatch', 'first'],
+					['wire', 'first'],
+				])
+				expect(requireStudyRecord(fixture.goal.evidence[0]?.value).snapshot).toEqual({
+					view: 'first',
+				})
+				expect(second.evidence.map((row) => [row.event, row.goal])).toEqual([
+					['dispatch', 'second'],
+					['wire', 'second'],
+				])
+				expect(requireStudyRecord(second.evidence[0]?.value).snapshot).toEqual({ view: 'second' })
+			} finally {
+				await fixture.close()
+				second.close()
+			}
+		})
+	})
 
 	it('refuses a role policy whose model the inventory does not pin at construction', () => {
 		const options = buildOllamaTransportOptions('http://127.0.0.1:1')
