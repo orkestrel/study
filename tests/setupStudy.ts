@@ -156,6 +156,9 @@ export const STUDY_ADMISSION_CASES: readonly StudyAdmissionCase[] = Object.freez
 	},
 ])
 
+/** Supplies the admission case's durations in milliseconds. The request duration also bounds each custody write, so it stays wide enough for a loaded filesystem; the synchronous wait outlasts the goal duration before any timer can fire. */
+export const STUDY_ADMISSION_DURATIONS = Object.freeze({ request: 400, goal: 400, wait: 500 })
+
 /** Supplies malformed command tokens that must refuse before custody or child work. */
 export const STUDY_COMMAND_INVALID_ARGUMENTS: ReadonlyArray<readonly string[]> = Object.freeze([
 	[],

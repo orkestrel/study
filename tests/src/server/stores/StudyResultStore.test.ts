@@ -17,6 +17,7 @@ import {
 	buildStudyObservation,
 	createStudyDriverFixture,
 	STUDY_ADMISSION_CASES,
+	STUDY_ADMISSION_DURATIONS,
 	STUDY_CUSTODY_MUTATIONS,
 } from '../../../setupStudy.js'
 
@@ -251,14 +252,20 @@ describe('StudyResultStore', () => {
 					...baseline,
 					bounds: {
 						...baseline.bounds,
-						request: { ...baseline.bounds.request, duration: 25 },
-						goal: { ...baseline.bounds.goal, duration: 50 },
+						request: { ...baseline.bounds.request, duration: STUDY_ADMISSION_DURATIONS.request },
+						goal: { ...baseline.bounds.goal, duration: STUDY_ADMISSION_DURATIONS.goal },
 					},
 				}
 				// The synchronous wait outlasts the goal duration before any timer can fire.
 				const driver = createStudyDriverFixture({
 					execute: async (): Promise<StudyProduct> => {
-						if (expired) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
+						if (expired)
+							Atomics.wait(
+								new Int32Array(new SharedArrayBuffer(4)),
+								0,
+								0,
+								STUDY_ADMISSION_DURATIONS.wait,
+							)
 						return { value: oversized ? 'x'.repeat(100) : 'ok', partial: true }
 					},
 				})
