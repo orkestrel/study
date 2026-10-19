@@ -1,3 +1,5 @@
+import { STUDY_STOP_CAUSES, STUDY_OTHER_CAUSES } from '../../../setupStudy.js'
+import { buildStudyStop, STUDY_INVALID_STOPS } from '../../../setupStudy.js'
 import { createRecorder } from '@orkestrel/test'
 import { buildStudyManifest } from '../../../setupStudy.js'
 import { STUDY_PROCESS_GUARDS } from '../../../setupServer.js'
@@ -89,4 +91,14 @@ describe('process validators', () => {
 		expect(isStudyIdentity(unselected)).toBe(false)
 		expect(isStudyIdentity({ ...unselected, agent: 'unknown' })).toBe(false)
 	})
+})
+
+it('admits only capacity and deadline IPC stops with a valid owned shape', () => {
+	for (const cause of STUDY_STOP_CAUSES)
+		expect(isStudyProcessFailure({ cause, message: 'Capped', stop: buildStudyStop() })).toBe(true)
+	expect(isStudyProcessFailure({ cause: 'capacity', message: 'Legacy' })).toBe(true)
+	for (const cause of STUDY_OTHER_CAUSES)
+		expect(isStudyProcessFailure({ cause, message: 'Capped', stop: buildStudyStop() })).toBe(false)
+	for (const stop of STUDY_INVALID_STOPS)
+		expect(isStudyProcessFailure({ cause: 'capacity', message: 'Capped', stop })).toBe(false)
 })

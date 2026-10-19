@@ -6,8 +6,10 @@ import type {
 	StudyRubric,
 	StudyScenario,
 	StudyScore,
+	StudyStop,
 	StudyTrial,
 } from './types.js'
+import type { JSONValue } from '@orkestrel/contract'
 import { holds, canonicalStringify, isRecord } from '@orkestrel/contract'
 import { StudyError } from './errors.js'
 import {
@@ -50,6 +52,25 @@ export function normalizeStudyProfile(profile: StudyProfile): Readonly<Record<st
 			: { provider: { ...omitStudyAbsent(provider), digest: omitStudyAbsent(provider.digest) } }),
 		...(qualification === undefined ? {} : { qualification }),
 		...(settings === undefined ? {} : { settings }),
+	}
+}
+
+/**
+ * Projects a stop onto JSON with every unreported reading as null.
+ * @param stop - The ceiling that stopped a run
+ * @returns The stop's layer, id, and readings, with an undefined `max` or `consumed` as null
+ * @example
+ * ```ts
+ * studyStopToJSON({ layer: 'model', id: 'num_predict', max: 2048, consumed: undefined })
+ * // { layer: 'model', id: 'num_predict', max: 2048, consumed: null }
+ * ```
+ */
+export function studyStopToJSON(stop: StudyStop): JSONValue {
+	return {
+		layer: stop.layer,
+		id: stop.id,
+		max: stop.max ?? null,
+		consumed: stop.consumed ?? null,
 	}
 }
 

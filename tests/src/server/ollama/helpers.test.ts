@@ -28,6 +28,7 @@ import {
 	STUDY_OLLAMA_FAILURE_CASES,
 	STUDY_OLLAMA_NO_FAILURES,
 	buildOllamaTransportOptions,
+	STUDY_OLLAMA_NATIVE_ERROR,
 } from '../../../setupServer.js'
 
 const options = buildOllamaTransportOptions(STUDY_OLLAMA_ORIGIN)
@@ -124,6 +125,11 @@ describe('buildStudyOllamaOptions', () => {
 })
 
 describe('readStudyOllamaFailure', () => {
+	it('retains the native model context limit and prompt reading', () => {
+		expect(
+			readStudyOllamaFailure({ error: STUDY_OLLAMA_NATIVE_ERROR }, 'summary')?.failure?.stop,
+		).toEqual({ layer: 'model', id: 'num_ctx', max: 2048, consumed: 8204 })
+	})
 	it.each(STUDY_OLLAMA_FAILURE_CASES)('reads $name as $code', ({ value, status, code, reason }) => {
 		const failure = readStudyOllamaFailure(value, 'summary', status)
 		expect(failure).toBeInstanceOf(StudyError)
@@ -131,6 +137,10 @@ describe('readStudyOllamaFailure', () => {
 		expect(failure?.failure).toMatchObject({
 			cause: code === 'CAPACITY' ? 'capacity' : 'infrastructure',
 			role: 'summary',
+			stop:
+				code === 'CAPACITY'
+					? { layer: 'model', id: 'num_ctx', max: 2048, consumed: 8204 }
+					: undefined,
 		})
 		for (const fragment of reason) expect(failure?.message).toContain(fragment)
 	})
@@ -203,6 +213,68 @@ describe('readStudyOllamaTerminal', () => {
 })
 
 describe('validateStudyOllamaCompletion', () => {
+	it('retains each completion ceiling and leaves an unreported completion unknown', () => {
+		const window = captureError(() =>
+			validateStudyOllamaCompletion(
+				{ prompt: 32129, completion: 2, reason: 'stop' },
+				room,
+				agentRequest,
+			),
+		)
+		expect(readStudyFailure(window).stop).toEqual({
+			layer: 'window',
+			id: 'Context room',
+			max: 32128,
+			consumed: 32129,
+		})
+		const over = captureError(() =>
+			validateStudyOllamaCompletion(
+				{ prompt: 7, completion: 513, reason: 'stop' },
+				room,
+				agentRequest,
+			),
+		)
+		expect(readStudyFailure(over).stop).toEqual({
+			layer: 'model',
+			id: 'num_predict',
+			max: 512,
+			consumed: 513,
+		})
+		const exact = captureError(() =>
+			validateStudyOllamaCompletion(
+				{ prompt: 7, completion: 512, reason: 'stop' },
+				room,
+				agentRequest,
+			),
+		)
+		expect(readStudyFailure(exact).stop).toEqual({
+			layer: 'model',
+			id: 'num_predict',
+			max: 512,
+			consumed: 512,
+		})
+		const unknown = captureError(() =>
+			validateStudyOllamaCompletion(
+				{ prompt: 7, completion: undefined, reason: 'length' },
+				room,
+				agentRequest,
+			),
+		)
+		expect(readStudyFailure(unknown).stop).toEqual({
+			layer: 'model',
+			id: 'num_predict',
+			max: 512,
+			consumed: undefined,
+		})
+		const unsupported = captureError(() =>
+			validateStudyOllamaCompletion(
+				{ prompt: 7, completion: 1, reason: 'unsupported' },
+				room,
+				agentRequest,
+			),
+		)
+		expect(readStudyFailure(unsupported).stop).toBeUndefined()
+	})
 	it('admits a stop finish within the reserved room', () => {
 		const terminal = { prompt: 32128, completion: 511, reason: 'stop' }
 		expect(() => validateStudyOllamaCompletion(terminal, room, agentRequest)).not.toThrow()
@@ -381,6 +453,45 @@ describe('validateStudyOllamaInventory', () => {
 })
 
 describe('readStudyOllamaSupport', () => {
+	it('reports model metadata readings without choosing among ambiguous ceilings', () => {
+		const low = captureError(() =>
+			readStudyOllamaSupport(
+				{ model_info: { 'general.architecture': 'fixture', 'fixture.context_length': 1024 } },
+				2048,
+			),
+		)
+		expect(readStudyFailure(low).stop).toEqual({
+			layer: 'model',
+			id: 'context_length',
+			max: 1024,
+			consumed: 2048,
+		})
+		const ambiguous = captureError(() =>
+			readStudyOllamaSupport(
+				{
+					model_info: {
+						'general.architecture': 'fixture',
+						'fixture.context_length': 1024,
+						'other.context_length': 2048,
+					},
+				},
+				4096,
+			),
+		)
+		expect(readStudyFailure(ambiguous).stop).toEqual({
+			layer: 'model',
+			id: 'context_length',
+			max: undefined,
+			consumed: 4096,
+		})
+		const invalid = captureError(() =>
+			readStudyOllamaSupport(
+				{ model_info: { 'general.architecture': 'fixture', 'fixture.context_length': 1.5 } },
+				4096,
+			),
+		)
+		expect(readStudyFailure(invalid).stop?.max).toBeUndefined()
+	})
 	it('reads the unambiguous ceiling and refuses one below the requested context', () => {
 		const info = { 'general.architecture': 'fixture', 'fixture.context_length': 32768 }
 		expect(readStudyOllamaSupport({ model_info: info }, 32768)).toBe(32768)

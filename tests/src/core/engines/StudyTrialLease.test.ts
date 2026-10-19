@@ -69,7 +69,12 @@ describe('StudyTrialLease', () => {
 		const fixture = createStudyLeaseFixture({ refuse: new Error('Open refused') })
 		try {
 			await expect(fixture.lease.open()).rejects.toThrow('Open refused')
-			fixture.control.fail({ cause: 'infrastructure', message: 'Open refused', role: undefined })
+			fixture.control.fail({
+				cause: 'infrastructure',
+				message: 'Open refused',
+				role: undefined,
+				stop: undefined,
+			})
 			expect(await fixture.lease.close()).toBeUndefined()
 			expect(fixture.driver.closed.count).toBe(0)
 		} finally {
@@ -80,7 +85,12 @@ describe('StudyTrialLease', () => {
 	it('starts custody alone when a failure is already latched', async () => {
 		const fixture = createStudyLeaseFixture()
 		try {
-			fixture.control.fail({ cause: 'infrastructure', message: 'Inherited', role: undefined })
+			fixture.control.fail({
+				cause: 'infrastructure',
+				message: 'Inherited',
+				role: undefined,
+				stop: undefined,
+			})
 			await fixture.lease.open()
 			expect(fixture.custody.started.calls).toEqual([[fixture.trial]])
 			expect(fixture.lease.evidence).toBeDefined()

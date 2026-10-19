@@ -1,4 +1,5 @@
 import { createRecorder, requireValue, waitForCondition, waitForEvent } from '@orkestrel/test'
+import { BudgetError, isBudgetError } from '@orkestrel/budget'
 import { createScratch, isRunning } from '@orkestrel/test/server'
 import { execFileSync, fork, spawnSync } from 'node:child_process'
 import { join, resolve } from 'node:path'
@@ -23,6 +24,8 @@ import {
 	answerStudyMCP,
 	collectStudyRoots,
 	createMCPFixture,
+	createForeignBudgetError,
+	createBudgetLookalike,
 	createMCPProxy,
 	createOllamaContext,
 	createOllamaExchange,
@@ -57,6 +60,18 @@ import {
 	writeStudyLauncherEntry,
 	writeStudyOrphan,
 } from './setupServer.js'
+
+it('constructs foreign branded budget readings and an unbranded control', () => {
+	const context = { id: 'foreign-negative', max: -1, consumed: -0.5 }
+	const error = createForeignBudgetError(context)
+	expect(isBudgetError(error)).toBe(true)
+	expect(error).not.toBeInstanceOf(BudgetError)
+	expect(error.context).toEqual(context)
+	expect(createForeignBudgetError().context).toEqual({ id: 'foreign', max: 1, consumed: 2 })
+	const lookalike = createBudgetLookalike()
+	expect(lookalike).toMatchObject({ name: 'BudgetError', code: 'exhaust' })
+	expect(isBudgetError(lookalike)).toBe(false)
+})
 
 describe('study server fixtures', () => {
 	it('binds native fixture declarations to the selected entry and live cancellation', () => {

@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { AgentError, measureRequest } from '@orkestrel/agent'
-import { captureError } from '@orkestrel/test'
+import { captureError, createRecorder } from '@orkestrel/test'
 import {
 	buildStudyAgentDispatch,
 	buildStudyAgentParts,
 	projectStudyAgentRequest,
 	translateStudyAgentError,
+	translateStudyAgentStop,
 	validateStudyAgentUsage,
 } from '../../../../src/core/agents/helpers.js'
 import { StudyError, isStudyError } from '../../../../src/core/errors.js'
@@ -14,6 +15,7 @@ import {
 	STUDY_AGENT_MESSAGES,
 	STUDY_AGENT_TOOLS,
 	STUDY_AGENT_USAGE_FAILURE,
+	STUDY_AGENT_INVALID_STOPS,
 	createAgentRuntime,
 	createAgentWindowError,
 } from '../../../setupStudy.js'
@@ -65,6 +67,7 @@ describe('translateStudyAgentError', () => {
 			cause: 'capacity',
 			message: 'Window full',
 			role: 'agent',
+			stop: { layer: 'window', id: 'Agent window', max: undefined, consumed: undefined },
 		})
 	})
 
@@ -74,6 +77,133 @@ describe('translateStudyAgentError', () => {
 		const study = new StudyError('FAULT', 'Transport failure')
 		for (const value of [concurrency, lookalike, study, 'WINDOW', undefined])
 			expect(translateStudyAgentError(value, runtime)).toBe(value)
+	})
+})
+
+describe('translateStudyAgentStop', () => {
+	it('translates meter and budget readings and keeps finite foreign numbers', () => {
+		const meter = translateStudyAgentStop({ layer: 'meter', id: 'estimate', max: 2.5, consumed: 3 })
+		expect(meter).toMatchObject({
+			code: 'CAPACITY',
+			message: 'Agent meter allowance reached its ceiling',
+			failure: {
+				cause: 'capacity',
+				role: 'agent',
+				stop: { layer: 'meter', id: 'estimate', max: 2.5, consumed: 3 },
+			},
+		})
+		expect(
+			translateStudyAgentStop({ layer: 'budget', id: 'cost', max: -1, consumed: 0 }),
+		).toMatchObject({
+			code: 'CAPACITY',
+			message: 'Agent budget reached its ceiling',
+			failure: { stop: { layer: 'budget', id: 'cost', max: -1, consumed: 0 } },
+		})
+	})
+
+	it('reads only the selected foreign arm once and accepts additional members and class instances', () => {
+		const reads = createRecorder<readonly [string]>()
+		const stop = Object.defineProperties(new Error('foreign stop'), {
+			layer: {
+				get: () => {
+					reads.handler('layer')
+					return 'meter'
+				},
+			},
+			id: {
+				get: () => {
+					reads.handler('id')
+					return 'estimate'
+				},
+			},
+			max: {
+				get: () => {
+					reads.handler('max')
+					return 2
+				},
+			},
+			consumed: {
+				get: () => {
+					reads.handler('consumed')
+					return 3
+				},
+			},
+			usage: {
+				get: () => {
+					throw new Error('irrelevant usage')
+				},
+			},
+		})
+		expect(translateStudyAgentStop(stop)).toMatchObject({
+			code: 'CAPACITY',
+			failure: { stop: { layer: 'meter' } },
+		})
+		expect(reads.calls).toEqual([['layer'], ['id'], ['max'], ['consumed']])
+		const completion = createRecorder<readonly []>()
+		expect(
+			translateStudyAgentStop(
+				Object.defineProperties(
+					{ layer: 'model', id: 'provider', extra: true },
+					{
+						max: {
+							get: () => {
+								throw new Error('irrelevant max')
+							},
+						},
+						consumed: {
+							get: () => {
+								throw new Error('irrelevant consumed')
+							},
+						},
+						usage: {
+							get: () =>
+								Object.defineProperty({}, 'completion', {
+									get: () => {
+										completion.handler()
+										return 7
+									},
+								}),
+						},
+					},
+				),
+			),
+		).toMatchObject({
+			message: 'Agent model reached its own token limit',
+			failure: { stop: { layer: 'model', id: 'provider', max: undefined, consumed: 7 } },
+		})
+		expect(completion.count).toBe(1)
+	})
+
+	it('keeps an absent stop absent and contains malformed and throwing records', () => {
+		expect(translateStudyAgentStop(undefined)).toBeUndefined()
+		for (const stop of STUDY_AGENT_INVALID_STOPS) {
+			expect(translateStudyAgentStop(stop)).toMatchObject({
+				code: 'FAULT',
+				failure: {
+					cause: 'infrastructure',
+					message: 'Agent stop record is malformed',
+					role: 'agent',
+					stop: undefined,
+				},
+			})
+		}
+		expect(translateStudyAgentStop({ layer: 'model', id: 'provider' })).toMatchObject({
+			failure: { stop: { max: undefined, consumed: undefined } },
+		})
+		expect(
+			translateStudyAgentStop({ layer: 'model', id: 'provider', usage: { completion: Infinity } }),
+		).toMatchObject({ failure: { stop: { consumed: undefined } } })
+	})
+
+	it('reads finite window context and leaves missing readings unknown', () => {
+		expect(
+			readStudyFailure(
+				translateStudyAgentError(
+					new AgentError('WINDOW', 'Window full', { context: { max: 8.5, consumed: 9 } }),
+					createAgentRuntime(),
+				),
+			).stop,
+		).toEqual({ layer: 'window', id: 'Agent window', max: 8.5, consumed: 9 })
 	})
 })
 

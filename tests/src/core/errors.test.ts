@@ -6,7 +6,12 @@ import { importStudyErrorCopy } from '../../setupStudy.js'
 const BRAND = Symbol.for('@orkestrel/study.error')
 
 it('retains coded failure attribution and safely narrows caught values', () => {
-	const failure = { cause: 'capacity', message: 'Context full', role: 'agent' } as const
+	const failure = {
+		cause: 'capacity',
+		message: 'Context full',
+		role: 'agent',
+		stop: undefined,
+	} as const
 	const error = new StudyError('CAPACITY', 'Request cannot fit', failure)
 	expect(error.message).toBe('Request cannot fit')
 	expect(error.code).toBe('CAPACITY')

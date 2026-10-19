@@ -1,6 +1,7 @@
 import type { Message, ProviderDelta, ProviderInterface, ProviderResult } from '@orkestrel/agent'
 import type { StudyTicket } from '../../core/types.js'
 import type { StudyAgentPlan, StudyAgentResponse, StudyAgentScriptOptions } from './types.js'
+import { isBudgetError } from '@orkestrel/budget'
 import { cloneJSONValue, isArray } from '@orkestrel/contract'
 import { randomUUID } from 'node:crypto'
 import { StudyError } from '../../core/errors.js'
@@ -83,8 +84,9 @@ export class StudyAgentScript implements ProviderInterface {
 	 * @param signal - The enclosing Agent run signal
 	 * @returns The declared response, optionally consuming an actual prior tool message
 	 * @remarks
-	 * A stream abandoned after admission, for example by `return`, fails its admitted request with the
-	 * run signal's reason, or a `FAULT` when the signal carries none, and never finishes it as success.
+	 * A stream abandoned after admission accounts for an Agent budget cut without latching a failure.
+	 * Other abandoned streams fail the admitted request with the run signal's reason, or a `FAULT`
+	 * when the signal carries none.
 	 * @throws StudyError - Thrown with code `CONFIG` when no goal is prepared, another response is running, or the responses are exhausted; thrown with the meter's refusal when admission fails
 	 */
 	async *stream(
@@ -106,10 +108,18 @@ export class StudyAgentScript implements ProviderInterface {
 			const result: ProviderResult = {
 				content,
 				...(response.calls.length === 0 ? {} : { tools: response.calls }),
+				...(response.truncated === true ? { truncated: true } : {}),
 			}
 			const bytes = encodeStudyJSON({ request, response: result }).byteLength
-			if (bytes > this.#bytes)
-				throw new StudyError('CAPACITY', 'Scripted request exceeds its encoded workload bound')
+			if (bytes > this.#bytes) {
+				const message = 'Scripted request exceeds its encoded workload bound'
+				throw new StudyError('CAPACITY', message, {
+					cause: 'capacity',
+					message,
+					role: undefined,
+					stop: { layer: 'scope', id: 'Scripted bytes', max: this.#bytes, consumed: bytes },
+				})
+			}
 			const ticket = await this.#admit(plan, response)
 			try {
 				const bounded = AbortSignal.any([
@@ -153,21 +163,36 @@ export class StudyAgentScript implements ProviderInterface {
 				}
 				return result
 			} catch (error) {
-				failStudyTicket(ticket, error, 'agent')
+				// An Agent budget's cut is Agent's own stop, so the request is accounted and the layer stays in Agent's record.
+				if (isBudgetError(error)) this.#cut(ticket, bytes, started)
+				else failStudyTicket(ticket, error, 'agent')
 				throw error
 			} finally {
-				// A consumer that abandons the stream leaves an admitted request unsettled; it never counts as success.
-				// A settled ticket is left untouched, so the failure above is never recorded twice.
-				failStudyTicket(
-					ticket,
-					signal.reason ??
-						new StudyError('FAULT', 'Scripted response was abandoned before completion'),
-					'agent',
-				)
+				// Generator return bypasses the catch, before Agent publishes the stop's layer.
+				if (isBudgetError(signal.reason)) this.#cut(ticket, bytes, started)
+				else
+					failStudyTicket(
+						ticket,
+						signal.reason ??
+							new StudyError('FAULT', 'Scripted response was abandoned before completion'),
+						'agent',
+					)
 			}
 		} finally {
 			this.#serving.delete(response)
 		}
+	}
+
+	// Finishes an unsettled request that an Agent budget cut, with unknown tokens; a settled or aborted ticket is left untouched.
+	#cut(ticket: StudyTicket, bytes: number, started: number): void {
+		if (ticket.settled || ticket.signal.aborted) return
+		ticket.finish({
+			role: 'agent',
+			calls: 1,
+			tokens: undefined,
+			bytes,
+			duration: Math.ceil(performance.now() - started),
+		})
 	}
 
 	// Admits the response's ceiling, retaining a refused admission as evidence before rethrowing it.

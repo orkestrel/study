@@ -1,4 +1,4 @@
-import type { StudyCause, StudyRole } from './types.js'
+import type { StudyCause, StudyLayer, StudyRole } from './types.js'
 
 /**
  * Keys the own self-identity every study error stamps on itself.
@@ -25,6 +25,16 @@ export const STUDY_ROLES: readonly StudyRole[] = Object.freeze([
 	'summary',
 	'metadata',
 	'tool',
+])
+
+/** Lists every ceiling a run can stop at in report order. */
+export const STUDY_LAYERS: readonly StudyLayer[] = Object.freeze([
+	'scope',
+	'window',
+	'custody',
+	'meter',
+	'budget',
+	'model',
 ])
 
 /** Lists every operational ending in report order. */

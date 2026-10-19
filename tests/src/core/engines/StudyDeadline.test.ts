@@ -40,7 +40,12 @@ describe('StudyDeadline', () => {
 
 	it('bounds cleanup apart from a cancelled caller and isolates every wait', async () => {
 		const caller = new StudyControl()
-		caller.fail({ cause: 'interrupted', message: 'Series cancelled', role: undefined })
+		caller.fail({
+			cause: 'interrupted',
+			message: 'Series cancelled',
+			role: undefined,
+			stop: undefined,
+		})
 		const deadline = new StudyDeadline({ duration: 30, label: 'Custody or cleanup' })
 		try {
 			const stalled = deadline.wait(new Promise<never>(() => undefined))

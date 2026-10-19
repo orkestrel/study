@@ -12,10 +12,12 @@ import type {
 	StudyProduct,
 	StudyProfile,
 	StudyProvider,
+	StudyLayer,
 	StudyRole,
 	StudyRoom,
 	StudyScenario,
 	StudyRubric,
+	StudyStop,
 	StudyUsage,
 } from './types.js'
 import type { Guard } from '@orkestrel/contract'
@@ -23,13 +25,21 @@ import {
 	holds,
 	canonicalStringify,
 	isArray,
+	isFiniteNumber,
 	isJSONValue,
 	isNonEmptyString,
 	isRecord,
 	literalOf,
 } from '@orkestrel/contract'
 import { MAX_TIMEOUT_MS } from '@orkestrel/timeout'
-import { STUDY_CAUSES, STUDY_GOALS, STUDY_NAME, STUDY_ROLES, STUDY_TRIALS } from './constants.js'
+import {
+	STUDY_CAUSES,
+	STUDY_GOALS,
+	STUDY_LAYERS,
+	STUDY_NAME,
+	STUDY_ROLES,
+	STUDY_TRIALS,
+} from './constants.js'
 import { matchesStudyKeys } from './helpers.js'
 
 /** Checks whether a value names a measured request role. */
@@ -37,6 +47,34 @@ export const isStudyRole: Guard<StudyRole> = literalOf(STUDY_ROLES)
 
 /** Checks whether a value names an operational ending. */
 export const isStudyCause: Guard<StudyCause> = literalOf(STUDY_CAUSES)
+
+/** Checks whether a value names a ceiling a run can stop at. */
+export const isStudyLayer: Guard<StudyLayer> = literalOf(STUDY_LAYERS)
+
+/**
+ * Checks whether a value is the exact record of a ceiling that stopped a run.
+ * @remarks
+ * The guard accepts exact own data keys: `layer` and `id` are required and `max` and `consumed` are
+ * optional. `max` and `consumed` are each undefined or a finite number. Finite foreign readings,
+ * including negative and fractional values, retain the source's measurement unchanged.
+ * @param value - The candidate stop
+ * @returns True if the layer is known, the id is nonempty, and every reading is absent or finite; false otherwise
+ * @example
+ * ```ts
+ * isStudyStop({ layer: 'scope', id: 'Goal tokens', max: 100, consumed: 120 }) // true
+ * ```
+ */
+export function isStudyStop(value: unknown): value is StudyStop {
+	return holds(
+		() =>
+			isRecord(value) &&
+			matchesStudyKeys(value, ['layer', 'id'], ['max', 'consumed']) &&
+			isStudyLayer(value.layer) &&
+			isNonEmptyString(value.id) &&
+			['max', 'consumed'].every((key) => value[key] === undefined || isFiniteNumber(value[key])),
+	)
+}
+
 /**
  * Checks whether an identifier is portable and bounded.
  * @param value - The candidate identifier

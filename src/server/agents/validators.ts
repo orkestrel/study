@@ -7,9 +7,9 @@ import { matchesStudyKeys } from '../../core/helpers.js'
  * Checks whether a scripted response has JSON calls and workload controls.
  * @remarks
  * The guard accepts exact own data keys: `content` and `calls` are required; `consume`, `abort`,
- * `tokens` and `bytes` are optional. Each call must satisfy the Tool package's call guard and
- * carry JSON arguments. The guard sets no size limit on content, calls or `consume`; a consumer
- * composes its own workload bounds. A throwing accessor returns false.
+ * `tokens`, `bytes` and `truncated` are optional. Each call must satisfy the Tool package's call
+ * guard and carry JSON arguments. The guard sets no size limit on content, calls or `consume`; a
+ * consumer composes its own workload bounds. A throwing accessor returns false.
  * @param value - The candidate response
  * @returns True if every declared response member is valid; false otherwise
  * @example
@@ -21,7 +21,11 @@ export function isStudyAgentResponse(value: unknown): value is StudyAgentRespons
 	return holds(
 		() =>
 			isRecord(value) &&
-			matchesStudyKeys(value, ['content', 'calls'], ['consume', 'abort', 'tokens', 'bytes']) &&
+			matchesStudyKeys(
+				value,
+				['content', 'calls'],
+				['consume', 'abort', 'tokens', 'bytes', 'truncated'],
+			) &&
 			typeof value.content === 'string' &&
 			isArray(value.calls) &&
 			value.calls.every(isToolCall) &&
@@ -29,6 +33,7 @@ export function isStudyAgentResponse(value: unknown): value is StudyAgentRespons
 			(value.consume === undefined ||
 				(typeof value.consume === 'string' && value.consume.length > 0)) &&
 			(value.abort === undefined || typeof value.abort === 'boolean') &&
+			(value.truncated === undefined || typeof value.truncated === 'boolean') &&
 			['tokens', 'bytes'].every(
 				(key) =>
 					value[key] === undefined ||

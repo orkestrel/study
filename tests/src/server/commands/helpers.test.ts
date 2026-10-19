@@ -27,13 +27,132 @@ import {
 	computeStudyFixtureDigest,
 	computeStudyPartition,
 	computeStudyReport,
+	computeStudyAttributions,
 	resolveStudyPath,
 	resolveStudyProfile,
 } from '../../../../src/server/commands/helpers.js'
 import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
 import { buildStudyProfile } from '../../../setupStudy.js'
+import { buildStudyStop } from '../../../setupStudy.js'
+import { isStudyCustodyAttempt } from '../../../../src/server/stores/validators.js'
+import { STUDY_CAUSES, STUDY_ROLES, STUDY_LAYERS } from '../../../../src/core/constants.js'
 
 describe('study command helpers', () => {
+	it('orders attribution groups by cause role and layer and keeps source order within each group', () => {
+		const sources = STUDY_CAUSES.flatMap((cause) =>
+			[...STUDY_ROLES, undefined].flatMap((role) =>
+				[...STUDY_LAYERS, undefined].map((layer) => ({
+					trial: `${cause}-${role}-${layer}`,
+					goal: undefined,
+					failure: {
+						cause,
+						role,
+						message: 'Stopped',
+						stop: layer === undefined ? undefined : buildStudyStop({ layer }),
+					},
+					executed: true,
+				})),
+			),
+		)
+		const groups = computeStudyAttributions([...sources].reverse())
+		expect(groups).toEqual(
+			sources.map((source) => ({
+				cause: source.failure.cause,
+				role: source.failure.role ?? null,
+				layer: source.failure.stop?.layer ?? null,
+				executed: 1,
+				unexecuted: 0,
+				readings:
+					source.failure.stop === undefined
+						? []
+						: [{ trial: source.trial, id: 'num_predict', max: 8, consumed: 9 }],
+			})),
+		)
+		const failure = {
+			cause: 'capacity',
+			role: 'summary',
+			message: 'Capped',
+			stop: buildStudyStop({ max: undefined, consumed: undefined }),
+		} as const
+		expect(
+			computeStudyAttributions([
+				{ trial: 'second', goal: 'write', failure, executed: false },
+				{ trial: 'first', goal: 'read', failure, executed: true },
+			]),
+		).toEqual([
+			{
+				cause: 'capacity',
+				role: 'summary',
+				layer: 'model',
+				executed: 1,
+				unexecuted: 1,
+				readings: [
+					{ trial: 'second', goal: 'write', id: 'num_predict', max: null, consumed: null },
+					{ trial: 'first', goal: 'read', id: 'num_predict', max: null, consumed: null },
+				],
+			},
+		])
+		expect(computeStudyAttributions([])).toEqual([])
+	})
+
+	it('reads a legacy attempt without a stop and reports null layer without inventing a reading', () => {
+		const manifest = buildCustodyManifest()
+		const trial = manifest.schedule[0]
+		if (trial === undefined) throw new Error('Missing trial')
+		const failure = {
+			cause: 'capacity',
+			message: 'Substantive generation reached its output cap',
+			role: 'summary',
+		}
+		const legacy: unknown = {
+			trial,
+			executed: true,
+			duration: 1,
+			failure,
+			observations: [
+				{ goal: 'write', executed: true, duration: 1, failure, usage: [] },
+				{ goal: 'read', executed: false, duration: 0, failure, usage: [] },
+			],
+		}
+		expect(isStudyCustodyAttempt(legacy, manifest)).toBe(true)
+		if (!isStudyCustodyAttempt(legacy, manifest)) throw new Error('Legacy attempt refused')
+		const result = buildStudyReportResult([legacy], manifest)
+		const report = computeStudyReport(
+			result,
+			buildStudyRubric(),
+			buildCustodyGrading(result, buildStudyRubric()),
+		)
+		expect(report).toMatchObject({
+			operations: {
+				trials: {
+					faults: expect.arrayContaining([{ cause: 'capacity', executed: 1, unexecuted: 0 }]),
+					attributions: [
+						{
+							cause: 'capacity',
+							role: 'summary',
+							layer: null,
+							executed: 1,
+							unexecuted: 0,
+							readings: [],
+						},
+					],
+				},
+				goals: {
+					faults: expect.arrayContaining([{ cause: 'capacity', executed: 1, unexecuted: 1 }]),
+					attributions: [
+						{
+							cause: 'capacity',
+							role: 'summary',
+							layer: null,
+							executed: 1,
+							unexecuted: 1,
+							readings: [],
+						},
+					],
+				},
+			},
+		})
+	})
 	it('shares execution fixture identity across display metadata, purpose and rubric changes while binding actual policy and inputs', () => {
 		const manifest = buildCustodyManifest()
 		const scenarios = manifest.scenarios.map((scenario) => ({
@@ -152,7 +271,7 @@ describe('study command helpers', () => {
 			buildCustodyGrading(result, buildStudyRubric()),
 		)
 		if (!isRecord(report)) throw new Error('Missing report')
-		expect(report.operations).toEqual({
+		expect(report.operations).toMatchObject({
 			trials: {
 				scheduled: 8,
 				terminal: 8,
@@ -191,6 +310,7 @@ describe('study command helpers', () => {
 			cause: 'content',
 			message: 'Summary content was unusable',
 			role: 'summary',
+			stop: undefined,
 		}
 		const attempts = buildStudyOperationAttempts(manifest).map((attempt, index) =>
 			index === 0
@@ -256,7 +376,7 @@ describe('study command helpers', () => {
 			buildCustodyGrading(result, buildStudyRubric()),
 		)
 		if (!isRecord(report) || !isRecord(report.operations)) throw new Error('Missing operations')
-		expect(report.operations).toEqual({
+		expect(report.operations).toMatchObject({
 			trials: {
 				scheduled: 8,
 				terminal: 8,

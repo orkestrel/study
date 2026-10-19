@@ -76,7 +76,12 @@ process.on('message', frame => {
 		try {
 			options.channel = secondChannel
 			options.control = secondControl
-			secondControl.fail({ cause: 'interrupted', message: 'replacement aborted', role: undefined })
+			secondControl.fail({
+				cause: 'interrupted',
+				message: 'replacement aborted',
+				role: undefined,
+				stop: undefined,
+			})
 			expect(meter.signal).toBe(firstControl.signal)
 			const ticket = await deadline.wait(meter.admit({ role: 'tool', tokens: 1, bytes: 1 }))
 			expect(ticket.signal.aborted).toBe(false)
@@ -166,6 +171,7 @@ process.on('message', frame => {
 				cause: 'deadline',
 				message: 'Parent deadline expired',
 				role: 'tool',
+				stop: undefined,
 			} as const
 			meter.abort(1, failure)
 			expect(ticket.signal.aborted).toBe(true)

@@ -34,7 +34,10 @@ export class StudyControl implements StudyControlInterface {
 	 */
 	fail(failure: StudyFailure): void {
 		if (this.#failure !== undefined) return
-		this.#failure = Object.freeze({ ...failure })
+		this.#failure = Object.freeze({
+			...failure,
+			stop: failure.stop === undefined ? undefined : Object.freeze({ ...failure.stop }),
+		})
 		this.#abort.abort(failureToStudyError(this.#failure))
 	}
 
@@ -63,7 +66,12 @@ export class StudyControl implements StudyControlInterface {
 
 	#reason(): Error {
 		return failureToStudyError(
-			this.#failure ?? { cause: 'interrupted', message: 'Study interrupted', role: undefined },
+			this.#failure ?? {
+				cause: 'interrupted',
+				message: 'Study interrupted',
+				role: undefined,
+				stop: undefined,
+			},
 		)
 	}
 
@@ -73,6 +81,7 @@ export class StudyControl implements StudyControlInterface {
 				cause: 'interrupted',
 				message: 'Study interrupted by parent cancellation',
 				role: undefined,
+				stop: undefined,
 			})
 	}
 }

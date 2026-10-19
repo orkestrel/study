@@ -62,7 +62,7 @@ export interface StudyLatchInterface {
 	 */
 	check(): void
 	/** Retains an operational failure even when an enclosing runtime catches it.
-	 * @param error - The observed failure; an earlier retained failure keeps its identity.
+	 * @param error - The observed failure; an earlier retained failure keeps its identity, and a branded `BudgetError` can retain nothing because Agent reports that stop in its own result.
 	 * @returns Nothing after retention.
 	 */
 	fail(error: unknown): void

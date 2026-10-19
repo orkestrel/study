@@ -9,14 +9,14 @@ import type {
 	StudyProfile,
 	StudyRubric,
 } from '../../core/types.js'
-import type { StudyCommandArtifact } from './types.js'
+import type { StudyAttributionSource, StudyCommandArtifact } from './types.js'
 import type { StudySealedResult } from '../stores/types.js'
 import type { JSONValue } from '@orkestrel/contract'
 import { parseJSON } from '@orkestrel/contract'
 import { isAbsolute, join, resolve } from 'node:path'
-import { STUDY_CAUSES, STUDY_ROLES } from '../../core/constants.js'
+import { STUDY_CAUSES, STUDY_LAYERS, STUDY_ROLES } from '../../core/constants.js'
 import { StudyError } from '../../core/errors.js'
-import { computeStudyScores } from '../../core/helpers.js'
+import { computeStudyScores, studyStopToJSON } from '../../core/helpers.js'
 import { containsArtifact, encodeStudyJSON, hashStudyBytes } from '../helpers.js'
 import { readStudyBytes } from '../stores/helpers.js'
 import { isStudyCustodyEvidence } from '../stores/validators.js'
@@ -171,7 +171,7 @@ export async function collectStudyEvidence(
 
 /**
  * Partitions records by their explicit execution fact without inferring any.
- * @param records - The attempts or observations to partition
+ * @param records - The attempts, observations, or attribution sources to partition
  * @returns Counts of executed and unexecuted records, which sum to the record count
  * @example
  * ```ts
@@ -179,12 +179,69 @@ export async function collectStudyEvidence(
  * ```
  */
 export function computeStudyPartition(
-	records: ReadonlyArray<StudyAttempt | StudyObservation>,
+	records: ReadonlyArray<StudyAttempt | StudyObservation | StudyAttributionSource>,
 ): Readonly<Record<'executed' | 'unexecuted', number>> {
 	return {
 		executed: records.filter((record) => record.executed).length,
 		unexecuted: records.filter((record) => !record.executed).length,
 	}
+}
+
+/**
+ * Groups failed records by cause, role, and layer, each group carrying its source readings.
+ * @remarks
+ * A group exists for each cause, role, and layer that holds at least one record. Groups follow
+ * `STUDY_CAUSES`, then `STUDY_ROLES` with an absent role last, then `STUDY_LAYERS` with an absent
+ * layer last. `role` and `layer` are null when absent. `executed` and `unexecuted` partition the
+ * group by each record's own execution fact. `readings` lists every record of the group that carries
+ * a stop, in source order, with `trial`, `goal` at the goal level only, `id`, `max`, and `consumed`
+ * (null when the source reported none). A failure sealed before the `stop` member existed groups with
+ * a null layer and no reading; the helper infers no layer from a message.
+ * @param sources - The failed records, in source order
+ * @returns The JSON groups
+ * @example
+ * ```ts
+ * computeStudyAttributions([{ trial: 'r1-s1-a1', goal: undefined, failure, executed: true }])
+ * ```
+ */
+export function computeStudyAttributions(sources: readonly StudyAttributionSource[]): JSONValue {
+	return STUDY_CAUSES.flatMap((cause) =>
+		[...STUDY_ROLES, undefined].flatMap((role) =>
+			[...STUDY_LAYERS, undefined].flatMap((layer) => {
+				const group = sources.filter(
+					(source) =>
+						source.failure.cause === cause &&
+						source.failure.role === role &&
+						source.failure.stop?.layer === layer,
+				)
+				if (group.length === 0) return []
+				return [
+					{
+						cause,
+						role: role ?? null,
+						layer: layer ?? null,
+						...computeStudyPartition(group),
+						readings: group.flatMap((source) => {
+							const stop = source.failure.stop
+							return stop === undefined
+								? []
+								: [
+										{
+											trial: source.trial,
+											...(source.goal === undefined ? {} : { goal: source.goal }),
+											...Object.fromEntries(
+												Object.entries(studyStopToJSON(stop) ?? {}).filter(
+													([key]) => key !== 'layer',
+												),
+											),
+										},
+									]
+						}),
+					},
+				]
+			}),
+		),
+	)
 }
 
 /**
@@ -298,6 +355,20 @@ export function computeStudyReport(
 						result.attempts.filter((attempt) => attempt.failure?.cause === cause),
 					),
 				})),
+				attributions: computeStudyAttributions(
+					result.attempts.flatMap((attempt) =>
+						attempt.failure === undefined
+							? []
+							: [
+									{
+										trial: attempt.trial.id,
+										goal: undefined,
+										failure: attempt.failure,
+										executed: attempt.executed,
+									},
+								],
+					),
+				),
 			},
 			goals: {
 				scheduled: observations.length,
@@ -311,6 +382,22 @@ export function computeStudyReport(
 						observations.filter((observation) => observation.failure?.cause === cause),
 					),
 				})),
+				attributions: computeStudyAttributions(
+					result.attempts.flatMap((attempt) =>
+						attempt.observations.flatMap((observation) =>
+							observation.failure === undefined
+								? []
+								: [
+										{
+											trial: attempt.trial.id,
+											goal: observation.goal,
+											failure: observation.failure,
+											executed: observation.executed,
+										},
+									],
+						),
+					),
+				),
 			},
 		},
 		costs: {

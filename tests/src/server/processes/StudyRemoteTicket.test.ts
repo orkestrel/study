@@ -72,7 +72,12 @@ describe('StudyRemoteTicket', () => {
 			signal: new AbortController().signal,
 			settle: settle.handler,
 		})
-		failed.fail({ cause: 'infrastructure', message: 'Provider refused', role: 'tool' })
+		failed.fail({
+			cause: 'infrastructure',
+			message: 'Provider refused',
+			role: 'tool',
+			stop: undefined,
+		})
 		expect(failed.settled).toBe(true)
 	})
 
@@ -120,6 +125,7 @@ describe('StudyRemoteTicket', () => {
 			cause: 'infrastructure',
 			message: 'Judge refused',
 			role: 'judge',
+			stop: undefined,
 		})
 		failStudyTicket(ticket, foreign, 'tool')
 		expect(settle.calls).toEqual([

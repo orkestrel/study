@@ -53,6 +53,12 @@ export class StudyTaskChild {
 					cause: 'deadline',
 					message: 'Adapter deadline exceeded',
 					role: undefined,
+					stop: {
+						layer: 'scope',
+						id: 'Adapter duration',
+						max: this.#duration,
+						consumed: undefined,
+					},
 				})
 				this.#terminate(child)
 			}, this.#duration)

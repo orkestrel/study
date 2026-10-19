@@ -75,6 +75,13 @@ export class StudyProcessSession implements StudySessionInterface {
 				cause: 'deadline',
 				message: 'Trial native deadline exceeded',
 				role: undefined,
+				// The session holds no start time, so the timer firing proves only that the elapsed time reached the limit.
+				stop: {
+					layer: 'scope',
+					id: 'Trial duration',
+					max: this.#options.profile.bounds.trial.duration,
+					consumed: undefined,
+				},
 			})
 			void this.#terminate().catch((error: unknown) => this.#control.fail(readStudyFailure(error)))
 		}, this.#options.profile.bounds.trial.duration)

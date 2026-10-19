@@ -1,4 +1,9 @@
 import type { StudyFailure } from '../../../../src/core/types.js'
+import { Budget, BudgetError } from '@orkestrel/budget'
+import {
+	computeStudyAdmittedStop,
+	computeStudyOutputStop,
+} from '../../../../src/core/engines/helpers.js'
 import { waitForAbort } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import { StudyError } from '../../../../src/core/errors.js'
@@ -11,7 +16,12 @@ import { createStudyMeterFixture, importStudyErrorCopy } from '../../../setupStu
 
 describe('study engine error attribution', () => {
 	it('preserves an existing operational reading and classifies uncategorized errors', () => {
-		const failure = { cause: 'capacity', message: 'No request room', role: 'agent' } as const
+		const failure = {
+			cause: 'capacity',
+			message: 'No request room',
+			role: 'agent',
+			stop: undefined,
+		} as const
 		const error = failureToStudyError(failure)
 		expect(error).toBeInstanceOf(StudyError)
 		expect(error.code).toBe('CAPACITY')
@@ -31,6 +41,7 @@ describe('study engine error attribution', () => {
 			cause: 'content',
 			message: 'Summary content was unusable',
 			role: 'summary',
+			stop: undefined,
 		}
 		const error = failureToStudyError(failure)
 		expect(error.code).toBe('FAULT')
@@ -63,7 +74,12 @@ describe('study engine error attribution', () => {
 	})
 
 	it('prefers an explicit reading over the code and retains its identity', () => {
-		const failure: StudyFailure = { cause: 'interrupted', message: 'Series stopped', role: 'agent' }
+		const failure: StudyFailure = {
+			cause: 'interrupted',
+			message: 'Series stopped',
+			role: 'agent',
+			stop: undefined,
+		}
 		expect(readStudyFailure(new StudyError('CAPACITY', 'No request room', failure))).toBe(failure)
 		expect(readStudyFailure(new StudyError('DEADLINE', 'Goal timer elapsed', failure))).toBe(
 			failure,
@@ -97,7 +113,12 @@ describe('study engine error attribution', () => {
 			message: 'Goal timer elapsed',
 			role: undefined,
 		})
-		const failure: StudyFailure = { cause: 'capacity', message: 'Context full', role: 'agent' }
+		const failure: StudyFailure = {
+			cause: 'capacity',
+			message: 'Context full',
+			role: 'agent',
+			stop: undefined,
+		}
 		expect(readStudyFailure(copy.create('FAULT', 'Request rejected', failure))).toBe(failure)
 		expect(readStudyFailure(copy.create('FAULT', 'Adapter crashed'))).toEqual({
 			cause: 'infrastructure',
@@ -181,6 +202,7 @@ describe('failStudyTicket', () => {
 			cause: 'infrastructure',
 			message: 'Judge refused',
 			role: 'judge',
+			stop: undefined,
 		})
 		const carried = createStudyMeterFixture()
 		try {
@@ -252,9 +274,84 @@ describe('failStudyTicket', () => {
 				cause: 'deadline',
 				message: 'Request deadline expired',
 				role: 'summary',
+				stop: { layer: 'scope', id: 'Request duration', max: 10, consumed: expect.any(Number) },
 			})
 		} finally {
 			fixture.close()
 		}
+	})
+})
+
+describe('stop readings at admission and output', () => {
+	it('reads only branded budget context members that attribution uses', () => {
+		const error = new BudgetError({ id: 'owned', max: 1, consumed: 2 })
+		Object.defineProperty(error, 'context', {
+			value: Object.defineProperty({ id: 'owned', max: 1, consumed: 2 }, 'extra', {
+				enumerable: true,
+				get: () => {
+					throw new Error('Unrelated budget member')
+				},
+			}),
+		})
+		expect(readStudyFailure(error).stop).toEqual({
+			layer: 'budget',
+			id: 'owned',
+			max: 1,
+			consumed: 2,
+		})
+	})
+	it('reads branded budget context with a fallback id and unknown non-finite readings', () => {
+		const error = new BudgetError({ id: '', max: NaN, consumed: Infinity })
+		expect(readStudyFailure(error)).toEqual({
+			cause: 'capacity',
+			message: 'budget reached its ceiling',
+			role: undefined,
+			stop: { layer: 'budget', id: 'Agent budget', max: undefined, consumed: undefined },
+		})
+	})
+	it('names admitted tokens before bytes and leaves unknown usage alone', () => {
+		const charge = { role: 'agent', tokens: 4, bytes: 8 } as const
+		const usage = { role: 'agent', calls: 1, tokens: 5, bytes: 9, duration: 0 } as const
+		expect(computeStudyAdmittedStop(charge, usage)).toEqual({
+			layer: 'scope',
+			id: 'Admitted tokens',
+			max: 4,
+			consumed: 5,
+		})
+		expect(computeStudyAdmittedStop(charge, { ...usage, tokens: 4 })).toEqual({
+			layer: 'scope',
+			id: 'Admitted bytes',
+			max: 8,
+			consumed: 9,
+		})
+		expect(
+			computeStudyAdmittedStop(charge, { ...usage, tokens: undefined, bytes: undefined }),
+		).toBeUndefined()
+	})
+
+	it('names goal then trial then series output and includes already consumed bytes', () => {
+		const trial = new Budget({ id: 'Trial output', max: 10, consumer: (bytes: number) => bytes })
+		const series = new Budget({ id: 'Series output', max: 20, consumer: (bytes: number) => bytes })
+		trial.consume(8)
+		series.consume(19)
+		expect(computeStudyOutputStop(4, 3, [trial, series])).toEqual({
+			layer: 'scope',
+			id: 'Goal bytes',
+			max: 3,
+			consumed: 4,
+		})
+		expect(computeStudyOutputStop(4, 4, [trial, series])).toEqual({
+			layer: 'scope',
+			id: 'Trial output',
+			max: 10,
+			consumed: 12,
+		})
+		expect(computeStudyOutputStop(2, 4, [trial, series])).toEqual({
+			layer: 'scope',
+			id: 'Series output',
+			max: 20,
+			consumed: 21,
+		})
+		expect(computeStudyOutputStop(1, 4, [trial, series])).toBeUndefined()
 	})
 })

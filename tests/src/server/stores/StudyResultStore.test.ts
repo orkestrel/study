@@ -162,10 +162,20 @@ describe('StudyResultStore', () => {
 				await results.finish({
 					...attempt,
 					executed: false,
-					failure: { cause: 'infrastructure', message: 'Unavailable', role: undefined },
+					failure: {
+						cause: 'infrastructure',
+						message: 'Unavailable',
+						role: undefined,
+						stop: undefined,
+					},
 					observations: attempt.observations.map((observation) =>
 						buildStudyObservation(observation.goal, false, {
-							failure: { cause: 'interrupted', message: 'Never dispatched', role: undefined },
+							failure: {
+								cause: 'interrupted',
+								message: 'Never dispatched',
+								role: undefined,
+								stop: undefined,
+							},
 						}),
 					),
 				})

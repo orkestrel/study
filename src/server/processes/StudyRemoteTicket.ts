@@ -40,6 +40,7 @@ export class StudyRemoteTicket implements StudyTicket {
 				cause: 'infrastructure',
 				message: 'Worker ticket settled more than once',
 				role: undefined,
+				stop: undefined,
 			})
 			throw new StudyError('FAULT', 'Worker ticket settled more than once')
 		}

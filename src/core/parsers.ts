@@ -6,7 +6,7 @@ import type {
 	StudyRubric,
 	StudyScenario,
 } from './types.js'
-import { cloneJSONValue } from '@orkestrel/contract'
+import { cloneJSONValue, isFiniteNumber } from '@orkestrel/contract'
 import { StudyError } from './errors.js'
 import { normalizeStudyProfile } from './helpers.js'
 import {
@@ -17,6 +17,20 @@ import {
 	isStudyRubric,
 	isStudyScenario,
 } from './validators.js'
+
+/**
+ * Parses a foreign reading into a number a stop can retain.
+ * @param value - The unknown reading a source reports
+ * @returns The value when it is a finite number; undefined otherwise
+ * @example
+ * ```ts
+ * parseStudyReading(2048) // 2048
+ * parseStudyReading(Number.NaN) // undefined
+ * ```
+ */
+export function parseStudyReading(value: unknown): number | undefined {
+	return isFiniteNumber(value) ? value : undefined
+}
 
 /**
  * Parses a definition into an independent frozen validated snapshot.

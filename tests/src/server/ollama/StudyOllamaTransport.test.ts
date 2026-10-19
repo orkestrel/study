@@ -1,4 +1,6 @@
 import type { JudgeInterface } from '@orkestrel/agent'
+import { STUDY_STOP_SWITCHES } from '../../../setupStudy.js'
+import { createForeignBudgetError, createBudgetLookalike } from '../../../setupServer.js'
 import { describe, expect, it } from 'vitest'
 import { parseJSON } from '@orkestrel/contract'
 import { extractTiming } from '@orkestrel/ollama'
@@ -284,6 +286,12 @@ describe('StudyOllamaTransport', () => {
 					cause: 'capacity',
 					message,
 					role,
+					stop: {
+						layer: 'model',
+						id: 'num_predict',
+						max: role === 'summary' ? 256 : 512,
+						consumed: completion,
+					},
 				})
 			} finally {
 				await fixture.close()
@@ -474,6 +482,7 @@ describe('StudyOllamaTransport', () => {
 				cause: 'capacity',
 				message: 'Substantive generation reached its output cap',
 				role: 'judge',
+				stop: { layer: 'model', id: 'num_predict', max: 1, consumed: 1 },
 			})
 		} finally {
 			await declared.close()
@@ -1075,6 +1084,257 @@ describe('StudyOllamaTransport', () => {
 				fixture.goal.evidence.find((row) => row.event === 'wire')?.value,
 			)
 			expect(wire.timing).toMatchObject({ durations: { total: 1234 } })
+		} finally {
+			await fixture.close()
+		}
+	})
+})
+
+describe('transport stop chain', () => {
+	it('names the encoded request byte refusal before any admission', async () => {
+		const fixture = await createOllamaTransportFixture([], { limit: { duration: 2000, bytes: 1 } })
+		try {
+			await expect(
+				fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+					method: 'POST',
+					body: STUDY_OLLAMA_CHAT_BODY,
+				}),
+			).rejects.toMatchObject({
+				failure: {
+					cause: 'capacity',
+					role: undefined,
+					stop: {
+						layer: 'scope',
+						id: 'Wire bytes',
+						max: 1,
+						consumed: Buffer.byteLength(STUDY_OLLAMA_CHAT_BODY),
+					},
+				},
+			})
+			expect(fixture.goal.usage()).toEqual([])
+			expect(fixture.server.requests).toEqual([])
+		} finally {
+			await fixture.close()
+		}
+	})
+	it('records a model cap after the wire with completion distinct from the cap and joins observed ids', async () => {
+		for (const observe of STUDY_STOP_SWITCHES) {
+			const fixture = await createOllamaTransportFixture(
+				[
+					{
+						path: '/api/chat',
+						body: buildOllamaRow({ reason: 'length', prompt: 7, completion: 9 }),
+					},
+				],
+				{ observe },
+			)
+			try {
+				const response = await fixture.transport.fetch(
+					'agent',
+					`${fixture.server.url}/api/chat`,
+					{ method: 'POST', body: STUDY_OLLAMA_CHAT_BODY },
+					{ id: 3, revision: 'f'.repeat(64) },
+				)
+				await expect(response.text()).rejects.toMatchObject({
+					failure: { stop: { layer: 'model', id: 'num_predict', max: 512, consumed: 9 } },
+				})
+				expect(fixture.goal.evidence.map((row) => row.event)).toEqual(['dispatch', 'wire', 'stop'])
+				const stopped = requireStudyRecord(fixture.goal.evidence[2]?.value)
+				expect(stopped).toMatchObject({
+					role: 'agent',
+					path: '/api/chat',
+					finish: 'length',
+					prompt: 7,
+					completion: 9,
+					stop: { layer: 'model', id: 'num_predict', max: 512, consumed: 9 },
+				})
+				expect(stopped.id).toBe(observe ? 1 : undefined)
+				expect(stopped.canonical).toBe(observe ? 3 : undefined)
+				expect(stopped.revision).toBe(observe ? 'f'.repeat(64) : undefined)
+				expect(typeof stopped.started).toBe(observe ? 'number' : 'undefined')
+				expect(typeof stopped.sent).toBe(observe ? 'number' : 'undefined')
+				expect(typeof stopped.elapsed).toBe(observe ? 'number' : 'undefined')
+			} finally {
+				await fixture.close()
+			}
+		}
+	})
+
+	it('records Context room refusals and records no stop for unsupported finish reasons', async () => {
+		for (const window of STUDY_STOP_SWITCHES) {
+			const fixture = await createOllamaTransportFixture([
+				{
+					path: '/api/chat',
+					body: buildOllamaRow({
+						reason: window ? 'stop' : 'unsupported',
+						prompt: window ? 32300 : 7,
+						completion: 1,
+					}),
+				},
+			])
+			try {
+				const response = await fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+					method: 'POST',
+					body: STUDY_OLLAMA_CHAT_BODY,
+				})
+				await expect(response.text()).rejects.toMatchObject({ code: window ? 'CAPACITY' : 'FAULT' })
+				expect(fixture.goal.evidence.map((row) => row.event)).toEqual(
+					window ? ['dispatch', 'wire', 'stop'] : ['dispatch', 'wire'],
+				)
+				expect(fixture.goal.evidence[2]?.value).toEqual(
+					window
+						? {
+								role: 'agent',
+								path: '/api/chat',
+								finish: 'stop',
+								prompt: 32300,
+								completion: 1,
+								stop: { layer: 'window', id: 'Context room', max: 32128, consumed: 32300 },
+							}
+						: undefined,
+				)
+			} finally {
+				await fixture.close()
+			}
+		}
+	})
+
+	it('cuts a foreign budget abort during pull and accounts known bytes without latching it', async () => {
+		const fixture = await createOllamaTransportFixture(
+			[{ path: '/api/chat', body: STUDY_OLLAMA_PARTIAL_ROW, open: true }],
+			{ observe: true },
+		)
+		try {
+			const controller = new AbortController()
+			const response = await fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+				method: 'POST',
+				body: STUDY_OLLAMA_CHAT_BODY,
+				signal: controller.signal,
+			})
+			const reader = requireValue(response.body).getReader()
+			await reader.read()
+			const reason = createForeignBudgetError()
+			controller.abort(reason)
+			await expect(reader.read()).rejects.toBe(reason)
+			expect(fixture.goal.usage()).toMatchObject([
+				{ role: 'agent', calls: 1, tokens: undefined, bytes: expect.any(Number) },
+			])
+			expect(fixture.goal.evidence.map((row) => row.event)).toEqual(['dispatch', 'cut'])
+			expect(fixture.goal.evidence[1]?.value).toMatchObject({
+				role: 'agent',
+				path: '/api/chat',
+				status: 200,
+				budget: { id: 'foreign', max: 1, consumed: 2 },
+				id: 1,
+			})
+			expect(() => fixture.transport.check()).not.toThrow()
+			fixture.transport.clear()
+			expect(() =>
+				fixture.transport.prepare({
+					goal: 'second',
+					context: fixture.goal.context,
+					checkpoint: undefined,
+				}),
+			).not.toThrow()
+		} finally {
+			await fixture.close()
+		}
+	})
+
+	it('cuts cancellation with a foreign budget and fails an unbranded cancellation', async () => {
+		for (const branded of STUDY_STOP_SWITCHES) {
+			const fixture = await createOllamaTransportFixture([
+				{ path: '/api/chat', body: STUDY_OLLAMA_PARTIAL_ROW, open: true },
+			])
+			try {
+				const response = await fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+					method: 'POST',
+					body: STUDY_OLLAMA_CHAT_BODY,
+				})
+				const reader = requireValue(response.body).getReader()
+				await reader.read()
+				const reason = branded ? createForeignBudgetError() : createBudgetLookalike()
+				await reader.cancel(reason)
+				expect(fixture.goal.evidence.map((row) => row.event)).toEqual([
+					'dispatch',
+					branded ? 'cut' : 'failure',
+				])
+				expect(captureError(() => fixture.transport.check())).toBe(branded ? undefined : reason)
+				expect(fixture.goal.usage()[0]?.tokens).toBeUndefined()
+				expect(typeof fixture.goal.usage()[0]?.bytes).toBe(branded ? 'number' : 'undefined')
+			} finally {
+				await fixture.close()
+			}
+		}
+	})
+
+	it('accounts a branded abort before the wire exists and retains no failure', async () => {
+		const fixture = await createOllamaTransportFixture()
+		try {
+			const controller = new AbortController()
+			const reason = createForeignBudgetError()
+			controller.abort(reason)
+			await expect(
+				fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+					method: 'POST',
+					body: STUDY_OLLAMA_CHAT_BODY,
+					signal: controller.signal,
+				}),
+			).rejects.toBe(reason)
+			expect(fixture.goal.usage()).toEqual([
+				{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
+			])
+			expect(fixture.server.requests).toEqual([])
+			expect(fixture.goal.evidence).toEqual([])
+			expect(() => fixture.transport.check()).not.toThrow()
+		} finally {
+			await fixture.close()
+		}
+	})
+
+	it('retains a Study refusal raised while writing a cut and delivers the stream error', async () => {
+		const fixture = await createOllamaTransportFixture([
+			{ path: '/api/chat', body: STUDY_OLLAMA_PARTIAL_ROW, open: true },
+		])
+		const refusal = new StudyError('CAPACITY', 'Evidence full', {
+			cause: 'capacity',
+			message: 'Evidence full',
+			role: undefined,
+			stop: { layer: 'custody', id: 'Goal evidence', max: 1, consumed: 2 },
+		})
+		try {
+			fixture.transport.clear()
+			fixture.transport.prepare({
+				goal: 'first',
+				checkpoint: undefined,
+				context: {
+					...fixture.goal.context,
+					evidence: {
+						append: async (row) => {
+							if (row.event === 'cut') throw refusal
+							await fixture.goal.context.evidence.append(row)
+						},
+					},
+				},
+			})
+			const controller = new AbortController()
+			const response = await fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+				method: 'POST',
+				body: STUDY_OLLAMA_CHAT_BODY,
+				signal: controller.signal,
+			})
+			const reader = requireValue(response.body).getReader()
+			await reader.read()
+			const reason = createForeignBudgetError()
+			controller.abort(reason)
+			await expect(reader.read()).rejects.toBe(reason)
+			expect(captureError(() => fixture.transport.check())).toBe(refusal)
+			expect(fixture.goal.meter.control.failure?.stop).toEqual({
+				layer: 'custody',
+				id: 'Goal evidence',
+				max: 1,
+				consumed: 2,
+			})
 		} finally {
 			await fixture.close()
 		}

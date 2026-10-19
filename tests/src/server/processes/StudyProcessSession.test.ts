@@ -19,6 +19,35 @@ import {
 import { buildCustodyManifest, buildStudyManifest, buildStudyProfile } from '../../../setupStudy.js'
 
 describe('StudyProcessSession', () => {
+	it('reports the native trial deadline with its declared duration and unknown elapsed reading', async () => {
+		const scratch = createScratch()
+		const options = buildStudySessionOptions(
+			scratch,
+			scratch.write('held.cjs', "process.on('message', () => undefined)"),
+			new AbortController().signal,
+		)
+		const session = new StudyProcessSession({
+			...options,
+			profile: {
+				...options.profile,
+				bounds: {
+					...options.profile.bounds,
+					trial: { ...options.profile.bounds.trial, duration: 100 },
+				},
+			},
+		})
+		try {
+			await expect(session.start()).rejects.toMatchObject({
+				failure: {
+					cause: 'deadline',
+					stop: { layer: 'scope', id: 'Trial duration', max: 100, consumed: undefined },
+				},
+			})
+		} finally {
+			await session.close().catch(() => undefined)
+			scratch.destroy()
+		}
+	})
 	it('owns its opening declaration and cancellation after the caller mutates and replaces the options', async () => {
 		const scratch = createScratch()
 		const controller = new AbortController()

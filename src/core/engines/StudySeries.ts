@@ -15,7 +15,7 @@ import { canonicalStringify, cloneJSONValue } from '@orkestrel/contract'
 import { isStudyError, StudyError } from '../errors.js'
 import { buildStudySchedule } from '../helpers.js'
 import { isStudyBounds, isStudyProduct } from '../validators.js'
-import { readStudyFailure } from './helpers.js'
+import { computeStudyOutputStop, readStudyFailure } from './helpers.js'
 import { StudyControl } from './StudyControl.js'
 import { StudyDeadline } from './StudyDeadline.js'
 import { StudyMeter } from './StudyMeter.js'
@@ -56,6 +56,7 @@ export class StudySeries {
 			label: 'Custody or cleanup',
 		})
 		const output = new Budget({
+			id: 'Series output',
 			max: manifest.bounds.series.bytes,
 			consumer: (bytes: number) => bytes,
 		})
@@ -94,6 +95,7 @@ export class StudySeries {
 								cause: 'infrastructure',
 								message: 'Goal unexecuted because the trial did not open',
 								role: undefined,
+								stop: undefined,
 							}
 						: { ...failure, message: `Goal unexecuted: ${failure.message}` }
 				return Object.freeze({
@@ -143,6 +145,7 @@ export class StudySeries {
 		try {
 			await lease.open()
 			const trialOutput = new Budget({
+				id: 'Trial output',
 				max: this.#options.manifest.bounds.trial.bytes,
 				consumer: (bytes: number) => bytes,
 			})
@@ -248,18 +251,17 @@ export class StudySeries {
 				partial: value.partial,
 			})
 			const bytes = new TextEncoder().encode(JSON.stringify(candidate.value)).byteLength
-			const product =
-				bytes <= bounds.goal.bytes && outputs.every((budget) => bytes <= budget.remaining)
-					? candidate
-					: undefined
+			const stop = computeStudyOutputStop(bytes, bounds.goal.bytes, outputs)
+			const product = stop === undefined ? candidate : undefined
 			try {
 				for (const parent of parents) parent.check()
 				scope.check()
-				if (product === undefined) {
+				if (stop !== undefined) {
 					control.fail({
 						cause: 'capacity',
 						message: 'Study product exceeded its output allowance',
 						role: undefined,
+						stop,
 					})
 				} else for (const budget of outputs) budget.consume(bytes)
 			} catch (error) {

@@ -1,3 +1,5 @@
+import { STUDY_FINITE_READINGS, STUDY_UNKNOWN_READINGS } from '../../setupStudy.js'
+import { parseStudyReading } from '../../../src/core/parsers.js'
 import { expect, it } from 'vitest'
 import {
 	parseStudyDefinition,
@@ -180,4 +182,9 @@ it('rejects unknown keys, unsafe limits, malformed JSON shapes and hostile reads
 		),
 	).toThrow(StudyError)
 	expect(() => parseStudyScenario('not parsed JSON')).toThrow(StudyError)
+})
+
+it('keeps finite foreign readings and leaves absent or non-finite readings unknown', () => {
+	for (const value of STUDY_FINITE_READINGS) expect(parseStudyReading(value)).toBe(value)
+	for (const value of STUDY_UNKNOWN_READINGS) expect(parseStudyReading(value)).toBeUndefined()
 })

@@ -5,6 +5,8 @@ import {
 	buildCustodyAttempt,
 	buildCustodyManifest,
 	buildStudyCapacityManifest,
+	buildStudyStop,
+	STUDY_FINITE_READINGS,
 	buildStudyObservation,
 	buildStudyOperationAttempts,
 	buildStudyProfile,
@@ -49,6 +51,18 @@ import {
 } from './setupStudy.js'
 import { StudyError } from '../src/core/errors.js'
 import { StudyAgentScript } from '../src/server/agents/StudyAgentScript.js'
+
+it('builds independently selected finite stop readings without narrowing them', () => {
+	expect(STUDY_FINITE_READINGS).toEqual([0, -0, -1, 0.5, 8])
+	expect(Object.isFrozen(STUDY_FINITE_READINGS)).toBe(true)
+	expect(buildStudyStop({ layer: 'budget', id: 'foreign', max: -1, consumed: -0.5 })).toEqual({
+		layer: 'budget',
+		id: 'foreign',
+		max: -1,
+		consumed: -0.5,
+	})
+	expect(buildStudyStop()).toEqual({ layer: 'model', id: 'num_predict', max: 8, consumed: 9 })
+})
 
 describe('study error module copies', () => {
 	it('evaluates one distinct real error module per tag', async () => {

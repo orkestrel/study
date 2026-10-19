@@ -1,3 +1,9 @@
+import { STUDY_STOP_CAUSES, STUDY_OTHER_CAUSES } from '../../../setupStudy.js'
+import { buildStudyStop, STUDY_INVALID_STOPS } from '../../../setupStudy.js'
+import { STUDY_FINITE_READINGS } from '../../../setupStudy.js'
+import { createForeignBudgetError } from '../../../setupServer.js'
+import { readStudyFailure, translateStudyAgentStop } from '../../../../src/core/index.js'
+import { isStudyProcessFailure } from '../../../../src/server/processes/validators.js'
 import type { StudyFailure, StudyObservation } from '../../../../src/core/types.js'
 import { isRecord } from '@orkestrel/contract'
 import { createRecorder } from '@orkestrel/test'
@@ -25,6 +31,27 @@ import {
 } from '../../../../src/server/stores/validators.js'
 
 describe('custody validators', () => {
+	it('retains finite foreign readings unchanged through IPC and custody', () => {
+		for (const max of STUDY_FINITE_READINGS) {
+			for (const consumed of STUDY_FINITE_READINGS) {
+				const stop = buildStudyStop({ layer: 'budget', id: 'foreign', max, consumed })
+				for (const error of [
+					translateStudyAgentStop(stop),
+					createForeignBudgetError({ id: stop.id, max, consumed }),
+				]) {
+					const failure = readStudyFailure(error)
+					expect(failure.cause).toBe('capacity')
+					expect(failure.stop).toEqual(stop)
+					expect({
+						custody: isStudyCustodyFailure(failure),
+						ipc: isStudyProcessFailure(failure),
+					}).toEqual({ custody: true, ipc: true })
+					expect(failure.stop).toEqual(stop)
+				}
+			}
+		}
+	})
+
 	it('contains hostile reads and rejects descriptors without evaluating their accessors', () => {
 		const manifest = buildCustodyManifest()
 		expect(
@@ -106,6 +133,7 @@ describe('custody validators', () => {
 			cause: 'content',
 			message: 'Summary content was unusable',
 			role: 'summary',
+			stop: undefined,
 		}
 		expect(isStudyCustodyFailure(refused)).toBe(true)
 		expect(isStudyCustodyFailure({ ...refused, cause: 'Content' })).toBe(false)
@@ -225,4 +253,22 @@ describe('custody validators', () => {
 			isStudyCustodySeal({ version: 1, result: 'execution', id: 'b'.repeat(64), files: [file] }),
 		).toBe(false)
 	})
+})
+
+it('admits legacy failures and capacity or deadline stops while refusing foreign keys and causes', () => {
+	const stop = buildStudyStop()
+	for (const cause of STUDY_STOP_CAUSES)
+		expect(isStudyCustodyFailure({ cause, message: 'Capped', stop })).toBe(true)
+	expect(isStudyCustodyFailure({ cause: 'capacity', message: 'Capped', role: 'summary' })).toBe(
+		true,
+	)
+	expect(isStudyCustodyFailure({ cause: 'capacity', message: 'Capped', stop, extra: true })).toBe(
+		false,
+	)
+	for (const cause of STUDY_OTHER_CAUSES)
+		expect(isStudyCustodyFailure({ cause, message: 'Capped', stop })).toBe(false)
+	for (const invalid of STUDY_INVALID_STOPS)
+		expect(isStudyCustodyFailure({ cause: 'capacity', message: 'Capped', stop: invalid })).toBe(
+			false,
+		)
 })

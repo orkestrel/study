@@ -58,7 +58,12 @@ export class StudyAgentSummary {
 					consumed: projected,
 					max: limit,
 				})
-			throw new StudyError('CAPACITY', message, { cause: 'capacity', message, role: 'summary' })
+			throw new StudyError('CAPACITY', message, {
+				cause: 'capacity',
+				message,
+				role: 'summary',
+				stop: { layer: 'window', id: 'Summary room', max: limit, consumed: projected },
+			})
 		}
 		trace.dispatch('summary', request, reading)
 		const result = await provider.generate(canonical, bound)
@@ -74,7 +79,12 @@ export class StudyAgentSummary {
 		trace.append('summary', cloneJSONValue(value))
 		if (result.content.trim() === '') {
 			const message = 'Summary returned no usable content'
-			throw new StudyError('FAULT', message, { cause: 'content', message, role: 'summary' })
+			throw new StudyError('FAULT', message, {
+				cause: 'content',
+				message,
+				role: 'summary',
+				stop: undefined,
+			})
 		}
 		return result.content
 	}

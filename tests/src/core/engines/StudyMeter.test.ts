@@ -1,9 +1,154 @@
+import { STUDY_STOP_QUANTITIES, STUDY_STOP_CALLS } from '../../../setupStudy.js'
 import { waitForAbort, waitForDelay } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import { createStudyMeterFixture } from '../../../setupStudy.js'
-import { StudyMeter } from '../../../../src/core/engines/index.js'
+import { StudyMeter, StudyControl } from '../../../../src/core/engines/index.js'
+import { buildStudyStop } from '../../../setupStudy.js'
 
 describe('StudyMeter', () => {
+	it('names calls before tokens and tokens before bytes when allowances refuse together', () => {
+		for (const calls of STUDY_STOP_CALLS) {
+			const fixture = createStudyMeterFixture({
+				goal: { duration: 1000, calls, tokens: 1, bytes: 1 },
+			})
+			try {
+				fixture.meter.admit({ role: 'agent', tokens: 1, bytes: 1 })
+				expect(() => fixture.meter.admit({ role: 'agent', tokens: 1, bytes: 1 })).toThrow(
+					'cannot admit',
+				)
+				expect(fixture.control.failure?.stop?.id).toBe(calls === 1 ? 'Goal calls' : 'Goal tokens')
+			} finally {
+				fixture.close()
+			}
+		}
+	})
+	it('retains an owned frozen stop and the first failure after the caller mutates it', () => {
+		const control = new StudyControl()
+		const stop = { ...buildStudyStop() }
+		try {
+			control.fail({ cause: 'capacity', message: 'Capped', role: 'agent', stop })
+			stop.id = 'changed'
+			stop.max = 100
+			control.fail({ cause: 'deadline', message: 'Later', role: undefined, stop: undefined })
+			expect(control.failure?.stop).toEqual({
+				layer: 'model',
+				id: 'num_predict',
+				max: 8,
+				consumed: 9,
+			})
+			expect(control.failure?.stop).not.toBe(stop)
+			expect(Object.isFrozen(control.failure?.stop)).toBe(true)
+			expect(Object.isFrozen(control.failure)).toBe(true)
+		} finally {
+			control.close()
+		}
+	})
+
+	it('names each goal quantity with pending and completed charges included', () => {
+		for (const quantity of STUDY_STOP_QUANTITIES) {
+			const limit = {
+				duration: 1000,
+				calls: 4,
+				tokens: 100,
+				bytes: 100,
+				[quantity]: quantity === 'calls' ? 2 : 10,
+			}
+			const fixture = createStudyMeterFixture({ goal: limit })
+			try {
+				fixture.meter
+					.admit({ role: 'agent', tokens: 2, bytes: 2 })
+					.finish({ role: 'agent', calls: 1, tokens: 2, bytes: 2, duration: 0 })
+				fixture.meter.admit({ role: 'tool', tokens: 6, bytes: 6 })
+				expect(() => fixture.meter.admit({ role: 'summary', tokens: 3, bytes: 3 })).toThrow(
+					'cannot admit',
+				)
+				expect(fixture.control.failure?.stop).toEqual({
+					layer: 'scope',
+					id: `Goal ${quantity}`,
+					max: quantity === 'calls' ? 2 : 10,
+					consumed: quantity === 'calls' ? 3 : 11,
+				})
+			} finally {
+				fixture.close()
+			}
+		}
+	})
+
+	it('names each request ceiling and each admitted usage ceiling', () => {
+		for (const quantity of STUDY_STOP_QUANTITIES.filter((field) => field !== 'calls')) {
+			const fixture = createStudyMeterFixture({
+				request: { duration: 1000, calls: 1, tokens: 10, bytes: 10 },
+			})
+			try {
+				expect(() =>
+					fixture.meter.admit({ role: 'agent', tokens: 0, bytes: 0, [quantity]: 11 }),
+				).toThrow('Request ceiling')
+				expect(fixture.control.failure?.stop).toEqual({
+					layer: 'scope',
+					id: `Request ${quantity}`,
+					max: 10,
+					consumed: 11,
+				})
+			} finally {
+				fixture.close()
+			}
+			const admitted = createStudyMeterFixture()
+			try {
+				const ticket = admitted.meter.admit({ role: 'agent', tokens: 4, bytes: 8 })
+				expect(() =>
+					ticket.finish({
+						role: 'agent',
+						calls: 1,
+						tokens: 0,
+						bytes: 0,
+						duration: 0,
+						[quantity]: 9,
+					}),
+				).toThrow('usage exceeded')
+				expect(admitted.control.failure?.stop).toEqual({
+					layer: 'scope',
+					id: `Admitted ${quantity}`,
+					max: quantity === 'tokens' ? 4 : 8,
+					consumed: 9,
+				})
+			} finally {
+				admitted.close()
+			}
+		}
+	})
+
+	it('keeps the larger reported request duration and measures scope expiration', async () => {
+		const fixture = createStudyMeterFixture({
+			request: { duration: 1000, calls: 1, tokens: 100, bytes: 100 },
+		})
+		try {
+			const ticket = fixture.meter.admit({ role: 'agent', tokens: 1, bytes: 1 })
+			expect(() =>
+				ticket.finish({ role: 'agent', calls: 1, tokens: 0, bytes: 0, duration: 1001 }),
+			).toThrow('deadline')
+			expect(fixture.control.failure?.stop).toEqual({
+				layer: 'scope',
+				id: 'Request duration',
+				max: 1000,
+				consumed: 1001,
+			})
+		} finally {
+			fixture.close()
+		}
+		const scope = createStudyMeterFixture({
+			goal: { duration: 10, calls: 4, tokens: 100, bytes: 100 },
+		})
+		try {
+			await waitForAbort(scope.control.signal)
+			expect(scope.control.failure).toMatchObject({
+				cause: 'deadline',
+				stop: { layer: 'scope', id: 'Goal duration', max: 10 },
+			})
+			expect(scope.control.failure?.stop?.consumed).toBeGreaterThanOrEqual(10)
+		} finally {
+			scope.close()
+		}
+	})
 	it('lets the exact final request finish and refuses the next dispatch', () => {
 		const fixture = createStudyMeterFixture({
 			goal: { duration: 1000, calls: 1, tokens: 10, bytes: 10 },
@@ -90,6 +235,7 @@ describe('StudyMeter', () => {
 				cause: 'infrastructure',
 				message: 'Provider refused the request',
 				role: 'judge',
+				stop: undefined,
 			})
 			expect(() =>
 				ticket.finish({ role: 'judge', calls: 1, tokens: 1, bytes: 1, duration: 1 }),
@@ -101,6 +247,7 @@ describe('StudyMeter', () => {
 				cause: 'infrastructure',
 				message: 'Provider refused the request',
 				role: 'judge',
+				stop: undefined,
 			})
 		} finally {
 			fixture.close()
@@ -151,10 +298,11 @@ describe('StudyMeter', () => {
 		const ticket = fixture.meter.admit({ role: 'summary', tokens: 8, bytes: 8 })
 		await waitForAbort(ticket.signal)
 		fixture.close()
-		expect(fixture.control.failure).toEqual({
+		expect(fixture.control.failure).toMatchObject({
 			cause: 'deadline',
 			message: 'Request deadline expired',
 			role: 'summary',
+			stop: { layer: 'scope', id: 'Request duration', max: 10, consumed: expect.any(Number) },
 		})
 		expect(fixture.meter.usage).toMatchObject([
 			{ role: 'summary', calls: 1, tokens: undefined, bytes: undefined },
@@ -219,6 +367,7 @@ describe('StudyMeter', () => {
 			cause: 'infrastructure',
 			message: 'Cleanup also failed',
 			role: undefined,
+			stop: undefined,
 		})
 		fixture.close()
 		await waitForDelay(20)

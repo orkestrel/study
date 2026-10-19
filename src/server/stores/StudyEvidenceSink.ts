@@ -37,8 +37,24 @@ export class StudyEvidenceSink implements StudyCustodySinkInterface {
 				throw new StudyError('EVIDENCE', 'Evidence refers to an undeclared goal')
 			const bytes = encodeStudyJSON(evidence)
 			const used = (this.#goals.get(evidence.goal) ?? 0) + bytes.byteLength
-			if (used > this.#options.goal || this.#bytes + bytes.byteLength > this.#options.trial)
-				throw new StudyError('CAPACITY', 'Encoded evidence exceeds its allowance')
+			const trial = this.#bytes + bytes.byteLength
+			if (used > this.#options.goal || trial > this.#options.trial) {
+				const message = 'Encoded evidence exceeds its allowance'
+				throw new StudyError('CAPACITY', message, {
+					cause: 'capacity',
+					message,
+					role: undefined,
+					stop:
+						used > this.#options.goal
+							? { layer: 'custody', id: 'Goal evidence', max: this.#options.goal, consumed: used }
+							: {
+									layer: 'custody',
+									id: 'Trial evidence',
+									max: this.#options.trial,
+									consumed: trial,
+								},
+				})
+			}
 			this.#options.budget.reserve(bytes.byteLength)
 			this.#goals.set(evidence.goal, used)
 			this.#bytes += bytes.byteLength

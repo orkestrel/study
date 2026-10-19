@@ -1,4 +1,4 @@
-import type { StudyCharge, StudyUsage } from '../types.js'
+import type { StudyCharge, StudyFailure, StudyUsage } from '../types.js'
 import type { StudyScopeInterface, StudyScopeOptions } from './types.js'
 import { Abort } from '@orkestrel/abort'
 import { Budget } from '@orkestrel/budget'
@@ -49,16 +49,34 @@ export class StudyScope implements StudyScopeInterface {
 		const pending = [...this.#pending.values()]
 		const tokens = pending.reduce((total, entry) => total + entry.tokens, 0)
 		const bytes = pending.reduce((total, entry) => total + entry.bytes, 0)
-		if (
-			this.#calls.remaining - this.#pending.size < 1 ||
-			this.#tokens.remaining - tokens < charge.tokens ||
-			this.#bytes.remaining - bytes < charge.bytes
-		) {
-			const failure = {
+		const { label, limit } = this.#options
+		const refusal = [
+			{
+				id: `${label} calls`,
+				refused: this.#calls.remaining - this.#pending.size < 1,
+				max: limit.calls,
+				consumed: this.#calls.consumed + this.#pending.size + 1,
+			},
+			{
+				id: `${label} tokens`,
+				refused: this.#tokens.remaining - tokens < charge.tokens,
+				max: limit.tokens,
+				consumed: this.#tokens.consumed + tokens + charge.tokens,
+			},
+			{
+				id: `${label} bytes`,
+				refused: this.#bytes.remaining - bytes < charge.bytes,
+				max: limit.bytes,
+				consumed: this.#bytes.consumed + bytes + charge.bytes,
+			},
+		].find((entry) => entry.refused)
+		if (refusal !== undefined) {
+			const failure: StudyFailure = {
 				cause: 'capacity',
-				message: `${this.#options.label} allowance cannot admit the request`,
+				message: `${label} allowance cannot admit the request`,
 				role: charge.role,
-			} as const
+				stop: { layer: 'scope', id: refusal.id, max: refusal.max, consumed: refusal.consumed },
+			}
 			this.#options.control.fail(failure)
 			throw failureToStudyError(failure)
 		}
@@ -108,6 +126,12 @@ export class StudyScope implements StudyScopeInterface {
 			cause: 'deadline',
 			message: `${this.#options.label} deadline expired`,
 			role: undefined,
+			stop: {
+				layer: 'scope',
+				id: `${this.#options.label} duration`,
+				max: this.#options.limit.duration,
+				consumed: Math.ceil(performance.now() - this.#started),
+			},
 		})
 	}
 }

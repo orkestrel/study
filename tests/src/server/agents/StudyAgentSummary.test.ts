@@ -26,6 +26,24 @@ const canonical: ProviderRequest = {
 const agent: ProviderRequest = { messages: STUDY_SUMMARY_MESSAGES }
 
 describe('StudyAgentSummary', () => {
+	it('reports the Summary room stop at the projection boundary', async () => {
+		const fixture = createStudyAgentSummary({
+			replies: [],
+			observe: false,
+			limit: STUDY_AGENT_PROJECTION,
+		})
+		fixture.trace.start('write')
+		await expect(
+			fixture.summary.summarize(STUDY_SUMMARY_MESSAGES, undefined),
+		).rejects.toMatchObject({
+			failure: {
+				cause: 'capacity',
+				role: 'summary',
+				stop: { layer: 'window', id: 'Summary room', max: 101, consumed: 101 },
+			},
+		})
+		expect(fixture.wire.requests).toEqual([])
+	})
 	it('measures and sends one canonical array with the instruction as the final user turn and retains the summary evidence', async () => {
 		const fixture = createStudyAgentSummary({
 			replies: buildOllamaReplies('Recap'),

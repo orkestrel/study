@@ -4,7 +4,7 @@ import { Abort, linkSignal } from '@orkestrel/abort'
 import { Timeout } from '@orkestrel/timeout'
 import { StudyError } from '../errors.js'
 import { isStudyUsage } from '../validators.js'
-import { failureToStudyError } from './helpers.js'
+import { computeStudyAdmittedStop, failureToStudyError } from './helpers.js'
 
 /** Settles an admitted request once and propagates operational failure to its owner. */
 export class StudyRequest implements StudyTicket {
@@ -44,25 +44,38 @@ export class StudyRequest implements StudyTicket {
 	finish(usage: StudyUsage): void {
 		this.#checkPending()
 		if (!isStudyUsage(usage) || usage.role !== this.#options.charge.role || usage.calls !== 1) {
-			const failure = {
+			const failure: StudyFailure = {
 				cause: 'infrastructure',
 				message: 'Request usage is invalid or misattributed',
 				role: this.#options.charge.role,
-			} as const
+				stop: undefined,
+			}
 			this.fail(failure)
 			throw failureToStudyError(failure)
 		}
+		const elapsed = performance.now() - this.#started
+		const admitted = computeStudyAdmittedStop(this.#options.charge, usage)
 		const failure: StudyFailure | undefined =
 			this.#timeout.expired ||
-			performance.now() - this.#started >= this.#options.duration ||
+			elapsed >= this.#options.duration ||
 			usage.duration > this.#options.duration
-				? { cause: 'deadline', message: 'Request deadline expired', role: usage.role }
-				: (usage.tokens !== undefined && usage.tokens > this.#options.charge.tokens) ||
-					  (usage.bytes !== undefined && usage.bytes > this.#options.charge.bytes)
+				? {
+						cause: 'deadline',
+						message: 'Request deadline expired',
+						role: usage.role,
+						stop: {
+							layer: 'scope',
+							id: 'Request duration',
+							max: this.#options.duration,
+							consumed: Math.ceil(Math.max(elapsed, usage.duration)),
+						},
+					}
+				: admitted !== undefined
 					? {
 							cause: 'capacity',
 							message: 'Request usage exceeded its admitted ceiling',
 							role: usage.role,
+							stop: admitted,
 						}
 					: undefined
 		this.#complete(usage)
@@ -101,6 +114,7 @@ export class StudyRequest implements StudyTicket {
 				cause: 'infrastructure',
 				message: 'Request settlement is late or repeated',
 				role: this.#options.charge.role,
+				stop: undefined,
 			})
 			throw new StudyError(
 				'FAULT',
@@ -112,11 +126,20 @@ export class StudyRequest implements StudyTicket {
 
 	#abort(): void {
 		if (this.#settled) return
+		const expired = this.#timeout.expired
 		this.fail(
 			this.#options.control.failure ?? {
-				cause: this.#timeout.expired ? 'deadline' : 'interrupted',
-				message: this.#timeout.expired ? 'Request deadline expired' : 'Request interrupted',
+				cause: expired ? 'deadline' : 'interrupted',
+				message: expired ? 'Request deadline expired' : 'Request interrupted',
 				role: this.#options.charge.role,
+				stop: expired
+					? {
+							layer: 'scope',
+							id: 'Request duration',
+							max: this.#options.duration,
+							consumed: Math.ceil(performance.now() - this.#started),
+						}
+					: undefined,
 			},
 		)
 	}

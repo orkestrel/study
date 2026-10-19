@@ -14,7 +14,11 @@ describe('StudyOllamaExchange', () => {
 				expect.objectContaining({
 					code: 'CAPACITY',
 					message: 'Ollama wire byte allowance exceeded',
-					failure: expect.objectContaining({ cause: 'capacity', role: 'agent' }),
+					failure: expect.objectContaining({
+						cause: 'capacity',
+						role: 'agent',
+						stop: { layer: 'scope', id: 'Wire bytes', max: 20, consumed: 21 },
+					}),
 				}),
 			)
 			expect(fixture.exchange.bytes).toBe(21)

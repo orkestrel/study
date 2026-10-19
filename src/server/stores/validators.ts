@@ -24,6 +24,7 @@ import {
 	isStudyName,
 	isStudyRole,
 	isStudyScenario,
+	isStudyStop,
 	isStudyTimestamp,
 	isStudyUsage,
 } from '../../core/validators.js'
@@ -141,6 +142,9 @@ export function isStudyCustodyEvidence(value: unknown): value is StudyEvidence {
 
 /**
  * Checks whether a failure carries exact attributable operational fields.
+ * @remarks
+ * `role` and `stop` are optional keys. A `stop` is valid only on a `capacity` or `deadline` failure,
+ * and it must satisfy `isStudyStop`; a failure sealed before the `stop` member existed has no key.
  * @param value - The candidate failure
  * @returns True if the failure is valid; false otherwise
  * @example
@@ -152,10 +156,12 @@ export function isStudyCustodyFailure(value: unknown): value is StudyFailure {
 	return holds(() => {
 		return (
 			isRecord(value) &&
-			matchesStudyKeys(value, ['cause', 'message'], ['role']) &&
+			matchesStudyKeys(value, ['cause', 'message'], ['role', 'stop']) &&
 			isStudyCause(value.cause) &&
 			isNonEmptyString(value.message) &&
-			(value.role === undefined || isStudyRole(value.role))
+			(value.role === undefined || isStudyRole(value.role)) &&
+			(value.stop === undefined ||
+				((value.cause === 'capacity' || value.cause === 'deadline') && isStudyStop(value.stop)))
 		)
 	})
 }

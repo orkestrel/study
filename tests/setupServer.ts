@@ -1,3 +1,4 @@
+import type { BudgetError, BudgetErrorContext } from '@orkestrel/budget'
 import type { StudyLaunchResult } from '../src/server/launchers/types.js'
 import type { ScratchInterface } from '@orkestrel/test/server'
 import type { ChildProcess } from 'node:child_process'
@@ -79,6 +80,8 @@ import type {
 	StudyMCPProxy,
 	StudySparseEvidence,
 } from './src/server/adapters/types.js'
+import { BudgetError as LocalBudgetError, isBudgetError } from '@orkestrel/budget'
+import { isObject } from '@orkestrel/contract'
 import { createOllama, extractTiming } from '@orkestrel/ollama'
 import { createMCPLegacy, createMCPServer } from '@orkestrel/mcp'
 import { createMCPRoutes } from '@orkestrel/mcp/server'
@@ -1959,4 +1962,32 @@ export function writeStudyMCP(scratch: ScratchInterface, endpoint: string, origi
 		}),
 	)
 	scratch.write('studies/mcp/index.ts', STUDY_MCP_ADAPTER)
+}
+
+/** Constructs an error through the budget package's independently evaluated CommonJS entry.
+ * @param context - The foreign source's readings.
+ * @returns A branded error whose constructor differs from the ESM class.
+ */
+export function createForeignBudgetError(
+	context: BudgetErrorContext = { id: 'foreign', max: 1, consumed: 2 },
+): BudgetError {
+	const module: unknown = createRequire(import.meta.url)('@orkestrel/budget')
+	if (!isObject(module)) throw new Error('Invalid CommonJS budget entry')
+	const constructor: unknown = Reflect.get(module, 'BudgetError')
+	if (typeof constructor !== 'function' || constructor === LocalBudgetError)
+		throw new Error('Expected a foreign budget constructor')
+	const error: unknown = Reflect.construct(constructor, [context])
+	if (!isBudgetError(error)) throw new Error('Expected branded foreign error')
+	return error
+}
+
+/** Constructs an unbranded error carrying the budget error's public-looking fields.
+ * @returns The negative recognition control.
+ */
+export function createBudgetLookalike(): Error {
+	return Object.assign(new Error('budget reached its ceiling'), {
+		name: 'BudgetError',
+		code: 'exhaust',
+		context: { id: 'foreign', max: 1, consumed: 2 },
+	})
 }

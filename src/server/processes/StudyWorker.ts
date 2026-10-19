@@ -69,6 +69,7 @@ export class StudyWorker {
 					cause: 'interrupted',
 					message: 'Worker cleanup requested',
 					role: undefined,
+					stop: undefined,
 				})
 				if (this.#session !== undefined)
 					await new StudyDeadline({ duration: this.#duration, label: STUDY_PROCESS_LABEL }).wait(

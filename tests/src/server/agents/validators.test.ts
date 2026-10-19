@@ -1,3 +1,4 @@
+import { STUDY_TRUNCATION_VALUES, STUDY_INVALID_TRUNCATIONS } from '../../../setupStudy.js'
 import { describe, expect, it } from 'vitest'
 import { isStudyAgentResponse } from '../../../../src/server/agents/validators.js'
 import {
@@ -32,4 +33,10 @@ describe('isStudyAgentResponse', () => {
 		})
 		expect(isStudyAgentResponse(hostile)).toBe(false)
 	})
+})
+it('admits an optional boolean truncation declaration and refuses other values', () => {
+	for (const truncated of STUDY_TRUNCATION_VALUES)
+		expect(isStudyAgentResponse({ content: 'receipt', calls: [], truncated })).toBe(true)
+	for (const truncated of STUDY_INVALID_TRUNCATIONS)
+		expect(isStudyAgentResponse({ content: 'receipt', calls: [], truncated })).toBe(false)
 })

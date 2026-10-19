@@ -1,4 +1,7 @@
-import { expect, it } from 'vitest'
+import { STUDY_INVALID_STOPS, STUDY_FINITE_READINGS, buildStudyStop } from '../../setupStudy.js'
+import { STUDY_LAYERS } from '../../../src/core/constants.js'
+import { isStudyLayer, isStudyStop } from '../../../src/core/validators.js'
+import { describe, expect, it } from 'vitest'
 import { STUDY_CAUSES, STUDY_ROLES } from '../../../src/core/constants.js'
 import {
 	isStudyBounds,
@@ -374,4 +377,22 @@ it('contains hostile property reads and cyclic unknown data in total guards', ()
 	cycle.self = cycle
 	expect(isStudyGoal({ id: 'cycle', input: cycle })).toBe(false)
 	expect(isStudyDefinition(null)).toBe(false)
+})
+
+describe('Study stop contracts', () => {
+	it('admits every declared layer and refuses off-shape owned stops', () => {
+		expect(STUDY_LAYERS).toEqual(['scope', 'window', 'custody', 'meter', 'budget', 'model'])
+		expect(Object.isFrozen(STUDY_LAYERS)).toBe(true)
+		for (const layer of STUDY_LAYERS) {
+			expect(isStudyLayer(layer)).toBe(true)
+			expect(isStudyStop(buildStudyStop({ layer }))).toBe(true)
+		}
+		expect(isStudyLayer('deadline')).toBe(false)
+		for (const stop of STUDY_INVALID_STOPS) expect(isStudyStop(stop)).toBe(false)
+		expect(isStudyStop({ layer: 'model', id: 'cap' })).toBe(true)
+		expect(isStudyStop(buildStudyStop({ max: 0, consumed: -0 }))).toBe(true)
+		expect(isStudyStop(buildStudyStop({ max: 0.5, consumed: 1.5 }))).toBe(true)
+		for (const reading of STUDY_FINITE_READINGS)
+			expect(isStudyStop(buildStudyStop({ max: reading, consumed: reading }))).toBe(true)
+	})
 })

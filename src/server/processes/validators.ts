@@ -6,7 +6,13 @@ import type {
 	StudyTrial,
 	StudyIdentity,
 } from '../../core/types.js'
-import { isStudyCause, isStudyDigest, isStudyName, isStudyRole } from '../../core/validators.js'
+import {
+	isStudyCause,
+	isStudyDigest,
+	isStudyName,
+	isStudyRole,
+	isStudyStop,
+} from '../../core/validators.js'
 import { holds, isJSONValue, isRecord } from '@orkestrel/contract'
 
 /** Checks the complete transport envelope before domain handling.
@@ -43,7 +49,7 @@ export function isStudyFrame(value: unknown): value is StudyFrame {
 
 /** Checks operational failure attribution arriving over IPC.
  * @param value - Decoded failure value.
- * @returns True if the failure carries a known cause and optional role; false otherwise.
+ * @returns True if the failure carries a known cause, an optional role, and an optional stop that satisfies `isStudyStop` on a `capacity` or `deadline` cause; false otherwise.
  */
 export function isStudyProcessFailure(value: unknown): value is StudyFailure {
 	return holds(
@@ -51,7 +57,9 @@ export function isStudyProcessFailure(value: unknown): value is StudyFailure {
 			isRecord(value) &&
 			typeof value.message === 'string' &&
 			isStudyCause(value.cause) &&
-			(value.role === undefined || isStudyRole(value.role)),
+			(value.role === undefined || isStudyRole(value.role)) &&
+			(value.stop === undefined ||
+				((value.cause === 'capacity' || value.cause === 'deadline') && isStudyStop(value.stop))),
 	)
 }
 

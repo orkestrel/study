@@ -42,7 +42,14 @@ describe('StudyTaskChild', () => {
 				new StudyDeadline({ duration: 8000, label: 'StudyTaskChild deadline' }).wait(
 					child.execute({ operation: 'validate' }),
 				),
-			).rejects.toMatchObject({ code: 'FAULT', message: 'Adapter deadline exceeded' })
+			).rejects.toMatchObject({
+				code: 'FAULT',
+				message: 'Adapter deadline exceeded',
+				failure: {
+					cause: 'deadline',
+					stop: { layer: 'scope', id: 'Adapter duration', max: 1500, consumed: undefined },
+				},
+			})
 		} finally {
 			await releaseStudyPid(readStudyPid(scratch, 'task-pid.txt'))
 			scratch.destroy()

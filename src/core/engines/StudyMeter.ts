@@ -1,4 +1,4 @@
-import type { StudyCharge, StudyTicket, StudyUsage } from '../types.js'
+import type { StudyCharge, StudyFailure, StudyTicket, StudyUsage } from '../types.js'
 import type { StudyMeterInterface, StudyMeterOptions } from './types.js'
 import { StudyError } from '../errors.js'
 import { isStudyLimit, isStudyRole } from '../validators.js'
@@ -48,23 +48,29 @@ export class StudyMeter implements StudyMeterInterface {
 			!Number.isSafeInteger(charge.bytes) ||
 			charge.bytes < 0
 		) {
-			const failure = {
+			const failure: StudyFailure = {
 				cause: 'infrastructure',
 				message: 'Request admission requires safe nonnegative ceilings',
 				role: undefined,
-			} as const
+				stop: undefined,
+			}
 			this.#options.control.fail(failure)
 			throw failureToStudyError(failure)
 		}
-		if (
-			charge.tokens > this.#options.request.tokens ||
-			charge.bytes > this.#options.request.bytes
-		) {
-			const failure = {
+		const { request } = this.#options
+		if (charge.tokens > request.tokens || charge.bytes > request.bytes) {
+			const tokens = charge.tokens > request.tokens
+			const failure: StudyFailure = {
 				cause: 'capacity',
 				message: 'Request ceiling exceeds the request allowance',
 				role: charge.role,
-			} as const
+				stop: {
+					layer: 'scope',
+					id: tokens ? 'Request tokens' : 'Request bytes',
+					max: tokens ? request.tokens : request.bytes,
+					consumed: tokens ? charge.tokens : charge.bytes,
+				},
+			}
 			this.#options.control.fail(failure)
 			throw failureToStudyError(failure)
 		}
@@ -93,6 +99,7 @@ export class StudyMeter implements StudyMeterInterface {
 				cause: 'infrastructure',
 				message: 'Goal completed with unsettled requests',
 				role: undefined,
+				stop: undefined,
 			})
 	}
 }

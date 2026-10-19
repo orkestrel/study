@@ -93,6 +93,7 @@ export class StudyOllamaExchange implements StudyOllamaWire {
 			cause: 'capacity',
 			message,
 			role: this.request.role,
+			stop: { layer: 'scope', id: 'Wire bytes', max: limit, consumed: this.#bytes },
 		})
 	}
 

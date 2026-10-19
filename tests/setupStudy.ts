@@ -20,6 +20,8 @@ import type {
 	StudySinkInterface,
 	StudyStoreInterface,
 	StudyTrial,
+	StudyStop,
+	StudyCharge,
 } from '../src/core/types.js'
 import type {
 	StudyAdmissionCase,
@@ -41,6 +43,8 @@ import type {
 	ProviderResult,
 	ProviderStreamOptions,
 	ThinkingReplay,
+	AgentOptions,
+	AgentResult,
 } from '@orkestrel/agent'
 import type {
 	AgentObserverFixture,
@@ -60,11 +64,12 @@ import type {
 	StudyScriptFixture,
 	StudySinkFixtureOptions,
 	StudyOllamaMessageFixture,
+	StudyAgentSeriesResult,
 } from './src/server/agents/types.js'
 import type { StudyAgentResponse } from '../src/server/agents/types.js'
 import type { ToolCall } from '@orkestrel/tool'
 import type { StudyAgentReading, StudyAgentRuntime } from '../src/core/agents/types.js'
-import { AgentError, estimateRequest, isAgentError, measureRequest } from '@orkestrel/agent'
+import { Agent, AgentError, estimateRequest, isAgentError, measureRequest } from '@orkestrel/agent'
 import { isRecord, parseJSON } from '@orkestrel/contract'
 import { createOllama, createOllamaJudge } from '@orkestrel/ollama'
 import { createRecorder } from '@orkestrel/test'
@@ -75,6 +80,9 @@ import { buildStudySchedule } from '../src/core/helpers.js'
 import { StudyAgentObserver } from '../src/core/agents/StudyAgentObserver.js'
 import { StudyAgentSummary } from '../src/server/agents/StudyAgentSummary.js'
 import { StudyAgentTrace } from '../src/server/agents/StudyAgentTrace.js'
+import { StudyAgentScript } from '../src/server/agents/StudyAgentScript.js'
+import { StudySeries } from '../src/core/engines/StudySeries.js'
+import { translateStudyAgentStop, translateStudyAgentError } from '../src/core/agents/helpers.js'
 
 /** Owns the records one fixture observes in arrival order and lends them as one live, readonly view.
  *
@@ -544,7 +552,139 @@ export function buildStudyFailure(
 	cause: StudyFailure['cause'] = 'capacity',
 	message = 'Full',
 ): StudyFailure {
-	return { cause, message, role: undefined }
+	return { cause, message, role: undefined, stop: undefined }
+}
+
+/** Builds a model ceiling with independently selectable readings.
+ * @param change - Members replacing the default cap reading.
+ * @returns The inert stop.
+ */
+export function buildStudyStop(change: Partial<StudyStop> = {}): StudyStop {
+	return { layer: 'model', id: 'num_predict', max: 8, consumed: 9, ...change }
+}
+
+/** Supplies off-shape owned stops, including non-finite readings. */
+export const STUDY_INVALID_STOPS: readonly unknown[] = Object.freeze([
+	null,
+	0,
+	[],
+	{},
+	{ layer: 'other', id: 'cap' },
+	{ layer: 'model', id: '' },
+	{ layer: 'model', id: 'cap', extra: true },
+	{ layer: 'model', id: 'cap', max: NaN },
+	{ layer: 'model', id: 'cap', consumed: Infinity },
+	{ layer: 'model', id: 'cap', max: '8' },
+	Object.defineProperty({}, 'layer', {
+		get: () => {
+			throw new Error('Hostile stop')
+		},
+	}),
+])
+
+/** Supplies both policy states for stop-path proofs. */
+export const STUDY_STOP_SWITCHES: readonly boolean[] = Object.freeze([false, true])
+
+/** Supplies scope quantities in their specified refusal order. */
+export const STUDY_STOP_QUANTITIES = Object.freeze(['calls', 'tokens', 'bytes'] as const)
+
+/** Supplies call allowances that isolate calls-first and tokens-first refusal. */
+export const STUDY_STOP_CALLS: readonly number[] = Object.freeze([1, 4])
+
+/** Supplies finite foreign readings without narrowing them to nonnegative integers. */
+export const STUDY_FINITE_READINGS: readonly number[] = Object.freeze([0, -0, -1, 0.5, 8])
+
+/** Supplies values a foreign finite-number reading cannot retain. */
+export const STUDY_UNKNOWN_READINGS: readonly unknown[] = Object.freeze([
+	undefined,
+	null,
+	NaN,
+	Infinity,
+	-Infinity,
+	'8',
+	{},
+])
+
+/** Supplies Agent stop records that cannot name an attributable ceiling. */
+export const STUDY_AGENT_INVALID_STOPS: readonly unknown[] = Object.freeze([
+	null,
+	4,
+	{},
+	{ layer: 'unknown', id: 'x' },
+	{ layer: 'meter', id: '', max: 1, consumed: 2 },
+	{ layer: 'budget', id: 'x', max: Infinity, consumed: 2 },
+	{ layer: 'meter', id: 'x', max: 1, consumed: NaN },
+	Object.defineProperty({}, 'layer', {
+		get: () => {
+			throw new Error('hostile')
+		},
+	}),
+])
+
+/** Supplies the causes that admit a stop. */
+export const STUDY_STOP_CAUSES = Object.freeze(['capacity', 'deadline'] as const)
+
+/** Supplies the causes that cannot carry a stop. */
+export const STUDY_OTHER_CAUSES = Object.freeze([
+	'content',
+	'interrupted',
+	'infrastructure',
+] as const)
+
+/** Supplies optional boolean truncation declarations. */
+export const STUDY_TRUNCATION_VALUES: readonly unknown[] = Object.freeze([true, false, undefined])
+
+/** Supplies off-shape truncation declarations. */
+export const STUDY_INVALID_TRUNCATIONS: readonly unknown[] = Object.freeze([null, 0, 'true', {}])
+
+/** Executes a real Agent over the scripted provider inside a serial Study series.
+ * @param options - The real Agent's budgets and window policy.
+ * @param response - The inert scripted reply.
+ * @param change - Overrides the series manifest, such as a scope allowance.
+ * @param reservation - A request held pending before the scripted call, when supplied.
+ * @returns Attempts and the Agent results observed before translation.
+ */
+export async function executeStudyAgentSeries(
+	options: AgentOptions = {},
+	response: StudyAgentResponse = buildStudyScriptResponse({ content: 'receipt '.repeat(16) }),
+	change: Partial<StudyManifest> = {},
+	reservation?: StudyCharge,
+): Promise<StudyAgentSeriesResult> {
+	const results = createRecorder<readonly [AgentResult]>()
+	const manifest = { ...buildCompactCustodyManifest(), ...change }
+	const custody = createStudyStoreFixture()
+	const driver = createStudyDriverFixture({
+		execute: async (goal, context) => {
+			if (reservation !== undefined) await context.meter.admit(reservation)
+			const provider = new StudyAgentScript({ bytes: 1024 })
+			provider.prepare({
+				goal: goal.id,
+				context,
+				workload: new AbortController(),
+				responses: [response],
+			})
+			const agent = new Agent(provider, { ...options, signal: context.signal })
+			try {
+				agent.context.messages.add({ role: 'user', content: 'Keep this receipt' })
+				const result = await agent.generate()
+				results.handler(result)
+				const refusal = translateStudyAgentStop(result.stop)
+				if (refusal !== undefined) throw refusal
+				return { value: result.content, partial: result.partial }
+			} catch (error) {
+				throw translateStudyAgentError(error, createAgentRuntime())
+			} finally {
+				provider.clear()
+			}
+		},
+	})
+	const attempts = await new StudySeries({
+		manifest,
+		driver: driver.driver,
+		store: custody.store,
+		signal: new AbortController().signal,
+	}).execute()
+	return { attempts, results: results.calls.map(([result]) => result) }
 }
 
 /**
@@ -948,6 +1088,7 @@ export const STUDY_AGENT_USAGE_FAILURE = Object.freeze({
 	cause: 'infrastructure',
 	message: 'Gauged request returned no usable prompt count',
 	role: 'agent',
+	stop: undefined,
 })
 
 /** Supplies one classification request a real judge answers. */
@@ -1468,6 +1609,7 @@ export function buildStudyScriptResponse(
 		abort: undefined,
 		tokens: undefined,
 		bytes: undefined,
+		truncated: undefined,
 		...change,
 	}
 }

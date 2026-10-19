@@ -63,8 +63,13 @@ await new GuideCommand({
 		createStudySinkFixture,
 		readOllamaMessages,
 	} = await import('./setupStudy.js')
-	const { retainStudyFixture, buildCustodyGrading, createOllamaContext } =
-		await import('./setupServer.js')
+	const {
+		retainStudyFixture,
+		buildCustodyGrading,
+		createOllamaContext,
+		createForeignBudgetError,
+		createBudgetLookalike,
+	} = await import('./setupServer.js')
 	const { realpathSync } = await import('node:fs')
 
 	it('indexes the package guide and keeps the README pitch equal to the Study tagline', () => {
@@ -185,6 +190,64 @@ await new GuideCommand({
 			profile: 'local',
 			out: undefined,
 			expected: undefined,
+		})
+	})
+
+	it('executes the stop attribution examples without inventing missing readings', () => {
+		expect(core.isStudyStop({ layer: 'scope', id: 'Goal tokens', max: 100, consumed: 120 })).toBe(
+			true,
+		)
+		expect(
+			core.studyStopToJSON({ layer: 'model', id: 'num_predict', max: 2048, consumed: undefined }),
+		).toEqual({ layer: 'model', id: 'num_predict', max: 2048, consumed: null })
+		expect(
+			core.translateStudyAgentStop({ layer: 'meter', id: 'meter', max: 2000, consumed: 2001 }),
+		).toMatchObject({
+			code: 'CAPACITY',
+			failure: { stop: { layer: 'meter', id: 'meter', max: 2000, consumed: 2001 } },
+		})
+		expect(core.parseStudyReading(2048)).toBe(2048)
+		expect(core.parseStudyReading(NaN)).toBeUndefined()
+		expect(
+			core.computeStudyAdmittedStop(
+				{ role: 'agent', tokens: 10, bytes: 100 },
+				{ role: 'agent', calls: 1, tokens: 12, bytes: undefined, duration: 0 },
+			),
+		).toEqual({ layer: 'scope', id: 'Admitted tokens', max: 10, consumed: 12 })
+		expect(core.computeStudyOutputStop(2048, 1024, [])).toEqual({
+			layer: 'scope',
+			id: 'Goal bytes',
+			max: 1024,
+			consumed: 2048,
+		})
+		expect(
+			server.computeStudyAttributions([
+				{
+					trial: 'r1-s1-a1',
+					goal: undefined,
+					failure: { cause: 'capacity', role: undefined, message: 'Capped', stop: undefined },
+					executed: true,
+				},
+			]),
+		).toEqual([
+			{ cause: 'capacity', role: null, layer: null, executed: 1, unexecuted: 0, readings: [] },
+		])
+		expect(server.isStudyAgentResponse({ content: 'done', calls: [], truncated: true })).toBe(true)
+	})
+
+	it('classifies branded budget errors before the infrastructure fallback', () => {
+		const error = createForeignBudgetError({ id: 'foreign', max: -1, consumed: 0 })
+		expect(core.readStudyFailure(error)).toEqual({
+			cause: 'capacity',
+			message: error.message,
+			role: undefined,
+			stop: { layer: 'budget', id: 'foreign', max: -1, consumed: 0 },
+		})
+		expect(core.readStudyFailure(createBudgetLookalike())).toEqual({
+			cause: 'infrastructure',
+			message: 'budget reached its ceiling',
+			role: undefined,
+			stop: undefined,
 		})
 	})
 

@@ -5,10 +5,20 @@ describe('src core entry', () => {
 	it('exposes usable study failures and admission controls through the package entry', () => {
 		const control = new entry.StudyControl()
 		try {
-			control.fail({ cause: 'capacity', message: 'Consumer allowance exhausted', role: 'tool' })
+			control.fail({
+				cause: 'capacity',
+				message: 'Consumer allowance exhausted',
+				role: 'tool',
+				stop: undefined,
+			})
 			expect(control.signal.aborted).toBe(true)
 			const error = entry.failureToStudyError(
-				control.failure ?? { cause: 'infrastructure', message: 'Missing failure', role: undefined },
+				control.failure ?? {
+					cause: 'infrastructure',
+					message: 'Missing failure',
+					role: undefined,
+					stop: undefined,
+				},
 			)
 			expect(entry.isStudyError(error)).toBe(true)
 			expect(error.code).toBe('CAPACITY')

@@ -69,6 +69,7 @@ describe('StudySeries', () => {
 			cause: 'content',
 			message: 'Summary content was unusable',
 			role: 'summary',
+			stop: undefined,
 		}
 		const driver = createStudyDriverFixture({
 			execute: async (_goal, context): Promise<StudyProduct> => {
@@ -247,6 +248,12 @@ describe('StudySeries', () => {
 		}).execute()
 		const first = attempts[0]
 		expect(first?.observations[0]?.product).toEqual({ value: 'ok', partial: false })
+		expect(first?.failure?.stop).toEqual({
+			layer: 'scope',
+			id: 'Goal bytes',
+			max: 64,
+			consumed: 102,
+		})
 		expect(first?.observations[1]?.product).toBeUndefined()
 		expect(first?.observations[1]?.failure?.cause).toBe('capacity')
 		expect(first?.failure?.cause).toBe('capacity')
@@ -274,6 +281,12 @@ describe('StudySeries', () => {
 		}).execute()
 		const first = attempts[0]
 		expect(first?.observations[0]?.product).toEqual({ value: 'a'.repeat(80), partial: false })
+		expect(first?.failure?.stop).toEqual({
+			layer: 'scope',
+			id: 'Trial output',
+			max: 150,
+			consumed: 164,
+		})
 		expect(first?.observations[1]?.product).toBeUndefined()
 		expect(first?.observations[1]?.failure?.cause).toBe('capacity')
 		expect(first?.failure?.cause).toBe('capacity')
@@ -306,6 +319,13 @@ describe('StudySeries', () => {
 		expect(second?.observations[0]?.product).toBeUndefined()
 		expect(second?.observations[0]?.failure?.cause).toBe('capacity')
 		expect(second?.failure?.cause).toBe('capacity')
+		expect(second?.failure?.stop).toEqual({
+			layer: 'scope',
+			id: 'Series output',
+			max: 200,
+			consumed: 246,
+		})
+		expect(second?.observations[1]?.failure?.stop).toEqual(second?.failure?.stop)
 		expect(second?.observations[1]?.product).toBeUndefined()
 		expect(second?.observations[1]?.failure?.message).toMatch(/^Goal unexecuted/)
 		expect(driver.executed.calls).toEqual([['write'], ['read'], ['write']])

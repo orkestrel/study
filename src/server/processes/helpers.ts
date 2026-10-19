@@ -32,7 +32,7 @@ export function valueToWire(value: unknown): JSONValue {
  * @returns A domain failure that never awards task credit.
  */
 export function createStudyProcessFailure(message: string): StudyFailure {
-	return { cause: 'infrastructure', message, role: undefined }
+	return { cause: 'infrastructure', message, role: undefined, stop: undefined }
 }
 
 /** Binds the canonical fully resolved execution profile carried over IPC.

@@ -72,7 +72,9 @@ export interface StudyAgentSummaryOptions {
  * `content` and `calls` are the reply the provider returns. `consume` names the prior tool result
  * the reply consumes; undefined consumes none. `abort`: if `true`, the reply aborts the goal's
  * workload; if `false` or undefined, it does not. `tokens` and `bytes` override the admitted
- * token count and byte charge of the reply; undefined keeps the defaults.
+ * token count and byte charge of the reply; undefined keeps the defaults. `truncated`: if `true`,
+ * the reply reports that the model ended it at its own token limit, which the Agent reads as a
+ * `model` stop; if `false` or undefined, it does not.
  */
 export interface StudyAgentResponse {
 	readonly content: string
@@ -81,6 +83,7 @@ export interface StudyAgentResponse {
 	readonly abort: boolean | undefined
 	readonly tokens: number | undefined
 	readonly bytes: number | undefined
+	readonly truncated: boolean | undefined
 }
 
 /** Holds the scripted provider's fixed byte bound; the admitted token count defaults to one. */

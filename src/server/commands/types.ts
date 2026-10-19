@@ -1,5 +1,6 @@
 import type {
 	StudyDefinition,
+	StudyFailure,
 	StudyGrading,
 	StudyIdentity,
 	StudyProfile,
@@ -58,6 +59,19 @@ export type StudyCommandRequest =
 export interface StudyCommandArtifact {
 	readonly path: string
 	readonly digest: string
+}
+
+/**
+ * Holds one failed record the report groups by cause, role, and layer.
+ * @remarks
+ * `trial` names the trial the failure belongs to. `goal` names the goal at the goal level and is
+ * undefined at the trial level. `executed` is the record's own execution fact, never inferred.
+ */
+export interface StudyAttributionSource {
+	readonly trial: string
+	readonly goal: string | undefined
+	readonly failure: StudyFailure
+	readonly executed: boolean
 }
 
 /** Holds checked public declarations and reproducible executable identities. */

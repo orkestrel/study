@@ -8,7 +8,7 @@ The host-independent engine is exported from `@orkestrel/study`; custody and nat
 
 Declare the question, purpose, arms, scenarios, repetition order, and rubric before execution. Each repetition row names every arm exactly once. The engine opens fresh state for each trial and retains state between that trial's ordered goals. It executes the declared schedule once; retries are disabled.
 
-The request meter reserves token and byte ceilings before an adapter dispatches work. Request, goal, trial, and series limits bound enclosing work. Missing actual usage remains unknown and consumes the admitted ceiling. Capacity, infrastructure, deadline, and interruption are operational outcomes; a product never awards its own task verdict. An error that carries a failure keeps that attribution; a study error without one reads as capacity for the `CAPACITY` code and as deadline for the `DEADLINE` code, and every other rejection reads as infrastructure.
+The request meter reserves token and byte ceilings before an adapter dispatches work. Request, goal, trial, and series limits bound enclosing work. Missing actual usage remains unknown and consumes the admitted ceiling. Capacity, infrastructure, deadline, and interruption are operational outcomes; a product never awards its own task verdict. An error that carries a failure keeps that attribution; a study error without one reads as capacity for the `CAPACITY` code and as deadline for the `DEADLINE` code. A branded `BudgetError` from any module copy reads as capacity with a `budget` stop and retains its source readings. Every other rejection reads as infrastructure, including an unbranded budget lookalike.
 
 A study error stamps an own `STUDY_ERROR_BRAND` descriptor whose value is the error itself. `isStudyError` requires that descriptor with an `Error` subclass, the `StudyError` name, and a declared code, so a study error thrown by another package, ESM, CommonJS, or captured module copy keeps its code and attribution. The brand uses the global symbol registry: it is recognition, not unforgeable provenance. An unbranded older copy, an inherited or borrowed brand, a proxy, and a property-only lookalike read as infrastructure.
 
@@ -125,9 +125,19 @@ The `StudyAgentTrace` class numbers each measured request and retains its contex
 
 The `StudyAgentSummary` class measures one canonical array, the folded messages followed by the instruction, and sends the very same array to the provider. Construction refuses with the `CONFIG` code unless `limit` is a positive safe integer, the gauge `scale` is finite and greater than 0, and the gauge `overhead` is finite and at least 0; the summary keeps its own copy of the gauge. A projection that reaches `limit` fails with the `CAPACITY` code before any request is sent. A summary outside an active goal, or with blank content after its evidence row, fails with the `FAULT` code.
 
-The `StudyAgentScript` class serves declared inert responses through the Agent provider boundary. Its constructor takes an explicit encoded `bytes` bound and refuses a value that is not a nonnegative safe integer. The `prepare` method keeps an owned snapshot of a goal's responses, so later caller mutation cannot change a served call. The `prepare` method refuses with the `CONFIG` code while a goal is prepared, and the `clear` method ends the prepared goal. A stream refuses with the `CONFIG` code when no goal is prepared, and a stream already running when `clear` is called finishes under its own goal. The `isStudyAgentResponse` guard accepts a response with JSON calls and sets no limit on content, call count, or `consume`; the consumer composes its own workload bounds. A stream abandoned after admission fails its admitted request with the run signal's reason, or a `FAULT` when the signal carries none, and never finishes it as success.
+The `StudyAgentScript` class serves declared inert responses through the Agent provider boundary. Its constructor takes an explicit encoded `bytes` bound and refuses a value that is not a nonnegative safe integer. The `prepare` method keeps an owned snapshot of a goal's responses, so later caller mutation cannot change a served call. The `prepare` method refuses with the `CONFIG` code while a goal is prepared, and the `clear` method ends the prepared goal. A stream refuses with the `CONFIG` code when no goal is prepared, and a stream already running when `clear` is called finishes under its own goal. The `isStudyAgentResponse` guard accepts a response with JSON calls and sets no limit on content, call count, or `consume`; the consumer composes its own workload bounds. A stream abandoned after admission accounts for an Agent budget cut without latching a failure. Other abandoned streams fail the admitted request with the run signal's reason, or a `FAULT` when the signal carries none.
 
 The `readStudyAgentMessages` function projects provider messages onto the role, content, and call fields a workload reads. The `buildStudyAgentReadings` function projects a Ledger result's readings onto JSON. The `buildStudyOllamaModels` function pins the model, and the judge when the provider declares both its name and digest. The `buildStudyOllamaOptions` function projects a role policy onto provider options and adds `truncate` and `shift` as `false` only for a strict policy.
+
+## Stop attribution
+
+A `StudyFailure` record carries an optional reading under `stop`. The `StudyStop` record names the ceiling's `layer`, its `id`, its `max`, and the `consumed` tally including the refused charge. The `StudyLayer` union admits `scope`, `window`, `custody`, `meter`, `budget`, and `model`. A deadline has cause `deadline` and layer `scope`; its id names the duration allowance. An absent reading stays undefined in memory and projects to null through `studyStopToJSON`. The `isStudyStop` guard admits finite source readings, including negative and fractional values. Translation, IPC admission, and custody admission preserve those readings without clamping or relabelling them.
+
+The `translateStudyAgentStop` function translates Agent's own result record. A consumer that refuses that stop throws the returned error. Meter and budget stops leave the Agent run partial; a model truncation can remain a complete answer when the consumer's policy admits it. Provider adapters finish a request cut by a branded budget error with unknown tokens so Agent's eventual record can attribute the layer. The scripted provider appends no row while closing a cut generator. An unbranded lookalike remains an infrastructure failure. A `StudyAgentResponse` declaration can set `truncated: true` to report the model's own token limit.
+
+The report keeps `faults` by cause and adds `attributions` under both trial and goal operations. Each group partitions affected records by cause, role, layer, and execution fact. Groups follow `STUDY_CAUSES`, `STUDY_ROLES`, and `STUDY_LAYERS`, with absent role and layer last. Each group's `readings` preserves source order and carries the trial, the goal at goal level, and the ceiling's id, max, and consumed values. Unexecuted goals inherit the trial's stop and retain their own reading.
+
+The Ollama transport appends a `stop` evidence row after its `wire` row when completion policy refuses a model cap or context room. The nested stop keeps its ceiling id separate from the observed wire id. Observation adds the canonical dispatch, revision, and wire timeline. A budget cut writes a `cut` row with the budget context and finishes the request with known wire bytes and unknown tokens. A failure sealed without a stop stays in the report with a null layer and an empty readings array. Study infers no layer from the old message or evidence.
 
 ## Native command
 
@@ -494,6 +504,18 @@ The following declarations describe this concept.
 | `validateStudyRuntime`             | function  | Refuses a profile that omits the actual host runtime's declared dependency bytes.                                              |
 | `valueToWire`                      | function  | Projects optional domain fields into the JSON wire representation.                                                             |
 | `writeStudyBytes`                  | function  | Writes an exclusive regular record and synchronizes it before reporting success.                                               |
+| `STUDY_LAYERS`                     | const     | Lists every ceiling a run can stop at in report order.                                                                         |
+| `StudyLayer`                       | type      | Names the ceiling that stopped a run.                                                                                          |
+| `StudyStop`                        | interface | Holds the ceiling that stopped a run and the readings it crossed.                                                              |
+| `StudyAttributionSource`           | interface | Holds one failed record the report groups by cause, role, and layer.                                                           |
+| `isStudyLayer`                     | const     | Checks whether a value names a ceiling a run can stop at.                                                                      |
+| `isStudyStop`                      | function  | Checks whether a value is the exact record of a ceiling that stopped a run.                                                    |
+| `studyStopToJSON`                  | function  | Projects a stop onto JSON with every unreported reading as null.                                                               |
+| `translateStudyAgentStop`          | function  | Translates an Agent run's stop record into the attributable capacity failure of the layer that stopped it.                     |
+| `computeStudyAttributions`         | function  | Groups failed records by cause, role, and layer, each group carrying its source readings.                                      |
+| `parseStudyReading`                | function  | Parses a foreign reading into a number a stop can retain.                                                                      |
+| `computeStudyAdmittedStop`         | function  | Computes the stop of a request whose actual usage crossed the ceiling it was admitted under.                                   |
+| `computeStudyOutputStop`           | function  | Computes the stop of a product the output allowances cannot hold.                                                              |
 
 ## Methods
 
@@ -1709,6 +1731,79 @@ const request = buildStudyOllamaSnapshot(new URL('/api/chat', owned.url), { head
 headers.set('x-request', 'changed')
 new Headers(request.init?.headers).get('x-request') // 'original'
 owned.signal === configured.signal // true
+```
+
+### isStudyStop
+
+Validate an owned ceiling reading.
+
+```ts
+import { isStudyStop } from '@orkestrel/study'
+
+isStudyStop({ layer: 'scope', id: 'Goal tokens', max: 100, consumed: 120 }) // true
+```
+
+### studyStopToJSON
+
+Project unknown readings without inventing a value.
+
+```ts
+import { studyStopToJSON } from '@orkestrel/study'
+
+studyStopToJSON({ layer: 'model', id: 'num_predict', max: 2048, consumed: undefined })
+// { layer: 'model', id: 'num_predict', max: 2048, consumed: null }
+```
+
+### translateStudyAgentStop
+
+Translate the Agent record after the run settles.
+
+```ts
+import { translateStudyAgentStop } from '@orkestrel/study'
+
+translateStudyAgentStop({ layer: 'meter', id: 'meter', max: 2000, consumed: 2001 })
+// a CAPACITY StudyError whose failure.stop is { layer: 'meter', id: 'meter', max: 2000, consumed: 2001 }
+```
+
+### computeStudyAttributions
+
+Group failed records while retaining their source readings.
+
+```ts
+import { computeStudyAttributions } from '@orkestrel/study/server'
+
+computeStudyAttributions([{ trial: 'r1-s1-a1', goal: undefined, failure, executed: true }])
+```
+
+### parseStudyReading
+
+Keep only a finite foreign reading.
+
+```ts
+import { parseStudyReading } from '@orkestrel/study'
+
+parseStudyReading(2048) // 2048
+parseStudyReading(Number.NaN) // undefined
+```
+
+### computeStudyAdmittedStop
+
+Read the first admitted usage ceiling crossed.
+
+```ts
+import { computeStudyAdmittedStop } from '@orkestrel/study'
+
+computeStudyAdmittedStop({ role: 'agent', tokens: 10, bytes: 100 }, usage) // { layer: 'scope', id: 'Admitted tokens', max: 10, consumed: 12 }
+```
+
+### computeStudyOutputStop
+
+Read the first output allowance that refuses the encoded product.
+
+```ts
+import { computeStudyOutputStop } from '@orkestrel/study'
+
+computeStudyOutputStop(2048, 1024, []) // { layer: 'scope', id: 'Goal bytes', max: 1024, consumed: 2048 }
 ```
 
 ### Helper calls

@@ -1,3 +1,4 @@
+import type { BudgetError } from '@orkestrel/budget'
 import type { JSONValue } from '@orkestrel/contract'
 import type { OllamaTiming } from '@orkestrel/ollama'
 import type { StudyRole, StudyTicket } from '../../core/types.js'
@@ -6,12 +7,15 @@ import type {
 	StudyOllamaActivity,
 	StudyOllamaRequest,
 	StudyOllamaSnapshot,
+	StudyOllamaTerminal,
 	StudyOllamaTransportOptions,
 } from './types.js'
+import { isBudgetError } from '@orkestrel/budget'
 import { isRecord, parseJSON } from '@orkestrel/contract'
 import { StudyError } from '../../core/errors.js'
 import { readStudyFailure } from '../../core/engines/helpers.js'
 import { buildStudyAgentDispatch } from '../../core/agents/helpers.js'
+import { studyStopToJSON } from '../../core/helpers.js'
 import { buildStudyOllamaSnapshot, buildStudyOllamaTransportOptions } from './cloners.js'
 import { StudyOllamaExchange } from './StudyOllamaExchange.js'
 import { StudyOllamaGoal } from './StudyOllamaGoal.js'
@@ -81,10 +85,11 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 	}
 
 	/** Retains an operational failure even when an inner runtime catches it.
-	 * @param error - The observed failure; the first retained failure keeps its identity.
+	 * @param error - The observed failure; the first retained failure keeps its identity, and a branded `BudgetError` retains nothing because Agent reports that stop in its own result.
 	 */
 	fail(error: unknown): void {
-		this.#fault ??= { error }
+		// An Agent budget's cut is reported by Agent's own result, so nothing is retained to re-raise.
+		if (!isBudgetError(error)) this.#fault ??= { error }
 	}
 
 	/** Checks every pinned serving identity through admitted inventory and metadata requests.
@@ -154,8 +159,15 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 			const settings = snapshot.init
 			const request = readStudyOllamaRequest(this.#options, role, snapshot.url, settings)
 			const limit = this.#options.limit
-			if (request.bytes >= limit.bytes)
-				throw new StudyError('CAPACITY', 'Encoded request consumes the response byte allowance')
+			if (request.bytes >= limit.bytes) {
+				const message = 'Encoded request consumes the response byte allowance'
+				throw new StudyError('CAPACITY', message, {
+					cause: 'capacity',
+					message,
+					role: undefined,
+					stop: { layer: 'scope', id: 'Wire bytes', max: limit.bytes, consumed: request.bytes },
+				})
+			}
 			const ticket = await activity.context.meter.admit({
 				role,
 				tokens: role === 'metadata' ? 0 : this.#options.room.context - this.#options.room.safety,
@@ -180,12 +192,14 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 					pull: (controller) => this.#pull(wire, controller),
 					// A consumer cancel without a reason is the only absence; any thrown value keeps its identity.
 					cancel: (reason: unknown) =>
-						this.#failWire(
-							wire,
-							reason === undefined
-								? new StudyError('FAULT', 'Ollama response cancelled before its end')
-								: reason,
-						),
+						isBudgetError(reason)
+							? this.#cut(wire, reason)
+							: this.#failWire(
+									wire,
+									reason === undefined
+										? new StudyError('FAULT', 'Ollama response cancelled before its end')
+										: reason,
+								),
 				}),
 				{
 					status: wire.status,
@@ -241,6 +255,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 					cause: 'infrastructure',
 					message,
 					role: wire.request.role,
+					stop: undefined,
 				})
 			)
 		} catch (error) {
@@ -276,13 +291,40 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 			if (wire.request.role !== 'metadata' && wire.terminal === undefined)
 				throw new StudyError('FAULT', 'Ollama response has no terminal row')
 			await this.#finish(wire)
-			if (wire.terminal !== undefined)
-				validateStudyOllamaCompletion(wire.terminal, this.#options.room, wire.request)
+			if (wire.terminal !== undefined) await this.#judge(wire, wire.terminal)
 			controller.close()
 		} catch (error) {
 			this.fail(error)
-			await this.#failWire(wire, error)
-			controller.error(error)
+			try {
+				if (isBudgetError(error)) await this.#cut(wire, error)
+				else await this.#failWire(wire, error)
+			} finally {
+				controller.error(error)
+			}
+		}
+	}
+
+	// Checks the terminal against the wire's declared policy; a refusal that names a stop is retained as one `stop` row before it propagates.
+	async #judge(wire: StudyOllamaExchange, terminal: StudyOllamaTerminal): Promise<void> {
+		try {
+			validateStudyOllamaCompletion(terminal, this.#options.room, wire.request)
+		} catch (error) {
+			const stop = readStudyFailure(error).stop
+			if (stop !== undefined)
+				await wire.activity.context.evidence.append({
+					event: 'stop',
+					goal: wire.activity.goal,
+					value: {
+						role: wire.request.role,
+						path: wire.request.path,
+						finish: terminal.reason,
+						prompt: terminal.prompt ?? null,
+						completion: terminal.completion ?? null,
+						stop: studyStopToJSON(stop),
+						...(this.#options.observe ? this.#timeline(wire) : {}),
+					},
+				})
+			throw error
 		}
 	}
 
@@ -355,7 +397,18 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				bytes: request.bytes,
 			})
 		} catch (error) {
-			if (!ticket.signal.aborted) ticket.fail({ ...readStudyFailure(error), role })
+			if (!ticket.signal.aborted) {
+				// An Agent budget's cut before the wire exists is Agent's own stop: the request is accounted with unknown cost.
+				if (isBudgetError(error))
+					ticket.finish({
+						role,
+						calls: 1,
+						tokens: undefined,
+						bytes: undefined,
+						duration: Math.ceil(performance.now() - started),
+					})
+				else ticket.fail({ ...readStudyFailure(error), role })
+			}
 			throw error
 		}
 	}
@@ -435,6 +488,48 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 			})
 		} finally {
 			this.#wires.delete(wire)
+			wire.reader.releaseLock()
+		}
+	}
+
+	// Accounts a request an Agent budget cut: the wire settles, the cut is retained as one `cut` row, and the request finishes with unknown tokens.
+	async #cut(wire: StudyOllamaExchange, error: BudgetError): Promise<void> {
+		if (wire.settled) return
+		wire.settle()
+		const observation = this.#options.observe ? this.#timeline(wire) : {}
+		const stop = readStudyFailure(error).stop
+		try {
+			await wire.activity.context.evidence.append({
+				event: 'cut',
+				goal: wire.activity.goal,
+				value: {
+					role: wire.request.role,
+					path: wire.request.path,
+					bytes: wire.bytes,
+					status: wire.status,
+					budget:
+						stop === undefined
+							? null
+							: { id: stop.id, max: stop.max ?? null, consumed: stop.consumed ?? null },
+					...observation,
+				},
+			})
+			if (!wire.ticket.signal.aborted)
+				wire.ticket.finish({
+					role: wire.request.role,
+					calls: 1,
+					tokens: undefined,
+					bytes: wire.bytes,
+					duration: Math.ceil(performance.now() - wire.started),
+				})
+		} catch (failure) {
+			this.fail(failure)
+			if (!wire.ticket.settled && !wire.ticket.signal.aborted)
+				wire.ticket.fail({ ...readStudyFailure(failure), role: wire.request.role })
+			throw failure
+		} finally {
+			this.#wires.delete(wire)
+			await wire.reader.cancel(error).catch(() => undefined)
 			wire.reader.releaseLock()
 		}
 	}

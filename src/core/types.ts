@@ -131,11 +131,41 @@ export interface StudyManifest {
 	readonly host: Readonly<Record<string, string>>
 }
 
+/**
+ * Names the ceiling that stopped a run.
+ * @remarks
+ * `scope` is a limit Study declares: the calls, tokens, bytes, or duration of a request, goal,
+ * trial, series, or operation, the product output allowance, and a provider's declared byte bound.
+ * `window` is a prompt room. `custody` is an evidence allowance. `meter`, `budget`, and `model`
+ * mirror the `layer` of the `AgentStop` type from `@orkestrel/agent`: the run's estimate allowance,
+ * any other budget, and the model's own token limit, which also names the daemon's context and
+ * output caps.
+ */
+export type StudyLayer = 'scope' | 'window' | 'custody' | 'meter' | 'budget' | 'model'
+
+/**
+ * Holds the ceiling that stopped a run and the readings it crossed.
+ * @remarks
+ * `id` names the ceiling: a Study label and quantity such as `Goal tokens`, an Agent budget's trace
+ * id, or the provider option that capped the model such as `num_predict`. `max` is the ceiling and
+ * `consumed` the tally at the crossing, the refused charge included; each is undefined when its
+ * source reports none. On the `model` layer `max` is the cap and `consumed` the completion or prompt.
+ * Finite foreign readings retain their source values, including negative and fractional values.
+ */
+export interface StudyStop {
+	readonly layer: StudyLayer
+	readonly id: string
+	readonly max: number | undefined
+	readonly consumed: number | undefined
+}
+
 /** Holds an attributable operational fault without awarding a task verdict. */
 export interface StudyFailure {
 	readonly cause: StudyCause
 	readonly message: string
 	readonly role: StudyRole | undefined
+	/** Names the ceiling that stopped the run; undefined for a failure no ceiling caused, and for a record sealed before this member existed. */
+	readonly stop: StudyStop | undefined
 }
 
 /** Holds a request's pre-dispatch upper bounds. */

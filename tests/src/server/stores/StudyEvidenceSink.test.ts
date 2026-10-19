@@ -64,11 +64,17 @@ describe('StudyEvidenceSink', () => {
 			await sink.append({ event: 'saved', goal: 'write', value: true })
 			await expect(
 				sink.append({ event: 'saved', goal: 'write', value: true }),
-			).rejects.toMatchObject({ code: 'CAPACITY' })
+			).rejects.toMatchObject({
+				code: 'CAPACITY',
+				failure: { stop: { layer: 'custody', id: 'Goal evidence', max: 100, consumed: 138 } },
+			})
 			await sink.append({ event: 'saved', goal: 'read', value: true })
 			await expect(
 				sink.append({ event: 'saved', goal: 'read', value: true }),
-			).rejects.toMatchObject({ code: 'CAPACITY' })
+			).rejects.toMatchObject({
+				code: 'CAPACITY',
+				failure: { stop: { layer: 'custody', id: 'Trial evidence', max: 140, consumed: 182 } },
+			})
 			await sink.close()
 			expect(reservations.calls).toEqual([
 				[Buffer.byteLength(write)],

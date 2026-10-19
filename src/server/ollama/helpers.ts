@@ -1,6 +1,6 @@
 import type { JSONValue } from '@orkestrel/contract'
 import type { OllamaTiming } from '@orkestrel/ollama'
-import type { StudyProvider, StudyRole, StudyRoom } from '../../core/types.js'
+import type { StudyProvider, StudyRole, StudyRoom, StudyStop } from '../../core/types.js'
 import type {
 	StudyOllamaPolicy,
 	StudyOllamaRequest,
@@ -18,6 +18,7 @@ import {
 	parseJSON,
 } from '@orkestrel/contract'
 import { StudyError } from '../../core/errors.js'
+import { parseStudyReading } from '../../core/parsers.js'
 
 /**
  * Declares the pinned serving identities the Ollama transport verifies, keyed by the label their inventory evidence carries.
@@ -220,11 +221,23 @@ export function readStudyOllamaSupport(value: unknown, context: number): number 
 		typeof ceiling !== 'number' ||
 		!Number.isSafeInteger(ceiling) ||
 		ceiling < context
-	)
-		throw new StudyError(
-			'CAPACITY',
-			'Model context metadata does not support the requested context',
-		)
+	) {
+		const message = 'Model context metadata does not support the requested context'
+		throw new StudyError('CAPACITY', message, {
+			cause: 'capacity',
+			message,
+			role: undefined,
+			stop: {
+				layer: 'model',
+				id: 'context_length',
+				max:
+					keys.length === 1 && Number.isSafeInteger(ceiling)
+						? parseStudyReading(ceiling)
+						: undefined,
+				consumed: context,
+			},
+		})
+	}
 	return ceiling
 }
 
@@ -284,6 +297,14 @@ export function readStudyOllamaFailure(
 		cause: capacity ? 'capacity' : 'infrastructure',
 		message: reason,
 		role,
+		stop: capacity
+			? {
+					layer: 'model',
+					id: 'num_ctx',
+					max: parseStudyReading(limit),
+					consumed: parseStudyReading(prompt),
+				}
+			: undefined,
 	})
 }
 
@@ -336,6 +357,7 @@ export function readStudyOllamaTerminal(
 				cause: 'infrastructure',
 				message: 'Malformed Ollama usage',
 				role: request.role,
+				stop: undefined,
 			})
 	const prompt = typeof value.prompt_eval_count === 'number' ? value.prompt_eval_count : undefined
 	const completion = typeof value.eval_count === 'number' ? value.eval_count : undefined
@@ -357,24 +379,51 @@ export function validateStudyOllamaCompletion(
 ): void {
 	const { prompt, completion, reason } = terminal
 	const { role } = request
-	if (prompt !== undefined && prompt > room.context - request.output - room.safety) {
+	const capped: StudyStop = {
+		layer: 'model',
+		id: 'num_predict',
+		max: request.output,
+		consumed: completion,
+	}
+	const ceiling = room.context - request.output - room.safety
+	if (prompt !== undefined && prompt > ceiling) {
 		const message = 'Actual prompt exceeded reserved context capacity'
-		throw new StudyError('CAPACITY', message, { cause: 'capacity', message, role })
+		throw new StudyError('CAPACITY', message, {
+			cause: 'capacity',
+			message,
+			role,
+			stop: { layer: 'window', id: 'Context room', max: ceiling, consumed: prompt },
+		})
 	}
 	if (completion !== undefined && completion > request.output) {
 		const message = 'Actual generation exceeded the output allowance'
-		throw new StudyError('CAPACITY', message, { cause: 'capacity', message, role })
+		throw new StudyError('CAPACITY', message, {
+			cause: 'capacity',
+			message,
+			role,
+			stop: capped,
+		})
 	}
 	if (
 		!request.length &&
 		(reason === 'length' || (completion !== undefined && completion >= request.output))
 	) {
 		const message = 'Substantive generation reached its output cap'
-		throw new StudyError('CAPACITY', message, { cause: 'capacity', message, role })
+		throw new StudyError('CAPACITY', message, {
+			cause: 'capacity',
+			message,
+			role,
+			stop: capped,
+		})
 	}
 	if (reason !== 'stop' && !(request.length && reason === 'length')) {
 		const message = 'Unsupported Ollama finish reason'
-		throw new StudyError('FAULT', message, { cause: 'infrastructure', message, role })
+		throw new StudyError('FAULT', message, {
+			cause: 'infrastructure',
+			message,
+			role,
+			stop: undefined,
+		})
 	}
 }
 

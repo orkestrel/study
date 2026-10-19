@@ -1,3 +1,5 @@
+import { studyStopToJSON } from '../../../src/core/helpers.js'
+import { buildStudyStop } from '../../setupStudy.js'
 import { expect, it } from 'vitest'
 import {
 	buildStudySchedule,
@@ -329,4 +331,19 @@ it('rejects incomplete schedules, mismatched attempts, foreign or duplicate judg
 			judgments: [buildStudyJudgment('r1-s1-a1', 'first-read', 'achieved', 'state')],
 		}),
 	).toThrow(StudyError)
+})
+
+it('projects each unknown stop reading to null and preserves distinct known readings', () => {
+	expect(studyStopToJSON(buildStudyStop())).toEqual({
+		layer: 'model',
+		id: 'num_predict',
+		max: 8,
+		consumed: 9,
+	})
+	expect(studyStopToJSON(buildStudyStop({ max: undefined, consumed: undefined }))).toEqual({
+		layer: 'model',
+		id: 'num_predict',
+		max: null,
+		consumed: null,
+	})
 })

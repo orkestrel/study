@@ -1,6 +1,6 @@
-import type { LedgerGauge } from '@orkestrel/agent'
+import type { AgentResult, LedgerGauge } from '@orkestrel/agent'
 import type { RecorderInterface } from '@orkestrel/test'
-import type { StudyEvidence, StudySinkInterface } from '../../../../src/core/types.js'
+import type { StudyAttempt, StudyEvidence, StudySinkInterface } from '../../../../src/core/types.js'
 import type { StudyAgentPlan } from '../../../../src/server/agents/types.js'
 import type { StudyAgentSummary } from '../../../../src/server/agents/StudyAgentSummary.js'
 import type { StudyAgentTrace } from '../../../../src/server/agents/StudyAgentTrace.js'
@@ -9,6 +9,12 @@ import type {
 	OllamaReplyFixture,
 	StudyLatchFixture,
 } from '../../core/agents/types.js'
+
+/** Holds terminal custody and the real Agent results observed before stop translation. */
+export interface StudyAgentSeriesResult {
+	readonly attempts: readonly StudyAttempt[]
+	readonly results: readonly AgentResult[]
+}
 
 /**
  * Holds the custody refusal and the append hook a sink fixture applies.
