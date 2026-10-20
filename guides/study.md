@@ -123,11 +123,29 @@ The server entry adds a trace, a gauged summary, and a scripted provider over th
 
 The `StudyAgentTrace` class numbers each measured request and retains its context, estimate, and capacity-refusal rows for the active goal. Ordinals, dispatch numbers, and role identities continue across a trial's goals. The `observe` option selects those measurement and refusal rows. When it is `false`, `append` still retains a domain row for an active goal, and a row outside a goal is dropped. The `start` method refuses with the `CONFIG` code while a goal is active and leaves that goal and its rows unchanged. The `flush` method appends the rows to a `StudySinkInterface` in order, keeps rows appended during the flush, and ends the goal and clears its rows, including when custody refuses a row. A `flush` with no active goal does nothing, and a `flush` while another is pending refuses with the `CONFIG` code and leaves the pending one untouched. The `origins` handler joins each measured message to its consumer origin.
 
-The `StudyAgentSummary` class measures one canonical array, the folded messages followed by the instruction, and sends the very same array to the provider. Construction refuses with the `CONFIG` code unless `limit` is a positive safe integer, the gauge `scale` is finite and greater than 0, and the gauge `overhead` is finite and at least 0; the summary keeps its own copy of the gauge. A projection that reaches `limit` fails with the `CAPACITY` code before any request is sent. A summary outside an active goal, or with blank content after its evidence row, fails with the `FAULT` code.
+The `StudyAgentSummary` class measures one canonical array, the folded messages followed by the instruction, and sends the very same array to the provider. Construction refuses with the `CONFIG` code unless `limit` is a positive safe integer and the copied gauge passes `isStudyAgentGauge`: its `scale` is finite and greater than 0 and its `overhead` is finite and at least 0. The summary reads each gauge field once and keeps that validated copy. The guard admits extra members; a consumer that requires exact settings keys composes its own key check. A projection that reaches `limit` fails with the `CAPACITY` code before any request is sent. A summary outside an active goal, or with blank content after its evidence row, fails with the `FAULT` code.
 
 The `StudyAgentScript` class serves declared inert responses through the Agent provider boundary. Its constructor takes an explicit encoded `bytes` bound and refuses a value that is not a nonnegative safe integer. The `prepare` method keeps an owned snapshot of a goal's responses, so later caller mutation cannot change a served call. The `prepare` method refuses with the `CONFIG` code while a goal is prepared, and the `clear` method ends the prepared goal. A stream refuses with the `CONFIG` code when no goal is prepared, and a stream already running when `clear` is called finishes under its own goal. The `isStudyAgentResponse` guard accepts a response with JSON calls and sets no limit on content, call count, or `consume`; the consumer composes its own workload bounds. A stream abandoned after admission accounts for an Agent budget cut without latching a failure. Other abandoned streams fail the admitted request with the run signal's reason, or a `FAULT` when the signal carries none.
 
 The `readStudyAgentMessages` function projects provider messages onto the role, content, and call fields a workload reads. The `buildStudyAgentReadings` function projects a Ledger result's readings onto JSON. The `buildStudyOllamaModels` function pins the model, and the judge when the provider declares both its name and digest. The `buildStudyOllamaOptions` function projects a role policy onto provider options and adds `truncate` and `shift` as `false` only for a strict policy.
+
+The `buildStudyAgentToolResult` function projects an executed Agent tool call into its `id`, `name`, owned JSON `arguments`, boolean `success`, and owned JSON `value` or string `error`. The `buildStudyAgentToolDenial` function projects a denied call into its `id` and `name`, with a `reason` only when it is a string. Both refuse a malformed call with the `FAULT` code. The result projection also refuses a missing boolean `success`, non-JSON arguments or value, and a malformed failure error. Tool accounting, expected refusals, and workload grading remain in the consumer.
+
+### Inspect Agent tool evidence
+
+Validate the gauge independently of settings keys, then retain the Agent's executed or denied call.
+
+```ts
+import { isStudyAgentGauge } from '@orkestrel/study'
+import { buildStudyAgentToolResult, buildStudyAgentToolDenial } from '@orkestrel/study/server'
+
+const gauge = isStudyAgentGauge({ scale: 1, overhead: -0, label: 'summary' }) // true
+const call = { id: 'c1', name: 'write', arguments: { path: 'note.txt' } }
+const result = buildStudyAgentToolResult(call, { success: true, value: 'stored' })
+// { id: 'c1', name: 'write', arguments: { path: 'note.txt' }, success: true, value: 'stored' }
+const denial = buildStudyAgentToolDenial(call, 'refused')
+// { id: 'c1', name: 'write', reason: 'refused' }
+```
 
 ## Stop attribution
 
@@ -166,6 +184,8 @@ The command supports explicit operations with operation-specific flags. Every fl
 Success writes a JSON document. The next field contains suggested argv and never executes it automatically. Execution returns a result identity independently of the original study selector. Result selection accepts an identity under tmp/studies, a contained root-relative path, or an absolute path. Relative output paths stay inside the consumer working directory; existing output directories refuse execution. A relative result, --out, --rubric or --labels path, and a declared rubric path, separates its names with forward slashes and names no . or .. segment; profile paths resolve against the consumer root. Without --out, execution writes its result under tmp/studies by its new identity; the suggested execution arguments a check returns carry no --out.
 
 Check returns a fingerprint for the declared execution selection. Pass that fingerprint through --expected to pin execution. Both check and execute require a quality profile to declare a qualification path. Execute then requires that path to select a sealed capacity result with the same identity, bounds, schedule, and scenarios and no operational failures. Check validates the declaration offline without opening the capacity result. Capacity and mechanism studies execute without a qualification. Grade names an exact independent rubric path. Label and report require an exact grading identity; no operation guesses a grading version. Imported labels are caller-supplied bytes, not a labeler invoked by this command. A labeled grading binds the preceding grading's instrument, so equal labels over different gradings retain different identities.
+
+The `validateStudyInputs` function enforces the quality qualification requirement after the existing population, profile, room, reference, and coverage checks. Direct callers receive the same `CONFIG` refusal as the command when a quality profile omits its qualification. Capacity and mechanism inputs require no qualification.
 
 A labeled grading's instrument covers the executable package's whole dist directory, including the server and core entries, together with its Node version, runtime flags, platform, and architecture. Label identities are host-sensitive, as grading identities are.
 
@@ -392,6 +412,8 @@ The following declarations describe this concept.
 | `StudyWorker`                      | class     | Executes one verified trial behind parent-authorized admission and custody.                                                    |
 | `buildStudyAgentDispatch`          | function  | Builds the evidence join of a wire request to its canonical dispatch.                                                          |
 | `buildStudyAgentParts`             | function  | Projects a request's structural components onto plain JSON without storing a total.                                            |
+| `buildStudyAgentToolResult`        | function  | Builds the JSON evidence form of an Agent tool call and its executed result.                                                   |
+| `buildStudyAgentToolDenial`        | function  | Builds the JSON evidence form of an Agent tool call the Agent denied before dispatch.                                          |
 | `buildStudyAgentReadings`          | function  | Builds the JSON evidence form of a Ledger result's logical classifier readings.                                                |
 | `buildStudyAgentRevision`          | function  | Builds a request revision by hashing its canonical rendering exactly as rendered.                                              |
 | `buildStudyOllamaModels`           | function  | Declares the pinned serving identities the Ollama transport verifies, keyed by the label their inventory evidence carries.     |
@@ -429,6 +451,7 @@ The following declarations describe this concept.
 | `isArtifactError`                  | function  | Narrows a caught value to an artifact refusal.                                                                                 |
 | `isStudyAdapter`                   | function  | Checks whether a factory returned the complete consumer adapter contract.                                                      |
 | `isStudyAgentResponse`             | function  | Checks whether a scripted response has JSON calls and workload controls.                                                       |
+| `isStudyAgentGauge`                | function  | Checks whether a value is a gauge with a finite positive scale and a finite nonnegative overhead.                              |
 | `isStudyAgentRuntime`              | function  | Checks whether a namespace exposes the Agent capabilities the instrumentation invokes.                                         |
 | `isStudyBounds`                    | function  | Checks whether nested scopes admit no larger allowance than their parent.                                                      |
 | `isStudyCause`                     | const     | Checks whether a value names an operational ending.                                                                            |

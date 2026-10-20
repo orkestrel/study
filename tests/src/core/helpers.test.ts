@@ -11,6 +11,7 @@ import {
 } from '../../../src/core/helpers.js'
 import { StudyError } from '../../../src/core/errors.js'
 import {
+	STUDY_UNQUALIFIED_PURPOSES,
 	buildStudyDefinition,
 	buildStudyGrading,
 	buildStudyJudgment,
@@ -142,7 +143,7 @@ it('rejects duplicate, missing, foreign and oversized scenario populations', () 
 it('enforces a valid profile, all criterion references, complete goal coverage, purpose and room allowances', () => {
 	const manifest = buildStudyManifest()
 	const rubric = buildStudyRubric()
-	const profile = buildStudyProfile()
+	const profile = { ...buildStudyProfile(), qualification: 'tmp/studies/capacity' }
 	expect(() =>
 		validateStudyInputs(manifest.definition, manifest.scenarios, rubric, profile),
 	).not.toThrow()
@@ -205,7 +206,10 @@ it('binds rubric paths independently of versioned regrading over the same execut
 	const rubric = buildStudyRubric()
 	const grading = buildStudyGrading(manifest.schedule)
 	expect(() =>
-		validateStudyInputs(manifest.definition, manifest.scenarios, rubric, buildStudyProfile()),
+		validateStudyInputs(manifest.definition, manifest.scenarios, rubric, {
+			...buildStudyProfile(),
+			qualification: 'tmp/studies/capacity',
+		}),
 	).not.toThrow()
 	const first = computeStudyScores(manifest, rubric, grading)
 	const revised = { ...rubric, version: '2' }
@@ -227,6 +231,47 @@ it('binds rubric paths independently of versioned regrading over the same execut
 			grading,
 		),
 	).toThrow(StudyError)
+})
+
+it('requires a capacity qualification for quality after existing room and coverage checks', () => {
+	const manifest = buildStudyManifest()
+	const definition = { ...manifest.definition, purpose: 'quality' as const }
+	const profile = buildStudyProfile()
+	const rubric = buildStudyRubric()
+	expect(() => validateStudyInputs(definition, manifest.scenarios, rubric, profile)).toThrow(
+		expect.objectContaining({
+			code: 'CONFIG',
+			message: 'Quality studies require a capacity qualification',
+		}),
+	)
+	expect(() =>
+		validateStudyInputs(definition, manifest.scenarios, rubric, {
+			...profile,
+			room: { ...profile.room, context: 110 },
+		}),
+	).toThrow('Request allowance does not fit the model room')
+	expect(() =>
+		validateStudyInputs(
+			definition,
+			manifest.scenarios,
+			{ ...rubric, criteria: rubric.criteria.slice(1) },
+			profile,
+		),
+	).toThrow('Every declared goal needs a criterion')
+	expect(() =>
+		validateStudyInputs(definition, manifest.scenarios, rubric, {
+			...profile,
+			qualification: 'tmp/studies/capacity',
+		}),
+	).not.toThrow()
+	const mechanical = {
+		...rubric,
+		criteria: rubric.criteria.map((criterion) => ({ ...criterion, method: 'state' as const })),
+	}
+	for (const purpose of STUDY_UNQUALIFIED_PURPOSES)
+		expect(() =>
+			validateStudyInputs({ ...definition, purpose }, manifest.scenarios, mechanical, profile),
+		).not.toThrow()
 })
 
 it('retains unserved and missing judgments in each complete horizon', () => {

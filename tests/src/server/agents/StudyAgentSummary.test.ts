@@ -1,7 +1,7 @@
 import type { ProviderRequest } from '@orkestrel/agent'
 import { describe, expect, it } from 'vitest'
 import { estimateRequest } from '@orkestrel/agent'
-import { waitForCondition } from '@orkestrel/test'
+import { createRecorder, waitForCondition } from '@orkestrel/test'
 import { StudyError } from '../../../../src/core/errors.js'
 import { buildStudyAgentRevision } from '../../../../src/server/agents/helpers.js'
 import {
@@ -26,6 +26,64 @@ const canonical: ProviderRequest = {
 const agent: ProviderRequest = { messages: STUDY_SUMMARY_MESSAGES }
 
 describe('StudyAgentSummary', () => {
+	it('reads each gauge field once and projects from the validated copy', async () => {
+		const scales = createRecorder<[]>()
+		const overheads = createRecorder<[]>()
+		const fixture = createStudyAgentSummary({
+			replies: buildOllamaReplies('Recap'),
+			observe: false,
+			limit: 102,
+			gauge: {
+				get scale() {
+					scales.handler()
+					return 1e-9
+				},
+				get overhead() {
+					overheads.handler()
+					return overheads.calls.length === 1 ? 100 : 1000
+				},
+			},
+		})
+		expect(scales.calls).toEqual([[]])
+		expect(overheads.calls).toEqual([[]])
+		fixture.trace.start('write')
+		await expect(fixture.summary.summarize(STUDY_SUMMARY_MESSAGES, undefined)).resolves.toBe(
+			'Recap',
+		)
+		expect(scales.calls).toEqual([[]])
+		expect(overheads.calls).toEqual([[]])
+		expect(fixture.wire.requests).toHaveLength(1)
+	})
+
+	it('refuses invalid read gauge values with CONFIG and the established message', () => {
+		const scales = createRecorder<[]>()
+		const overheads = createRecorder<[]>()
+		expect(() =>
+			createStudyAgentSummary({
+				replies: [],
+				observe: false,
+				limit: 102,
+				gauge: {
+					get scale() {
+						scales.handler()
+						return Number.NaN
+					},
+					get overhead() {
+						overheads.handler()
+						return 0
+					},
+				},
+			}),
+		).toThrow(
+			expect.objectContaining({
+				code: 'CONFIG',
+				message:
+					'Summary gauge scale must be finite and positive and its overhead finite and nonnegative',
+			}),
+		)
+		expect(scales.calls).toEqual([[]])
+		expect(overheads.calls).toEqual([[]])
+	})
 	it('reports the Summary room stop at the projection boundary', async () => {
 		const fixture = createStudyAgentSummary({
 			replies: [],

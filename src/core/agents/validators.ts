@@ -1,5 +1,23 @@
 import type { StudyAgentRuntime } from './types.js'
-import { holds, isObject } from '@orkestrel/contract'
+import type { LedgerGauge } from '@orkestrel/agent'
+import { holds, isFiniteNumber, isObject } from '@orkestrel/contract'
+
+/**
+ * Checks whether a value is a gauge with a finite positive scale and a finite nonnegative overhead.
+ * @param value - The candidate gauge; additional members are admitted
+ * @returns True if the gauge readings are finite and within their bounds; false otherwise
+ * @example
+ * ```ts
+ * isStudyAgentGauge({ scale: 1, overhead: 0 }) // true
+ * ```
+ */
+export function isStudyAgentGauge(value: unknown): value is LedgerGauge {
+	return holds(() => {
+		if (!isObject(value) || !('scale' in value) || !('overhead' in value)) return false
+		const { scale, overhead } = value
+		return isFiniteNumber(scale) && scale > 0 && isFiniteNumber(overhead) && overhead >= 0
+	})
+}
 
 /**
  * Checks whether a namespace exposes the Agent capabilities the instrumentation invokes.

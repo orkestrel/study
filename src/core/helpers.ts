@@ -158,7 +158,7 @@ export function buildStudySchedule(
  * @param rubric - The independently held grading declaration
  * @param profile - The execution bounds and model room
  * @returns Nothing when every cross-input invariant holds
- * @throws StudyError - Thrown when any input or cross-reference is invalid
+ * @throws StudyError - Thrown when any input or cross-reference is invalid, or a quality study has no capacity qualification
  * @example
  * ```ts
  * validateStudyInputs(definition, scenarios, rubric, profile)
@@ -196,6 +196,8 @@ export function validateStudyInputs(
 				throw new StudyError('CONFIG', 'Every declared goal needs a criterion')
 		}
 	}
+	if (definition.purpose === 'quality' && profile.qualification === undefined)
+		throw new StudyError('CONFIG', 'Quality studies require a capacity qualification')
 }
 
 /**

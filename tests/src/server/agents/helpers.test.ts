@@ -1,10 +1,13 @@
 import type { Message, ProviderRequest } from '@orkestrel/agent'
 import { createRecorder } from '@orkestrel/test'
+import { isToolCall } from '@orkestrel/tool'
 import { describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
 import { StudyError } from '../../../../src/core/errors.js'
 import {
 	buildStudyAgentReadings,
+	buildStudyAgentToolResult,
+	buildStudyAgentToolDenial,
 	buildStudyAgentRevision,
 	resolveStudyAgentContent,
 	readStudyAgentMessages,
@@ -14,6 +17,14 @@ import { StudyAgentScript } from '../../../../src/server/agents/StudyAgentScript
 import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
 import {
 	STUDY_AGENT_MESSAGES,
+	STUDY_AGENT_TOOL_CALL,
+	STUDY_AGENT_INVALID_CALLS,
+	STUDY_AGENT_INVALID_RESULTS,
+	STUDY_AGENT_TOOL_PROJECTIONS,
+	STUDY_AGENT_OMITTED_REASONS,
+	STUDY_AGENT_NON_JSON_VALUES,
+	STUDY_AGENT_TOOL_RESULTS,
+	STUDY_AGENT_INVALID_ERRORS,
 	STUDY_AGENT_TOOLS,
 	STUDY_SCRIPT_CALL,
 	STUDY_SCRIPT_MESSAGES,
@@ -21,6 +32,162 @@ import {
 	createStudyScriptFixture,
 	createStudyScriptMeter,
 } from '../../../setupStudy.js'
+
+describe('Agent tool evidence', () => {
+	it('owns each foreign tool field from one read before validating its copy', () => {
+		for (const project of STUDY_AGENT_TOOL_PROJECTIONS) {
+			const ids = createRecorder<[]>()
+			const names = createRecorder<[]>()
+			const parameters = createRecorder<[]>()
+			const successes = createRecorder<[]>()
+			const values = createRecorder<[]>()
+			project(
+				{
+					get id() {
+						ids.handler()
+						return 'c1'
+					},
+					get name() {
+						names.handler()
+						return 'write'
+					},
+					get arguments() {
+						parameters.handler()
+						return { path: 'note.txt' }
+					},
+				},
+				{
+					get success() {
+						successes.handler()
+						return true
+					},
+					get value() {
+						values.handler()
+						return 'stored'
+					},
+				},
+			)
+			expect(ids.calls).toEqual([[]])
+			expect(names.calls).toEqual([[]])
+			expect(parameters.calls).toEqual([[]])
+			expect(successes.calls).toEqual(project === buildStudyAgentToolResult ? [[]] : [])
+			expect(values.calls).toEqual(project === buildStudyAgentToolResult ? [[]] : [])
+		}
+	})
+	it('projects successful and failed results and denials into the retained row shapes', () => {
+		expect(buildStudyAgentToolDenial(STUDY_AGENT_TOOL_CALL, 'refused')).toEqual({
+			id: 'c1',
+			name: 'write',
+			reason: 'refused',
+		})
+		for (const reason of STUDY_AGENT_OMITTED_REASONS)
+			expect(buildStudyAgentToolDenial(STUDY_AGENT_TOOL_CALL, reason)).toEqual({
+				id: 'c1',
+				name: 'write',
+			})
+		expect(
+			buildStudyAgentToolResult(STUDY_AGENT_TOOL_CALL, { success: true, value: 'stored' }),
+		).toEqual({
+			id: 'c1',
+			name: 'write',
+			arguments: { path: 'note.txt' },
+			success: true,
+			value: 'stored',
+		})
+		expect(
+			buildStudyAgentToolResult(STUDY_AGENT_TOOL_CALL, { success: false, error: 'refused' }),
+		).toEqual({
+			id: 'c1',
+			name: 'write',
+			arguments: { path: 'note.txt' },
+			success: false,
+			error: 'refused',
+		})
+	})
+
+	it.each(STUDY_AGENT_INVALID_CALLS)(
+		'refuses a malformed tool call $call with FAULT',
+		({ call }) => {
+			expect(isToolCall(call)).toBe(false)
+			for (const project of STUDY_AGENT_TOOL_PROJECTIONS)
+				expect(() => project(call, undefined)).toThrow(
+					expect.objectContaining({
+						code: 'FAULT',
+						message: 'Admitted Agent supplied invalid tool observation',
+					}),
+				)
+		},
+	)
+
+	it.each(STUDY_AGENT_INVALID_RESULTS)(
+		'refuses a malformed tool result %o with FAULT',
+		(result) => {
+			expect(() => buildStudyAgentToolResult(STUDY_AGENT_TOOL_CALL, result)).toThrow(
+				expect.objectContaining({
+					code: 'FAULT',
+					message: 'Admitted Agent supplied invalid tool result',
+				}),
+			)
+		},
+	)
+
+	it('refuses non-JSON values and arguments and malformed errors with FAULT', () => {
+		for (const value of STUDY_AGENT_NON_JSON_VALUES)
+			expect(() =>
+				buildStudyAgentToolResult(STUDY_AGENT_TOOL_CALL, { success: true, value }),
+			).toThrow(
+				expect.objectContaining({
+					code: 'FAULT',
+					message: 'Admitted Agent supplied non-JSON tool value',
+				}),
+			)
+		expect(() => buildStudyAgentToolResult(STUDY_AGENT_TOOL_CALL, { success: true })).toThrow(
+			'non-JSON tool value',
+		)
+		const call = { ...STUDY_AGENT_TOOL_CALL, arguments: { missing: undefined } }
+		for (const result of STUDY_AGENT_TOOL_RESULTS)
+			expect(() => buildStudyAgentToolResult(call, result)).toThrow(
+				expect.objectContaining({
+					code: 'FAULT',
+					message: 'Admitted Agent supplied non-JSON tool arguments',
+				}),
+			)
+		expect(buildStudyAgentToolDenial(call, '')).toEqual({ id: 'c1', name: 'write', reason: '' })
+		for (const error of STUDY_AGENT_INVALID_ERRORS)
+			expect(() =>
+				buildStudyAgentToolResult(STUDY_AGENT_TOOL_CALL, { success: false, error }),
+			).toThrow(
+				expect.objectContaining({
+					code: 'FAULT',
+					message: 'Admitted Agent supplied invalid tool error',
+				}),
+			)
+	})
+
+	it('owns nested arguments and successful values independently of their sources', () => {
+		const parameters = { document: { path: 'note.txt' } }
+		const value = { stored: ['note.txt'] }
+		const call = { ...STUDY_AGENT_TOOL_CALL, arguments: parameters }
+		const success = buildStudyAgentToolResult(call, { success: true, value })
+		const failure = buildStudyAgentToolResult(call, { success: false, error: 'refused' })
+		parameters.document.path = 'changed.txt'
+		value.stored.push('changed.txt')
+		expect(success).toEqual({
+			id: 'c1',
+			name: 'write',
+			arguments: { document: { path: 'note.txt' } },
+			success: true,
+			value: { stored: ['note.txt'] },
+		})
+		expect(failure).toEqual({
+			id: 'c1',
+			name: 'write',
+			arguments: { document: { path: 'note.txt' } },
+			success: false,
+			error: 'refused',
+		})
+	})
+})
 
 describe('buildStudyAgentRevision', () => {
 	it('hashes the key-sorted canonical rendering exactly as rendered, with no trailing newline', () => {

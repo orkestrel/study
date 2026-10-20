@@ -109,8 +109,6 @@ export class StudyCommand {
 			throw new StudyError('CONFIG', 'Series duration exceeds the 24-hour host ceiling')
 		const profile = resolveStudyProfile(this.#root, source)
 		validateStudyInputs(definition, scenarios, rubric, profile)
-		if (definition.purpose === 'quality' && profile.qualification === undefined)
-			throw new StudyError('CONFIG', 'Quality studies require a capacity qualification')
 		signal.throwIfAborted()
 		const artifacts = new StudyArtifactLoader({
 			root: this.#root,

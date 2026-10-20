@@ -300,6 +300,24 @@ await new GuideCommand({
 		])
 	})
 
+	it('executes the gauge and Agent tool evidence example', () => {
+		const { isStudyAgentGauge } = core
+		const { buildStudyAgentToolResult, buildStudyAgentToolDenial } = server
+		const gauge = isStudyAgentGauge({ scale: 1, overhead: -0, label: 'summary' }) // true
+		const call = { id: 'c1', name: 'write', arguments: { path: 'note.txt' } }
+		const result = buildStudyAgentToolResult(call, { success: true, value: 'stored' })
+		const denial = buildStudyAgentToolDenial(call, 'refused')
+		expect(gauge).toBe(true)
+		expect(result).toEqual({
+			id: 'c1',
+			name: 'write',
+			arguments: { path: 'note.txt' },
+			success: true,
+			value: 'stored',
+		})
+		expect(denial).toEqual({ id: 'c1', name: 'write', reason: 'refused' })
+	})
+
 	it('pins Ollama models and projects a role policy onto provider options', () => {
 		const { buildStudyOllamaModels, buildStudyOllamaOptions } = server
 		const policy = {

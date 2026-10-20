@@ -81,6 +81,10 @@ import { StudyAgentObserver } from '../src/core/agents/StudyAgentObserver.js'
 import { StudyAgentSummary } from '../src/server/agents/StudyAgentSummary.js'
 import { StudyAgentTrace } from '../src/server/agents/StudyAgentTrace.js'
 import { StudyAgentScript } from '../src/server/agents/StudyAgentScript.js'
+import {
+	buildStudyAgentToolResult,
+	buildStudyAgentToolDenial,
+} from '../src/server/agents/helpers.js'
 import { StudySeries } from '../src/core/engines/StudySeries.js'
 import { translateStudyAgentStop, translateStudyAgentError } from '../src/core/agents/helpers.js'
 
@@ -1573,6 +1577,105 @@ export const STUDY_SCRIPT_CALL: ToolCall = Object.freeze({
 	name: 'lookup',
 	arguments: Object.freeze({ id: 'order-1' }),
 })
+
+/** Supplies a tool call whose arguments the evidence projections must own. */
+export const STUDY_AGENT_TOOL_CALL: ToolCall = Object.freeze({
+	id: 'c1',
+	name: 'write',
+	arguments: Object.freeze({ path: 'note.txt' }),
+})
+
+/** Supplies valid gauge boundaries, including extra members and signed zero. */
+export const STUDY_AGENT_VALID_GAUGES: readonly unknown[] = Object.freeze([
+	{ scale: 1, overhead: 0 },
+	{ scale: Number.MIN_VALUE, overhead: -0 },
+	{ scale: Number.MAX_VALUE, overhead: Number.MAX_VALUE, extra: true },
+])
+
+/** Supplies malformed gauge readings that must never pass the guard. */
+export const STUDY_AGENT_INVALID_GAUGES: readonly unknown[] = Object.freeze([
+	...Object.freeze([0, -0, -1, Number.NaN, Infinity, -Infinity, '1', undefined]).map((scale) => ({
+		scale,
+		overhead: 0,
+	})),
+	...Object.freeze([-1, Number.NaN, Infinity, -Infinity, '0', undefined]).map((overhead) => ({
+		scale: 1,
+		overhead,
+	})),
+	{ scale: 1 },
+	{ overhead: 0 },
+	null,
+	undefined,
+	1,
+	'gauge',
+	false,
+])
+
+/** Supplies calls that fail the Tool package's envelope guard. */
+export const STUDY_AGENT_INVALID_CALLS = Object.freeze(
+	[
+		Object.assign([], { id: 'c1', name: 'write', arguments: {} }),
+		Object.assign(new Date(0), { id: 'c1', name: 'write', arguments: {} }),
+		null,
+		'call',
+		{},
+		{ name: 'write', arguments: {} },
+		{ id: 'c1', arguments: {} },
+		{ id: 'c1', name: 'write' },
+		{ id: 1, name: 'write', arguments: {} },
+		{ id: 'c1', name: 'write', arguments: [] },
+	].map((call) => ({ call })),
+)
+
+/** Supplies results without the boolean success discriminant. */
+export const STUDY_AGENT_INVALID_RESULTS: readonly unknown[] = Object.freeze([
+	null,
+	'stored',
+	{},
+	{ success: 'true', value: 'stored' },
+])
+
+/** Names the gauge members whose getters the totality proof refuses. */
+export const STUDY_AGENT_GAUGE_FIELDS = Object.freeze(['scale', 'overhead'])
+
+/** Names purposes whose profiles require no capacity qualification. */
+export const STUDY_UNQUALIFIED_PURPOSES = Object.freeze(['capacity', 'mechanism'] as const)
+
+/** Supplies the projections whose foreign-call reads share the same envelope contract. */
+export const STUDY_AGENT_TOOL_PROJECTIONS = Object.freeze([
+	buildStudyAgentToolResult,
+	buildStudyAgentToolDenial,
+])
+
+/** Supplies denial reasons the projection must omit. */
+export const STUDY_AGENT_OMITTED_REASONS: readonly unknown[] = Object.freeze([
+	undefined,
+	null,
+	1,
+	Object.freeze({}),
+	false,
+])
+
+/** Supplies values that cannot become JSON tool evidence. */
+export const STUDY_AGENT_NON_JSON_VALUES: readonly unknown[] = Object.freeze([
+	undefined,
+	Number.NaN,
+	Infinity,
+	() => 'value',
+])
+
+/** Supplies executed result variants for the argument-ownership boundary. */
+export const STUDY_AGENT_TOOL_RESULTS = Object.freeze([
+	Object.freeze({ success: true, value: 'stored' }),
+	Object.freeze({ success: false, error: 'refused' }),
+])
+
+/** Supplies failure errors that violate the string error contract. */
+export const STUDY_AGENT_INVALID_ERRORS: readonly unknown[] = Object.freeze([
+	undefined,
+	1,
+	new Error('refused'),
+])
 
 /** Supplies more calls than any one consumer's workload bound, which the generic guard must still accept. */
 export const STUDY_SCRIPT_MANY_CALLS: readonly ToolCall[] = Object.freeze(
