@@ -11,6 +11,7 @@ import { StudyTask } from '../../../src/server/processes/StudyTask.js'
 import { StudyCommand } from '../../../src/server/commands/StudyCommand.js'
 import { readStudyResult } from '../../../src/server/stores/helpers.js'
 import {
+	createStudyScratch,
 	admitStudyLibrary,
 	buildStudyCLI,
 	buildStudyLibrary,
@@ -25,7 +26,7 @@ import { parseStudyRubric } from '../../../src/core/parsers.js'
 import { STUDY_COMMAND_INVALID_ARGUMENTS, STUDY_MISSING_DECLARATIONS } from '../../setupStudy.js'
 
 describe('built study executable', () => {
-	const runtime = createScratch({ parent: resolve('tmp/units'), prefix: 'runtime-bin-' })
+	const runtime = createStudyScratch(resolve('tmp/units'), 'runtime-bin-')
 	const compiled = Promise.withResolvers<string>()
 	// Registered before the build hook so the scratch is removed even when the build fails.
 	afterAll(async () => {
@@ -325,7 +326,7 @@ try { parseStudyArguments([]) } catch (error) {
 			])
 			expect(collision.code).not.toBe(0)
 			expect((scratch.read('imports.log') ?? '').trim().split(/\r\n|\n/)).toHaveLength(1)
-			const outside = createScratch({ parent: resolve('tmp/units'), prefix: 'cli-outside-' })
+			const outside = createStudyScratch(resolve('tmp/units'), 'cli-outside-')
 			try {
 				scratch.link('linked', outside.path)
 				const linked = await executeStudyCLI(entry, scratch.path, [
@@ -1198,7 +1199,7 @@ try { parseStudyArguments([]) } catch (error) {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
 		try {
-			const library = createScratch({ parent: resolve('tmp/units'), prefix: 'runtime-library-' })
+			const library = createStudyScratch(resolve('tmp/units'), 'runtime-library-')
 			try {
 				const built = pathToFileURL(await buildStudyLibrary(library)).href
 				admitStudyLibrary(scratch, library)
@@ -1247,7 +1248,7 @@ try { parseStudyArguments([]) } catch (error) {
 
 	it('attributes a real built library StudyError thrown during captured execution', async () => {
 		const entry = await compiled.promise
-		const library = createScratch({ parent: resolve('tmp/units'), prefix: 'runtime-library-' })
+		const library = createStudyScratch(resolve('tmp/units'), 'runtime-library-')
 		try {
 			const built = pathToFileURL(await buildStudyLibrary(library)).href
 			for (const [thrown, failure] of [
@@ -1272,10 +1273,7 @@ try { parseStudyArguments([]) } catch (error) {
 					{ cause: 'infrastructure', message: 'Foreign capacity', role: undefined },
 				],
 			] as const) {
-				const consumer = createScratch({
-					parent: resolve('tmp/units'),
-					prefix: 'runtime-consumer-',
-				})
+				const consumer = createStudyScratch(resolve('tmp/units'), 'runtime-consumer-')
 				try {
 					writeStudyConsumer(consumer)
 					admitStudyLibrary(consumer, library)
@@ -1308,7 +1306,7 @@ try { parseStudyArguments([]) } catch (error) {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
 		try {
-			const library = createScratch({ parent: resolve('tmp/units'), prefix: 'runtime-library-' })
+			const library = createStudyScratch(resolve('tmp/units'), 'runtime-library-')
 			try {
 				const built = pathToFileURL(await buildStudyLibrary(library)).href
 				admitStudyLibrary(scratch, library)
@@ -1349,7 +1347,7 @@ try { parseStudyArguments([]) } catch (error) {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
 		try {
-			const library = createScratch({ parent: resolve('tmp/units'), prefix: 'nested-library-' })
+			const library = createStudyScratch(resolve('tmp/units'), 'nested-library-')
 			try {
 				const built = await buildStudyLibrary(library, resolve('src/server/artifacts/index.ts'))
 				const runtimeLibrary = join(runtime.ensure('runtime/dist/loader'), 'index.js')

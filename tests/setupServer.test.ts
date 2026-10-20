@@ -2,13 +2,13 @@ import { createRecorder, requireValue, waitForCondition, waitForEvent } from '@o
 import { BudgetError, isBudgetError } from '@orkestrel/budget'
 import { createScratch, isRunning } from '@orkestrel/test/server'
 import { execFileSync, fork, spawnSync } from 'node:child_process'
-import { join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { isArray, isRecord, parseJSON } from '@orkestrel/contract'
 import type { StudyObservation } from '../src/core/types.js'
 import { createMCPClient, HTTPClientTransport } from '@orkestrel/mcp'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { isStudyBounds } from '../src/core/validators.js'
 import { STUDY_LAUNCH_BYTES } from '../src/server/launchers/constants.js'
 import { buildStudyRubric } from './setupStudy.js'
@@ -56,6 +56,7 @@ import {
 	writeStudyBurstEntry,
 	writeStudyCheckEntry,
 	createStudyConsumer,
+	createStudyScratch,
 	writeStudyConsumer,
 	writeStudyLauncherEntry,
 	writeStudyOrphan,
@@ -74,6 +75,27 @@ it('constructs foreign branded budget readings and an unbranded control', () => 
 })
 
 describe('study server fixtures', () => {
+	it('creates a missing nested parent before allocating a study scratch', () => {
+		const root = createScratch()
+		try {
+			const parent = join(root.path, 'missing', 'units')
+			expect(existsSync(parent)).toBe(false)
+			const scratch = createStudyScratch(parent, 'study-parent-')
+			try {
+				expect(existsSync(parent)).toBe(true)
+				expect(dirname(scratch.path)).toBe(realpathSync(parent))
+				expect(basename(scratch.path)).toMatch(/^study-parent-/)
+				scratch.write('receipt.txt', 'allocated')
+				expect(readFileSync(join(scratch.path, 'receipt.txt'), 'utf8')).toBe('allocated')
+			} finally {
+				scratch.destroy()
+			}
+			expect(existsSync(parent)).toBe(true)
+			expect(existsSync(scratch.path)).toBe(false)
+		} finally {
+			root.destroy()
+		}
+	})
 	it('binds native fixture declarations to the selected entry and live cancellation', () => {
 		const scratch = createScratch()
 		try {
@@ -141,7 +163,7 @@ describe('study server fixtures', () => {
 		expect(existsSync(path)).toBe(false)
 	})
 	it('builds the native CLI and supplies a checkable consumer without importing its subject', async () => {
-		const scratch = createScratch({ parent: resolve('tmp/units'), prefix: 'setup-cli-' })
+		const scratch = createStudyScratch(resolve('tmp/units'), 'setup-cli-')
 		try {
 			writeStudyConsumer(scratch)
 			const entry = await buildStudyCLI(scratch)
@@ -162,7 +184,7 @@ describe('study server fixtures', () => {
 		}
 	}, 60000)
 	it('builds the core library as a separate importable package with its own error class', async () => {
-		const scratch = createScratch({ parent: resolve('tmp/units'), prefix: 'setup-library-' })
+		const scratch = createStudyScratch(resolve('tmp/units'), 'setup-library-')
 		try {
 			const entry = await buildStudyLibrary(scratch)
 			expect(entry).toBe(join(scratch.path, 'library', 'dist', 'index.js'))
@@ -177,7 +199,7 @@ describe('study server fixtures', () => {
 				{ encoding: 'utf8', timeout: 10000, windowsHide: true },
 			)
 			expect(constructed).toBe('StudyError:CONFIG:Built refusal\n')
-			const consumer = createScratch({ parent: resolve('tmp/units'), prefix: 'setup-admitted-' })
+			const consumer = createStudyScratch(resolve('tmp/units'), 'setup-admitted-')
 			try {
 				writeStudyConsumer(consumer)
 				const before = parseJSON(consumer.read('studies/files/profiles/local.json') ?? '')

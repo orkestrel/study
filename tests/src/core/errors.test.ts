@@ -1,14 +1,13 @@
 import type { StudyFailure, StudyStop } from '../../../src/core/types.js'
 import { isRecord } from '@orkestrel/contract'
 import { requireValue } from '@orkestrel/test'
-import { createScratch } from '@orkestrel/test/server'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { expect, it } from 'vitest'
 import { STUDY_ERROR_BRAND } from '../../../src/core/constants.js'
 import { isStudyError, StudyError } from '../../../src/core/errors.js'
 import { importStudyErrorCopy } from '../../setupStudy.js'
-import { buildStudyLibrary } from '../../setupServer.js'
+import { createStudyScratch, buildStudyLibrary } from '../../setupServer.js'
 
 const BRAND = Symbol.for('@orkestrel/study.error')
 
@@ -55,7 +54,7 @@ it('stamps a nonenumerable global self-brand without changing the public propert
 })
 
 it('crosses guards from built error copies at distinct scratch paths', async () => {
-	const scratch = createScratch({ parent: resolve('tmp'), prefix: 'study-error-guard-' })
+	const scratch = createStudyScratch(resolve('tmp'), 'study-error-guard-')
 	try {
 		await buildStudyLibrary(scratch, resolve('src/core/errors.ts'))
 		const source = requireValue(scratch.read('library/dist/index.js'))

@@ -4,6 +4,7 @@ import {
 	STUDY_PROFILE_SETTINGS,
 } from '../../../setupStudy.js'
 import {
+	createStudyScratch,
 	createStudyPeer,
 	readStudyOrphan,
 	releaseStudyPid,
@@ -60,7 +61,7 @@ describe('process helpers', () => {
 		}
 	})
 	it('pins the actual runtime package and refuses omitted installed dependencies', () => {
-		const scratch = createScratch({ parent: resolve('tmp/units'), prefix: 'runtime-roots-' })
+		const scratch = createStudyScratch(resolve('tmp/units'), 'runtime-roots-')
 		try {
 			scratch.write(
 				'package.json',

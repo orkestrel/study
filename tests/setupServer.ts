@@ -32,7 +32,7 @@ import type {
 } from './src/server/processes/types.js'
 import { requireValue, waitForCondition, waitForEvent } from '@orkestrel/test'
 import { execFile, fork, spawn } from 'node:child_process'
-import { readFileSync, realpathSync } from 'node:fs'
+import { mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { createRequire, isBuiltin } from 'node:module'
 import { pathToFileURL } from 'node:url'
@@ -1013,6 +1013,19 @@ export function readStudyCheck(output: string): StudyCheckReading {
 	return { agent: value.identity.agent, fingerprint: value.fingerprint }
 }
 
+/** Creates an owned scratch after creating its parent directories.
+ * @param parent - The directory in which to allocate the scratch.
+ * @param prefix - The name fragment that starts the allocated directory name.
+ * @returns The owned scratch; the caller destroys it.
+ * @example
+ * const scratch = createStudyScratch(resolve('tmp/units'), 'study-')
+ * scratch.destroy()
+ */
+export function createStudyScratch(parent: string, prefix: string): ScratchInterface {
+	mkdirSync(parent, { recursive: true })
+	return createScratch({ parent, prefix })
+}
+
 /** Creates an owned temporary consumer holding the real file-operation adapter and subject package.
  * @param write - Writes the consumer into the scratch; Default: the real file-operation adapter and subject package.
  * @returns The consumer scratch; the caller destroys it.
@@ -1021,7 +1034,7 @@ export function readStudyCheck(output: string): StudyCheckReading {
 export function createStudyConsumer(
 	write: (scratch: ScratchInterface) => void = writeStudyConsumer,
 ): ScratchInterface {
-	const scratch = createScratch({ parent: resolve('tmp/units'), prefix: 'runtime-consumer-' })
+	const scratch = createStudyScratch(resolve('tmp/units'), 'runtime-consumer-')
 	try {
 		write(scratch)
 		return scratch

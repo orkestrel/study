@@ -9,6 +9,7 @@ import { STUDY_COMMAND_DURATION } from '../../../../src/server/commands/constant
 import { STUDY_LAUNCH_DURATION } from '../../../../src/server/launchers/constants.js'
 import { StudyLauncher } from '../../../../src/server/launchers/StudyLauncher.js'
 import {
+	createStudyScratch,
 	STUDY_BURST_ARGUMENTS,
 	STUDY_CHECK_FINGERPRINT,
 	STUDY_CHECK_ARGUMENTS,
@@ -146,7 +147,7 @@ describe('StudyLauncher', () => {
 	}, 40000)
 
 	it('returns 130 and stops the command when interrupted inside an isolated launcher process', async () => {
-		const scratch = createScratch({ parent: resolve('tmp/units'), prefix: 'launcher-interrupt-' })
+		const scratch = createStudyScratch(resolve('tmp/units'), 'launcher-interrupt-')
 		try {
 			const library = await buildStudyLibrary(scratch, resolve('src/server/index.ts'))
 			const entry = writeStudyLauncherEntry(scratch, 20000, '')

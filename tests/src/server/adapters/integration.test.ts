@@ -1,9 +1,10 @@
 import { isRecord, parseJSON } from '@orkestrel/contract'
-import { createScratch, destroyScratch } from '@orkestrel/test/server'
+import { destroyScratch } from '@orkestrel/test/server'
 import { resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { readStudyResult } from '../../../../src/server/stores/helpers.js'
 import {
+	createStudyScratch,
 	answerStudyMCP,
 	buildStudyCLI,
 	createMCPFixture,
@@ -23,7 +24,7 @@ import { readOllamaToolResults, requireStudyRecord } from '../../../setupStudy.j
 // child's captured inventory, and the proof claims nothing about model quality.
 
 describe('admitted Agent over the admitted MCP core client', () => {
-	const runtime = createScratch({ parent: resolve('tmp/units'), prefix: 'runtime-mcp-' })
+	const runtime = createStudyScratch(resolve('tmp/units'), 'runtime-mcp-')
 	const compiled = Promise.withResolvers<string>()
 	// Registered before the build hook so the scratch is removed even when the build fails.
 	afterAll(async () => {
@@ -35,10 +36,7 @@ describe('admitted Agent over the admitted MCP core client', () => {
 
 	it('discovers and calls a real remote tool, returns changed results, and keeps a remote refusal visible', async () => {
 		const entry = await compiled.promise
-		const consumer = createScratch({
-			parent: resolve('tmp/units'),
-			prefix: 'runtime-mcp-consumer-',
-		})
+		const consumer = createStudyScratch(resolve('tmp/units'), 'runtime-mcp-consumer-')
 		const server = await createMCPFixture([
 			'shipped Monday',
 			'delayed Friday',
@@ -118,10 +116,7 @@ describe('admitted Agent over the admitted MCP core client', () => {
 		'keeps a %s tool-call failure an infrastructure failure of the tool role and never answers from it',
 		async (interference) => {
 			const entry = await compiled.promise
-			const consumer = createScratch({
-				parent: resolve('tmp/units'),
-				prefix: 'runtime-mcp-failure-',
-			})
+			const consumer = createStudyScratch(resolve('tmp/units'), 'runtime-mcp-failure-')
 			const server = await createMCPFixture([])
 			const proxy = await createMCPProxy(server.url, interference)
 			try {
