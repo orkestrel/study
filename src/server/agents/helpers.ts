@@ -1,5 +1,6 @@
 import type { ProviderDelta, ProviderRequest, ProviderResult } from '@orkestrel/agent'
 import type { JSONValue } from '@orkestrel/contract'
+import type { ToolCall } from '@orkestrel/tool'
 import type { StudyAgentResponse } from './types.js'
 import { StudyError } from '@src/core'
 import {
@@ -14,17 +15,21 @@ import { isToolCall } from '@orkestrel/tool'
 import { hashStudyBytes } from '../helpers.js'
 
 /**
- * Builds the JSON evidence form of an Agent tool call and its executed result.
+ * Reads an Agent tool call into a validated envelope from one read of each foreign field.
+ * @remarks The returned envelope owns its fields; arguments retain their original record identity.
+ * JSON validation and copying belong to the executed-result projection.
  * @param call - The call received from the admitted Agent
- * @param result - The executed tool result
- * @returns The call identity, owned arguments, success, and owned value or error text
- * @throws StudyError - Thrown with code `FAULT` when the call, result, arguments, or value is malformed
- * @example
+ * @returns A fresh ToolCall envelope with the original arguments record
+ * @throws StudyError - Thrown with code `FAULT` when a field cannot be read or the envelope is malformed
+ * @example Read an Agent tool call
  * ```ts
- * buildStudyAgentToolResult(call, { success: true, value: 'stored' })
+ * import { readStudyAgentToolCall } from '@orkestrel/study/server'
+ *
+ * const call = readStudyAgentToolCall({ id: 'c1', name: 'write', arguments: { path: 'note.txt' } })
+ * // { id: 'c1', name: 'write', arguments: { path: 'note.txt' } }
  * ```
  */
-export function buildStudyAgentToolResult(call: unknown, result: unknown): JSONValue {
+export function readStudyAgentToolCall(call: unknown): ToolCall {
 	const observed = attempt(() =>
 		isRecord(call)
 			? {
@@ -36,7 +41,22 @@ export function buildStudyAgentToolResult(call: unknown, result: unknown): JSONV
 	)
 	if (!observed.success || !isToolCall(observed.value))
 		throw new StudyError('FAULT', 'Admitted Agent supplied invalid tool observation')
-	const { id, name, arguments: arguments_ } = observed.value
+	return observed.value
+}
+
+/**
+ * Builds the JSON evidence form of an Agent tool call and its executed result.
+ * @param call - The call received from the admitted Agent
+ * @param result - The executed tool result
+ * @returns The call identity, owned arguments, success, and owned value or error text
+ * @throws StudyError - Thrown with code `FAULT` when the call, result, arguments, or value is malformed
+ * @example
+ * ```ts
+ * buildStudyAgentToolResult(call, { success: true, value: 'stored' })
+ * ```
+ */
+export function buildStudyAgentToolResult(call: unknown, result: unknown): JSONValue {
+	const { id, name, arguments: arguments_ } = readStudyAgentToolCall(call)
 	const returned = attempt(() => {
 		if (!isObject(result)) return undefined
 		const success = 'success' in result ? result.success : undefined
@@ -86,18 +106,7 @@ export function buildStudyAgentToolResult(call: unknown, result: unknown): JSONV
  * ```
  */
 export function buildStudyAgentToolDenial(call: unknown, reason: unknown): JSONValue {
-	const observed = attempt(() =>
-		isRecord(call)
-			? {
-					id: 'id' in call ? call.id : undefined,
-					name: 'name' in call ? call.name : undefined,
-					arguments: 'arguments' in call ? call.arguments : undefined,
-				}
-			: undefined,
-	)
-	if (!observed.success || !isToolCall(observed.value))
-		throw new StudyError('FAULT', 'Admitted Agent supplied invalid tool observation')
-	const { id, name } = observed.value
+	const { id, name } = readStudyAgentToolCall(call)
 	return { id, name, ...(typeof reason === 'string' ? { reason } : {}) }
 }
 

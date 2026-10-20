@@ -215,6 +215,30 @@ export const STUDY_MISSING_DECLARATIONS = Object.freeze([
 	},
 ])
 
+/** Supplies linked directory and file declarations reached by the public reader. */
+export const STUDY_LINKED_DECLARATIONS = Object.freeze([
+	{
+		path: 'studies/files/scenarios',
+		directory: true,
+		declaration: 'studies/files/scenarios/first.json',
+	},
+	{ path: 'studies/files', directory: true, declaration: 'studies/files/scenarios/first.json' },
+	{ path: 'studies/assessment', directory: true, declaration: 'studies/assessment/study.json' },
+	{
+		path: 'studies/files/scenarios/first.json',
+		directory: false,
+		declaration: 'studies/files/scenarios/first.json',
+	},
+	{
+		path: 'studies/assessment/rubric.json',
+		directory: false,
+		declaration: 'studies/assessment/rubric.json',
+	},
+])
+
+/** Names the foreign call fields read before validating the owned envelope. */
+export const STUDY_AGENT_TOOL_FIELDS = Object.freeze(['id', 'name', 'arguments'])
+
 /** Returns a declared two-arm, two-scenario, two-repetition population. */
 export function buildStudyDefinition(change: Partial<StudyDefinition> = {}): StudyDefinition {
 	return {

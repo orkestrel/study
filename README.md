@@ -24,6 +24,8 @@ npm install --save-dev @types/node
 
 Import the entry for your execution environment. Each entry supports ESM import and CommonJS require.
 
+Within one module format, the root and server entries share one `StudyError` class, so both `instanceof StudyError` and `isStudyError` recognize server errors. The ESM and CommonJS builds carry separate classes. Across module formats, recognize a server error with `isStudyError`; `instanceof StudyError` is false.
+
 | Export     | Import                    | Provides                                                                                  |
 | ---------- | ------------------------- | ----------------------------------------------------------------------------------------- |
 | `.`        | `@orkestrel/study`        | Host-independent engine, contracts, guards, and parsers                                   |

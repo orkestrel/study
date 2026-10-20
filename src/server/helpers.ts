@@ -4,9 +4,11 @@ import { createHash } from 'node:crypto'
 import { isAbsolute, relative, sep } from 'node:path'
 
 /** Reports whether a caught value is a Node error carrying the given system code.
+ * @remarks Requires an `Error` from this realm. Structured cloning, such as a worker's `postMessage`,
+ * drops a Node error's system code, so the cloned error does not match.
  * @param value - The caught value.
  * @param code - The system error code to match.
- * @returns True if the value is an Error carrying the code; false otherwise.
+ * @returns True if the value is an Error from this realm carrying the code; false otherwise.
  * @example Match a system error
  * ```ts
  * import { matchesSystemError } from '@orkestrel/study/server'

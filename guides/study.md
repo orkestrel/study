@@ -12,6 +12,8 @@ The request meter reserves token and byte ceilings before an adapter dispatches 
 
 A study error stamps an own `STUDY_ERROR_BRAND` descriptor whose value is the error itself. `isStudyError` requires that descriptor with an `Error` subclass, the `StudyError` name, and a declared code, so a study error thrown by another package, ESM, CommonJS, or captured module copy keeps its code and attribution. The brand uses the global symbol registry: it is recognition, not unforgeable provenance. An unbranded older copy, an inherited or borrowed brand, a proxy, and a property-only lookalike read as infrastructure.
 
+Within one module format, the root and server entries share one `StudyError` class, so both `instanceof StudyError` and `isStudyError` recognize server errors. The ESM and CommonJS builds carry separate classes. Across module formats, recognize a server error with `isStudyError`; `instanceof StudyError` is false.
+
 A product that exceeds its goal, trial, or series output allowance is omitted from custody with a capacity failure. Previously admitted products remain retained, and the remaining horizon is explicitly unexecuted. A genuine custody write or metadata-capacity failure still rejects execution and leaves the result unsealed.
 
 Each observation and attempt records an explicit execution fact. An observation is executed when the engine dispatched its goal to the session, and unexecuted when it fills the horizon after a terminal failure; an unexecuted observation holds a failure and no product, usage, or duration. An attempt is executed when it entered trial execution without an inherited terminal series failure, including a failure before the driver opened, so the fact does not claim that the driver was opened. Executed goals form a prefix of the horizon, and an executed goal that fails ends it. Both facts are required booleans, never inferred from a product, usage, duration, or failure message, and custody refuses an attempt that omits one or contradicts them. A terminal attempt holds a failure whenever a goal failed or went unexecuted. Study carries no format counter; the artifact inventory records the exact implementation fingerprints, and the definition, rubric, and label versions are caller-authored metadata that identify supplied content.
@@ -131,6 +133,19 @@ The `readStudyAgentMessages` function projects provider messages onto the role, 
 
 The `buildStudyAgentToolResult` function projects an executed Agent tool call into its `id`, `name`, owned JSON `arguments`, boolean `success`, and owned JSON `value` or string `error`. The `buildStudyAgentToolDenial` function projects a denied call into its `id` and `name`, with a `reason` only when it is a string. Both refuse a malformed call with the `FAULT` code. The result projection also refuses a missing boolean `success`, non-JSON arguments or value, and a malformed failure error. Tool accounting, expected refusals, and workload grading remain in the consumer.
 
+Both projections use `readStudyAgentToolCall` to read each foreign call field once and validate the fresh envelope. The reader retains the arguments record by reference; the result projection owns its JSON copy.
+
+### Read an Agent tool call
+
+Read the envelope before projecting executed or denied evidence.
+
+```ts
+import { readStudyAgentToolCall } from '@orkestrel/study/server'
+
+const call = readStudyAgentToolCall({ id: 'c1', name: 'write', arguments: { path: 'note.txt' } })
+// { id: 'c1', name: 'write', arguments: { path: 'note.txt' } }
+```
+
 ### Inspect Agent tool evidence
 
 Validate the gauge independently of settings keys, then retain the Agent's executed or denied call.
@@ -163,7 +178,9 @@ Install the package in the consumer workspace, then run the study executable fro
 
 The `readStudyDeclaration` function reads the selected definition, scenarios in declared order, and the rubric the definition names. It returns a `StudyDeclaration` record with the driver bundle and each scenario's bundle-relative fixture path and exact byte digest. It refuses a definition name or scenario identity that differs from its selection. The command uses this reader before reading the selected profile, so the refusal order is definition, scenarios, rubric, profile. The `StudyPreparation` record carries the driver's directory as `bundle`.
 
-The `readStudyDeclarationBytes` function reads an already resolved, contained declaration path under the custody metadata allowance. A missing declaration, scenario, rubric, or profile refuses with the `CONFIG` code and exit code 64. Its diagnostic names the path relative to the consumer root with forward slashes. A missing result refuses with the `CUSTODY` code and exit code 1, naming the result selector as supplied. The `matchesSystemError` predicate matches a system code only on an Error and returns false for a throwing code accessor.
+The `readStudyDeclarationBytes` function reads an already resolved, contained declaration path under the custody metadata allowance. A missing declaration, scenario, rubric, or profile, or a declaration path reached through a symbolic link or junction, refuses with the `CONFIG` code and exit code 64. The reader refuses a link before traversing it. Its diagnostic names the missing path or linked component relative to the consumer root with forward slashes. A missing result refuses with the `CUSTODY` code and exit code 1, naming the result selector as supplied. Result and grading storage retain their custody refusals.
+
+The `matchesSystemError` predicate matches a system code only on an `Error` from this realm and returns false for a throwing code accessor. Structured cloning, such as a worker's `postMessage`, drops a Node error's system code, so the cloned error does not match.
 
 A profile selects the Agent runtime entry in its required agent field and the package under study in its required subject field. The two fields can name the same entry or two entries, including entries from different installed copies of Agent. Each selected entry is captured and loaded once, and the driver receives both namespaces under the declared roles. The selected entries and their bytes are part of the execution identity.
 
@@ -187,7 +204,7 @@ Check returns a fingerprint for the declared execution selection. Pass that fing
 
 The `validateStudyInputs` function enforces the quality qualification requirement after the existing population, profile, room, reference, and coverage checks. Direct callers receive the same `CONFIG` refusal as the command when a quality profile omits its qualification. Capacity and mechanism inputs require no qualification.
 
-A labeled grading's instrument covers the executable package's whole dist directory, including the server and core entries, together with its Node version, runtime flags, platform, and architecture. Label identities are host-sensitive, as grading identities are.
+A labeled grading's instrument combines the executable entry's byte hash with the inventory digest for its owning Study package. The inventory binds the exact bytes of `package.json` and every `.js`, `.mjs`, `.cjs`, and `.json` file under `dist`, including the server and core entries, with the selected entry, canonical paths, package identity, file sizes, Node version, runtime arguments, `NODE_OPTIONS`, platform, and architecture. Changing the manifest or an included file changes the digest; changing `.d.ts`, `.d.mts`, `.d.cts`, or `.map` files does not. Label identities are host-sensitive, as grading identities are.
 
 Help succeeds on stdout when --help appears anywhere. Empty arguments and invalid public grammar report on stderr with exit code 64. Operational diagnostics carry a study:CODE prefix and the refused token or path when applicable. Other exits are 0 for success, 124 for deadline, 130 for interruption, and 1 for operational failure. Private child routes require the native IPC boundary.
 
@@ -412,6 +429,7 @@ The following declarations describe this concept.
 | `StudyWorker`                      | class     | Executes one verified trial behind parent-authorized admission and custody.                                                    |
 | `buildStudyAgentDispatch`          | function  | Builds the evidence join of a wire request to its canonical dispatch.                                                          |
 | `buildStudyAgentParts`             | function  | Projects a request's structural components onto plain JSON without storing a total.                                            |
+| `readStudyAgentToolCall`           | function  | Reads an Agent tool call into a validated envelope from one read of each foreign field.                                        |
 | `buildStudyAgentToolResult`        | function  | Builds the JSON evidence form of an Agent tool call and its executed result.                                                   |
 | `buildStudyAgentToolDenial`        | function  | Builds the JSON evidence form of an Agent tool call the Agent denied before dispatch.                                          |
 | `buildStudyAgentReadings`          | function  | Builds the JSON evidence form of a Ledger result's logical classifier readings.                                                |
@@ -549,7 +567,7 @@ The following declarations describe this concept.
 | `computeStudyOutputStop`           | function  | Computes the stop of a product the output allowances cannot hold.                                                              |
 | `StudyDeclaration`                 | interface | Holds a parsed study declaration with its driver bundle, scenarios, scenario fixtures, and rubric.                             |
 | `readStudyDeclaration`             | function  | Reads a study declaration, its driver's scenarios, and its rubric as the command resolves them.                                |
-| `readStudyDeclarationBytes`        | function  | Reads one declaration file and refuses a missing file with its root-relative path.                                             |
+| `readStudyDeclarationBytes`        | function  | Reads one declaration file and refuses a missing or linked path with its root-relative path.                                   |
 | `readStudyVersion`                 | function  | Reads the version of the study package that owns an executable entry.                                                          |
 | `matchesSystemError`               | function  | Reports whether a caught value is a Node error carrying the given system code.                                                 |
 

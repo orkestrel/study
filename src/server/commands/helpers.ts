@@ -25,7 +25,8 @@ import {
 	parseStudyRubric,
 } from '@src/core'
 import { parseJSON } from '@orkestrel/contract'
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { lstat } from 'node:fs/promises'
+import { isAbsolute, join, parse, relative, resolve, sep } from 'node:path'
 import {
 	containsArtifact,
 	decodeStudyJSON,
@@ -37,11 +38,11 @@ import { readStudyBytes } from '../stores/helpers.js'
 import { isStudyCustodyEvidence } from '../stores/validators.js'
 import { STUDY_CUSTODY_BYTES, STUDY_RESERVED_NAME } from '../stores/constants.js'
 
-/** Reads one declaration file and refuses a missing file with its root-relative path.
- * @param root - The consumer root used to describe a missing declaration.
+/** Reads one declaration file and refuses a missing or linked path with its root-relative path.
+ * @param root - The consumer root used to describe a missing or linked declaration.
  * @param path - The already resolved and contained declaration path.
  * @returns The exact declaration bytes under the custody metadata allowance.
- * @throws StudyError - Thrown when the declaration is missing or custody refuses its bytes.
+ * @throws StudyError - Thrown with code `CONFIG` when the path is missing or linked; other custody refusals retain their codes.
  * @example Read declaration bytes
  * ```ts
  * import { readStudyDeclarationBytes } from '@orkestrel/study/server'
@@ -51,15 +52,31 @@ import { STUDY_CUSTODY_BYTES, STUDY_RESERVED_NAME } from '../stores/constants.js
  * await readStudyDeclarationBytes(root, path)
  * ```
  */
-export function readStudyDeclarationBytes(root: string, path: string): Promise<Uint8Array> {
-	return readStudyBytes(path, STUDY_CUSTODY_BYTES).catch((error: unknown) => {
+export async function readStudyDeclarationBytes(root: string, path: string): Promise<Uint8Array> {
+	try {
+		const absolute = resolve(path)
+		const origin = parse(absolute).root
+		const names = relative(origin, absolute).split(sep).filter(Boolean)
+		// Classify consumer input before custody admission without traversing a linked ancestor.
+		for (const [index] of names.entries()) {
+			const candidate = join(origin, ...names.slice(0, index + 1))
+			const stat = await lstat(candidate)
+			if (stat.isSymbolicLink())
+				throw new StudyError(
+					'CONFIG',
+					`Declaration path is linked: ${relative(root, candidate).split(sep).join('/')}`,
+				)
+			if (!stat.isDirectory()) break
+		}
+		return await readStudyBytes(path, STUDY_CUSTODY_BYTES)
+	} catch (error) {
 		if (matchesSystemError(error, 'ENOENT'))
 			throw new StudyError(
 				'CONFIG',
 				`Declaration is missing: ${relative(root, path).split(sep).join('/')}`,
 			)
 		throw error
-	})
+	}
 }
 
 /** Reads a study declaration, its driver's scenarios, and its rubric as the command resolves them.

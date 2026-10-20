@@ -72,6 +72,16 @@ await new GuideCommand({
 	} = await import('./setupServer.js')
 	const { realpathSync } = await import('node:fs')
 
+	it('reads the Agent tool call example into the documented envelope', () => {
+		const { readStudyAgentToolCall } = server
+		const call = readStudyAgentToolCall({
+			id: 'c1',
+			name: 'write',
+			arguments: { path: 'note.txt' },
+		})
+		expect(call).toEqual({ id: 'c1', name: 'write', arguments: { path: 'note.txt' } })
+	})
+
 	it('indexes the package guide and keeps the README pitch equal to the Study tagline', () => {
 		expect(report.input).toEqual([])
 		expect(rows.map(({ entry }) => entry.spec)).toEqual(['guides/study.md'])

@@ -111,6 +111,30 @@ describe('built study executable', () => {
 		}
 	})
 
+	it('refuses a linked declaration as invalid input before following a junction', async () => {
+		const entry = await compiled.promise
+		const scratch = createStudyConsumer()
+		const outside = createScratch()
+		try {
+			const target = outside.ensure('scenarios')
+			scratch.remove('studies/files/scenarios')
+			scratch.link('studies/files/scenarios', target)
+			const refusal = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
+			expect(refusal.code).toBe(64)
+			expect(refusal.output).toBe(
+				'study: CONFIG: Declaration path is linked: studies/files/scenarios\n',
+			)
+			expect(refusal.output).not.toContain(scratch.path)
+			expect(scratch.has('tmp')).toBe(false)
+			expect(scratch.has('imports.log')).toBe(false)
+			expect(outside.names('scenarios')).toEqual([])
+		} finally {
+			scratch.remove('studies/files/scenarios')
+			await destroyScratch(scratch)
+			outside.destroy()
+		}
+	})
+
 	it('refuses declarations in definition, scenario, rubric, profile order', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()

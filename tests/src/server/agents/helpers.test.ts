@@ -12,12 +12,14 @@ import {
 	resolveStudyAgentContent,
 	readStudyAgentMessages,
 	readStudyAgentResult,
+	readStudyAgentToolCall,
 } from '../../../../src/server/agents/helpers.js'
 import { StudyAgentScript } from '../../../../src/server/agents/StudyAgentScript.js'
 import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
 import {
 	STUDY_AGENT_MESSAGES,
 	STUDY_AGENT_TOOL_CALL,
+	STUDY_AGENT_TOOL_FIELDS,
 	STUDY_AGENT_INVALID_CALLS,
 	STUDY_AGENT_INVALID_RESULTS,
 	STUDY_AGENT_TOOL_PROJECTIONS,
@@ -32,6 +34,73 @@ import {
 	createStudyScriptFixture,
 	createStudyScriptMeter,
 } from '../../../setupStudy.js'
+
+describe('readStudyAgentToolCall', () => {
+	it('reads each foreign envelope field once into an independent record without coercion', () => {
+		const ids = createRecorder<[]>()
+		const names = createRecorder<[]>()
+		const reads = createRecorder<[]>()
+		const parameters = { path: 'note.txt' }
+		const call = {
+			get id() {
+				ids.handler()
+				return ''
+			},
+			get name() {
+				names.handler()
+				return 'write'
+			},
+			get arguments() {
+				reads.handler()
+				return parameters
+			},
+			extra: 'omitted',
+		}
+		const observed = readStudyAgentToolCall(call)
+		expect(observed).toEqual({ id: '', name: 'write', arguments: { path: 'note.txt' } })
+		expect(Object.is(observed, call)).toBe(false)
+		expect(observed.arguments).toBe(parameters)
+		expect(ids.calls).toEqual([[]])
+		expect(names.calls).toEqual([[]])
+		expect(reads.calls).toEqual([[]])
+	})
+
+	it.each(STUDY_AGENT_INVALID_CALLS)(
+		'refuses an invalid envelope $call with the observation FAULT',
+		({ call }) => {
+			expect(() => readStudyAgentToolCall(call)).toThrow(
+				expect.objectContaining({
+					code: 'FAULT',
+					message: 'Admitted Agent supplied invalid tool observation',
+				}),
+			)
+		},
+	)
+
+	it.each(STUDY_AGENT_TOOL_FIELDS)(
+		'refuses a throwing %s getter with the observation FAULT',
+		(field) => {
+			const call = Object.defineProperty({ ...STUDY_AGENT_TOOL_CALL }, field, {
+				get(): never {
+					throw new Error('Foreign getter refused')
+				},
+			})
+			expect(() => readStudyAgentToolCall(call)).toThrow(
+				expect.objectContaining({
+					code: 'FAULT',
+					message: 'Admitted Agent supplied invalid tool observation',
+				}),
+			)
+		},
+	)
+
+	it('retains the ToolCall argument contract without imposing JSON evidence policy', () => {
+		const parameters = { optional: undefined, value: Number.NaN }
+		expect(
+			readStudyAgentToolCall({ ...STUDY_AGENT_TOOL_CALL, arguments: parameters }).arguments,
+		).toBe(parameters)
+	})
+})
 
 describe('Agent tool evidence', () => {
 	it('owns each foreign tool field from one read before validating its copy', () => {

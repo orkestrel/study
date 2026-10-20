@@ -1,5 +1,5 @@
 import type { StudyFailure } from '../../../../src/core/types.js'
-import { createScratch } from '@orkestrel/test/server'
+import { createScratch, supportsFileLinks } from '@orkestrel/test/server'
 import { appendFile, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -15,11 +15,13 @@ import {
 	buildStudyScenario,
 	buildStudySettingsProfile,
 	STUDY_PROFILE_SETTINGS,
+	STUDY_LINKED_DECLARATIONS,
 } from '../../../setupStudy.js'
 import { parseStudyProfile } from '../../../../src/core/parsers.js'
 import { computeStudyProfileDigest } from '../../../../src/server/processes/helpers.js'
 import {
 	buildCustodyGrading,
+	createStudyConsumer,
 	buildStudyReportResult,
 	retainStudyFixture,
 } from '../../../setupServer.js'
@@ -39,9 +41,82 @@ import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.
 import { buildStudyProfile } from '../../../setupStudy.js'
 import { buildStudyStop } from '../../../setupStudy.js'
 import { isStudyCustodyAttempt } from '../../../../src/server/stores/validators.js'
+import { readStudyBytes } from '../../../../src/server/stores/helpers.js'
 import { STUDY_CAUSES, STUDY_ROLES, STUDY_LAYERS } from '../../../../src/core/constants.js'
 
 describe('study command helpers', () => {
+	for (const { path, directory, declaration } of STUDY_LINKED_DECLARATIONS) {
+		// File links require a privilege that directory junctions do not require on Windows.
+		it.skipIf(!directory && !supportsFileLinks())(
+			`refuses a linked declaration as invalid input: ${path}`,
+			async () => {
+				const scratch = createStudyConsumer()
+				const outside = createScratch()
+				try {
+					await expect(readStudyDeclaration(scratch.path, 'assessment')).resolves.toHaveProperty(
+						'definition.name',
+						'assessment',
+					)
+					const target = directory
+						? outside.ensure('declaration')
+						: outside.write('declaration', 'not declaration JSON')
+					scratch.remove(path)
+					scratch.link(path, target)
+					await expect(readStudyDeclaration(scratch.path, 'assessment')).rejects.toMatchObject({
+						code: 'CONFIG',
+						message: `Declaration path is linked: ${path}`,
+					})
+					await expect(
+						readStudyDeclarationBytes(scratch.path, join(scratch.path, declaration)),
+					).rejects.toMatchObject({
+						code: 'CONFIG',
+						message: `Declaration path is linked: ${path}`,
+					})
+					await expect(readStudyBytes(join(scratch.path, declaration), 1024)).rejects.toMatchObject(
+						{
+							code: 'CUSTODY',
+						},
+					)
+					expect(outside.names()).toEqual(['declaration'])
+					expect(directory ? outside.names('declaration') : outside.read('declaration')).toEqual(
+						directory ? [] : 'not declaration JSON',
+					)
+					expect(scratch.has('tmp')).toBe(false)
+					expect(scratch.has('imports.log')).toBe(false)
+				} finally {
+					// Remove the link before destroying either owned scratch directory.
+					scratch.remove(path)
+					scratch.destroy()
+					outside.destroy()
+				}
+			},
+		)
+	}
+
+	it('refuses a rubric reached through a junction as invalid input', async () => {
+		const scratch = createStudyConsumer()
+		const outside = createScratch()
+		try {
+			const original = await readStudyDeclaration(scratch.path, 'assessment')
+			scratch.write(
+				'studies/assessment/study.json',
+				JSON.stringify({ ...original.definition, rubric: 'criteria/rubric.json' }),
+			)
+			const target = outside.ensure('criteria')
+			scratch.link('studies/assessment/criteria', target)
+			await expect(readStudyDeclaration(scratch.path, 'assessment')).rejects.toMatchObject({
+				code: 'CONFIG',
+				message: 'Declaration path is linked: studies/assessment/criteria',
+			})
+			expect(outside.names('criteria')).toEqual([])
+			expect(scratch.has('tmp')).toBe(false)
+		} finally {
+			scratch.remove('studies/assessment/criteria')
+			scratch.destroy()
+			outside.destroy()
+		}
+	})
+
 	it('reads the declared rubric and ordered scenario bytes with bundle-relative fixture identities', async () => {
 		const scratch = createScratch()
 		try {
