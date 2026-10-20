@@ -1,5 +1,5 @@
+import type { StudyGrading, StudyManifest, StudyScenario } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
-import type { StudyGrading, StudyManifest, StudyScenario } from '../../core/types.js'
 import type { StudySealedResult } from '../stores/types.js'
 import type {
 	StudyCommandArtifact,
@@ -11,24 +11,32 @@ import type {
 	StudyPreparation,
 	StudyReportRequest,
 } from './types.js'
-import { arrayOf, isArray, isString, parseJSON } from '@orkestrel/contract'
-import { randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
-import { isAbsolute, join, resolve } from 'node:path'
-import { StudyError } from '../../core/errors.js'
-import { buildStudySchedule, validateStudyInputs } from '../../core/helpers.js'
 import {
+	StudyError,
+	buildStudySchedule,
+	validateStudyInputs,
 	parseStudyDefinition,
 	parseStudyGrading,
 	parseStudyLabeling,
 	parseStudyProfile,
 	parseStudyRubric,
 	parseStudyScenario,
-} from '../../core/parsers.js'
-import { StudySeries } from '../../core/engines/StudySeries.js'
+	StudySeries,
+	isStudyJudgment,
+} from '@src/core'
+import { arrayOf, isArray, isString, parseJSON } from '@orkestrel/contract'
+import { randomUUID } from 'node:crypto'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { isAbsolute, join, resolve } from 'node:path'
 import { StudyArtifactLoader } from '../processes/StudyArtifactLoader.js'
 import { StudyProcessDriver } from '../processes/StudyProcessDriver.js'
-import { computeStudyProfileDigest, valueToWire } from '../processes/helpers.js'
+import {
+	computeStudyInstrumentDigest,
+	computeStudyProfileDigest,
+	resolveStudyInstrument,
+	valueToWire,
+} from '../processes/helpers.js'
+import { ArtifactLoader } from '../artifacts/ArtifactLoader.js'
 import { decodeStudyJSON, encodeStudyJSON, hashStudyBytes } from '../helpers.js'
 import { STUDY_CUSTODY_BYTES, STUDY_PACKET_DISCLOSURE } from '../stores/constants.js'
 import {
@@ -42,7 +50,6 @@ import {
 import { StudyGradingStore } from '../stores/StudyGradingStore.js'
 import { StudyResultStore } from '../stores/StudyResultStore.js'
 import { StudyTask } from '../processes/StudyTask.js'
-import { isStudyJudgment } from '../../core/validators.js'
 import { STUDY_COMMAND_DURATION, STUDY_COMMAND_GRADER } from './constants.js'
 import {
 	collectStudyEvidence,
@@ -516,6 +523,12 @@ export class StudyCommand {
 	}
 
 	async #instrument(): Promise<string> {
-		return hashStudyBytes(await readStudyBytes(this.#entry, STUDY_CUSTODY_BYTES))
+		return computeStudyInstrumentDigest(
+			hashStudyBytes(await readStudyBytes(this.#entry, STUDY_CUSTODY_BYTES)),
+			new ArtifactLoader({
+				entries: [this.#entry],
+				roots: [resolveStudyInstrument(this.#entry)],
+			}).inspect().digest,
+		)
 	}
 }

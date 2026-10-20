@@ -1,4 +1,4 @@
-import type { StudyEvidence, StudyJudgment } from '../../core/types.js'
+import type { StudyEvidence, StudyJudgment } from '@src/core'
 import type {
 	StudyAdapterInterface,
 	StudyAdjudication,
@@ -6,9 +6,8 @@ import type {
 	StudyGradeTarget,
 	StudyReference,
 } from './types.js'
+import { StudyError, isStudyJudgment, isStudyRubric } from '@src/core'
 import { isArray, isRecord } from '@orkestrel/contract'
-import { StudyError } from '../../core/errors.js'
-import { isStudyJudgment, isStudyRubric } from '../../core/validators.js'
 import {
 	isStudyCustodyAttempt,
 	isStudyCustodyEvidence,

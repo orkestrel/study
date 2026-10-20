@@ -1,4 +1,4 @@
-import type { StudyAgentDispatch } from '../../core/agents/types.js'
+import type { StudyAgentDispatch } from '@src/core'
 import type {
 	StudyOllamaModel,
 	StudyOllamaPolicy,
@@ -6,7 +6,7 @@ import type {
 	StudyOllamaSnapshot,
 	StudyOllamaTransportOptions,
 } from './types.js'
-import { StudyError } from '../../core/errors.js'
+import { StudyError } from '@src/core'
 
 /**
  * Builds a frozen owned copy of transport configuration that later caller mutation cannot reach.

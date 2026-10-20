@@ -1,7 +1,7 @@
+import { StudyError } from '@src/core'
 import { canonicalStringify, parseJSON } from '@orkestrel/contract'
 import { createHash } from 'node:crypto'
 import { isAbsolute, relative, sep } from 'node:path'
-import { StudyError } from '../core/errors.js'
 
 /** Checks strict lexical containment under a selected directory.
  * @param root - The canonical directory.

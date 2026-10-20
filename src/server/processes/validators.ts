@@ -1,18 +1,6 @@
+import type { StudyCharge, StudyEvidence, StudyFailure, StudyTrial, StudyIdentity } from '@src/core'
 import type { StudyFrame } from './types.js'
-import type {
-	StudyCharge,
-	StudyEvidence,
-	StudyFailure,
-	StudyTrial,
-	StudyIdentity,
-} from '../../core/types.js'
-import {
-	isStudyCause,
-	isStudyDigest,
-	isStudyName,
-	isStudyRole,
-	isStudyStop,
-} from '../../core/validators.js'
+import { isStudyCause, isStudyDigest, isStudyName, isStudyRole, isStudyStop } from '@src/core'
 import { holds, isJSONValue, isRecord } from '@orkestrel/contract'
 
 /** Checks the complete transport envelope before domain handling.

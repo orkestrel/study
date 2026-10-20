@@ -1,6 +1,6 @@
 import type { StudyTaskOptions, StudyTaskRequest, StudyTaskResult } from './types.js'
+import { StudyError } from '@src/core'
 import { isRecord } from '@orkestrel/contract'
-import { StudyError } from '../../core/errors.js'
 import { STUDY_FRAME_BYTES, STUDY_TASK_DURATION } from './constants.js'
 import { valueToWire } from './helpers.js'
 import { StudyTaskChild } from './StudyTaskChild.js'

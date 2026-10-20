@@ -1,7 +1,6 @@
+import type { StudyContext, StudyRole, StudyAgentRuntime, StudyLatchInterface } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
 import type { LedgerGauge, Message, ProviderInterface, ProviderResult } from '@orkestrel/agent'
-import type { StudyContext, StudyRole } from '../../core/types.js'
-import type { StudyAgentRuntime, StudyLatchInterface } from '../../core/agents/types.js'
 import type { StudyAgentTrace } from './StudyAgentTrace.js'
 
 /** Names the model responsibilities whose requests the trace and summary measure. */

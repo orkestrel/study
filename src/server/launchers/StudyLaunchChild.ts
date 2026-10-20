@@ -1,6 +1,6 @@
 import type { ChildProcess } from 'node:child_process'
 import type { StudyLaunchResult } from './types.js'
-import { StudyError } from '../../core/errors.js'
+import { StudyError } from '@src/core'
 import { terminateStudyChild } from '../processes/helpers.js'
 import { STUDY_LAUNCH_BYTES } from './constants.js'
 

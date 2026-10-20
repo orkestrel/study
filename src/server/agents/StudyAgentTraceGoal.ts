@@ -1,5 +1,5 @@
+import type { StudyEvidence } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
-import type { StudyEvidence } from '../../core/types.js'
 import type { StudyAgentStamp } from './types.js'
 
 /** Holds one goal's retained trace rows, its latest admission and its last refused identity. */

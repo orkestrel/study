@@ -1,4 +1,4 @@
-import type { StudyContext } from '../../core/types.js'
+import type { StudyContext } from '@src/core'
 
 /** Holds one goal's parent context and the worker admission sequence it issues while the goal runs.
  * @example Issue worker admissions in sequence

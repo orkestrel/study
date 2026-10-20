@@ -6,8 +6,8 @@ import type {
 	StudyUsage,
 	StudyFailure,
 	StudyAdmissionInterface,
-} from '../../core/types.js'
-import type { StudyControl } from '../../core/engines/StudyControl.js'
+	StudyControl,
+} from '@src/core'
 import type { StudyChannel } from './StudyChannel.js'
 import type { JSONValue } from '@orkestrel/contract'
 import type { ChildProcess } from 'node:child_process'

@@ -8,15 +8,20 @@ import type {
 	StudyObservation,
 	StudyProfile,
 	StudyRubric,
-} from '../../core/types.js'
+} from '@src/core'
 import type { StudyAttributionSource, StudyCommandArtifact } from './types.js'
 import type { StudySealedResult } from '../stores/types.js'
 import type { JSONValue } from '@orkestrel/contract'
+import {
+	STUDY_CAUSES,
+	STUDY_LAYERS,
+	STUDY_ROLES,
+	StudyError,
+	computeStudyScores,
+	studyStopToJSON,
+} from '@src/core'
 import { parseJSON } from '@orkestrel/contract'
 import { isAbsolute, join, resolve } from 'node:path'
-import { STUDY_CAUSES, STUDY_LAYERS, STUDY_ROLES } from '../../core/constants.js'
-import { StudyError } from '../../core/errors.js'
-import { computeStudyScores, studyStopToJSON } from '../../core/helpers.js'
 import { containsArtifact, encodeStudyJSON, hashStudyBytes } from '../helpers.js'
 import { readStudyBytes } from '../stores/helpers.js'
 import { isStudyCustodyEvidence } from '../stores/validators.js'

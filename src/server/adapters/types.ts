@@ -10,7 +10,7 @@ import type {
 	StudyRubric,
 	StudyScenario,
 	StudyTrial,
-} from '../../core/types.js'
+} from '@src/core'
 
 /** Holds declarations for domain validation before agent, subject or provider execution. */
 export interface StudyValidation {

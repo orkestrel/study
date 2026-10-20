@@ -1,9 +1,8 @@
 import type { ChildProcess } from 'node:child_process'
 import type { StudyTaskOptions, StudyTaskResult } from './types.js'
+import { StudyError, isStudyDigest } from '@src/core'
 import { isJSONValue, isRecord } from '@orkestrel/contract'
 import { fork } from 'node:child_process'
-import { StudyError } from '../../core/errors.js'
-import { isStudyDigest } from '../../core/validators.js'
 import { STUDY_FRAME_BYTES, STUDY_LOG_BYTES, STUDY_TASK_OPERATION } from './constants.js'
 import { drainStudyChild, terminateStudyChild } from './helpers.js'
 

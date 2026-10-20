@@ -1,7 +1,6 @@
+import type { StudySinkInterface, StudyAgentDispatch, StudyAgentReading } from '@src/core'
 import type { LedgerGauge, ProviderRequest } from '@orkestrel/agent'
 import type { JSONValue } from '@orkestrel/contract'
-import type { StudySinkInterface } from '../../core/types.js'
-import type { StudyAgentDispatch, StudyAgentReading } from '../../core/agents/types.js'
 import type {
 	StudyAgentRole,
 	StudyAgentStage,
@@ -12,8 +11,8 @@ import {
 	buildStudyAgentParts,
 	projectStudyAgentRequest,
 	translateStudyAgentError,
-} from '../../core/agents/helpers.js'
-import { StudyError } from '../../core/errors.js'
+	StudyError,
+} from '@src/core'
 import { buildStudyAgentRevision } from './helpers.js'
 import { StudyAgentTraceGoal } from './StudyAgentTraceGoal.js'
 

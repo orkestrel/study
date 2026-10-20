@@ -1,11 +1,10 @@
+import type { StudyTicket } from '@src/core'
 import type { Message, ProviderDelta, ProviderInterface, ProviderResult } from '@orkestrel/agent'
-import type { StudyTicket } from '../../core/types.js'
 import type { StudyAgentPlan, StudyAgentResponse, StudyAgentScriptOptions } from './types.js'
+import { StudyError, failStudyTicket } from '@src/core'
 import { isBudgetError } from '@orkestrel/budget'
 import { cloneJSONValue, isArray } from '@orkestrel/contract'
 import { randomUUID } from 'node:crypto'
-import { StudyError } from '../../core/errors.js'
-import { failStudyTicket } from '../../core/engines/helpers.js'
 import { encodeStudyJSON } from '../helpers.js'
 import {
 	resolveStudyAgentContent,

@@ -1,9 +1,4 @@
-import type {
-	StudyAttempt,
-	StudyManifest,
-	StudySinkInterface,
-	StudyTrial,
-} from '../../core/types.js'
+import type { StudyAttempt, StudyManifest, StudySinkInterface, StudyTrial } from '@src/core'
 import type {
 	StudyCustodyPhase,
 	StudyResultStoreOptions,
@@ -11,10 +6,10 @@ import type {
 	StudySeal,
 	StudyTrialCustody,
 } from './types.js'
+import { StudyError } from '@src/core'
 import { canonicalStringify } from '@orkestrel/contract'
 import { mkdir, open } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
-import { StudyError } from '../../core/errors.js'
 import { decodeStudyJSON, encodeStudyJSON } from '../helpers.js'
 import { STUDY_CUSTODY_BYTES } from './constants.js'
 import {

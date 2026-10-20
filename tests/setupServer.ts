@@ -37,8 +37,9 @@ import { dirname, join, relative, resolve } from 'node:path'
 import { createRequire, isBuiltin } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { build } from 'vite'
-import { srcBin, srcCore } from '../vite.config.js'
-import { outputBoundary } from '../configs/helpers.js'
+import { mergeOverride, peers, srcCore, srcServer } from '../vite.config.js'
+import binConfig from '../configs/src/vite.bin.config.js'
+import { outputBoundary, resolveExternal } from '../configs/helpers.js'
 import { encodeStudyJSON, hashStudyBytes } from '../src/server/helpers.js'
 import {
 	isStudyCharge,
@@ -195,6 +196,7 @@ export function createArtifactWorker(scratch: ScratchInterface, body: string): s
 import assert from 'node:assert/strict'
 import { writeFileSync } from 'node:fs'
 registerHooks({ resolve(specifier, context, next) {
+ if (context.parentURL?.startsWith(${JSON.stringify(library)}) && specifier === '@src/core') return next(${JSON.stringify(new URL('core/index.ts', library).href)}, context)
  if (context.parentURL?.startsWith(${JSON.stringify(library)}) && (specifier.startsWith('./') || specifier.startsWith('../')) && specifier.endsWith('.js')) return next(new URL(specifier.slice(0, -3) + '.ts', context.parentURL).href, context)
  return next(specifier, context)
 } })
@@ -857,17 +859,40 @@ export function createStudyRowGrade(): StudyGradeFunction {
  */
 export async function buildStudyCLI(scratch: ScratchInterface): Promise<string> {
 	const output = scratch.ensure('runtime/dist/bin')
+	const core = scratch.ensure('runtime/dist/src/core')
+	const server = scratch.ensure('runtime/dist/src/server')
 	scratch.write(
 		'runtime/package.json',
-		JSON.stringify({ name: '@orkestrel/study', version: '0.0.1', type: 'module' }),
+		JSON.stringify({ name: '@orkestrel/study', version: '0.0.0-runtime', type: 'module' }),
 	)
 	await build({
-		...srcBin({
+		...srcCore({
+			plugins: [outputBoundary(relative(resolve('.'), core).replaceAll('\\', '/'))],
+			build: {
+				outDir: core,
+				lib: { entry: resolve('src/core/index.ts'), formats: ['es'] },
+				rolldownOptions: {
+					external: (id) => resolveExternal(id, { peers, refused: [], siblings: [] }),
+					output: { entryFileNames: 'index.js' },
+				},
+			},
+		}),
+		configFile: false,
+		logLevel: 'warn',
+	})
+	await build({
+		...srcServer({
+			plugins: [outputBoundary(relative(resolve('.'), server).replaceAll('\\', '/'))],
+			build: { outDir: server },
+		}),
+		configFile: false,
+		logLevel: 'warn',
+	})
+	await build({
+		...mergeOverride(binConfig, {
 			plugins: [outputBoundary(relative(resolve('.'), output).replaceAll('\\', '/'))],
 			build: {
 				outDir: output,
-				emptyOutDir: false,
-				rolldownOptions: { output: { banner: '#!/usr/bin/env node' } },
 			},
 		}),
 		configFile: false,

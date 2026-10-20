@@ -4,7 +4,7 @@ import type {
 	StudyLabeling,
 	StudyManifest,
 	StudyRubric,
-} from '../../core/types.js'
+} from '@src/core'
 import type {
 	StudyFile,
 	StudyPacketBundle,
@@ -14,11 +14,11 @@ import type {
 	StudySealedResult,
 } from './types.js'
 import type { FileHandle } from 'node:fs/promises'
+import { StudyError } from '@src/core'
 import { attempt, canonicalStringify, parseJSON } from '@orkestrel/contract'
 import { constants } from 'node:fs'
 import { lstat, open, readdir } from 'node:fs/promises'
 import { dirname, join, parse, relative, resolve, sep } from 'node:path'
-import { StudyError } from '../../core/errors.js'
 import { decodeStudyJSON, encodeStudyJSON, hashStudyBytes } from '../helpers.js'
 import { STUDY_CUSTODY_BYTES, STUDY_PACKET_DISCLOSURE } from './constants.js'
 import {

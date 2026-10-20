@@ -1,6 +1,6 @@
-import type { StudyEvidence } from '../../core/types.js'
+import type { StudyEvidence } from '@src/core'
 import type { StudyCustodySinkInterface, StudyEvidenceSinkOptions } from './types.js'
-import { StudyError } from '../../core/errors.js'
+import { StudyError } from '@src/core'
 import { encodeStudyJSON } from '../helpers.js'
 import { isStudyCustodyEvidence } from './validators.js'
 

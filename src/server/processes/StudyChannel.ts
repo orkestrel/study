@@ -1,6 +1,6 @@
 import type { StudyChannelOptions, StudyFrame, StudyOperation, StudyResponse } from './types.js'
 import type { JSONValue } from '@orkestrel/contract'
-import { StudyControl, failureToStudyError, readStudyFailure } from '../../core/engines/index.js'
+import { StudyControl, failureToStudyError, readStudyFailure } from '@src/core'
 import { STUDY_FRAME_BYTES, STUDY_PENDING_LIMIT } from './constants.js'
 import { createStudyProcessFailure, valueToWire } from './helpers.js'
 import { isStudyFrame, isStudyProcessFailure } from './validators.js'

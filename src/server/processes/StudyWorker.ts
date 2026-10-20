@@ -1,15 +1,17 @@
-import type { StudySessionInterface } from '../../core/types.js'
+import type { StudySessionInterface } from '@src/core'
 import type { StudyOperation } from './types.js'
 import type { JSONValue } from '@orkestrel/contract'
-import { isRecord } from '@orkestrel/contract'
 import {
 	StudyControl,
 	StudyDeadline,
 	failureToStudyError,
 	readStudyFailure,
-} from '../../core/engines/index.js'
-import { StudyError } from '../../core/errors.js'
-import { isStudyGoal, isStudyProduct, isStudyProfile } from '../../core/validators.js'
+	StudyError,
+	isStudyGoal,
+	isStudyProduct,
+	isStudyProfile,
+} from '@src/core'
+import { isRecord } from '@orkestrel/contract'
 import { STUDY_PROCESS_LABEL } from './constants.js'
 import { computeStudyProfileDigest, createStudyProcessFailure, valueToWire } from './helpers.js'
 import { StudyArtifactLoader } from './StudyArtifactLoader.js'

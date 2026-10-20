@@ -1,24 +1,20 @@
-import type {
-	StudyContext,
-	StudyGoal,
-	StudyProduct,
-	StudySessionInterface,
-} from '../../core/types.js'
+import type { StudyContext, StudyGoal, StudyProduct, StudySessionInterface } from '@src/core'
 import type { StudyOperation, StudyParentTicket, StudyProcessSessionOptions } from './types.js'
 import type { JSONValue } from '@orkestrel/contract'
 import type { ChildProcess } from 'node:child_process'
-import { isRecord } from '@orkestrel/contract'
-import { execFile, fork } from 'node:child_process'
-import { mkdtemp } from 'node:fs/promises'
-import { isAbsolute, join } from 'node:path'
 import {
 	StudyControl,
 	StudyDeadline,
 	failureToStudyError,
 	readStudyFailure,
-} from '../../core/engines/index.js'
-import { StudyError } from '../../core/errors.js'
-import { isStudyProduct, isStudyUsage } from '../../core/validators.js'
+	StudyError,
+	isStudyProduct,
+	isStudyUsage,
+} from '@src/core'
+import { isRecord } from '@orkestrel/contract'
+import { execFile, fork } from 'node:child_process'
+import { mkdtemp } from 'node:fs/promises'
+import { isAbsolute, join } from 'node:path'
 import { STUDY_LOG_BYTES, STUDY_PROCESS_LABEL, STUDY_WORKER_OPERATION } from './constants.js'
 import { createStudyProcessFailure, drainStudyChild, valueToWire } from './helpers.js'
 import { StudyChannel } from './StudyChannel.js'

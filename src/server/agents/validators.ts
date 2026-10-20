@@ -1,7 +1,7 @@
 import type { StudyAgentResponse } from './types.js'
+import { matchesStudyKeys } from '@src/core'
 import { holds, isArray, isJSONValue, isRecord } from '@orkestrel/contract'
 import { isToolCall } from '@orkestrel/tool'
-import { matchesStudyKeys } from '../../core/helpers.js'
 
 /**
  * Checks whether a scripted response has JSON calls and workload controls.

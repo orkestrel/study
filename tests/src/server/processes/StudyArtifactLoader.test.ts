@@ -1,11 +1,56 @@
 import { createScratch } from '@orkestrel/test/server'
 import { realpathSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { StudyArtifactLoader } from '../../../../src/server/processes/StudyArtifactLoader.js'
 import { buildStudyProfile } from '../../../setupStudy.js'
 
 describe('StudyArtifactLoader', () => {
+	it('binds server face bytes while the executable entry stays equal', async () => {
+		const scratch = createScratch()
+		try {
+			scratch.write(
+				'runtime/package.json',
+				JSON.stringify({ name: '@orkestrel/study', version: '1.0.0', type: 'module' }),
+			)
+			const bin = 'throw new Error("instrument must not execute")'
+			const entry = scratch.write('runtime/dist/bin/main.js', bin)
+			const server = 'throw new Error("server must not execute")'
+			scratch.write('runtime/dist/src/server/index.js', server)
+			scratch.write(
+				'subject/package.json',
+				JSON.stringify({ name: 'fixture-subject', version: '1.0.0', type: 'module' }),
+			)
+			const subject = scratch.write(
+				'subject/dist/index.js',
+				'throw new Error("subject must not execute")',
+			)
+			const adapter = scratch.write('adapter/index.ts', 'export const adapter = true')
+			const options = {
+				entry,
+				adapter,
+				root: realpathSync(resolve('.')),
+				profile: {
+					...buildStudyProfile(),
+					agent: subject,
+					subject,
+					roots: [join(scratch.path, 'subject')],
+				},
+			}
+			const original = await new StudyArtifactLoader(options).inspect()
+			expect((await new StudyArtifactLoader(options).inspect()).instrument).toBe(
+				original.instrument,
+			)
+			scratch.write('runtime/dist/src/server/index.js', `${server} `)
+			expect(scratch.read('runtime/dist/bin/main.js')).toBe(bin)
+			expect((await new StudyArtifactLoader(options).inspect()).instrument).not.toBe(
+				original.instrument,
+			)
+		} finally {
+			scratch.destroy()
+		}
+	})
+
 	it('inspects complete built inventory without executing selected entries and binds instrument drift', async () => {
 		const scratch = createScratch()
 		try {

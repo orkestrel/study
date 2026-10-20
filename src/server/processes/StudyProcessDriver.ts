@@ -1,4 +1,4 @@
-import type { StudyDriverInterface, StudySessionInterface, StudyTrial } from '../../core/types.js'
+import type { StudyDriverInterface, StudySessionInterface, StudyTrial } from '@src/core'
 import type { StudyProcessOptions } from './types.js'
 import { StudyProcessSession } from './StudyProcessSession.js'
 

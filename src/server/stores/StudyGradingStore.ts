@@ -1,12 +1,16 @@
-import type { StudyGrading, StudyLabeling, StudyRubric } from '../../core/types.js'
+import type { StudyGrading, StudyLabeling, StudyRubric } from '@src/core'
 import type { StudyGradingStoreOptions, StudyPacketBundle, StudySealedResult } from './types.js'
+import {
+	StudyError,
+	computeStudyScores,
+	parseStudyGrading,
+	parseStudyLabeling,
+	parseStudyRubric,
+	isStudyDigest,
+} from '@src/core'
 import { canonicalStringify } from '@orkestrel/contract'
 import { lstat, mkdir, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import { StudyError } from '../../core/errors.js'
-import { computeStudyScores } from '../../core/helpers.js'
-import { parseStudyGrading, parseStudyLabeling, parseStudyRubric } from '../../core/parsers.js'
-import { isStudyDigest } from '../../core/validators.js'
 import { decodeStudyJSON, encodeStudyJSON, hashStudyBytes } from '../helpers.js'
 import { STUDY_CUSTODY_BYTES } from './constants.js'
 import {

@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url'
-import { StudyCLI } from '../server/launchers/StudyCLI.js'
+import { StudyCLI } from '@src/server'
 
 process.exitCode = await new StudyCLI({
 	root: process.cwd(),

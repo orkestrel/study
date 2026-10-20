@@ -6,7 +6,7 @@ import type {
 	StudyProfile,
 	StudyRubric,
 	StudyScenario,
-} from '../../core/types.js'
+} from '@src/core'
 import type { StudyArtifactLoader } from '../processes/StudyArtifactLoader.js'
 import type { StudyPacketBundle } from '../stores/types.js'
 

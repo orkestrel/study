@@ -4,7 +4,7 @@ import type {
 	StudyProduct,
 	StudySinkInterface,
 	StudyStoreInterface,
-} from '../../core/types.js'
+} from '@src/core'
 import type { FileHandle } from 'node:fs/promises'
 import type { JSONValue } from '@orkestrel/contract'
 

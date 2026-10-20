@@ -5,18 +5,11 @@ import type {
 	StudyManifest,
 	StudyObservation,
 	StudyTrial,
-} from '../../core/types.js'
+} from '@src/core'
 import type { StudyFile, StudySeal } from './types.js'
 import {
-	holds,
-	canonicalStringify,
-	isArray,
-	isJSONValue,
-	isNonEmptyString,
-	isRecord,
-} from '@orkestrel/contract'
-import { buildStudySchedule, matchesStudyKeys } from '../../core/helpers.js'
-import {
+	buildStudySchedule,
+	matchesStudyKeys,
 	isStudyBounds,
 	isStudyCause,
 	isStudyDefinition,
@@ -27,7 +20,15 @@ import {
 	isStudyStop,
 	isStudyTimestamp,
 	isStudyUsage,
-} from '../../core/validators.js'
+} from '@src/core'
+import {
+	holds,
+	canonicalStringify,
+	isArray,
+	isJSONValue,
+	isNonEmptyString,
+	isRecord,
+} from '@orkestrel/contract'
 import { STUDY_RESERVED_NAME } from './constants.js'
 
 /**

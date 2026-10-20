@@ -4,9 +4,9 @@ import type {
 	StudyArtifactLoaderOptions,
 } from './types.js'
 import type { StudyAdapterInterface } from '../adapters/types.js'
+import { StudyError } from '@src/core'
 import { dirname, isAbsolute } from 'node:path'
 import { readFileSync } from 'node:fs'
-import { StudyError } from '../../core/errors.js'
 import { ArtifactLoader } from '../artifacts/ArtifactLoader.js'
 import { readStudyAdapter } from '../adapters/helpers.js'
 import { hashStudyBytes } from '../helpers.js'

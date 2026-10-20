@@ -145,6 +145,13 @@ describe('study server fixtures', () => {
 		try {
 			writeStudyConsumer(scratch)
 			const entry = await buildStudyCLI(scratch)
+			expect(entry).toBe(join(scratch.path, 'runtime', 'dist', 'bin', 'main.js'))
+			expect(scratch.read('runtime/package.json')).toBe(
+				JSON.stringify({ name: '@orkestrel/study', version: '0.0.0-runtime', type: 'module' }),
+			)
+			expect(scratch.has('runtime/dist/src/core/index.js')).toBe(true)
+			expect(scratch.has('runtime/dist/src/server/index.js')).toBe(true)
+			expect(scratch.read('runtime/dist/bin/main.js')?.startsWith('#!/usr/bin/env node')).toBe(true)
 			const checked = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
 			expect(checked.code).toBe(0)
 			expect(() => JSON.parse(checked.output)).not.toThrow()
@@ -153,7 +160,7 @@ describe('study server fixtures', () => {
 		} finally {
 			scratch.destroy()
 		}
-	})
+	}, 60000)
 	it('builds the core library as a separate importable package with its own error class', async () => {
 		const scratch = createScratch({ parent: resolve('tmp/units'), prefix: 'setup-library-' })
 		try {

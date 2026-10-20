@@ -33,6 +33,70 @@ describe('built study executable', () => {
 	})
 	beforeAll(async () => {
 		compiled.resolve(await buildStudyCLI(runtime))
+	}, 60000)
+
+	it('runs the sibling server face', async () => {
+		const entry = await compiled.promise
+		const server = runtime.read('runtime/dist/src/server/index.js')
+		if (server === undefined) throw new Error('Missing server face')
+		try {
+			runtime.write(
+				'runtime/dist/src/server/index.js',
+				`throw new Error('server face loaded')\n${server}`,
+			)
+			const help = spawnSync(process.execPath, [entry, '--help'], {
+				cwd: runtime.path,
+				encoding: 'utf8',
+				windowsHide: true,
+				timeout: 10000,
+			})
+			expect(help.status).not.toBe(0)
+			expect(help.stdout).toBe('')
+			expect(help.stderr).toContain('server face loaded')
+		} finally {
+			runtime.write('runtime/dist/src/server/index.js', server)
+		}
+	})
+
+	it('shares one core face between the built faces', async () => {
+		await compiled.promise
+		const driver = runtime.write(
+			'identity.mjs',
+			`import { StudyError } from './runtime/dist/src/core/index.js'
+import { parseStudyArguments } from './runtime/dist/src/server/index.js'
+try { parseStudyArguments([]) } catch (error) {
+ process.stdout.write(JSON.stringify({ shared: error instanceof StudyError, code: error.code }))
+}
+`,
+		)
+		const identity = spawnSync(process.execPath, [driver], {
+			cwd: runtime.path,
+			encoding: 'utf8',
+			windowsHide: true,
+			timeout: 10000,
+		})
+		expect(identity.status).toBe(0)
+		expect(identity.stderr).toBe('')
+		expect(parseJSON(identity.stdout)).toEqual({ shared: true, code: 'CONFIG' })
+	})
+
+	it('bundles no sibling environment', async () => {
+		await compiled.promise
+		const server = parseJSON(runtime.read('runtime/dist/src/server/index.js.map') ?? '')
+		const bin = parseJSON(runtime.read('runtime/dist/bin/main.js.map') ?? '')
+		if (
+			!isRecord(server) ||
+			!arrayOf(isString)(server.sources) ||
+			!isRecord(bin) ||
+			!arrayOf(isString)(bin.sources)
+		)
+			throw new Error('Missing face sources')
+		const sources = server.sources.map((source) => source.replaceAll('\\', '/'))
+		const entries = bin.sources.map((source) => source.replaceAll('\\', '/'))
+		expect(sources.some((source) => source.includes('src/server/'))).toBe(true)
+		expect(entries.some((source) => source.endsWith('src/bin/main.ts'))).toBe(true)
+		expect(sources.filter((source) => source.includes('src/core/'))).toEqual([])
+		expect(entries.filter((source) => /src\/(?:core|server)\//u.test(source))).toEqual([])
 	})
 
 	it('prints help before consumer access and refuses private routes without native IPC', async () => {
@@ -863,6 +927,72 @@ describe('built study executable', () => {
 		}
 	})
 
+	it('binds the server face into the label instrument', async () => {
+		const entry = await compiled.promise
+		const server = runtime.read('runtime/dist/src/server/index.js')
+		const bin = runtime.read(entry)
+		if (server === undefined || bin === undefined) throw new Error('Missing runtime faces')
+		const scratch = createStudyConsumer()
+		try {
+			const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
+			expect({ code: executed.code, output: executed.code === 0 ? '' : executed.output }).toEqual({
+				code: 0,
+				output: '',
+			})
+			const result = parseJSON(executed.output)
+			if (!isRecord(result) || typeof result.path !== 'string') throw new Error('Missing result')
+			const graded = await executeStudyCLI(entry, scratch.path, [
+				'grade',
+				result.path,
+				'--rubric',
+				'studies/assessment/rubric.json',
+			])
+			expect({ code: graded.code, output: graded.code === 0 ? '' : graded.output }).toEqual({
+				code: 0,
+				output: '',
+			})
+			const grading = parseJSON(graded.output)
+			if (!isRecord(grading) || typeof grading.grading !== 'string')
+				throw new Error('Missing grading')
+			const sealed = await readStudyResult(result.path)
+			if (sealed.status !== 'sealed') throw new Error('Execution did not seal')
+			const rubric = parseStudyRubric(
+				parseJSON(scratch.read('studies/assessment/rubric.json') ?? ''),
+			)
+			const labels = scratch.write(
+				'labels.json',
+				JSON.stringify(buildCustodyPacketLabeling(sealed, rubric)),
+			)
+			const tokens = ['label', result.path, '--grading', grading.grading, '--labels', labels]
+			const labeled = await executeStudyCLI(entry, scratch.path, tokens)
+			expect({ code: labeled.code, output: labeled.code === 0 ? '' : labeled.output }).toEqual({
+				code: 0,
+				output: '',
+			})
+			const first = parseJSON(labeled.output)
+			if (!isRecord(first) || typeof first.grading !== 'string') throw new Error('Missing label')
+			runtime.write(
+				'runtime/dist/src/server/index.js',
+				`${server}\n// Changed label server bytes\n`,
+			)
+			expect(runtime.read(entry)).toBe(bin)
+			const relabeled = await executeStudyCLI(entry, scratch.path, tokens)
+			expect({
+				code: relabeled.code,
+				output: relabeled.code === 0 ? '' : relabeled.output,
+			}).toEqual({ code: 0, output: '' })
+			const second = parseJSON(relabeled.output)
+			if (!isRecord(second) || typeof second.grading !== 'string')
+				throw new Error('Missing changed label')
+			expect(first.previous).toBe(grading.grading)
+			expect(second.previous).toBe(grading.grading)
+			expect(second.grading).not.toBe(first.grading)
+		} finally {
+			runtime.write('runtime/dist/src/server/index.js', server)
+			await destroyScratch(scratch)
+		}
+	})
+
 	it('keeps distinct labeled gradings when equal labels follow distinct graders', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
@@ -1105,7 +1235,7 @@ describe('built study executable', () => {
 			const library = createScratch({ parent: resolve('tmp/units'), prefix: 'nested-library-' })
 			try {
 				const built = await buildStudyLibrary(library, resolve('src/server/artifacts/index.ts'))
-				const runtimeLibrary = join(runtime.ensure('runtime/dist/src/server'), 'index.js')
+				const runtimeLibrary = join(runtime.ensure('runtime/dist/loader'), 'index.js')
 				cpSync(dirname(built), dirname(runtimeLibrary), { recursive: true })
 				const outside = scratch.ensure('outside')
 				scratch.write(
@@ -1138,6 +1268,7 @@ describe('built study executable', () => {
 				if (retained.status !== 'sealed') throw new Error('Missing retained failure')
 				expect(retained.attempts[0]?.failure?.message).toContain('Artifact URL is unsupported:')
 				expect(scratch.has('escaped.log')).toBe(false)
+				expect((await executeStudyCLI(entry, scratch.path, ['--help'])).code).toBe(0)
 			} finally {
 				await destroyScratch(library)
 			}

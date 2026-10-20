@@ -1,8 +1,8 @@
 import type { ProviderDelta, ProviderRequest, ProviderResult } from '@orkestrel/agent'
 import type { JSONValue } from '@orkestrel/contract'
 import type { StudyAgentResponse } from './types.js'
+import { StudyError } from '@src/core'
 import { attempt, canonicalStringify, isArray, isObject, isRecord } from '@orkestrel/contract'
-import { StudyError } from '../../core/errors.js'
 import { hashStudyBytes } from '../helpers.js'
 
 /**

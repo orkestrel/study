@@ -1,6 +1,6 @@
+import type { StudyProvider, StudyRole, StudyRoom, StudyStop } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
 import type { OllamaTiming } from '@orkestrel/ollama'
-import type { StudyProvider, StudyRole, StudyRoom, StudyStop } from '../../core/types.js'
 import type {
 	StudyOllamaPolicy,
 	StudyOllamaRequest,
@@ -8,6 +8,7 @@ import type {
 	StudyOllamaTerminal,
 	StudyOllamaTransportOptions,
 } from './types.js'
+import { StudyError, parseStudyReading } from '@src/core'
 import {
 	attempt,
 	canonicalStringify,
@@ -17,8 +18,6 @@ import {
 	isRecord,
 	parseJSON,
 } from '@orkestrel/contract'
-import { StudyError } from '../../core/errors.js'
-import { parseStudyReading } from '../../core/parsers.js'
 
 /**
  * Declares the pinned serving identities the Ollama transport verifies, keyed by the label their inventory evidence carries.

@@ -1,8 +1,7 @@
 import type { Message, ProviderRequest } from '@orkestrel/agent'
 import type { StudyAgentSummaryOptions } from './types.js'
+import { StudyError, projectStudyAgentRequest, validateStudyAgentUsage } from '@src/core'
 import { cloneJSONValue, isFiniteNumber, isJSONValue } from '@orkestrel/contract'
-import { StudyError } from '../../core/errors.js'
-import { projectStudyAgentRequest, validateStudyAgentUsage } from '../../core/agents/helpers.js'
 
 /** Folds a conversation through the real provider under an explicit gauge and prompt limit. */
 export class StudyAgentSummary {

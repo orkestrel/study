@@ -1,7 +1,6 @@
 import type { StudyCommandRequest } from './types.js'
+import { StudyError, isStudyDigest } from '@src/core'
 import { isAbsolute, resolve } from 'node:path'
-import { StudyError } from '../../core/errors.js'
-import { isStudyDigest } from '../../core/validators.js'
 import { isStudyCustodyName } from '../stores/validators.js'
 import { STUDY_COMMAND_HELP } from './constants.js'
 import { resolveStudyPath } from './helpers.js'

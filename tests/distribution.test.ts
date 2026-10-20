@@ -82,6 +82,20 @@ process.stdout.write(JSON.stringify({
 	lookalike: imported.isStudyError(lookalike),
 }))
 `
+const CORE_ESM_DRIVER = 'core.mjs'
+const CORE_CJS_DRIVER = 'core.cjs'
+const CORE_ESM_DRIVER_SOURCE = `import { StudyError } from '@orkestrel/study'
+import { parseStudyArguments } from '@orkestrel/study/server'
+try { parseStudyArguments([]) } catch (error) {
+ process.stdout.write(JSON.stringify({ shared: error instanceof StudyError, code: error.code }))
+}
+`
+const CORE_CJS_DRIVER_SOURCE = `const { StudyError } = require('@orkestrel/study')
+const { parseStudyArguments } = require('@orkestrel/study/server')
+try { parseStudyArguments([]) } catch (error) {
+ process.stdout.write(JSON.stringify({ shared: error instanceof StudyError, code: error.code }))
+}
+`
 
 // The extensions a JavaScript handler loads as modules. Node loads a native addon
 // through its addon handler instead, so that extension is named separately.
@@ -887,16 +901,42 @@ describe('installed package consumer', () => {
 				const probe = `probe.${label}`
 				const specifiers = written.map((entry) => entry.specifier)
 				writeConsumerProbe(stage, probe, specifiers)
-				const project = writeProject(stage, probe, driver, [`./${probe}`])
+				const meter = `meter.${label}`
+				writeFile(
+					join(stage.consumer, meter),
+					`import { StudyControl } from '@orkestrel/study'
+import type { StudyChannel, StudyRemoteMeterOptions } from '@orkestrel/study/server'
+declare const channel: StudyChannel
+export const options: StudyRemoteMeterOptions = { channel, control: new StudyControl() }
+`,
+				)
+				const project = writeProject(stage, probe, driver, [`./${probe}`, `./${meter}`])
 				const messages = checkProject(stage, project).map((message) => `${label}: ${message}`)
 				const control = `control.${label}`
 				writeConsumerProbe(stage, control, [`${name}${ABSENT_SUBPATH}`])
 				const refused = writeProject(stage, control, driver, [`./${control}`])
-				return [{ label, messages, silent: checkProject(stage, refused).length === 0 }]
+				const invalid = `invalid-meter.${label}`
+				writeFile(
+					join(stage.consumer, invalid),
+					`import type { StudyChannel, StudyRemoteMeterOptions } from '@orkestrel/study/server'
+declare const channel: StudyChannel
+export const options: StudyRemoteMeterOptions = { channel, control: new Map() }
+`,
+				)
+				const rejected = writeProject(stage, invalid, driver, [`./${invalid}`])
+				return [
+					{
+						label,
+						messages,
+						silent: checkProject(stage, refused).length === 0,
+						nominal: checkProject(stage, rejected).length > 0,
+					},
+				]
 			}),
 		)
 		expect(results.flatMap(({ messages }) => messages)).toStrictEqual([])
 		expect(results.filter(({ silent }) => silent).map(({ label }) => label)).toStrictEqual([])
+		expect(results.filter(({ nominal }) => !nominal).map(({ label }) => label)).toStrictEqual([])
 	})
 
 	// This proof drives a Node import and a Node require and carries no browser
@@ -920,6 +960,50 @@ describe('installed package consumer', () => {
 })
 
 describe('installed entries', () => {
+	it('shares one core between the root and server entries [requires the registry]', async (context) => {
+		const stage = requireStage(context, await staging.promise)
+		for (const [driver, source] of [
+			[CORE_ESM_DRIVER, CORE_ESM_DRIVER_SOURCE],
+			[CORE_CJS_DRIVER, CORE_CJS_DRIVER_SOURCE],
+		] as const) {
+			writeFile(join(stage.consumer, driver), source)
+			const result = runNode([join(stage.consumer, driver)], stage.consumer)
+			expect({
+				code: result.status,
+				output: result.status === 0 ? '' : readOutput(result),
+			}).toEqual({ code: 0, output: '' })
+			expect(JSON.parse(result.stdout)).toStrictEqual({ shared: true, code: 'CONFIG' })
+		}
+	})
+
+	it('re-declares no core type in the server declarations [requires the registry]', async (context) => {
+		const stage = requireStage(context, await staging.promise)
+		const [core, ...servers] = [
+			'dist/src/core/index.d.ts',
+			'dist/src/server/index.d.ts',
+			'dist/src/server/index.d.cts',
+		].map((path) => {
+			const text = readFileSync(join(stage.installed, path), 'utf8')
+			const names = [
+				...text.matchAll(
+					/^(?:export\s+)?(?:declare\s+)?(?:abstract\s+)?(?:class|enum|function|interface|type|const)\s+([\w$]+)/gmu,
+				),
+			].flatMap((match) => (match[1] === undefined ? [] : [match[1]]))
+			return { path, text, names }
+		})
+		if (core === undefined) throw new Error('Missing core declarations')
+		expect(core.names).toContain('StudyControl')
+		expect(core.names).toContain('StudyError')
+		for (const server of servers) {
+			expect(server.names.filter((name) => core.names.includes(name))).toEqual([])
+			expect(
+				/import\s+(?:type\s+)?\{[^}]*\bStudyControl\b[^}]*\}\s*from\s*['"]@orkestrel\/study['"]/u.test(
+					server.text,
+				),
+			).toBe(true)
+		}
+	})
+
 	it('publishes what it declares to a Node import, and no more', async (context) => {
 		const stage = requireStage(context, await staging.promise)
 		const entries = stage.entries.filter((entry) => entry.importable)

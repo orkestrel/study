@@ -1,8 +1,7 @@
+import type { StudyRole, StudyTicket, StudyAgentDispatch, StudyLatchInterface } from '@src/core'
 import type { BudgetError } from '@orkestrel/budget'
 import type { JSONValue } from '@orkestrel/contract'
 import type { OllamaTiming } from '@orkestrel/ollama'
-import type { StudyRole, StudyTicket } from '../../core/types.js'
-import type { StudyAgentDispatch, StudyLatchInterface } from '../../core/agents/types.js'
 import type {
 	StudyOllamaActivity,
 	StudyOllamaRequest,
@@ -10,12 +9,9 @@ import type {
 	StudyOllamaTerminal,
 	StudyOllamaTransportOptions,
 } from './types.js'
+import { StudyError, readStudyFailure, buildStudyAgentDispatch, studyStopToJSON } from '@src/core'
 import { isBudgetError } from '@orkestrel/budget'
 import { isRecord, parseJSON } from '@orkestrel/contract'
-import { StudyError } from '../../core/errors.js'
-import { readStudyFailure } from '../../core/engines/helpers.js'
-import { buildStudyAgentDispatch } from '../../core/agents/helpers.js'
-import { studyStopToJSON } from '../../core/helpers.js'
 import { buildStudyOllamaSnapshot, buildStudyOllamaTransportOptions } from './cloners.js'
 import { StudyOllamaExchange } from './StudyOllamaExchange.js'
 import { StudyOllamaGoal } from './StudyOllamaGoal.js'

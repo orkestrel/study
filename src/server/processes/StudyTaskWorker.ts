@@ -1,16 +1,17 @@
+import type { StudyEvidence, StudyAttempt, StudyProfile } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
-import type { StudyEvidence, StudyAttempt, StudyProfile } from '../../core/types.js'
 import type { StudyAdapterInterface } from '../adapters/types.js'
-import { arrayOf, isArray, isRecord, isString } from '@orkestrel/contract'
-import { dirname } from 'node:path'
-import { isStudyError, StudyError } from '../../core/errors.js'
 import {
+	isStudyError,
+	StudyError,
 	parseStudyDefinition,
 	parseStudyProfile,
 	parseStudyRubric,
 	parseStudyScenario,
-} from '../../core/parsers.js'
-import { isStudyJudgment } from '../../core/validators.js'
+	isStudyJudgment,
+} from '@src/core'
+import { arrayOf, isArray, isRecord, isString } from '@orkestrel/contract'
+import { dirname } from 'node:path'
 import { ArtifactLoader } from '../artifacts/ArtifactLoader.js'
 import { readStudyAdapter } from '../adapters/helpers.js'
 import { hashStudyBytes } from '../helpers.js'

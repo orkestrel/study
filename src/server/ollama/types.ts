@@ -1,13 +1,13 @@
-import type { JSONValue } from '@orkestrel/contract'
-import type { OllamaOptions, OllamaTiming, extractTiming } from '@orkestrel/ollama'
 import type {
 	StudyContext,
 	StudyLimit,
 	StudyRole,
 	StudyRoom,
 	StudyTicket,
-} from '../../core/types.js'
-import type { StudyAgentDispatch } from '../../core/agents/types.js'
+	StudyAgentDispatch,
+} from '@src/core'
+import type { JSONValue } from '@orkestrel/contract'
+import type { OllamaOptions, OllamaTiming, extractTiming } from '@orkestrel/ollama'
 
 /**
  * Names the model roles an Ollama study transport dispatches under a declared policy.

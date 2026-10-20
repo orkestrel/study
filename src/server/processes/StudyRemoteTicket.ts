@@ -1,6 +1,6 @@
-import type { StudyFailure, StudyTicket, StudyUsage } from '../../core/types.js'
+import type { StudyFailure, StudyTicket, StudyUsage } from '@src/core'
 import type { StudyRemoteTicketOptions } from './types.js'
-import { StudyError } from '../../core/errors.js'
+import { StudyError } from '@src/core'
 
 /** Transmits one settlement without inventing local admission authority. */
 export class StudyRemoteTicket implements StudyTicket {

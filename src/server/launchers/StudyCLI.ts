@@ -1,6 +1,6 @@
 import type { StudyLaunchOptions } from './types.js'
+import { StudyError } from '@src/core'
 import { isRecord } from '@orkestrel/contract'
-import { StudyError } from '../../core/errors.js'
 import { StudyCommand } from '../commands/StudyCommand.js'
 import { STUDY_COMMAND_HELP } from '../commands/constants.js'
 import {

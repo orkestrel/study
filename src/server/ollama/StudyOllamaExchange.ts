@@ -1,6 +1,6 @@
 import type { OllamaTiming } from '@orkestrel/ollama'
 import type { StudyOllamaTerminal, StudyOllamaWire } from './types.js'
-import { StudyError } from '../../core/errors.js'
+import { StudyError } from '@src/core'
 
 /** Tracks one owned HTTP response through its counted bytes, decoded rows, terminal and settlement. */
 export class StudyOllamaExchange implements StudyOllamaWire {
