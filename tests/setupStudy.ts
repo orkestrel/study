@@ -170,6 +170,7 @@ export const STUDY_ADMISSION_DURATIONS = Object.freeze({ request: 400, goal: 400
 /** Supplies malformed command tokens that must refuse before custody or child work. */
 export const STUDY_COMMAND_INVALID_ARGUMENTS: ReadonlyArray<readonly string[]> = Object.freeze([
 	[],
+	['--version', 'extra'],
 	['unknown', 'tools'],
 	['check'],
 	['check', '../escape'],
@@ -182,6 +183,32 @@ export const STUDY_COMMAND_INVALID_ARGUMENTS: ReadonlyArray<readonly string[]> =
 	['grade', 'result'],
 	['label', 'result', '--grading', 'a'.repeat(64)],
 	['report', 'result', '--grading', 'invalid'],
+])
+
+/** Supplies missing declaration selections and their root-relative diagnostics. */
+export const STUDY_MISSING_DECLARATIONS = Object.freeze([
+	{ tokens: ['check', 'nope'], removed: undefined, path: 'studies/nope/study.json' },
+	{ tokens: ['execute', 'nope'], removed: undefined, path: 'studies/nope/study.json' },
+	{
+		tokens: ['check', 'assessment', '--profile', 'absent'],
+		removed: undefined,
+		path: 'studies/files/profiles/absent.json',
+	},
+	{
+		tokens: ['check', 'assessment'],
+		removed: 'studies/files/scenarios/first.json',
+		path: 'studies/files/scenarios/first.json',
+	},
+	{
+		tokens: ['check', 'assessment'],
+		removed: 'studies/files/scenarios',
+		path: 'studies/files/scenarios/first.json',
+	},
+	{
+		tokens: ['check', 'assessment'],
+		removed: 'studies/assessment/rubric.json',
+		path: 'studies/assessment/rubric.json',
+	},
 ])
 
 /** Returns a declared two-arm, two-scenario, two-repetition population. */

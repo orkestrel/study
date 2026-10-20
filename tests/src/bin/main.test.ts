@@ -22,7 +22,7 @@ import {
 	buildCustodyPacketLabeling,
 } from '../../setupServer.js'
 import { parseStudyRubric } from '../../../src/core/parsers.js'
-import { STUDY_COMMAND_INVALID_ARGUMENTS } from '../../setupStudy.js'
+import { STUDY_COMMAND_INVALID_ARGUMENTS, STUDY_MISSING_DECLARATIONS } from '../../setupStudy.js'
 
 describe('built study executable', () => {
 	const runtime = createScratch({ parent: resolve('tmp/units'), prefix: 'runtime-bin-' })
@@ -34,6 +34,99 @@ describe('built study executable', () => {
 	beforeAll(async () => {
 		compiled.resolve(await buildStudyCLI(runtime))
 	}, 60000)
+
+	it('prints the installed version', async () => {
+		const entry = await compiled.promise
+		const scratch = createScratch()
+		try {
+			scratch.write('package.json', JSON.stringify({ name: 'study-consumer', version: '9.8.7' }))
+			const version = spawnSync(process.execPath, [entry, '--version'], {
+				cwd: scratch.path,
+				encoding: 'utf8',
+				windowsHide: true,
+				timeout: 10000,
+			})
+			expect(version.status).toBe(0)
+			expect(version.stdout).toBe('0.0.0-runtime\n')
+			expect(version.stderr).toBe('')
+			const invalid = spawnSync(process.execPath, [entry, '--version', 'extra'], {
+				cwd: scratch.path,
+				encoding: 'utf8',
+				windowsHide: true,
+				timeout: 10000,
+			})
+			expect(invalid.status).toBe(64)
+			expect(invalid.stdout).toBe('')
+			expect(invalid.stderr).toContain('study: CONFIG:')
+			const help = spawnSync(process.execPath, [entry, '--version', '--help'], {
+				cwd: scratch.path,
+				encoding: 'utf8',
+				windowsHide: true,
+				timeout: 10000,
+			})
+			expect(help.status).toBe(0)
+			expect(help.stdout).toContain('study --version')
+			expect(help.stdout).toContain('study --help')
+			expect(help.stderr).toBe('')
+			expect(scratch.names()).toEqual(['package.json'])
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it.each(STUDY_MISSING_DECLARATIONS)(
+		'refuses a missing declaration file as invalid input: $path $removed',
+		async ({ tokens, removed, path }) => {
+			const entry = await compiled.promise
+			const scratch = createStudyConsumer()
+			try {
+				if (removed !== undefined) scratch.remove(removed)
+				const refusal = await executeStudyCLI(entry, scratch.path, tokens)
+				expect(refusal.code).toBe(64)
+				expect(refusal.output).toBe(`study: CONFIG: Declaration is missing: ${path}\n`)
+				expect(refusal.output).not.toContain(scratch.path)
+				expect(scratch.has('tmp')).toBe(false)
+				expect(scratch.has('imports.log')).toBe(false)
+			} finally {
+				await destroyScratch(scratch)
+			}
+		},
+	)
+
+	it('refuses a missing selected result as a custody failure', async () => {
+		const entry = await compiled.promise
+		const scratch = createScratch()
+		try {
+			const refusal = await executeStudyCLI(entry, scratch.path, [
+				'report',
+				'nope',
+				'--grading',
+				'a'.repeat(64),
+			])
+			expect(refusal.code).toBe(1)
+			expect(refusal.output).toBe('study: CUSTODY: Selected result is missing: nope\n')
+			expect(scratch.names()).toEqual([])
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('refuses declarations in definition, scenario, rubric, profile order', async () => {
+		const entry = await compiled.promise
+		const scratch = createStudyConsumer()
+		try {
+			scratch.remove('studies/assessment/rubric.json')
+			scratch.remove('studies/files/profiles/local.json')
+			const refusal = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
+			expect(refusal.code).toBe(64)
+			expect(refusal.output).toBe(
+				'study: CONFIG: Declaration is missing: studies/assessment/rubric.json\n',
+			)
+			expect(scratch.has('tmp')).toBe(false)
+		} finally {
+			await destroyScratch(scratch)
+		}
+	})
 
 	it('runs the sibling server face', async () => {
 		const entry = await compiled.promise

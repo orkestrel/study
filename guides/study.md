@@ -143,6 +143,10 @@ The Ollama transport appends a `stop` evidence row after its `wire` row when com
 
 Install the package in the consumer workspace, then run the study executable from that workspace. The selected declaration lives at studies/<name>/study.json, and its declared rubric path resolves inside that same directory. Its driver field selects a bundle at studies/<driver>/ containing scenarios/<scenario>.json, profiles/<profile>.json, and the adapter module index.ts. Several declarations can share one driver bundle while each keeps its own rubric. The profile defaults to local. JSON declarations use the public definition, scenario, profile, and rubric contracts.
 
+The `readStudyDeclaration` function reads the selected definition, scenarios in declared order, and the rubric the definition names. It returns a `StudyDeclaration` record with the driver bundle and each scenario's bundle-relative fixture path and exact byte digest. It refuses a definition name or scenario identity that differs from its selection. The command uses this reader before reading the selected profile, so the refusal order is definition, scenarios, rubric, profile. The `StudyPreparation` record carries the driver's directory as `bundle`.
+
+The `readStudyDeclarationBytes` function reads an already resolved, contained declaration path under the custody metadata allowance. A missing declaration, scenario, rubric, or profile refuses with the `CONFIG` code and exit code 64. Its diagnostic names the path relative to the consumer root with forward slashes. A missing result refuses with the `CUSTODY` code and exit code 1, naming the result selector as supplied. The `matchesSystemError` predicate matches a system code only on an Error and returns false for a throwing code accessor.
+
 A profile selects the Agent runtime entry in its required agent field and the package under study in its required subject field. The two fields can name the same entry or two entries, including entries from different installed copies of Agent. Each selected entry is captured and loaded once, and the driver receives both namespaces under the declared roles. The selected entries and their bytes are part of the execution identity.
 
 The recap allowance of the room and the judge of the provider are optional. A study that produces no recap omits the recap allowance. A provider declares its judge model and its judge digest together or omits both; declaring only one refuses the profile. A declared recap and a declared judge keep their finite bounds.
@@ -163,7 +167,11 @@ Success writes a JSON document. The next field contains suggested argv and never
 
 Check returns a fingerprint for the declared execution selection. Pass that fingerprint through --expected to pin execution. Both check and execute require a quality profile to declare a qualification path. Execute then requires that path to select a sealed capacity result with the same identity, bounds, schedule, and scenarios and no operational failures. Check validates the declaration offline without opening the capacity result. Capacity and mechanism studies execute without a qualification. Grade names an exact independent rubric path. Label and report require an exact grading identity; no operation guesses a grading version. Imported labels are caller-supplied bytes, not a labeler invoked by this command. A labeled grading binds the preceding grading's instrument, so equal labels over different gradings retain different identities.
 
+A labeled grading's instrument covers the executable package's whole dist directory, including the server and core entries, together with its Node version, runtime flags, platform, and architecture. Label identities are host-sensitive, as grading identities are.
+
 Help succeeds on stdout when --help appears anywhere. Empty arguments and invalid public grammar report on stderr with exit code 64. Operational diagnostics carry a study:CODE prefix and the refused token or path when applicable. Other exits are 0 for success, 124 for deadline, 130 for interruption, and 1 for operational failure. Private child routes require the native IPC boundary.
+
+The `study --version` command prints the installed Study package's version and a newline without reading consumer declarations or starting child work. The `readStudyVersion` function reads that package's manifest at run time, independently of the consumer's manifest. Additional version arguments refuse with exit code 64; `--help` still takes precedence. A missing or empty runtime version refuses with the `CONFIG` code.
 
 An adapter error response preserves the `CONFIG` code and translates other returned codes to `FAULT`.
 
@@ -516,6 +524,11 @@ The following declarations describe this concept.
 | `parseStudyReading`                | function  | Parses a foreign reading into a number a stop can retain.                                                                      |
 | `computeStudyAdmittedStop`         | function  | Computes the stop of a request whose actual usage crossed the ceiling it was admitted under.                                   |
 | `computeStudyOutputStop`           | function  | Computes the stop of a product the output allowances cannot hold.                                                              |
+| `StudyDeclaration`                 | interface | Holds a parsed study declaration with its driver bundle, scenarios, scenario fixtures, and rubric.                             |
+| `readStudyDeclaration`             | function  | Reads a study declaration, its driver's scenarios, and its rubric as the command resolves them.                                |
+| `readStudyDeclarationBytes`        | function  | Reads one declaration file and refuses a missing file with its root-relative path.                                             |
+| `readStudyVersion`                 | function  | Reads the version of the study package that owns an executable entry.                                                          |
+| `matchesSystemError`               | function  | Reports whether a caught value is a Node error carrying the given system code.                                                 |
 
 ## Methods
 
@@ -1804,6 +1817,53 @@ Read the first output allowance that refuses the encoded product.
 import { computeStudyOutputStop } from '@orkestrel/study'
 
 computeStudyOutputStop(2048, 1024, []) // { layer: 'scope', id: 'Goal bytes', max: 1024, consumed: 2048 }
+```
+
+### Read a study declaration
+
+Read the selected declaration and its driver fixtures before selecting a profile.
+
+```ts
+import type { StudyDeclaration } from '@orkestrel/study/server'
+import { readStudyDeclaration } from '@orkestrel/study/server'
+
+declare const root: string
+const declaration: StudyDeclaration = await readStudyDeclaration(root, 'assessment')
+```
+
+### Read declaration bytes
+
+Pass an already resolved and contained declaration path.
+
+```ts
+import { readStudyDeclarationBytes } from '@orkestrel/study/server'
+
+declare const root: string
+declare const path: string
+await readStudyDeclarationBytes(root, path)
+```
+
+### Read the installed version
+
+Pass the installed executable entry to read its owning package's manifest.
+
+```ts
+import { readStudyVersion } from '@orkestrel/study/server'
+
+declare const entry: string
+readStudyVersion(entry)
+```
+
+### Match a system error
+
+Match a caught Error without accepting an unbranded record.
+
+```ts
+import { matchesSystemError } from '@orkestrel/study/server'
+
+const error = Object.assign(new Error('Missing declaration'), { code: 'ENOENT' })
+matchesSystemError(error, 'ENOENT') // true
+matchesSystemError({ code: 'ENOENT' }, 'ENOENT') // false
 ```
 
 ### Helper calls

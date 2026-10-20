@@ -11,7 +11,7 @@ import {
 import { canonicalStringify } from '@orkestrel/contract'
 import { lstat, mkdir, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import { decodeStudyJSON, encodeStudyJSON, hashStudyBytes } from '../helpers.js'
+import { decodeStudyJSON, encodeStudyJSON, hashStudyBytes, matchesSystemError } from '../helpers.js'
 import { STUDY_CUSTODY_BYTES } from './constants.js'
 import {
 	checkStudyDirectory,
@@ -115,7 +115,7 @@ export class StudyGradingStore {
 		try {
 			await lstat(directory)
 		} catch (error) {
-			if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined
+			if (matchesSystemError(error, 'ENOENT')) return undefined
 			throw error
 		}
 		await checkStudyDirectory(directory)
@@ -186,14 +186,14 @@ export class StudyGradingStore {
 		try {
 			await mkdir(root)
 		} catch (error) {
-			if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error
+			if (!matchesSystemError(error, 'EEXIST')) throw error
 		}
 		await checkStudyDirectory(root)
 		const directory = join(root, id)
 		try {
 			await mkdir(directory)
 		} catch (error) {
-			if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error
+			if (!matchesSystemError(error, 'EEXIST')) throw error
 			const existing = await this.read(id)
 			if (
 				existing === undefined ||

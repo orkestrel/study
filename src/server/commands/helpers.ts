@@ -8,8 +8,9 @@ import type {
 	StudyObservation,
 	StudyProfile,
 	StudyRubric,
+	StudyScenario,
 } from '@src/core'
-import type { StudyAttributionSource, StudyCommandArtifact } from './types.js'
+import type { StudyAttributionSource, StudyCommandArtifact, StudyDeclaration } from './types.js'
 import type { StudySealedResult } from '../stores/types.js'
 import type { JSONValue } from '@orkestrel/contract'
 import {
@@ -19,13 +20,100 @@ import {
 	StudyError,
 	computeStudyScores,
 	studyStopToJSON,
+	parseStudyDefinition,
+	parseStudyScenario,
+	parseStudyRubric,
 } from '@src/core'
 import { parseJSON } from '@orkestrel/contract'
-import { isAbsolute, join, resolve } from 'node:path'
-import { containsArtifact, encodeStudyJSON, hashStudyBytes } from '../helpers.js'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import {
+	containsArtifact,
+	decodeStudyJSON,
+	encodeStudyJSON,
+	hashStudyBytes,
+	matchesSystemError,
+} from '../helpers.js'
 import { readStudyBytes } from '../stores/helpers.js'
 import { isStudyCustodyEvidence } from '../stores/validators.js'
-import { STUDY_RESERVED_NAME } from '../stores/constants.js'
+import { STUDY_CUSTODY_BYTES, STUDY_RESERVED_NAME } from '../stores/constants.js'
+
+/** Reads one declaration file and refuses a missing file with its root-relative path.
+ * @param root - The consumer root used to describe a missing declaration.
+ * @param path - The already resolved and contained declaration path.
+ * @returns The exact declaration bytes under the custody metadata allowance.
+ * @throws StudyError - Thrown when the declaration is missing or custody refuses its bytes.
+ * @example Read declaration bytes
+ * ```ts
+ * import { readStudyDeclarationBytes } from '@orkestrel/study/server'
+ *
+ * declare const root: string
+ * declare const path: string
+ * await readStudyDeclarationBytes(root, path)
+ * ```
+ */
+export function readStudyDeclarationBytes(root: string, path: string): Promise<Uint8Array> {
+	return readStudyBytes(path, STUDY_CUSTODY_BYTES).catch((error: unknown) => {
+		if (matchesSystemError(error, 'ENOENT'))
+			throw new StudyError(
+				'CONFIG',
+				`Declaration is missing: ${relative(root, path).split(sep).join('/')}`,
+			)
+		throw error
+	})
+}
+
+/** Reads a study declaration, its driver's scenarios, and its rubric as the command resolves them.
+ * @param root - The consumer root containing the studies directory.
+ * @param study - The selected study name.
+ * @param signal - Optional cancellation checked between scenario reads.
+ * @returns The parsed declaration, driver bundle, ordered scenarios, fixtures, and selected rubric.
+ * @throws StudyError - Thrown when declarations are missing, invalid, or incompatible.
+ * @example Read a study declaration
+ * ```ts
+ * import type { StudyDeclaration } from '@orkestrel/study/server'
+ * import { readStudyDeclaration } from '@orkestrel/study/server'
+ *
+ * declare const root: string
+ * const declaration: StudyDeclaration = await readStudyDeclaration(root, 'assessment')
+ * ```
+ */
+export async function readStudyDeclaration(
+	root: string,
+	study: string,
+	signal?: AbortSignal,
+): Promise<StudyDeclaration> {
+	const directory = resolveStudyPath(join(root, 'studies'), study)
+	const definition = parseStudyDefinition(
+		decodeStudyJSON(
+			await readStudyDeclarationBytes(root, resolveStudyPath(directory, 'study.json')),
+		),
+	)
+	if (definition.name !== study)
+		throw new StudyError('CONFIG', 'Study name differs from its selected directory')
+	const bundle = resolveStudyPath(join(root, 'studies'), definition.driver)
+	const steps: Array<{ readonly scenario: StudyScenario; readonly fixture: StudyCommandArtifact }> =
+		[]
+	for (const id of definition.scenarios) {
+		signal?.throwIfAborted()
+		const path = `scenarios/${id}.json`
+		const bytes = await readStudyDeclarationBytes(root, resolveStudyPath(bundle, path))
+		const scenario = parseStudyScenario(decodeStudyJSON(bytes))
+		if (scenario.id !== id) throw new StudyError('CONFIG', 'Scenario identity is incompatible')
+		steps.push({ scenario, fixture: { path, digest: hashStudyBytes(bytes) } })
+	}
+	const rubric = parseStudyRubric(
+		decodeStudyJSON(
+			await readStudyDeclarationBytes(root, resolveStudyPath(directory, definition.rubric)),
+		),
+	)
+	return {
+		bundle,
+		definition,
+		scenarios: Object.freeze(steps.map((step) => step.scenario)),
+		fixtures: Object.freeze(steps.map((step) => step.fixture)),
+		rubric,
+	}
+}
 
 /**
  * Resolves a portable relative artifact path strictly inside its selected directory.

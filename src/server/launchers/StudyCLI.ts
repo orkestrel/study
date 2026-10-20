@@ -10,6 +10,7 @@ import {
 } from '../processes/constants.js'
 import { StudyTaskWorker } from '../processes/StudyTaskWorker.js'
 import { StudyWorker } from '../processes/StudyWorker.js'
+import { readStudyVersion } from '../processes/helpers.js'
 import { StudyLauncher } from './StudyLauncher.js'
 
 /** Dispatches private child routes before the public native supervisor. */
@@ -48,6 +49,10 @@ export class StudyCLI {
 			if (arguments_[0] !== STUDY_COMMAND_OPERATION) {
 				if (arguments_.includes('--help')) {
 					process.stdout.write(STUDY_COMMAND_HELP)
+					return 0
+				}
+				if (arguments_.length === 1 && arguments_[0] === '--version') {
+					process.stdout.write(`${readStudyVersion(this.#options.entry)}\n`)
 					return 0
 				}
 				if (arguments_.length === 0) {

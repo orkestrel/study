@@ -1,8 +1,7 @@
-import type { StudyGrading, StudyManifest, StudyScenario } from '@src/core'
+import type { StudyGrading, StudyManifest } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
 import type { StudySealedResult } from '../stores/types.js'
 import type {
-	StudyCommandArtifact,
 	StudyCommandOptions,
 	StudyExecutionRequest,
 	StudyGradeRequest,
@@ -15,12 +14,10 @@ import {
 	StudyError,
 	buildStudySchedule,
 	validateStudyInputs,
-	parseStudyDefinition,
 	parseStudyGrading,
 	parseStudyLabeling,
 	parseStudyProfile,
 	parseStudyRubric,
-	parseStudyScenario,
 	StudySeries,
 	isStudyJudgment,
 } from '@src/core'
@@ -37,7 +34,7 @@ import {
 	valueToWire,
 } from '../processes/helpers.js'
 import { ArtifactLoader } from '../artifacts/ArtifactLoader.js'
-import { decodeStudyJSON, encodeStudyJSON, hashStudyBytes } from '../helpers.js'
+import { decodeStudyJSON, encodeStudyJSON, hashStudyBytes, matchesSystemError } from '../helpers.js'
 import { STUDY_CUSTODY_BYTES, STUDY_PACKET_DISCLOSURE } from '../stores/constants.js'
 import {
 	buildStudyPacket,
@@ -58,6 +55,8 @@ import {
 	computeStudyReport,
 	resolveStudyPath,
 	resolveStudyProfile,
+	readStudyDeclaration,
+	readStudyDeclarationBytes,
 } from './helpers.js'
 import { parseStudyArguments } from './parsers.js'
 
@@ -94,32 +93,14 @@ export class StudyCommand {
 	}
 
 	async #prepare(request: StudyExecutionRequest, signal: AbortSignal): Promise<StudyPreparation> {
-		const directory = resolveStudyPath(join(this.#root, 'studies'), request.target)
-		const definitionBytes = await readStudyBytes(
-			resolveStudyPath(directory, 'study.json'),
-			STUDY_CUSTODY_BYTES,
+		const { bundle, definition, scenarios, fixtures, rubric } = await readStudyDeclaration(
+			this.#root,
+			request.target,
+			signal,
 		)
-		const definition = parseStudyDefinition(decodeStudyJSON(definitionBytes))
-		if (definition.name !== request.target)
-			throw new StudyError('CONFIG', 'Study name differs from its selected directory')
-		const bundle = resolveStudyPath(join(this.#root, 'studies'), definition.driver)
-		const steps: Array<{
-			readonly scenario: StudyScenario
-			readonly fixture: StudyCommandArtifact
-		}> = []
-		for (const id of definition.scenarios) {
-			signal.throwIfAborted()
-			const path = `scenarios/${id}.json`
-			const bytes = await readStudyBytes(resolveStudyPath(bundle, path), STUDY_CUSTODY_BYTES)
-			const scenario = parseStudyScenario(decodeStudyJSON(bytes))
-			if (scenario.id !== id) throw new StudyError('CONFIG', 'Scenario identity is incompatible')
-			steps.push({ scenario, fixture: { path, digest: hashStudyBytes(bytes) } })
-		}
-		const scenarios = steps.map((step) => step.scenario)
-		const fixtures = steps.map((step) => step.fixture)
-		const profileBytes = await readStudyBytes(
+		const profileBytes = await readStudyDeclarationBytes(
+			this.#root,
 			resolveStudyPath(bundle, `profiles/${request.profile}.json`),
-			STUDY_CUSTODY_BYTES,
 		)
 		const source = parseStudyProfile(decodeStudyJSON(profileBytes))
 		if (source.name !== request.profile)
@@ -127,11 +108,6 @@ export class StudyCommand {
 		if (source.bounds.series.duration > STUDY_COMMAND_DURATION)
 			throw new StudyError('CONFIG', 'Series duration exceeds the 24-hour host ceiling')
 		const profile = resolveStudyProfile(this.#root, source)
-		const rubricBytes = await readStudyBytes(
-			resolveStudyPath(directory, definition.rubric),
-			STUDY_CUSTODY_BYTES,
-		)
-		const rubric = parseStudyRubric(decodeStudyJSON(rubricBytes))
 		validateStudyInputs(definition, scenarios, rubric, profile)
 		if (definition.purpose === 'quality' && profile.qualification === undefined)
 			throw new StudyError('CONFIG', 'Quality studies require a capacity qualification')
@@ -153,7 +129,7 @@ export class StudyCommand {
 			throw new StudyError('FAULT', 'Adapter validation identity differs')
 		artifacts.verify()
 		return {
-			directory: bundle,
+			bundle,
 			definition,
 			scenarios: Object.freeze(scenarios),
 			rubric,
@@ -239,7 +215,7 @@ export class StudyCommand {
 				profile: preparation.profile,
 				identity: preparation.identity,
 				driver: preparation.definition.driver,
-				adapter: join(preparation.directory, 'index.ts'),
+				adapter: join(preparation.bundle, 'index.ts'),
 				directory: scratch,
 			})
 			const attempts = await new StudySeries({ manifest, driver, store, signal }).execute()
@@ -411,7 +387,11 @@ export class StudyCommand {
 			: target.includes('/')
 				? resolveStudyPath(this.#root, target)
 				: resolveStudyPath(join(this.#root, 'tmp', 'studies'), target)
-		const result = await readStudyResult(path)
+		const result = await readStudyResult(path).catch((error: unknown) => {
+			if (matchesSystemError(error, 'ENOENT'))
+				throw new StudyError('CUSTODY', `Selected result is missing: ${target}`)
+			throw error
+		})
 		if (result.status !== 'sealed')
 			throw new StudyError('CUSTODY', 'Interrupted execution cannot be graded or reported')
 		return result
@@ -421,7 +401,7 @@ export class StudyCommand {
 		const directory = join(result.directory, 'grades', id)
 		const raw = await readStudyBytes(join(directory, 'grading.json'), STUDY_CUSTODY_BYTES).catch(
 			(error: unknown) => {
-				if (error instanceof Error && 'code' in error && error.code === 'ENOENT')
+				if (matchesSystemError(error, 'ENOENT'))
 					throw new StudyError(
 						'CUSTODY',
 						`Selected grading is missing: ${join(directory, 'grading.json')}`,
@@ -482,7 +462,7 @@ export class StudyCommand {
 			try {
 				await mkdir(directory)
 			} catch (error) {
-				if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error
+				if (!matchesSystemError(error, 'EEXIST')) throw error
 			}
 			return checkStudyDirectory(directory)
 		}, checkStudyDirectory(this.#root))

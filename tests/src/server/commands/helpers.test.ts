@@ -11,6 +11,8 @@ import {
 	buildStudyObservation,
 	buildStudyOperationAttempts,
 	buildStudyRubric,
+	buildStudyDefinition,
+	buildStudyScenario,
 	buildStudySettingsProfile,
 	STUDY_PROFILE_SETTINGS,
 } from '../../../setupStudy.js'
@@ -30,6 +32,8 @@ import {
 	computeStudyAttributions,
 	resolveStudyPath,
 	resolveStudyProfile,
+	readStudyDeclaration,
+	readStudyDeclarationBytes,
 } from '../../../../src/server/commands/helpers.js'
 import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
 import { buildStudyProfile } from '../../../setupStudy.js'
@@ -38,6 +42,104 @@ import { isStudyCustodyAttempt } from '../../../../src/server/stores/validators.
 import { STUDY_CAUSES, STUDY_ROLES, STUDY_LAYERS } from '../../../../src/core/constants.js'
 
 describe('study command helpers', () => {
+	it('reads the declared rubric and ordered scenario bytes with bundle-relative fixture identities', async () => {
+		const scratch = createScratch()
+		try {
+			const definition = buildStudyDefinition({
+				rubric: 'criteria.json',
+				scenarios: ['second', 'first'],
+			})
+			const rubric = buildStudyRubric()
+			scratch.write('studies/study/study.json', JSON.stringify(definition))
+			scratch.write('studies/study/criteria.json', JSON.stringify(rubric))
+			scratch.write('studies/study/rubric.json', JSON.stringify({ ...rubric, version: 'decoy' }))
+			const scenarios = definition.scenarios.map((id) => buildStudyScenario(id))
+			const fixtures = scenarios.map((scenario) => {
+				const text = ` ${JSON.stringify(scenario)}\n`
+				scratch.write(`studies/memory/scenarios/${scenario.id}.json`, text)
+				return { path: `scenarios/${scenario.id}.json`, digest: hashStudyBytes(text) }
+			})
+			const declaration = await readStudyDeclaration(scratch.path, 'study')
+			expect(declaration).toEqual({
+				definition,
+				scenarios,
+				fixtures,
+				rubric,
+				bundle: join(scratch.path, 'studies', 'memory'),
+			})
+			expect(
+				Buffer.from(
+					await readStudyDeclarationBytes(
+						scratch.path,
+						join(scratch.path, 'studies/study/criteria.json'),
+					),
+				).toString(),
+			).toBe(JSON.stringify(rubric))
+			expect(scratch.has('studies/memory/profiles')).toBe(false)
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('refuses a declaration whose name differs from the selected directory', async () => {
+		const scratch = createScratch()
+		try {
+			scratch.write(
+				'studies/study/study.json',
+				JSON.stringify(buildStudyDefinition({ name: 'different' })),
+			)
+			await expect(readStudyDeclaration(scratch.path, 'study')).rejects.toMatchObject({
+				code: 'CONFIG',
+				message: 'Study name differs from its selected directory',
+			})
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('refuses a scenario whose id differs from the declared selector', async () => {
+		const scratch = createScratch()
+		try {
+			scratch.write('studies/study/study.json', JSON.stringify(buildStudyDefinition()))
+			scratch.write(
+				'studies/memory/scenarios/first.json',
+				JSON.stringify(buildStudyScenario('different')),
+			)
+			await expect(readStudyDeclaration(scratch.path, 'study')).rejects.toMatchObject({
+				code: 'CONFIG',
+				message: 'Scenario identity is incompatible',
+			})
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('refuses an aborted declaration read before admitting a scenario', async () => {
+		const scratch = createScratch()
+		try {
+			scratch.write('studies/study/study.json', JSON.stringify(buildStudyDefinition()))
+			const controller = new AbortController()
+			const reason = new Error('Declaration cancelled')
+			controller.abort(reason)
+			await expect(readStudyDeclaration(scratch.path, 'study', controller.signal)).rejects.toBe(
+				reason,
+			)
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('retains custody refusals for existing declaration directories', async () => {
+		const scratch = createScratch()
+		try {
+			const directory = scratch.ensure('declaration.json')
+			await expect(readStudyDeclarationBytes(scratch.path, directory)).rejects.toMatchObject({
+				code: 'CUSTODY',
+			})
+		} finally {
+			scratch.destroy()
+		}
+	})
 	it('orders attribution groups by cause role and layer and keeps source order within each group', () => {
 		const sources = STUDY_CAUSES.flatMap((cause) =>
 			[...STUDY_ROLES, undefined].flatMap((role) =>

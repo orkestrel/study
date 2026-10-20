@@ -6,9 +6,28 @@ import {
 	decodeStudyJSON,
 	encodeStudyJSON,
 	hashStudyBytes,
+	matchesSystemError,
 } from '../../../src/server/helpers.js'
 
 describe('server environment helpers', () => {
+	it('matches only an Error carrying the selected system code and contains hostile accessors', () => {
+		expect(
+			matchesSystemError(Object.assign(new Error('missing'), { code: 'ENOENT' }), 'ENOENT'),
+		).toBe(true)
+		expect(
+			matchesSystemError(Object.assign(new Error('exists'), { code: 'EEXIST' }), 'ENOENT'),
+		).toBe(false)
+		expect(matchesSystemError({ code: 'ENOENT' }, 'ENOENT')).toBe(false)
+		expect(matchesSystemError('ENOENT', 'ENOENT')).toBe(false)
+		expect(matchesSystemError(null, 'ENOENT')).toBe(false)
+		expect(matchesSystemError(new Error('plain'), 'ENOENT')).toBe(false)
+		const hostile = Object.defineProperty(new Error('hostile'), 'code', {
+			get() {
+				throw new Error('unreadable code')
+			},
+		})
+		expect(matchesSystemError(hostile, 'ENOENT')).toBe(false)
+	})
 	it('identifies exact bytes and UTF-8 text with the same independent SHA-256 digest', () => {
 		const abc = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
 		expect(hashStudyBytes('abc')).toBe(abc)

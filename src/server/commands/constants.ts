@@ -11,6 +11,7 @@ study grade <result> --rubric <path>
 study label <result> --grading <sha256> --labels <path>
 study report <result> --grading <sha256>
 study --help
+study --version
 
 Profiles default to local. Flags require values and may appear only once.
 Results default to tmp/studies/<result>; scratch also uses tmp/studies.

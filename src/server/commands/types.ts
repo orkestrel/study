@@ -74,9 +74,18 @@ export interface StudyAttributionSource {
 	readonly executed: boolean
 }
 
+/** Holds a parsed study declaration with its driver bundle, scenarios, scenario fixtures, and rubric. */
+export interface StudyDeclaration {
+	readonly bundle: string
+	readonly definition: StudyDefinition
+	readonly scenarios: readonly StudyScenario[]
+	readonly fixtures: readonly StudyCommandArtifact[]
+	readonly rubric: StudyRubric
+}
+
 /** Holds checked public declarations and reproducible executable identities. */
 export interface StudyPreparation {
-	readonly directory: string
+	readonly bundle: string
 	readonly definition: StudyDefinition
 	readonly scenarios: readonly StudyScenario[]
 	readonly rubric: StudyRubric

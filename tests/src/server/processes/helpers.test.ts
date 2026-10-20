@@ -26,10 +26,39 @@ import {
 	terminateStudyChild,
 	valueToWire,
 	resolveStudyInstrument,
+	readStudyVersion,
 	validateStudyRuntime,
 } from '../../../../src/server/processes/helpers.js'
 
 describe('process helpers', () => {
+	it('reads the owning runtime version and refuses empty missing or non-string versions', () => {
+		const scratch = createScratch()
+		try {
+			const entry = scratch.write('runtime/dist/bin/main.js', 'export {}')
+			scratch.write('package.json', JSON.stringify({ name: 'consumer', version: '9.8.7' }))
+			scratch.write(
+				'runtime/package.json',
+				JSON.stringify({ name: '@orkestrel/study', version: '0.0.0-runtime' }),
+			)
+			expect(readStudyVersion(entry)).toBe('0.0.0-runtime')
+			for (const version of ['', undefined, 42]) {
+				scratch.write('runtime/package.json', JSON.stringify({ name: '@orkestrel/study', version }))
+				expect(() => readStudyVersion(entry)).toThrow(
+					expect.objectContaining({
+						code: 'CONFIG',
+						message: 'Study runtime package declares no version',
+					}),
+				)
+			}
+			scratch.write(
+				'runtime/package.json',
+				JSON.stringify({ name: 'another-runtime', version: '1.0.0' }),
+			)
+			expect(() => readStudyVersion(entry)).toThrow(expect.objectContaining({ code: 'CONFIG' }))
+		} finally {
+			scratch.destroy()
+		}
+	})
 	it('pins the actual runtime package and refuses omitted installed dependencies', () => {
 		const scratch = createScratch({ parent: resolve('tmp/units'), prefix: 'runtime-roots-' })
 		try {

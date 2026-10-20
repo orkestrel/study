@@ -121,6 +121,13 @@ await new GuideCommand({
 		})
 	}
 
+	it('matches a caught system Error without accepting a plain code record', () => {
+		const { matchesSystemError } = server
+		const error = Object.assign(new Error('Missing declaration'), { code: 'ENOENT' })
+		expect(matchesSystemError(error, 'ENOENT')).toBe(true)
+		expect(matchesSystemError({ code: 'ENOENT' }, 'ENOENT')).toBe(false)
+	})
+
 	it('admits a ceiling before work, settles known charges, and retains a refused boundary', () => {
 		const { StudyControl, StudyScope, StudyMeter } = core
 		const control = new StudyControl()

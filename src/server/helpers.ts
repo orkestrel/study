@@ -1,7 +1,24 @@
 import { StudyError } from '@src/core'
-import { canonicalStringify, parseJSON } from '@orkestrel/contract'
+import { canonicalStringify, holds, isError, parseJSON } from '@orkestrel/contract'
 import { createHash } from 'node:crypto'
 import { isAbsolute, relative, sep } from 'node:path'
+
+/** Reports whether a caught value is a Node error carrying the given system code.
+ * @param value - The caught value.
+ * @param code - The system error code to match.
+ * @returns True if the value is an Error carrying the code; false otherwise.
+ * @example Match a system error
+ * ```ts
+ * import { matchesSystemError } from '@orkestrel/study/server'
+ *
+ * const error = Object.assign(new Error('Missing declaration'), { code: 'ENOENT' })
+ * matchesSystemError(error, 'ENOENT') // true
+ * matchesSystemError({ code: 'ENOENT' }, 'ENOENT') // false
+ * ```
+ */
+export function matchesSystemError(value: unknown, code: string): boolean {
+	return holds(() => isError(value) && 'code' in value && value.code === code)
+}
 
 /** Checks strict lexical containment under a selected directory.
  * @param root - The canonical directory.

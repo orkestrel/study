@@ -8,7 +8,7 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import { hashStudyBytes } from '../helpers.js'
+import { hashStudyBytes, matchesSystemError } from '../helpers.js'
 import { STUDY_DRAIN_DURATION } from './constants.js'
 
 /** Projects optional domain fields into the JSON wire representation.
@@ -82,6 +82,27 @@ export function resolveStudyInstrument(entry: string): string {
 	})
 	if (root === undefined) throw new StudyError('CONFIG', 'Cannot locate the study runtime package')
 	return root
+}
+
+/** Reads the version of the study package that owns an executable entry.
+ * @param entry - The installed runtime's executable entry.
+ * @returns The non-empty version declared by the owning study package.
+ * @throws StudyError - Thrown when no study package owns the entry or its version is absent or empty.
+ * @example Read the installed version
+ * ```ts
+ * import { readStudyVersion } from '@orkestrel/study/server'
+ *
+ * declare const entry: string
+ * readStudyVersion(entry)
+ * ```
+ */
+export function readStudyVersion(entry: string): string {
+	const value: unknown = JSON.parse(
+		readFileSync(join(resolveStudyInstrument(entry), 'package.json'), 'utf8'),
+	)
+	if (!isRecord(value) || typeof value.version !== 'string' || value.version.length === 0)
+		throw new StudyError('CONFIG', 'Study runtime package declares no version')
+	return value.version
 }
 
 /** Collects a directory and each of its ancestors up to the filesystem root, nearest first.
@@ -168,7 +189,7 @@ export function terminateStudyChild(child: ChildProcess): void {
 				try {
 					process.kill(pid, 'SIGKILL')
 				} catch (error) {
-					if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) throw error
+					if (!matchesSystemError(error, 'ESRCH')) throw error
 				}
 			}
 		}
@@ -176,7 +197,7 @@ export function terminateStudyChild(child: ChildProcess): void {
 		try {
 			process.kill(child.pid, 0)
 		} catch (status) {
-			if (status instanceof Error && 'code' in status && status.code === 'ESRCH') return
+			if (matchesSystemError(status, 'ESRCH')) return
 			throw status
 		}
 		if (child.exitCode === null && child.signalCode === null) {
