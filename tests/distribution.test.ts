@@ -57,7 +57,7 @@ const DIAGNOSTIC_PATTERN = /^(.+?)\(\d+,\d+\): error TS\d+: /u
 const PING = ['ping', '--fetch-retries=0', '--fetch-timeout=5000', '--loglevel=silent']
 const ESM_DRIVER = 'drive.mjs'
 const CJS_DRIVER = 'drive.cjs'
-const CONSUMER_MANIFEST = `{ "name": "distribution-consumer", "private": true, "type": "module" }\n`
+const CONSUMER_MANIFEST = `{ "name": "distribution-consumer", "version": "0.0.0-consumer", "private": true, "type": "module" }\n`
 const ESM_DRIVER_SOURCE = `const entry = await import(process.argv[2])
 process.stdout.write(JSON.stringify(Object.keys(entry).sort()))
 `
@@ -841,6 +841,50 @@ describe('installed package consumer', () => {
 		expect(stage.archives).toHaveLength(1)
 		expect(existsSync(join(stage.installed, 'package.json'))).toBe(true)
 		expect(stage.entries.length).toBeGreaterThan(0)
+	})
+
+	it("is a fixed point of npm's manifest fixer [requires the registry]", async (context) => {
+		const stage = requireStage(context, await staging.promise)
+		const manifest = readJson(join(stage.installed, 'package.json'))
+		const directory = join(SCRATCH, 'manifest-fix')
+		const path = join(directory, 'package.json')
+		writeFile(path, `${JSON.stringify(manifest, undefined, '\t')}\n`)
+		const result = runNpm(['pkg', 'fix'], directory)
+		expect({ code: result.status, output: result.status === 0 ? '' : readOutput(result) }).toEqual({
+			code: 0,
+			output: '',
+		})
+		expect(readJson(path)).toStrictEqual(manifest)
+	})
+
+	it('runs the installed executable [requires the registry]', async (context) => {
+		const stage = requireStage(context, await staging.promise)
+		const manifest = readJson(join(stage.installed, 'package.json'))
+		const consumer = readJson(join(stage.consumer, 'package.json'))
+		if (!isRecord(manifest) || typeof manifest.version !== 'string') {
+			throw new Error('The installed manifest declares no version')
+		}
+		if (!isRecord(consumer) || typeof consumer.version !== 'string') {
+			throw new Error('The consumer manifest declares no version')
+		}
+		expect(consumer.version).not.toBe(manifest.version)
+		const executable = join(
+			stage.consumer,
+			'node_modules',
+			'.bin',
+			process.platform === 'win32' ? 'study.cmd' : 'study',
+		)
+		// npm executes the installed shim through the consumer's command environment.
+		const result = runNpm(
+			['exec', '--offline', '--no', '--loglevel=silent', '--', executable, '--version'],
+			stage.consumer,
+		)
+		expect({ code: result.status, output: result.status === 0 ? '' : readOutput(result) }).toEqual({
+			code: 0,
+			output: '',
+		})
+		expect(result.stdout).toBe(`${manifest.version}\n`)
+		expect(result.stderr).toBe('')
 	})
 
 	it('ships every relative target its exports map names [requires the registry]', async (context) => {

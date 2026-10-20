@@ -1,8 +1,17 @@
 {
 	"name": "@orkestrel/study",
 	"version": "0.0.1",
-	"description": "The @orkestrel/study package.",
-	"keywords": [],
+	"description": "Runs declared comparative studies with admitted requests, sealed execution custody, and independent grading. Part of the @orkestrel line.",
+	"keywords": [
+		"agent",
+		"benchmark",
+		"custody",
+		"evaluation",
+		"grading",
+		"ollama",
+		"study",
+		"typescript"
+	],
 	"homepage": "https://github.com/orkestrel/study#readme",
 	"bugs": "https://github.com/orkestrel/study/issues",
 	"license": "MIT",
@@ -11,7 +20,7 @@
 		"url": "git+https://github.com/orkestrel/study.git"
 	},
 	"bin": {
-		"study": "./dist/bin/main.js"
+		"study": "dist/bin/main.js"
 	},
 	"files": [
 		"dist/src",

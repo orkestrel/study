@@ -2,7 +2,7 @@
 
 > Bounded comparative execution with captured artifacts and separate grading.
 
-The host-independent engine is exported from `@orkestrel/study`; custody and native workers are exported from `@orkestrel/study/server`.
+The host-independent engine is exported from `@orkestrel/study`; custody and native workers are exported from `@orkestrel/study/server`. Study requires Node.js 22.18.0 or later. TypeScript consumers of the server entry must install `@types/node` because its declarations import `node:` modules. The core entry needs no Node.js types.
 
 ## Execution and evidence
 
