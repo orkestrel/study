@@ -1,7 +1,7 @@
 import type { StudyErrorCode, StudyFailure } from './types.js'
-import { holds, isError } from '@orkestrel/contract'
+import { holds, INTRINSICS, isError, isFiniteNumber, isObject } from '@orkestrel/contract'
 import { STUDY_ERROR_BRAND } from './constants.js'
-import { isStudyErrorCode } from './validators.js'
+import { isStudyCause, isStudyErrorCode, isStudyLayer, isStudyRole } from './validators.js'
 
 /** Reports a study contract or operational failure with a stable code. */
 export class StudyError extends Error {
@@ -16,7 +16,12 @@ export class StudyError extends Error {
 	 */
 	constructor(code: StudyErrorCode, message: string, failure?: StudyFailure) {
 		super(message)
-		Object.defineProperty(this, STUDY_ERROR_BRAND, { value: this, configurable: true })
+		INTRINSICS.define(this, STUDY_ERROR_BRAND, {
+			value: this,
+			enumerable: false,
+			writable: false,
+			configurable: true,
+		})
 		this.name = 'StudyError'
 		this.code = code
 		this.failure = failure
@@ -24,10 +29,11 @@ export class StudyError extends Error {
 }
 
 /**
- * Narrows a caught value to an attributable study error.
+ * Narrows a caught value to a branded study error with valid failure attribution.
  * @remarks
- * Recognition combines the native `Error` base, a subclass prototype, the fixed name, a declared
- * study code, and an own {@link STUDY_ERROR_BRAND} descriptor whose value is the error itself.
+ * Recognition combines the native `Error` base, a subclass prototype, a declared study code,
+ * valid optional failure members, and an own {@link STUDY_ERROR_BRAND} descriptor whose value is
+ * the error itself. Subclasses can replace the name.
  * The global key is recognized across package, ESM, CommonJS and captured module copies; it is
  * not unforgeable provenance. A transparent proxy is refused because its forwarded descriptor
  * stores the target, and an unbranded copy, an inherited brand, or a property-only lookalike
@@ -40,15 +46,41 @@ export class StudyError extends Error {
  * ```
  */
 export function isStudyError(value: unknown): value is StudyError {
-	return (
-		isError(value) &&
-		holds(
-			() =>
-				Object.getPrototypeOf(value) !== Error.prototype &&
-				value.name === 'StudyError' &&
-				Object.getOwnPropertyDescriptor(value, STUDY_ERROR_BRAND)?.value === value &&
-				'code' in value &&
-				isStudyErrorCode(value.code),
+	return holds(() => {
+		if (!isError(value) || INTRINSICS.prototype(value) === INTRINSICS.error.prototype) return false
+		const brand: unknown = INTRINSICS.describe(value, STUDY_ERROR_BRAND)?.value
+		const code: unknown = INTRINSICS.reflect.read(value, 'code')
+		const failure: unknown = INTRINSICS.reflect.read(value, 'failure')
+		if (
+			brand !== value ||
+			!isStudyErrorCode(code) ||
+			typeof INTRINSICS.reflect.read(value, 'name') !== 'string' ||
+			typeof INTRINSICS.reflect.read(value, 'message') !== 'string'
 		)
-	)
+			return false
+		if (failure === undefined) return true
+		if (!isObject(failure)) return false
+		const cause: unknown = INTRINSICS.reflect.read(failure, 'cause')
+		const message: unknown = INTRINSICS.reflect.read(failure, 'message')
+		const role: unknown = INTRINSICS.reflect.read(failure, 'role')
+		const stop: unknown = INTRINSICS.reflect.read(failure, 'stop')
+		if (
+			!isStudyCause(cause) ||
+			typeof message !== 'string' ||
+			(role !== undefined && !isStudyRole(role))
+		)
+			return false
+		if (stop === undefined) return true
+		if (!isObject(stop)) return false
+		const layer: unknown = INTRINSICS.reflect.read(stop, 'layer')
+		const id: unknown = INTRINSICS.reflect.read(stop, 'id')
+		const max: unknown = INTRINSICS.reflect.read(stop, 'max')
+		const consumed: unknown = INTRINSICS.reflect.read(stop, 'consumed')
+		return (
+			isStudyLayer(layer) &&
+			typeof id === 'string' &&
+			(max === undefined || isFiniteNumber(max)) &&
+			(consumed === undefined || isFiniteNumber(consumed))
+		)
+	})
 }

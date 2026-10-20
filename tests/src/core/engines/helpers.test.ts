@@ -1,4 +1,4 @@
-import type { StudyFailure } from '../../../../src/core/types.js'
+import type { StudyFailure, StudyStop } from '../../../../src/core/types.js'
 import { Budget, BudgetError } from '@orkestrel/budget'
 import {
 	computeStudyAdmittedStop,
@@ -15,6 +15,35 @@ import {
 import { createStudyMeterFixture, importStudyErrorCopy } from '../../../setupStudy.js'
 
 describe('study engine error attribution', () => {
+	it('retains attribution from a stop implemented through inherited class accessors', () => {
+		class Ceiling implements StudyStop {
+			get layer(): 'model' {
+				return 'model'
+			}
+			get id(): string {
+				return 'num_predict'
+			}
+			get max(): number {
+				return 100
+			}
+			get consumed(): number {
+				return 101
+			}
+		}
+		const failure: StudyFailure = {
+			cause: 'capacity',
+			message: 'Reached',
+			role: 'agent',
+			stop: new Ceiling(),
+		}
+		const reading = readStudyFailure(new StudyError('CAPACITY', 'Class stop', failure))
+		expect(reading).toBe(failure)
+		expect(reading.cause).toBe('capacity')
+		expect(reading.message).toBe('Reached')
+		expect(reading.role).toBe('agent')
+		expect(reading.stop).toBe(failure.stop)
+	})
+
 	it('preserves an existing operational reading and classifies uncategorized errors', () => {
 		const failure = {
 			cause: 'capacity',
