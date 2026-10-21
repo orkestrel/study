@@ -11,7 +11,7 @@ import type {
 } from './types.js'
 import { StudyError, readStudyFailure, buildStudyAgentDispatch, studyStopToJSON } from '@src/core'
 import { isBudgetError } from '@orkestrel/budget'
-import { isRecord, parseJSON } from '@orkestrel/contract'
+import { isFunction, isRecord, parseJSON } from '@orkestrel/contract'
 import { buildStudyOllamaSnapshot, buildStudyOllamaTransportOptions } from './cloners.js'
 import { StudyOllamaExchange } from './StudyOllamaExchange.js'
 import { StudyOllamaGoal } from './StudyOllamaGoal.js'
@@ -47,6 +47,8 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 	 */
 	constructor(options: StudyOllamaTransportOptions) {
 		const owned = buildStudyOllamaTransportOptions(options)
+		if (owned.fetch !== undefined && !isFunction(owned.fetch))
+			throw new StudyError('CONFIG', 'Ollama fetch collaborator must be callable')
 		validateStudyOllamaRoles(owned.roles, owned.models)
 		this.#options = owned
 	}
@@ -375,7 +377,10 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 			})
 			signal.throwIfAborted()
 			const sent = performance.now()
-			const response = await globalThis.fetch(url, { ...settings, signal, redirect: 'error' })
+			const response =
+				this.#options.fetch === undefined
+					? await globalThis.fetch(url, { ...settings, signal, redirect: 'error' })
+					: await this.#options.fetch(role, url, { ...settings, signal, redirect: 'error' })
 			if (response.body === null)
 				throw new StudyError('FAULT', `Ollama HTTP response refused: ${response.status}`)
 			return new StudyOllamaExchange({

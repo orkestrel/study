@@ -1,3 +1,5 @@
+import type { StudyRole } from '../src/core/types.js'
+import type { StudyOllamaTransportOptions } from '../src/server/ollama/types.js'
 import { GuideCommand } from '@orkestrel/guide/server'
 import { readInventory } from '@orkestrel/test/server'
 import { createVitest } from 'vitest/node'
@@ -67,10 +69,43 @@ await new GuideCommand({
 		retainStudyFixture,
 		buildCustodyGrading,
 		createOllamaContext,
+		buildOllamaTransportOptions,
+		createOllamaServer,
+		STUDY_OLLAMA_CHAT_BODY,
 		createForeignBudgetError,
 		createBudgetLookalike,
 	} = await import('./setupServer.js')
 	const { realpathSync } = await import('node:fs')
+
+	it('forwards admitted requests by role through the documented optional collaborator', async () => {
+		const peer = await createOllamaServer()
+		const goal = createOllamaContext()
+		const { StudyOllamaTransport } = server
+		const configured: StudyOllamaTransportOptions = buildOllamaTransportOptions(peer.url)
+		const roles: StudyRole[] = []
+		const transport = new StudyOllamaTransport({
+			...configured,
+			fetch: (role, input, init) => {
+				roles.push(role)
+				return globalThis.fetch(input, init)
+			},
+		})
+		try {
+			transport.prepare({ goal: 'forward', context: goal.context, checkpoint: undefined })
+			const response = await transport.fetch('agent', `${peer.url}/api/chat`, {
+				method: 'POST',
+				body: STUDY_OLLAMA_CHAT_BODY,
+			})
+			expect(roles).toEqual(['agent'])
+			expect(goal.usage()).toEqual([])
+			await response.text()
+			expect(goal.usage()).toMatchObject([{ role: 'agent', calls: 1, tokens: 12 }])
+		} finally {
+			await transport.close()
+			goal.close()
+			await peer.close()
+		}
+	})
 
 	it('reads the Agent tool call example into the documented envelope', () => {
 		const { readStudyAgentToolCall } = server

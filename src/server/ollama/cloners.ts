@@ -12,15 +12,15 @@ import { StudyError } from '@src/core'
  * Builds a frozen owned copy of transport configuration that later caller mutation cannot reach.
  * @remarks
  * Every caller member is read once, outer fields before nested data. Every nested data object is
- * copied and frozen; the caller's objects are never frozen. The cancellation signal and timing
- * extractor keep their live identity.
+ * copied and frozen; the caller's objects are never frozen. The cancellation signal, timing
+ * extractor, and fetch collaborator keep their live identity.
  * @param options - The caller's transport configuration
  * @returns The owned configuration, not yet validated
  */
 export function buildStudyOllamaTransportOptions(
 	options: StudyOllamaTransportOptions,
 ): StudyOllamaTransportOptions {
-	const { url, room, limit, models, roles, signal, observe, timing } = options
+	const { url, room, limit, models, roles, signal, observe, timing, fetch } = options
 	const owned: Record<string, StudyOllamaModel> = Object.fromEntries(
 		Object.entries(models).map(([label, { name, digest }]) => [
 			label,
@@ -51,6 +51,7 @@ export function buildStudyOllamaTransportOptions(
 		signal,
 		observe,
 		timing,
+		...(fetch === undefined ? {} : { fetch }),
 	})
 }
 

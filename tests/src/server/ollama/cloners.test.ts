@@ -12,6 +12,26 @@ const agentPolicy = requireValue(options.roles.agent)
 const chat = `${STUDY_OLLAMA_ORIGIN}/api/chat`
 
 describe('buildStudyOllamaTransportOptions', () => {
+	it('reads the collaborator once and retains its callable identity without freezing it', () => {
+		const reads = createRecorder<[]>()
+		const caller = buildOllamaTransportOptions(STUDY_OLLAMA_ORIGIN, {
+			fetch: (_role, input, init) => globalThis.fetch(input, init),
+		})
+		const fetch = caller.fetch
+		Object.defineProperty(caller, 'fetch', {
+			enumerable: true,
+			get: () => {
+				reads.handler()
+				return fetch
+			},
+		})
+		const owned = buildStudyOllamaTransportOptions(caller)
+		expect(reads.count).toBe(1)
+		expect(owned.fetch).toBe(fetch)
+		expect(Object.isFrozen(owned.fetch)).toBe(false)
+		expect('fetch' in buildStudyOllamaTransportOptions(options)).toBe(false)
+	})
+
 	it('owns frozen copies of every data member and leaves the caller objects mutable', () => {
 		const owned = buildStudyOllamaTransportOptions(options)
 		expect(owned).toEqual(options)

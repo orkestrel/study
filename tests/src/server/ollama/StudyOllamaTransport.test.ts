@@ -1,4 +1,5 @@
 import type { JudgeInterface } from '@orkestrel/agent'
+import type { StudyOllamaFetchFunction } from '../../../../src/server/ollama/types.js'
 import { STUDY_STOP_SWITCHES } from '../../../setupStudy.js'
 import { createForeignBudgetError, createBudgetLookalike } from '../../../setupServer.js'
 import { describe, expect, it } from 'vitest'
@@ -34,6 +35,270 @@ import {
 const encoder = new TextEncoder()
 
 describe('StudyOllamaTransport', () => {
+	it('forwards exact validated agent and summary requests to the collaborator with one shared model', async () => {
+		const calls = createRecorder<Parameters<StudyOllamaFetchFunction>>()
+		const fixture = await createOllamaTransportFixture([], {
+			roles: {
+				agent: requireValue(buildOllamaTransportOptions('http://127.0.0.1:1').roles.agent),
+				summary: requireValue(buildOllamaTransportOptions('http://127.0.0.1:1').roles.agent),
+			},
+			fetch: (role, input, init) => {
+				calls.handler(role, input, init)
+				expect(fixture.goal.evidence.at(-1)?.event).toBe('dispatch')
+				expect(fixture.goal.usage()).toHaveLength(calls.count - 1)
+				return globalThis.fetch(input, init)
+			},
+		})
+		try {
+			const body = `{ "model": "model", "stream": true, "think": false, "messages": [{"role":"user","content":"e\u0301"}], "options": ${JSON.stringify(STUDY_OLLAMA_OPTIONS)} }`
+			const caller = new AbortController()
+			const headers = new Headers({ 'content-type': 'application/json', 'x-study-owned': 'exact' })
+			for (const role of ['agent', 'summary'] as const) {
+				const url = new URL('/api/chat', fixture.server.url)
+				const response = await fixture.transport.fetch(role, url, {
+					method: 'POST',
+					body,
+					headers,
+					signal: caller.signal,
+					redirect: 'follow',
+				})
+				const [attributed, input, init] = requireValue(calls.calls.at(-1))
+				expect(attributed).toBe(role)
+				expect(input).toBe(url.href)
+				expect(init).toEqual({
+					method: 'POST',
+					body,
+					headers,
+					signal: expect.any(AbortSignal),
+					redirect: 'error',
+				})
+				expect(init.signal).not.toBe(caller.signal)
+				expect(init.signal?.aborted).toBe(false)
+				expect(fixture.goal.usage()).toHaveLength(calls.count - 1)
+				await response.text()
+			}
+			expect(calls.calls.map(([role]) => role)).toEqual(['agent', 'summary'])
+			expect(fixture.server.requests).toEqual([
+				{ path: '/api/chat', body },
+				{ path: '/api/chat', body },
+			])
+			expect(fixture.server.owned).toEqual(['exact', 'exact'])
+			expect(
+				fixture.goal
+					.usage()
+					.map((usage) => ({ role: usage.role, calls: usage.calls, tokens: usage.tokens })),
+			).toEqual([
+				{ role: 'agent', calls: 1, tokens: 12 },
+				{ role: 'summary', calls: 1, tokens: 12 },
+			])
+			expect(fixture.goal.evidence.map(({ event }) => event)).toEqual([
+				'dispatch',
+				'wire',
+				'dispatch',
+				'wire',
+			])
+			caller.abort(new Error('Caller finished'))
+			expect(calls.calls.every(([, , init]) => init.signal?.aborted === true)).toBe(true)
+		} finally {
+			await fixture.close()
+		}
+	})
+
+	it('refuses a present non-callable fetch collaborator at construction', () => {
+		const options = buildOllamaTransportOptions('http://127.0.0.1:1')
+		Reflect.set(options, 'fetch', {})
+		expect(captureError(() => new StudyOllamaTransport(options))).toMatchObject({
+			code: 'CONFIG',
+			message: 'Ollama fetch collaborator must be callable',
+		})
+		Reflect.set(options, 'fetch', null)
+		expect(captureError(() => new StudyOllamaTransport(options))).toMatchObject({ code: 'CONFIG' })
+	})
+
+	it('validates the request before invoking the collaborator or admitting a ticket', async () => {
+		const calls = createRecorder<Parameters<StudyOllamaFetchFunction>>()
+		const fixture = await createOllamaTransportFixture([], {
+			fetch: (role, input, init) => {
+				calls.handler(role, input, init)
+				return globalThis.fetch(input, init)
+			},
+		})
+		try {
+			await expect(
+				fixture.transport.fetch('summary', `${fixture.server.url}/outside`, {
+					method: 'POST',
+					body: STUDY_OLLAMA_CHAT_BODY,
+				}),
+			).rejects.toMatchObject({ code: 'CONFIG' })
+			expect(calls.calls).toEqual([])
+			expect(fixture.goal.usage()).toEqual([])
+			expect(fixture.goal.evidence).toEqual([])
+			expect(fixture.server.requests).toEqual([])
+		} finally {
+			await fixture.close()
+		}
+	})
+
+	it('attributes collaborator metadata and judge calls and retains terminal timing', async () => {
+		const calls = createRecorder<Parameters<StudyOllamaFetchFunction>>()
+		const fixture = await createOllamaTransportFixture([], {
+			observe: true,
+			fetch: (role, input, init) => {
+				calls.handler(role, input, init)
+				return globalThis.fetch(input, init)
+			},
+		})
+		try {
+			await fixture.transport.verify()
+			const judge = createOllamaJudgeFixture(fixture.server.url, (input, init) =>
+				fixture.transport.fetch('judge', input, init),
+			)
+			await judge.ask(STUDY_JUDGE_REQUEST, new AbortController().signal)
+			expect(calls.calls.map(([role]) => role)).toEqual([
+				'metadata',
+				'metadata',
+				'metadata',
+				'judge',
+			])
+			expect(
+				calls.calls.every(
+					([, , init]) => init.redirect === 'error' && init.signal instanceof AbortSignal,
+				),
+			).toBe(true)
+			expect(fixture.goal.usage().map(({ role }) => role)).toEqual([
+				'metadata',
+				'metadata',
+				'metadata',
+				'judge',
+			])
+			const wire = requireValue(fixture.goal.evidence.findLast((row) => row.event === 'wire'))
+			expect(requireStudyRecord(wire.value)).toMatchObject({
+				role: 'judge',
+				timing: expect.any(Object),
+			})
+		} finally {
+			await fixture.close()
+		}
+	})
+
+	it('accounts a synchronous collaborator throw once and retains its identity', async () => {
+		const reason = new Error('Collaborator refused')
+		const calls = createRecorder<Parameters<StudyOllamaFetchFunction>>()
+		const fixture = await createOllamaTransportFixture([], {
+			fetch: (...args) => {
+				calls.handler(...args)
+				throw reason
+			},
+		})
+		try {
+			await expect(
+				fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+					method: 'POST',
+					body: STUDY_OLLAMA_CHAT_BODY,
+				}),
+			).rejects.toBe(reason)
+			expect(calls.count).toBe(1)
+			expect(fixture.server.requests).toEqual([])
+			expect(fixture.goal.usage()).toEqual([
+				{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
+			])
+			expect(captureError(() => fixture.transport.check())).toBe(reason)
+			await fixture.transport.close()
+			expect(fixture.goal.usage()).toHaveLength(1)
+		} finally {
+			await fixture.close()
+		}
+	})
+
+	it('keeps collaborator HTTP refusal accounting and the failure latch', async () => {
+		const fixture = await createOllamaTransportFixture(
+			[{ path: '/api/chat', status: 503, body: '{"error":"runner unavailable"}' }],
+			{
+				fetch: (_role, input, init) => globalThis.fetch(input, init),
+			},
+		)
+		try {
+			const failure = await fixture.transport
+				.fetch('agent', `${fixture.server.url}/api/chat`, {
+					method: 'POST',
+					body: STUDY_OLLAMA_CHAT_BODY,
+				})
+				.catch((error: unknown) => error)
+			expect(failure).toMatchObject({ code: 'FAULT' })
+			expect(captureError(() => fixture.transport.check())).toBe(failure)
+			expect(fixture.goal.evidence.map(({ event }) => event)).toEqual(['dispatch', 'failure'])
+			expect(fixture.goal.usage()).toEqual([
+				{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
+			])
+			await fixture.transport.close()
+			expect(fixture.goal.usage()).toHaveLength(1)
+		} finally {
+			await fixture.close()
+		}
+	})
+
+	it('keeps collaborator incomplete stream and byte cap failures on existing accounting paths', async () => {
+		for (const { body, message } of STUDY_OLLAMA_STREAM_FAILURES.concat(STUDY_OLLAMA_ROW_FAULTS)) {
+			const fixture = await createOllamaTransportFixture([{ path: '/api/chat', body }], {
+				limit: { duration: 2000, bytes: 1024 },
+				fetch: (_role, input, init) => globalThis.fetch(input, init),
+			})
+			try {
+				const response = await fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+					method: 'POST',
+					body: STUDY_OLLAMA_CHAT_BODY,
+				})
+				expect(fixture.goal.usage()).toEqual([])
+				const failure = await response.text().catch((error: unknown) => error)
+				expect(readStudyFailure(failure).message).toContain(message)
+				expect(captureError(() => fixture.transport.check())).toBe(failure)
+				expect(fixture.goal.evidence.map(({ event }) => event)).toEqual(['dispatch', 'failure'])
+				expect(fixture.goal.usage()).toEqual([
+					{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
+				])
+				await fixture.transport.close()
+				expect(fixture.goal.usage()).toHaveLength(1)
+			} finally {
+				await fixture.close()
+			}
+		}
+	})
+
+	it('propagates abort through the collaborator bounded signal and accounts the failed stream once', async () => {
+		const calls = createRecorder<Parameters<StudyOllamaFetchFunction>>()
+		const fixture = await createOllamaTransportFixture(
+			[{ path: '/api/chat', body: STUDY_OLLAMA_PARTIAL_ROW, open: true }],
+			{
+				fetch: (role, input, init) => {
+					calls.handler(role, input, init)
+					return globalThis.fetch(input, init)
+				},
+			},
+		)
+		try {
+			const caller = new AbortController()
+			const reason = new Error('Caller aborted')
+			const response = await fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+				method: 'POST',
+				body: STUDY_OLLAMA_CHAT_BODY,
+				signal: caller.signal,
+			})
+			const reader = requireValue(response.body).getReader()
+			await reader.read()
+			caller.abort(reason)
+			await expect(reader.read()).rejects.toBe(reason)
+			expect(requireValue(calls.calls[0])[2].signal?.reason).toBe(reason)
+			expect(captureError(() => fixture.transport.check())).toBe(reason)
+			expect(fixture.goal.usage()).toEqual([
+				{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
+			])
+			await fixture.transport.close()
+			expect(fixture.goal.usage()).toHaveLength(1)
+		} finally {
+			await fixture.close()
+		}
+	})
+
 	it('completes an admitted stream, accounts it once, and retains dispatch and wire evidence', async () => {
 		const reply = buildOllamaStream(['Re', 'ceipt'], { prompt: 7, completion: 2 })
 		const fixture = await createOllamaTransportFixture([{ path: '/api/chat', body: reply }])

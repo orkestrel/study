@@ -119,7 +119,33 @@ An Agent-backed consumer passes the admitted Agent namespace to the shared instr
 
 The `StudyOllamaTransport` class admits each Ollama wire request through the goal's meter, reads each response under the declared byte and duration limits, accounts actual usage before any policy refusal, and retains the first operational failure with its identity. Each model role declares its wire policy: the exact Ollama options object, the think allowance, the strict truncate and shift fields, and whether a length finish is the declared completion. The transport supplies no default policy, refuses an undeclared role, and keeps unreported usage unknown. The `prepare` method binds later requests to one goal until the `clear` or `close` method ends it, and refuses with the `FAULT` code while a goal is bound or a model response is open. The `fetch` and `verify` methods refuse with the `FAULT` code when no goal is bound, and `verify` retains that refusal as the transport's failure. A request admitted before `clear` keeps its goal, and each goal's checkpoint joins only that goal's first observed dispatch.
 
-The transport owns its configuration before validation and snapshots each outbound URL, settings, headers, and request correlation before awaiting admission. Later caller mutation cannot change the admitted request. Cancellation signals and the timing callback retain their live identity.
+The transport owns its configuration before validation and snapshots each outbound URL, settings, headers, and request correlation before awaiting admission. Later caller mutation cannot change the admitted request. Cancellation signals, the timing callback, and the optional fetch collaborator retain their live identity.
+
+The `StudyOllamaTransportOptions` interface accepts an optional `fetch` collaborator with the `StudyOllamaFetchFunction` signature. Omit the option to keep native fetch. When supplied, the collaborator receives the validated Study role, URL, encoded body, headers, bounded signal, and `redirect: 'error'` at the send boundary. Agent and summary keep distinct roles even when they share a model. Construction refuses a present non-callable collaborator with the `CONFIG` code.
+
+The collaborator returns a native `Response` and never settles a Study ticket. Study keeps request validation, admission, dispatch evidence, response status and byte bounds, terminal and timing checks, cancellation, accounting, and the failure latch. A synchronous throw, HTTP refusal, incomplete stream, abort, or cap follows the existing accounting path.
+
+### Forward admitted requests by role
+
+Supply the forwarding function inside the process that constructs the transport. This example retains the roles and delegates the supplied request settings to native fetch.
+
+```ts
+import type { StudyRole } from '@orkestrel/study'
+import type { StudyOllamaTransportOptions } from '@orkestrel/study/server'
+import { StudyOllamaTransport } from '@orkestrel/study/server'
+
+declare const configured: StudyOllamaTransportOptions
+const roles: StudyRole[] = []
+const transport = new StudyOllamaTransport({
+	...configured,
+	fetch: (role, input, init) => {
+		roles.push(role)
+		return globalThis.fetch(input, init)
+	},
+})
+// Prepare the goal, then use transport.fetch or transport.verify as usual.
+// Study reads each returned response before completing its accounting.
+```
 
 The server entry adds a trace, a gauged summary, and a scripted provider over the same admitted Agent capabilities. The consumer passes those capabilities as `runtime`; none of the three imports an Agent runtime. The consumer keeps its model prompts, treatment options, origin joins, and grade policy.
 
@@ -360,6 +386,7 @@ The following declarations describe this concept.
 | `StudyMeterOptions`                | interface | Supplies the request allowance and all enclosing admission scopes.                                                             |
 | `StudyObservation`                 | interface | Holds the retained outcome of a scheduled goal.                                                                                |
 | `StudyOllamaActivity`              | interface | Holds one active goal's accounting and attribution.                                                                            |
+| `StudyOllamaFetchFunction`         | type      | Sends one validated, admitted request under its Study role and returns the native response.                                    |
 | `StudyOllamaModel`                 | interface | Pins one served model identity the inventory verifies.                                                                         |
 | `StudyOllamaOptions`               | type      | Holds the Ollama provider options one role's declared policy determines.                                                       |
 | `StudyOllamaPolicy`                | interface | Declares one model role's exact wire policy.                                                                                   |

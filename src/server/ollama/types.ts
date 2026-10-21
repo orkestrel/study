@@ -54,6 +54,23 @@ export interface StudyOllamaModel {
 }
 
 /**
+ * Sends one validated, admitted request under its Study role and returns the native response.
+ * @remarks
+ * Study owns response validation, cancellation, accounting, and the failure latch. The collaborator
+ * receives the validated URL, encoded body, headers, bounded signal, and redirect policy;
+ * it never settles a Study ticket.
+ * @param role - The validated transport role, independent of the model name
+ * @param input - The validated request URL
+ * @param init - The owned request settings with the bounded signal and `redirect: 'error'`
+ * @returns The native response Study reads and accounts
+ */
+export type StudyOllamaFetchFunction = (
+	role: StudyRole,
+	input: string | URL,
+	init: RequestInit,
+) => Promise<Response>
+
+/**
  * Holds the Ollama study transport's immutable configuration.
  * @remarks
  * `url` is the admitted daemon origin. `room` supplies the context the transport reserves and the
@@ -62,6 +79,8 @@ export interface StudyOllamaModel {
  * wire policy of every model role the consumer dispatches; an undeclared role is refused.
  * `signal` cancels all work. `observe`: if `true`, existing evidence rows gain passive timing and
  * correlation fields; if `false`, they carry none. `timing` extracts daemon timing; the selected Ollama runtime supplies the extractor and the transport imports none.
+ * `fetch` optionally sends the validated request under its role. Default: native fetch. Study keeps
+ * response validation and accounting; the collaborator returns a native response and settles no ticket.
  */
 export interface StudyOllamaTransportOptions {
 	readonly url: string
@@ -72,6 +91,7 @@ export interface StudyOllamaTransportOptions {
 	readonly signal: AbortSignal
 	readonly observe: boolean
 	readonly timing: typeof extractTiming
+	readonly fetch?: StudyOllamaFetchFunction | undefined
 }
 
 /**
