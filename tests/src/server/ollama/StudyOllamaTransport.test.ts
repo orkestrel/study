@@ -5,7 +5,13 @@ import { createForeignBudgetError, createBudgetLookalike } from '../../../setupS
 import { describe, expect, it } from 'vitest'
 import { parseJSON } from '@orkestrel/contract'
 import { extractTiming } from '@orkestrel/ollama'
-import { captureError, createRecorder, requireValue } from '@orkestrel/test'
+import {
+	captureError,
+	createRecorder,
+	requireValue,
+	waitForAbort,
+	waitForCondition,
+} from '@orkestrel/test'
 import { StudyAgentJudge } from '../../../../src/core/agents/StudyAgentJudge.js'
 import { StudyError } from '../../../../src/core/errors.js'
 import { readStudyFailure } from '../../../../src/core/engines/helpers.js'
@@ -295,6 +301,207 @@ describe('StudyOllamaTransport', () => {
 			await fixture.transport.close()
 			expect(fixture.goal.usage()).toHaveLength(1)
 		} finally {
+			await fixture.close()
+		}
+	})
+
+	it('settles a cooperative collaborator before headers on caller abort', async () => {
+		const entered = Promise.withResolvers<void>()
+		const calls = createRecorder<Parameters<StudyOllamaFetchFunction>>()
+		const fixture = await createOllamaTransportFixture([], {
+			fetch: (role, input, init) => {
+				calls.handler(role, input, init)
+				entered.resolve()
+				return globalThis.fetch(input, init)
+			},
+		})
+		const caller = new AbortController()
+		const reason = new Error('Caller aborted before native headers')
+		const pending = fixture.transport
+			.fetch('agent', `${fixture.server.url}/api/chat`, {
+				method: 'POST',
+				body: STUDY_OLLAMA_CHAT_BODY,
+				signal: caller.signal,
+			})
+			.catch((error: unknown) => error)
+		try {
+			await entered.promise
+			expect(fixture.goal.usage()).toEqual([])
+			caller.abort(reason)
+			expect(await pending).toBe(reason)
+			expect(requireValue(calls.calls[0])[2].signal?.reason).toBe(reason)
+			expect(captureError(() => fixture.transport.check())).toBe(reason)
+			expect(fixture.goal.usage()).toEqual([
+				{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
+			])
+			await fixture.transport.close()
+			expect(fixture.goal.usage()).toHaveLength(1)
+		} finally {
+			caller.abort(reason)
+			await pending
+			await fixture.close()
+		}
+	})
+
+	it('settles a pending collaborator on caller abort and cancels its late response once', async () => {
+		const release = Promise.withResolvers<Response>()
+		const calls = createRecorder<Parameters<StudyOllamaFetchFunction>>()
+		const settled = createRecorder<readonly [string, unknown]>()
+		const cancelled = createRecorder<readonly [unknown]>()
+		const late = new Response(new ReadableStream<Uint8Array>({ cancel: cancelled.handler }))
+		const fixture = await createOllamaTransportFixture([], {
+			fetch: (...args) => {
+				calls.handler(...args)
+				return release.promise
+			},
+		})
+		const caller = new AbortController()
+		const reason = new Error('Caller aborted before response')
+		const pending = fixture.transport
+			.fetch('agent', `${fixture.server.url}/api/chat`, {
+				method: 'POST',
+				body: STUDY_OLLAMA_CHAT_BODY,
+				signal: caller.signal,
+			})
+			.then(
+				(response) => settled.handler('fulfilled', response),
+				(error: unknown) => settled.handler('rejected', error),
+			)
+		try {
+			await waitForCondition('collaborator entry', () => calls.count === 1)
+			expect(settled.calls).toEqual([])
+			expect(fixture.goal.usage()).toEqual([])
+			caller.abort(reason)
+			expect(requireValue(calls.calls[0])[2].signal?.reason).toBe(reason)
+			await waitForCondition(
+				'caller abort settles pending collaborator',
+				() => settled.count === 1,
+				{
+					budget: 500,
+				},
+			)
+			expect(settled.calls).toEqual([['rejected', reason]])
+			expect(captureError(() => fixture.transport.check())).toBe(reason)
+			expect(fixture.goal.usage()).toEqual([
+				{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
+			])
+			await fixture.transport.close()
+			await fixture.transport.close()
+			release.resolve(late)
+			await waitForCondition('late response cancellation', () => cancelled.count === 1)
+			expect(cancelled.calls).toEqual([[reason]])
+			expect(settled.calls).toEqual([['rejected', reason]])
+			expect(fixture.goal.usage()).toHaveLength(1)
+			expect(captureError(() => fixture.transport.check())).toBe(reason)
+			expect(fixture.goal.evidence.map(({ event }) => event)).toEqual(['dispatch'])
+			expect(fixture.server.requests).toEqual([])
+		} finally {
+			release.resolve(late)
+			await pending
+			await fixture.close()
+		}
+	})
+
+	it('settles a pending collaborator on deadline and cancels its late response once', async () => {
+		const release = Promise.withResolvers<Response>()
+		const calls = createRecorder<Parameters<StudyOllamaFetchFunction>>()
+		const settled = createRecorder<readonly [string, unknown]>()
+		const cancelled = createRecorder<readonly [unknown]>()
+		const late = new Response(new ReadableStream<Uint8Array>({ cancel: cancelled.handler }))
+		const fixture = await createOllamaTransportFixture([], {
+			limit: { duration: 100, bytes: 1048576 },
+			fetch: (...args) => {
+				calls.handler(...args)
+				return release.promise
+			},
+		})
+		const pending = fixture.transport
+			.fetch('agent', `${fixture.server.url}/api/chat`, {
+				method: 'POST',
+				body: STUDY_OLLAMA_CHAT_BODY,
+			})
+			.then(
+				(response) => settled.handler('fulfilled', response),
+				(error: unknown) => settled.handler('rejected', error),
+			)
+		try {
+			await waitForCondition('collaborator entry', () => calls.count === 1)
+			expect(settled.calls).toEqual([])
+			expect(fixture.goal.usage()).toEqual([])
+			const signal = requireValue(requireValue(calls.calls[0])[2].signal)
+			await waitForAbort(signal)
+			const reason: unknown = signal.reason
+			expect(reason).toMatchObject({ name: 'TimeoutError' })
+			await waitForCondition('deadline settles pending collaborator', () => settled.count === 1, {
+				budget: 500,
+			})
+			expect(settled.calls).toEqual([['rejected', reason]])
+			expect(captureError(() => fixture.transport.check())).toBe(reason)
+			expect(fixture.goal.usage()).toEqual([
+				{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
+			])
+			await fixture.transport.close()
+			release.resolve(late)
+			await waitForCondition('late response cancellation', () => cancelled.count === 1)
+			expect(cancelled.calls).toEqual([[reason]])
+			expect(settled.calls).toEqual([['rejected', reason]])
+			expect(fixture.goal.usage()).toHaveLength(1)
+			expect(captureError(() => fixture.transport.check())).toBe(reason)
+		} finally {
+			release.resolve(late)
+			await pending
+			await fixture.close()
+		}
+	})
+
+	it('settles a pending collaborator on close and cancels its late response once', async () => {
+		const release = Promise.withResolvers<Response>()
+		const calls = createRecorder<Parameters<StudyOllamaFetchFunction>>()
+		const settled = createRecorder<readonly [string, unknown]>()
+		const cancelled = createRecorder<readonly [unknown]>()
+		const late = new Response(new ReadableStream<Uint8Array>({ cancel: cancelled.handler }))
+		const fixture = await createOllamaTransportFixture([], {
+			fetch: (...args) => {
+				calls.handler(...args)
+				return release.promise
+			},
+		})
+		const pending = fixture.transport
+			.fetch('agent', `${fixture.server.url}/api/chat`, {
+				method: 'POST',
+				body: STUDY_OLLAMA_CHAT_BODY,
+			})
+			.then(
+				(response) => settled.handler('fulfilled', response),
+				(error: unknown) => settled.handler('rejected', error),
+			)
+		try {
+			await waitForCondition('collaborator entry', () => calls.count === 1)
+			expect(settled.calls).toEqual([])
+			expect(fixture.goal.usage()).toEqual([])
+			const closing = fixture.transport.close()
+			const signal = requireValue(requireValue(calls.calls[0])[2].signal)
+			const reason: unknown = signal.reason
+			expect(reason).toMatchObject({ code: 'FAULT', message: 'Ollama transport closed' })
+			await waitForCondition('close settles pending collaborator', () => settled.count === 1, {
+				budget: 500,
+			})
+			await closing
+			expect(settled.calls).toEqual([['rejected', reason]])
+			expect(captureError(() => fixture.transport.check())).toBe(reason)
+			expect(fixture.goal.usage()).toEqual([
+				{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
+			])
+			await fixture.transport.close()
+			release.resolve(late)
+			await waitForCondition('late response cancellation', () => cancelled.count === 1)
+			expect(cancelled.calls).toEqual([[reason]])
+			expect(settled.calls).toEqual([['rejected', reason]])
+			expect(fixture.goal.usage()).toHaveLength(1)
+			expect(captureError(() => fixture.transport.check())).toBe(reason)
+		} finally {
+			release.resolve(late)
+			await pending
 			await fixture.close()
 		}
 	})

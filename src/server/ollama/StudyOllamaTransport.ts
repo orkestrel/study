@@ -4,12 +4,14 @@ import type { JSONValue } from '@orkestrel/contract'
 import type { OllamaTiming } from '@orkestrel/ollama'
 import type {
 	StudyOllamaActivity,
+	StudyOllamaFetchFunction,
 	StudyOllamaRequest,
 	StudyOllamaSnapshot,
 	StudyOllamaTerminal,
 	StudyOllamaTransportOptions,
 } from './types.js'
 import { StudyError, readStudyFailure, buildStudyAgentDispatch, studyStopToJSON } from '@src/core'
+import { Abort } from '@orkestrel/abort'
 import { isBudgetError } from '@orkestrel/budget'
 import { isFunction, isRecord, parseJSON } from '@orkestrel/contract'
 import { buildStudyOllamaSnapshot, buildStudyOllamaTransportOptions } from './cloners.js'
@@ -33,6 +35,7 @@ import {
 export class StudyOllamaTransport implements StudyLatchInterface {
 	readonly #options: StudyOllamaTransportOptions
 	readonly #abort = new AbortController()
+	readonly #sends = new Set<Promise<StudyOllamaExchange>>()
 	readonly #wires = new Set<StudyOllamaExchange>()
 	// The bound goal; `prepare` binds it and `clear` or `close` releases it. An admitted request keeps the goal it was admitted under.
 	#goal: StudyOllamaGoal | undefined
@@ -182,8 +185,9 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				AbortSignal.timeout(limit.duration),
 				...(settings?.signal === undefined || settings.signal === null ? [] : [settings.signal]),
 			])
-			const wire = await this.#send(role, goal, ticket, request, snapshot, signal, id, started)
-			this.#wires.add(wire)
+			const sending = this.#send(role, goal, ticket, request, snapshot, signal, id, started)
+			this.#sends.add(sending)
+			const wire = await sending.finally(() => this.#sends.delete(sending))
 			if (wire.status < 200 || wire.status > 299) return await this.#refuse(wire)
 			return new Response(
 				new ReadableStream<Uint8Array>({
@@ -218,6 +222,9 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 	 */
 	async close(): Promise<void> {
 		this.#abort.abort(new StudyError('FAULT', 'Ollama transport closed'))
+		await Promise.all(
+			[...this.#sends].map((sending) => sending.catch((error: unknown) => this.fail(error))),
+		)
 		await Promise.all(
 			[...this.#wires].map((wire) => this.#failWire(wire, this.#abort.signal.reason)),
 		)
@@ -380,10 +387,14 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 			const response =
 				this.#options.fetch === undefined
 					? await globalThis.fetch(url, { ...settings, signal, redirect: 'error' })
-					: await this.#options.fetch(role, url, { ...settings, signal, redirect: 'error' })
+					: await this.#fetch(this.#options.fetch, role, url, settings, signal)
+			if (signal.aborted) {
+				void response.body?.cancel(signal.reason).catch(() => undefined)
+				signal.throwIfAborted()
+			}
 			if (response.body === null)
 				throw new StudyError('FAULT', `Ollama HTTP response refused: ${response.status}`)
-			return new StudyOllamaExchange({
+			const wire = new StudyOllamaExchange({
 				activity: goal.activity,
 				request,
 				ticket,
@@ -397,6 +408,8 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				dispatch,
 				bytes: request.bytes,
 			})
+			this.#wires.add(wire)
+			return wire
 		} catch (error) {
 			if (!ticket.signal.aborted) {
 				// An Agent budget's cut before the wire exists is Agent's own stop: the request is accounted with unknown cost.
@@ -412,6 +425,30 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 			}
 			throw error
 		}
+	}
+
+	// Bounds the collaborator independently of its cooperation and releases a response that arrives after cancellation.
+	#fetch(
+		fetch: StudyOllamaFetchFunction,
+		role: StudyRole,
+		url: string,
+		settings: RequestInit | undefined,
+		signal: AbortSignal,
+	): Promise<Response> {
+		const listeners = new Abort()
+		return new Promise<Response>((resolve, reject) => {
+			signal.addEventListener('abort', () => reject(signal.reason), {
+				once: true,
+				signal: listeners.signal,
+			})
+			signal.throwIfAborted()
+			fetch(role, url, { ...settings, signal, redirect: 'error' }).then((response) => {
+				if (signal.aborted) {
+					void response.body?.cancel(signal.reason).catch(() => undefined)
+					reject(signal.reason)
+				} else resolve(response)
+			}, reject)
+		}).finally(() => listeners.abort())
 	}
 
 	#dispatch(

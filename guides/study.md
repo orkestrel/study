@@ -123,7 +123,7 @@ The transport owns its configuration before validation and snapshots each outbou
 
 The `StudyOllamaTransportOptions` interface accepts an optional `fetch` collaborator with the `StudyOllamaFetchFunction` signature. Omit the option to keep native fetch. When supplied, the collaborator receives the validated Study role, URL, encoded body, headers, bounded signal, and `redirect: 'error'` at the send boundary. Agent and summary keep distinct roles even when they share a model. Construction refuses a present non-callable collaborator with the `CONFIG` code.
 
-The collaborator returns a native `Response` and never settles a Study ticket. Study keeps request validation, admission, dispatch evidence, response status and byte bounds, terminal and timing checks, cancellation, accounting, and the failure latch. A synchronous throw, HTTP refusal, incomplete stream, abort, or cap follows the existing accounting path.
+The collaborator returns a native `Response` and never settles a Study ticket. Study keeps request validation, admission, dispatch evidence, response status and byte bounds, terminal and timing checks, cancellation, accounting, and the failure latch. A synchronous throw, HTTP refusal, incomplete stream, abort, or cap follows the existing accounting path. Caller abort, the request deadline, and the `close` method settle a pending collaborator wait with the signal's reason even if the collaborator ignores cancellation; Study accounts the request once, retains the failure, and cancels a response that arrives later.
 
 ### Forward admitted requests by role
 
