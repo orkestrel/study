@@ -50,6 +50,8 @@ export interface StudyArtifactLoaderOptions {
 
 /** Holds the separately bound instrument and selected module inventory identities. */
 export interface StudyArtifactIdentity {
+	readonly runtime: string
+	readonly content: string
 	readonly agent: string
 	readonly subject: string
 	readonly provider: string | undefined

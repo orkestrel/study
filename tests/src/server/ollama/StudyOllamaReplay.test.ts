@@ -11,7 +11,7 @@ describe('StudyOllamaReplay', () => {
 		const replay = new ollama.StudyOllamaReplay({
 			history,
 			url: 'http://127.0.0.1:1',
-			prefix: history.exchanges.length,
+			prefix: 4,
 			limit: { calls: 20, bytes: 65536, duration: 5000 },
 			signal: new AbortController().signal,
 			fetch: async () => {
@@ -41,21 +41,21 @@ describe('StudyOllamaReplay', () => {
 					method: pair.attempt.method,
 					body: changed,
 				}),
-			).rejects.toThrow('Replay request differs from the next recorded exchange')
+			).rejects.toThrow('member=body')
 			await expect(
 				replay.fetch(pair.attempt.role, `http://127.0.0.1:1${pair.attempt.path}`, {
 					method: pair.attempt.method,
 					body,
 				}),
-			).rejects.toThrow('Replay request differs from the next recorded exchange')
+			).rejects.toThrow('member=body')
 			expect(sent.calls).toEqual([])
-			expect(() => replay.check()).toThrow('Replay request differs from the next recorded exchange')
+			expect(() => replay.check()).toThrow('member=body')
 		} finally {
 			await replay.close()
 		}
 	})
 
-	it('requires sealed completed history rather than prospective capture, and projects captured prefix bodies', async () => {
+	it('requires sealed completed history and consumes recorded capture bytes without projecting steps', async () => {
 		const history = buildStudyExchangeHistory(true)
 		const replay = new ollama.StudyOllamaReplay({
 			history,
@@ -65,10 +65,15 @@ describe('StudyOllamaReplay', () => {
 			signal: new AbortController().signal,
 		})
 		try {
-			expect(replay.procedure[0]).toMatchObject({
-				admission: 'exact',
-				input: history.exchanges[3]?.attempt.digest,
-			})
+			for (const { attempt } of history.exchanges) {
+				await (
+					await replay.fetch(attempt.role, `http://127.0.0.1:1${attempt.path}`, {
+						method: attempt.method,
+						...(attempt.size === 0 ? {} : { body: Buffer.from(attempt.body, 'base64') }),
+					})
+				).text()
+			}
+			expect(() => replay.check()).not.toThrow()
 			expect(history.declaration.procedure?.[0]?.admission).toBe('capture')
 		} finally {
 			await replay.close()
@@ -115,7 +120,7 @@ describe('StudyOllamaReplay', () => {
 		const replay = new ollama.StudyOllamaReplay({
 			history,
 			url: 'http://127.0.0.1:1',
-			prefix: 1,
+			prefix: 3,
 			limit: { calls: 20, bytes: 65536, duration: 5000 },
 			signal: new AbortController().signal,
 			fetch: async () => new Response('live'),
@@ -125,6 +130,14 @@ describe('StudyOllamaReplay', () => {
 			const response = await replay.fetch('metadata', 'http://127.0.0.1:1/api/version', {})
 			expect(() => replay.check()).toThrow(/still being read/)
 			await response.text()
+			for (const { attempt } of history.exchanges.slice(1, 3)) {
+				await (
+					await replay.fetch(attempt.role, `http://127.0.0.1:1${attempt.path}`, {
+						method: attempt.method,
+						...(attempt.size === 0 ? {} : { body: Buffer.from(attempt.body, 'base64') }),
+					})
+				).text()
+			}
 			expect(() => replay.check()).not.toThrow()
 		} finally {
 			await replay.close()
@@ -136,7 +149,7 @@ describe('StudyOllamaReplay', () => {
 		const replay = new ollama.StudyOllamaReplay({
 			history,
 			url: 'http://127.0.0.1:1',
-			prefix: history.exchanges.length,
+			prefix: 4,
 			limit: { calls: 20, bytes: 65536, duration: 5000 },
 			signal: new AbortController().signal,
 			fetch: async (_role, input) => {
@@ -188,21 +201,21 @@ describe('StudyOllamaReplay', () => {
 				)
 			}
 			expect(() => replay.check()).not.toThrow()
-			await expect(
-				replay.fetch('metadata', 'http://127.0.0.1:1/api/version', {}),
-			).rejects.toMatchObject({ code: 'FAULT' })
+			await expect(replay.fetch('metadata', 'http://127.0.0.1:1/api/version', {})).rejects.toThrow(
+				'member=none',
+			)
 		} finally {
 			await replay.close()
 		}
 	})
 
-	it('forwards only after a consumed prefix and projects recorded capture bodies to exact steps', async () => {
+	it('forwards only after consuming the recorded preflight prefix', async () => {
 		const history = buildStudyExchangeHistory()
 		const sent = createRecorder<readonly [string]>()
 		const replay = new ollama.StudyOllamaReplay({
 			history,
 			url: 'http://127.0.0.1:1',
-			prefix: 1,
+			prefix: 3,
 			limit: { calls: 20, bytes: 65536, duration: 5000 },
 			signal: new AbortController().signal,
 			fetch: async (_role, input) => {
@@ -211,7 +224,14 @@ describe('StudyOllamaReplay', () => {
 			},
 		})
 		try {
-			await (await replay.fetch('metadata', 'http://127.0.0.1:1/api/version', {})).text()
+			for (const { attempt } of history.exchanges.slice(0, 3)) {
+				await (
+					await replay.fetch(attempt.role, `http://127.0.0.1:1${attempt.path}`, {
+						method: attempt.method,
+						...(attempt.size === 0 ? {} : { body: Buffer.from(attempt.body, 'base64') }),
+					})
+				).text()
+			}
 			expect(await (await replay.fetch('metadata', 'http://127.0.0.1:1/api/tags', {})).text()).toBe(
 				'live',
 			)

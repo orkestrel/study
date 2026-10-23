@@ -14,6 +14,8 @@ import {
 	relocateArtifactPath,
 	computeArtifactClosureDigest,
 	verifyArtifactClosure,
+	computeArtifactRuntimeDigest,
+	computeArtifactContentDigest,
 } from '../../../../src/server/artifacts/helpers.js'
 import { ArtifactLoader } from '../../../../src/server/artifacts/ArtifactLoader.js'
 import {
@@ -23,6 +25,98 @@ import {
 	ARTIFACT_CLOSURE_FILES,
 	buildArtifactClosureOptions,
 } from '../../../setupServer.js'
+
+it('binds every runtime condition independently of paths and captured content', () => {
+	const scratch = createScratch({ files: ARTIFACT_CLOSURE_FILES })
+	try {
+		const inventory = new ArtifactLoader(buildArtifactClosureOptions(scratch)).inspect()
+		const digest = computeArtifactRuntimeDigest(inventory)
+		expect(computeArtifactRuntimeDigest({ ...inventory, files: [], entries: [] })).toBe(digest)
+		expect(
+			computeArtifactRuntimeDigest({ ...inventory, node: inventory.node + '-changed' }),
+		).not.toBe(digest)
+		expect(
+			computeArtifactRuntimeDigest({
+				...inventory,
+				runtime: {
+					...inventory.runtime,
+					arguments: [...inventory.runtime.arguments, '--no-warnings'],
+				},
+			}),
+		).not.toBe(digest)
+		expect(
+			computeArtifactRuntimeDigest({
+				...inventory,
+				runtime: { ...inventory.runtime, options: '--no-warnings' },
+			}),
+		).not.toBe(digest)
+		expect(
+			computeArtifactRuntimeDigest({
+				...inventory,
+				runtime: { ...inventory.runtime, platform: 'different' },
+			}),
+		).not.toBe(digest)
+		expect(
+			computeArtifactRuntimeDigest({
+				...inventory,
+				runtime: { ...inventory.runtime, architecture: 'different' },
+			}),
+		).not.toBe(digest)
+	} finally {
+		scratch.destroy()
+	}
+})
+
+it('hashes content with sorted relative members, selections, package identities, source, and Study entry bytes', () => {
+	const scratch = createScratch({ files: ARTIFACT_CLOSURE_FILES })
+	try {
+		const inventory = new ArtifactLoader(buildArtifactClosureOptions(scratch)).inspect()
+		const entry = 'a'.repeat(64)
+		const digest = computeArtifactContentDigest(inventory, entry)
+		expect(
+			computeArtifactContentDigest(
+				{
+					...inventory,
+					files: [...inventory.files].reverse(),
+					packages: [...inventory.packages].reverse(),
+					entries: [...inventory.entries].reverse(),
+				},
+				entry,
+			),
+		).toBe(digest)
+		expect(
+			computeArtifactContentDigest(
+				{
+					...inventory,
+					runtime: { ...inventory.runtime, options: 'different' },
+					node: 'different',
+				},
+				entry,
+			),
+		).toBe(digest)
+		expect(computeArtifactContentDigest(inventory, 'b'.repeat(64))).not.toBe(digest)
+		expect(computeArtifactContentDigest({ ...inventory, entries: [] }, entry)).not.toBe(digest)
+		const { source: _source, ...built } = inventory
+		expect(computeArtifactContentDigest(built, entry)).not.toBe(digest)
+		expect(
+			computeArtifactContentDigest(
+				{ ...inventory, files: inventory.files.map((file) => ({ ...file, size: file.size + 1 })) },
+				entry,
+			),
+		).not.toBe(digest)
+		expect(
+			computeArtifactContentDigest(
+				{
+					...inventory,
+					packages: inventory.packages.map((member) => ({ ...member, version: 'changed' })),
+				},
+				entry,
+			),
+		).not.toBe(digest)
+	} finally {
+		scratch.destroy()
+	}
+})
 
 it('recognizes branded artifact refusals and refuses malformed members and proxies', () => {
 	class DerivedArtifactError extends ArtifactError {

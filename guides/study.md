@@ -220,7 +220,61 @@ The store admits exchanges.jsonl only when recording is declared. Sealing requir
 
 Replay execution requires `--replay <result> --prefix <JSON trial counts> --offline <true|false>`. Each positive prefix counts complete HTTP exchanges, including metadata and maintenance. The command verifies every selected trial before adapter validation or worker startup, and each worker rechecks its selected history. Replay requires the recording's exact Node runtime identity; another Node version, including a patch release, refuses before any worker starts. The executing profile supplies replay bounds. A supervisor fingerprint also pins changed execution bounds before dependent replay work.
 
-The `StudyOllamaReplay` class validates the complete retained history before construction succeeds. Its projected procedure supplies recorded exact bodies inside the prefix, including bodies originally admitted as capture. A capture declaration without a sealed completed history cannot replay. A changed request inside the prefix refuses without forwarding. After the prefix, only an explicit live collaborator can send requests. Offline replay consumes the complete recorded population and constructs no daemon or native sender. Recorded maintenance consumes prefix positions without sending unload requests. Its `check` method refuses an incomplete prefix, unread responses, or a retained mismatch; its `close` method releases response readers.
+The `StudyOllamaReplay` class validates the complete retained history before construction succeeds and serves its recorded exchange cursor. The executing transport admits each request under its own declaration and appends the attempt before replay compares path, method, role, and body bytes. A mismatch retains that attempt and a failure row. Its bounded reason names the recorded ordinal, step, goal, role, path, first differing member, and a changed body's first byte offset and both sizes. A capture declaration without a sealed completed history cannot replay. A changed request inside the prefix refuses without forwarding. After the prefix, only an explicit live collaborator can send requests. Offline replay consumes the complete recorded population and constructs no daemon or native sender. Recorded maintenance consumes prefix positions without sending unload requests. Its `check` method refuses an incomplete prefix, unread responses, or a retained mismatch; its `close` method releases response readers.
+
+A live prefix must end between the end of preflight and the end of execution, inclusive; postflight runs live. An offline prefix must cover the complete history. Replay bounds come from the executing declaration: calls equal record calls plus metadata calls, bytes equal record bytes, and duration equals the profile's trial duration. The transport also enforces its executing recording bounds.
+
+The `StudyIdentity` interface retains location-independent runtime and content digests alongside the captured loading identities. Runtime binds the Node version, execution arguments, NODE_OPTIONS, platform, and architecture. Content binds admitted package names and versions, package manifests, dist files, source code files, selected entries, source root, and Study executable bytes, with paths relative to the admitted roots' common base. Fixture JSON and closure assets stay outside content. Replay requires equal runtime and permits different content; loading still uses the captured inventories and their existing custody checks.
+
+The replay manifest's ancestor retains the source result id, seal, and complete source identity. The replay sidecar's ancestor also retains its source file identity and exchange prefix. The manifest's own identity describes the executing build, so both contents remain available. The worker rechecks the ancestor and recorded goal prefix. The `scanStudyDivergence` function accepts a strictly read history and strictly read replay rows, aligns non-maintenance attempts by position, and returns the first differing or unmatched request. It performs no second validation. An extra execution request pairs with the next recorded postflight request; an early end has no actual attempt. An attempt past the complete recording has no expected attempt and uses the recording's completion count plus one as its ordinal.
+
+To inspect a replay that stopped before sealing, read its retained rows with the incomplete-history option, then compare them with the sealed source history.
+
+```ts
+import type { StudyExchangeHistory } from '@orkestrel/study/server'
+import { readStudyExchangeRows, scanStudyDivergence } from '@orkestrel/study/server'
+
+declare const history: StudyExchangeHistory
+declare const bytes: Uint8Array
+
+const rows = readStudyExchangeRows(bytes, false)
+const divergence = scanStudyDivergence(history, rows)
+const ordinal = divergence?.ordinal
+const offset = divergence?.offset
+```
+
+The portable identity and replay helpers accept captured inventories, byte buffers, and retained attempts. Supply inventories without custody-only assets when computing content.
+
+```ts
+import type {
+	ArtifactInventory,
+	StudyExchangeAttempt,
+	StudyOllamaReplayRequest,
+} from '@orkestrel/study/server'
+import {
+	computeArtifactRuntimeDigest,
+	computeArtifactContentDigest,
+	computeStudyExchangeOffset,
+	describeStudyReplayDifference,
+	isStudyAncestor,
+	isStudyExchangeAncestor,
+} from '@orkestrel/study/server'
+
+declare const inventory: ArtifactInventory
+declare const entry: string
+declare const expected: StudyExchangeAttempt | undefined
+declare const actual: StudyOllamaReplayRequest
+declare const recorded: Uint8Array
+declare const executing: Uint8Array
+declare const reference: unknown
+
+computeArtifactRuntimeDigest(inventory)
+computeArtifactContentDigest(inventory, entry)
+computeStudyExchangeOffset(recorded, executing)
+describeStudyReplayDifference(expected, actual)
+isStudyAncestor(reference)
+isStudyExchangeAncestor(reference)
+```
 
 The process driver accepts `StudyProcessDriverOptions`. Its optional `prepare` callback runs in the parent before session construction, preserves the reserved destination and allowance, and never crosses structured cloning or IPC. Offline replay refuses a preparation callback. A worker verifies any retained maintenance prefix before resuming the sidecar and projects those ordinals into its first goal's evidence.
 
@@ -712,6 +766,17 @@ The following declarations describe this concept.
 | `buildStudyExchangeDeclaration`     | function  | Builds the parent's single recording declaration from its profile, trial and scenario.                                         |
 | `readStudyPreparedDestination`      | function  | Validates parent preparation output without permitting a destination or allowance substitution.                                |
 | `readStudyReplayHistory`            | function  | Rechecks the sealed source and this trial's prefix under the executing profile declaration.                                    |
+| `StudyAncestor`                     | interface | Identifies a sealed source and retains its execution identities.                                                               |
+| `StudyExchangeAncestor`             | interface | Identifies the sealed sidecar and complete exchange prefix served by replay.                                                   |
+| `StudyExchangeDivergence`           | interface | Locates the first changed request or unmatched position in a replay.                                                           |
+| `StudyOllamaReplayRequest`          | interface | Holds the executing request compared with the recorded cursor.                                                                 |
+| `computeArtifactRuntimeDigest`      | function  | Computes the location-independent native execution identity.                                                                   |
+| `computeArtifactContentDigest`      | function  | Computes a location-independent identity of captured code and selected entries.                                                |
+| `computeStudyExchangeOffset`        | function  | Locates the first differing byte, including a length difference after a shared prefix.                                         |
+| `scanStudyDivergence`               | function  | Finds the first changed or unmatched non-maintenance request by position.                                                      |
+| `describeStudyReplayDifference`     | function  | Describes the first differing replay member within the sidecar failure allowance.                                              |
+| `isStudyAncestor`                   | function  | Checks a sealed source reference and its retained identities.                                                                  |
+| `isStudyExchangeAncestor`           | function  | Checks a sealed sidecar reference and its positive exchange prefix.                                                            |
 
 | API                         | Kind      | Summary                                                                                     |
 | --------------------------- | --------- | ------------------------------------------------------------------------------------------- |

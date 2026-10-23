@@ -143,6 +143,8 @@ export class StudyProcessSession implements StudySessionInterface {
 			!isRecord(ready) ||
 			ready.pid !== child.pid ||
 			ready.agent !== this.#options.identity.agent ||
+			ready.runtime !== this.#options.identity.runtime ||
+			ready.content !== this.#options.identity.content ||
 			ready.subject !== this.#options.identity.subject ||
 			ready.instrument !== this.#options.identity.instrument
 		)

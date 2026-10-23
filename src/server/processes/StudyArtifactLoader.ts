@@ -8,7 +8,11 @@ import { StudyError } from '@src/core'
 import { dirname, isAbsolute } from 'node:path'
 import { readFileSync } from 'node:fs'
 import { ArtifactLoader } from '../artifacts/ArtifactLoader.js'
-import { verifyArtifactClosure } from '../artifacts/helpers.js'
+import {
+	computeArtifactRuntimeDigest,
+	computeArtifactContentDigest,
+	verifyArtifactClosure,
+} from '../artifacts/helpers.js'
 import { readStudyAdapter } from '../adapters/helpers.js'
 import { hashStudyBytes } from '../helpers.js'
 import { readStudyBytes } from '../stores/helpers.js'
@@ -72,7 +76,10 @@ export class StudyArtifactLoader {
 				: closure.closure.options,
 		)
 		const inventory = this.#loader.inspect()
+		const code = this.#instrument.inspect()
 		this.#identity = Object.freeze({
+			runtime: computeArtifactRuntimeDigest(code),
+			content: computeArtifactContentDigest({ ...code, entries: inventory.entries }, entry),
 			agent: inventory.digest,
 			subject: inventory.digest,
 			provider: profile.provider === undefined ? undefined : inventory.digest,

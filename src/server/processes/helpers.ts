@@ -3,6 +3,7 @@ import type {
 	StudyExchangeDeclaration,
 	StudyExchangeDestination,
 	StudyExchangeHistory,
+	StudyExchangeAncestor,
 } from '../stores/types.js'
 import type { StudyOllamaReplaySelection } from '../ollama/types.js'
 import type { JSONValue } from '@orkestrel/contract'
@@ -27,6 +28,7 @@ import { isStudyExchangeDestination, isStudyReplaySelection } from './validators
  * @param trial - The scheduled trial identity.
  * @param scenario - The trial's complete ordered goal horizon.
  * @param maintenance - If true, declares the execution-owned daemon's models; if false, declares no maintenance.
+ * @param ancestor - The sealed replay source and selected exchange prefix, when replaying.
  * @returns A validated opening row, with no inferred metadata or replay allowance.
  */
 export function buildStudyExchangeDeclaration(
@@ -34,6 +36,7 @@ export function buildStudyExchangeDeclaration(
 	trial: StudyTrial,
 	scenario: StudyScenario,
 	maintenance: boolean,
+	ancestor?: StudyExchangeAncestor,
 ): StudyExchangeDeclaration {
 	if (profile.provider === undefined || profile.settings === undefined)
 		throw new StudyError('CONFIG', 'Recording requires provider and explicit wire declarations')
@@ -50,6 +53,7 @@ export function buildStudyExchangeDeclaration(
 		goals: scenario.goals.map((goal) => goal.id),
 		configuration: computeStudyConfigurationDigest(profile),
 		maintenance: maintenance ? (profile.provider.daemon?.models ?? []) : [],
+		...(ancestor === undefined ? {} : { ancestor }),
 	}
 	if (!isStudyExchangeDeclaration(declaration))
 		throw new StudyError(
@@ -138,12 +142,14 @@ export function readStudyPreparedDestination(
  * @param selection - The explicit sealed source and offline behavior.
  * @param profile - The executing profile, whose bounds remain authoritative.
  * @param trial - The trial whose history must be present.
+ * @param declaration - The worker's executing declaration, when available.
  * @returns Complete verified history before any dependent sender or worker starts.
  */
 export async function readStudyReplayHistory(
 	selection: StudyOllamaReplaySelection,
 	profile: StudyProfile,
 	trial: StudyTrial,
+	declaration?: StudyExchangeDeclaration,
 ): Promise<StudyExchangeHistory> {
 	if (!isStudyReplaySelection(selection)) throw new StudyError('CONFIG', 'Invalid replay selection')
 	if (
@@ -163,6 +169,29 @@ export async function readStudyReplayHistory(
 		(selection.offline && prefix !== history.exchanges.length)
 	)
 		throw new StudyError('CONFIG', 'Replay prefix does not cover its declared trial')
+	if (
+		declaration !== undefined &&
+		(declaration.ancestor === undefined ||
+			declaration.ancestor.prefix !== prefix ||
+			declaration.ancestor.result !== result.manifest.id ||
+			declaration.ancestor.seal !== history.seal ||
+			canonicalStringify(declaration.ancestor.identity) !==
+				canonicalStringify(result.manifest.identity) ||
+			canonicalStringify(declaration.ancestor.file) !== canonicalStringify(history.file) ||
+			canonicalStringify(history.declaration.goals) !==
+				canonicalStringify(declaration.goals.slice(0, history.declaration.goals.length)))
+	)
+		throw new StudyError('CONFIG', 'Worker replay ancestor differs from its selection or horizon')
+	if (
+		!selection.offline &&
+		(history.exchanges[prefix - 1]?.attempt.stage === 'postflight' ||
+			history.exchanges[prefix]?.attempt.stage === 'preflight' ||
+			prefix <= history.declaration.maintenance.length)
+	)
+		throw new StudyError(
+			'CONFIG',
+			'Live replay prefix must end after preflight and before postflight',
+		)
 	if (
 		profile.provider === undefined ||
 		history.declaration.version !== profile.settings?.version ||

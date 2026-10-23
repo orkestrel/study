@@ -21,6 +21,7 @@ import {
 	buildStudyOllamaBytes,
 	validateStudyOllamaRecording,
 	validateStudyOllamaStep,
+	describeStudyReplayDifference,
 } from '../../../../src/server/ollama/helpers.js'
 import {
 	STUDY_OLLAMA_OPTIONS,
@@ -35,7 +36,55 @@ import {
 	buildOllamaStep,
 	buildOllamaDeclaration,
 	OllamaExchangeRecorder,
+	buildStudyExchangeHistory,
 } from '../../../setupServer.js'
+
+it('describes the first replay member and retains byte details with a maximum-length goal', () => {
+	const expected = {
+		...requireValue(buildStudyExchangeHistory().exchanges[3]?.attempt),
+		goal: 'g'.repeat(128),
+	}
+	const body = Buffer.from(expected.body, 'base64')
+	const request = {
+		ordinal: expected.ordinal,
+		path: expected.path,
+		method: expected.method,
+		role: expected.role,
+		body,
+	}
+	expect(describeStudyReplayDifference(expected, request)).toBeUndefined()
+	const changed = Buffer.from(body.toString().replace('remember', 'Remember'))
+	const reason = requireValue(
+		describeStudyReplayDifference(expected, { ...request, body: changed }),
+	)
+	expect(reason.length).toBeLessThanOrEqual(256)
+	expect(reason).toContain(`goal=${expected.goal}`)
+	expect(reason).toContain(
+		`member=body offset=${body.indexOf('remember')} sizes=${body.length}/${changed.length}`,
+	)
+	expect(
+		describeStudyReplayDifference(expected, {
+			...request,
+			path: '/api/version',
+			method: 'GET',
+			role: 'metadata',
+			body: changed,
+		}),
+	).toContain('member=path')
+	expect(
+		describeStudyReplayDifference(expected, {
+			...request,
+			method: 'GET',
+			role: 'metadata',
+			body: changed,
+		}),
+	).toContain('member=method')
+	expect(
+		describeStudyReplayDifference(expected, { ...request, role: 'summary', body: changed }),
+	).toContain('member=role')
+	expect(describeStudyReplayDifference(undefined, request)).toContain(`ordinal=${expected.ordinal}`)
+	expect(describeStudyReplayDifference(undefined, request)).toContain('member=none')
+})
 
 const options = buildOllamaTransportOptions(STUDY_OLLAMA_ORIGIN)
 const agentPolicy = requireValue(options.roles.agent)

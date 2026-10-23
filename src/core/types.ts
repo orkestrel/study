@@ -157,12 +157,21 @@ export interface StudyTrial {
 
 /** Holds byte identities that qualification and comparisons must agree on. */
 export interface StudyIdentity {
+	readonly runtime: string
+	readonly content: string
 	readonly agent: string
 	readonly subject: string
 	readonly provider: string | undefined
 	readonly instrument: string
 	readonly fixtures: string
 	readonly profile: string
+}
+
+/** Identifies a sealed source and retains its execution identities. */
+export interface StudyAncestor {
+	readonly result: string
+	readonly seal: string
+	readonly identity: StudyIdentity
 }
 
 /** Holds the execution declaration sealed before any trial begins. */
@@ -178,6 +187,7 @@ export interface StudyManifest {
 	readonly host: Readonly<Record<string, string>>
 	/** Copies the profile's recording declaration before any trial starts. */
 	readonly record?: StudyRecord | undefined
+	readonly ancestor?: StudyAncestor
 }
 
 /**

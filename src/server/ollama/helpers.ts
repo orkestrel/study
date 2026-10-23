@@ -8,8 +8,14 @@ import type {
 	StudyOllamaTerminal,
 	StudyOllamaTransportOptions,
 	StudyOllamaStep,
+	StudyOllamaReplayRequest,
 } from './types.js'
-import type { StudyExchangeBytes, StudyExchangeDeclaration } from '../stores/types.js'
+import type {
+	StudyExchangeBytes,
+	StudyExchangeDeclaration,
+	StudyExchangeAttempt,
+} from '../stores/types.js'
+import { computeStudyExchangeOffset } from '../stores/helpers.js'
 import { hashStudyBytes } from '../helpers.js'
 import { isStudyExchangeDeclaration } from '../stores/validators.js'
 import { isStudyOllamaMetadata, isStudyOllamaModel, isStudyOllamaStep } from './validators.js'
@@ -23,6 +29,34 @@ import {
 	isRecord,
 	parseJSON,
 } from '@orkestrel/contract'
+
+/** Describes the first differing replay member within the sidecar failure allowance.
+ * @param expected - The next recorded attempt, absent after the offline prefix.
+ * @param actual - The request admitted by the executing transport.
+ * @returns An attributable reason, or undefined when the request matches exactly.
+ */
+export function describeStudyReplayDifference(
+	expected: StudyExchangeAttempt | undefined,
+	actual: StudyOllamaReplayRequest,
+): string | undefined {
+	const bytes = expected === undefined ? undefined : Buffer.from(expected.body, 'base64')
+	const offset = bytes === undefined ? undefined : computeStudyExchangeOffset(bytes, actual.body)
+	const member =
+		expected === undefined
+			? 'none'
+			: expected.path !== actual.path
+				? 'path'
+				: expected.method !== actual.method
+					? 'method'
+					: expected.role !== actual.role
+						? 'role'
+						: offset !== undefined
+							? 'body'
+							: undefined
+	if (member === undefined) return undefined
+	const detail = `Replay ordinal=${expected?.ordinal ?? actual.ordinal} step=${expected?.step ?? 'absent'} role=${expected?.role ?? actual.role} path=${expected?.path ?? actual.path} member=${member}${member === 'body' ? ` offset=${offset} sizes=${bytes?.length}/${actual.body.length}` : ''} goal=`
+	return detail + (expected?.goal ?? 'absent').slice(0, Math.max(0, 256 - detail.length))
+}
 
 /**
  * Declares the pinned serving identities the Ollama transport verifies, keyed by the label their inventory evidence carries.

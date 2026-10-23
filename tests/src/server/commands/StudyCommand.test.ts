@@ -1,5 +1,6 @@
 import { createScratch } from '@orkestrel/test/server'
-import { isRecord, parseJSON } from '@orkestrel/contract'
+import { isArray, isRecord, parseJSON } from '@orkestrel/contract'
+import { requireValue } from '@orkestrel/test'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { StudyCommand } from '../../../../src/server/commands/StudyCommand.js'
@@ -10,6 +11,7 @@ import {
 	readStudyExchangeRows,
 	readStudyExchanges,
 	readStudyResult,
+	scanStudyDivergence,
 } from '../../../../src/server/stores/helpers.js'
 import {
 	buildStudyCLI,
@@ -18,9 +20,234 @@ import {
 	createStudyConsumer,
 	mutateStudyExchangeRows,
 	writeStudyRecordingConsumer,
+	createStudyReplayFixture,
+	STUDY_REPLAY_DIVERGENCE_CASES,
 } from '../../../setupServer.js'
 
 describe('recording and replay command handoff', () => {
+	it('RP1 replays a complete open recording offline with equal products and zero sends', async () => {
+		const fixture = await createStudyReplayFixture()
+		try {
+			const { command, recorded, history, scratch, result, server } = fixture
+			const before = server.requests.length
+			await expect(
+				command.execute(
+					[
+						'execute',
+						'assessment',
+						'--out',
+						join(scratch.path, 'offline'),
+						'--replay',
+						recorded,
+						'--prefix',
+						JSON.stringify({ [history.declaration.trial]: history.completion.count }),
+						'--offline',
+						'true',
+					],
+					new AbortController().signal,
+				),
+			).resolves.toMatchObject({ status: 'completed' })
+			const replayed = await readStudyResult(join(scratch.path, 'offline'))
+			if (replayed.status !== 'sealed') throw new Error('Open replay did not seal')
+			expect(server.requests.length).toBe(before)
+			expect(
+				replayed.attempts.flatMap((attempt) => attempt.observations.map((goal) => goal.product)),
+			).toEqual(
+				result.attempts.flatMap((attempt) => attempt.observations.map((goal) => goal.product)),
+			)
+			const rows = readStudyExchangeRows(
+				Buffer.from(requireValue(scratch.read(`offline/execution/${history.file.path}`))),
+			)
+			expect(scanStudyDivergence(history, rows)).toBeUndefined()
+		} finally {
+			await fixture.close()
+		}
+	}, 120000)
+
+	it.each(STUDY_REPLAY_DIVERGENCE_CASES)(
+		'RP2 retains %s divergence at its recorded position with zero sends',
+		async (change) => {
+			const fixture = await createStudyReplayFixture()
+			try {
+				const { profile, history, command, recorded, server, scratch } = fixture
+				const settings = profile.settings
+				if (!isRecord(settings) || !isArray(settings.requests))
+					throw new Error('Missing replay requests')
+				const requests = settings.requests
+				const modified =
+					change === 'extra'
+						? [...requests, requests.at(-1)]
+						: requests.map((request, index) => {
+								if (
+									index !== 0 ||
+									!isRecord(request) ||
+									typeof request.body !== 'string' ||
+									change === 'early'
+								)
+									return request
+								return {
+									...request,
+									body:
+										change === 'same-length'
+											? request.body.replace('remember', 'Remember')
+											: request.body.replace('remember', 'remember more'),
+								}
+							})
+				scratch.write(
+					'studies/files/profiles/changed.json',
+					JSON.stringify({
+						...profile,
+						name: 'changed',
+						record: { ...profile.record, calls: change === 'early' ? 1 : 4 },
+						settings: { ...settings, requests: modified },
+						bounds: {
+							...profile.bounds,
+							goal: { ...profile.bounds.goal, calls: 3, tokens: 24576 },
+							trial: { ...profile.bounds.trial, calls: 6, tokens: 49152 },
+						},
+					}),
+				)
+				const before = server.requests.length
+				const output = join(scratch.path, 'changed')
+				await expect(
+					command.execute(
+						[
+							'execute',
+							'assessment',
+							'--profile',
+							'changed',
+							'--out',
+							output,
+							'--replay',
+							recorded,
+							'--prefix',
+							JSON.stringify({ [history.declaration.trial]: history.completion.count }),
+							'--offline',
+							'true',
+						],
+						new AbortController().signal,
+					),
+				).rejects.toMatchObject({ code: 'CUSTODY' })
+				const rows = readStudyExchangeRows(
+					Buffer.from(requireValue(scratch.read(`changed/execution/${history.file.path}`))),
+					false,
+				)
+				const divergence = requireValue(scanStudyDivergence(history, rows))
+				expect(server.requests.length).toBe(before)
+				expect(divergence.ordinal).toBe(change === 'extra' ? 8 : change === 'early' ? 6 : 5)
+				expect(divergence.expected).toEqual(history.exchanges[divergence.ordinal - 1]?.attempt)
+				const actual = divergence.actual
+				const expected = requireValue(divergence.expected)
+				const failure = rows.find((row) => row.phase === 'failure')
+				const reason = failure?.phase === 'failure' ? failure.reason : undefined
+				const body = Buffer.from(expected.body, 'base64')
+				const offset =
+					change === 'early'
+						? undefined
+						: change === 'extra'
+							? 0
+							: body.indexOf('remember') + (change === 'same-length' ? 0 : 8)
+				expect(divergence.offset).toBe(offset)
+				expect(actual === undefined).toBe(change === 'early')
+				expect(expected.stage).toBe(change === 'extra' ? 'postflight' : 'execution')
+				expect(actual?.path).toBe(
+					change === 'early' ? undefined : change === 'extra' ? '/api/generate' : '/api/chat',
+				)
+				expect(actual?.size === expected.size).toBe(change === 'same-length')
+				expect(failure?.phase === 'failure' ? failure.ordinal : undefined).toBe(actual?.ordinal)
+				expect(rows.some((row) => row.phase === 'failure')).toBe(change !== 'early')
+				expect(reason?.length ?? 0).toBeLessThanOrEqual(256)
+				expect(reason?.includes(`ordinal=${divergence.ordinal}`)).toBe(
+					change === 'early' ? undefined : true,
+				)
+				expect(reason?.includes(`step=${expected.step ?? 'absent'}`)).toBe(
+					change === 'early' ? undefined : true,
+				)
+				expect(reason?.includes(`goal=${expected.goal}`)).toBe(
+					change === 'early' ? undefined : true,
+				)
+				expect(reason?.includes(`role=${expected.role}`)).toBe(
+					change === 'early' ? undefined : true,
+				)
+				expect(reason?.includes(`path=${expected.path}`)).toBe(
+					change === 'early' ? undefined : true,
+				)
+				expect(
+					reason?.includes(
+						change === 'extra'
+							? 'member=path'
+							: `member=body offset=${offset} sizes=${expected.size}/${actual?.size}`,
+					),
+				).toBe(change === 'early' ? undefined : true)
+				expect(rows.some((row) => row.phase === 'complete')).toBe(false)
+			} finally {
+				await fixture.close()
+			}
+		},
+		120000,
+	)
+
+	it('RP4 refuses invalid prefixes and seals with record calls beyond the metadata allowance and linked ancestry', async () => {
+		const fixture = await createStudyReplayFixture()
+		try {
+			const { command, recorded, scratch, history, result, server } = fixture
+			const before = server.requests.length
+			for (const [prefix, offline] of [
+				[history.completion.count - 1, true],
+				[1, false],
+				[history.completion.count - 1, false],
+			] as const) {
+				await expect(
+					command.execute(
+						[
+							'execute',
+							'assessment',
+							'--out',
+							join(scratch.path, 'refused'),
+							'--replay',
+							recorded,
+							'--prefix',
+							JSON.stringify({ [history.declaration.trial]: prefix }),
+							'--offline',
+							String(offline),
+						],
+						new AbortController().signal,
+					),
+				).rejects.toMatchObject({ code: 'CONFIG' })
+				expect(scratch.has('refused')).toBe(false)
+			}
+			expect(history.completion.count).toBeGreaterThan(history.declaration.metadata.calls)
+			await command.execute(
+				[
+					'execute',
+					'assessment',
+					'--out',
+					join(scratch.path, 'linked'),
+					'--replay',
+					recorded,
+					'--prefix',
+					JSON.stringify({ [history.declaration.trial]: history.completion.count }),
+					'--offline',
+					'true',
+				],
+				new AbortController().signal,
+			)
+			const replayed = await readStudyResult(join(scratch.path, 'linked'))
+			if (replayed.status !== 'sealed') throw new Error('Bounded replay did not seal')
+			const ancestor = {
+				result: result.manifest.id,
+				seal: result.seal.id,
+				identity: result.manifest.identity,
+			}
+			expect(replayed.manifest.ancestor).toEqual(ancestor)
+			expect(
+				(await readStudyExchanges(replayed, history.declaration.trial)).declaration.ancestor,
+			).toEqual({ ...ancestor, file: history.file, prefix: history.completion.count })
+			expect(server.requests.length).toBe(before)
+		} finally {
+			await fixture.close()
+		}
+	}, 120000)
 	it.each(STUDY_OPEN_BOUND_CASES)(
 		'retains interrupted custody and charges when open record.%s stops a trial',
 		async (bound) => {

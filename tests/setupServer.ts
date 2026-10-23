@@ -4,7 +4,7 @@ import type { StudyLaunchResult } from '../src/server/launchers/types.js'
 import type { ScratchInterface } from '@orkestrel/test/server'
 import type { ArtifactLoaderOptions } from '../src/server/artifacts/types.js'
 import type { ChildProcess } from 'node:child_process'
-import type { StudyDaemonFixture } from './src/server/commands/types.js'
+import type { StudyDaemonFixture, StudyReplayFixture } from './src/server/commands/types.js'
 import type {
 	StudyAttempt,
 	StudyCriterion,
@@ -89,7 +89,7 @@ import { requireValue, waitForCondition, waitForEvent, waitForDelay } from '@ork
 import { execFile, fork, spawn } from 'node:child_process'
 import { cpSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { createRequire, isBuiltin } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { build } from 'vite'
@@ -107,6 +107,7 @@ import {
 	isStudyTrial,
 } from '../src/server/processes/validators.js'
 import { StudyTask } from '../src/server/processes/StudyTask.js'
+import { StudyCommand } from '../src/server/commands/StudyCommand.js'
 import { STUDY_TASK_DURATION } from '../src/server/processes/constants.js'
 import { STUDY_LAUNCH_BYTES } from '../src/server/launchers/constants.js'
 import { collectStudyEvidence } from '../src/server/commands/helpers.js'
@@ -116,7 +117,144 @@ import {
 	projectStudyExchangeIdentity,
 	buildStudyPacketLinks,
 	readStudyResult,
+	readStudyExchanges,
 } from '../src/server/stores/helpers.js'
+
+/** Moves fixture package manifests and built bytes beneath a consumer's node_modules.
+ * @param scratch - The consumer holding its profile and built runtime.
+ * @param entry - The built Study executable before relocation.
+ * @returns The nested Study executable, with the consumer root admitted first.
+ */
+export function nestStudyConsumer(scratch: ScratchInterface, entry: string): string {
+	const profile = parseStudyProfile(
+		parseJSON(scratch.read('studies/files/profiles/local.json') ?? ''),
+	)
+	const roots = [...new Set([...profile.roots, dirname(dirname(dirname(entry)))])]
+	const moves = roots.map((root) => {
+		const manifest = readFileSync(join(root, 'package.json'), 'utf8')
+		const value = parseJSON(manifest)
+		if (!isRecord(value) || typeof value.name !== 'string')
+			throw new Error('Missing fixture package name')
+		const target = join(scratch.path, 'node_modules', ...value.name.split('/'))
+		mkdirSync(target, { recursive: true })
+		cpSync(join(root, 'package.json'), join(target, 'package.json'))
+		cpSync(join(root, 'dist'), join(target, 'dist'), { recursive: true })
+		return { root, target }
+	})
+	scratch.write(
+		'package.json',
+		JSON.stringify({ name: 'replay-consumer', version: '1.0.0', type: 'module' }),
+	)
+	scratch.write('dist/index.js', 'export const consumer = true\n')
+	const selections = new Map(
+		[
+			profile.agent,
+			profile.subject,
+			...(profile.provider === undefined ? [] : [profile.provider.entry]),
+			entry,
+		].map((path) => {
+			const move = moves.find(({ root }) => path.startsWith(root + sep))
+			if (move === undefined) throw new Error('Missing nested fixture selection')
+			return [path, join(move.target, relative(move.root, path))]
+		}),
+	)
+	scratch.write(
+		'studies/files/profiles/local.json',
+		JSON.stringify({
+			...profile,
+			agent: selections.get(profile.agent),
+			subject: selections.get(profile.subject),
+			roots: [scratch.path, ...moves.map(({ target }) => target)],
+			...(profile.provider === undefined
+				? {}
+				: { provider: { ...profile.provider, entry: selections.get(profile.provider.entry) } }),
+		}),
+	)
+	return requireValue(selections.get(entry))
+}
+
+/** Records an open trial through the actual command, worker, and protocol fixture.
+ * @param nested - If true, places admitted packages beneath a consumer root listed first.
+ * @returns The sealed recording and resources released by close.
+ */
+export async function createStudyReplayFixture(nested = false): Promise<StudyReplayFixture> {
+	const scratch = createStudyConsumer()
+	const library = createScratch({ parent: resolve('tmp/units') })
+	const server = await createOllamaServer()
+	try {
+		const subject = await buildStudyLibrary(
+			library,
+			resolve('src/server/ollama/StudyOllamaTransport.ts'),
+		)
+		writeStudyRecordingConsumer(scratch, server.url, subject, true)
+		const original = parseStudyProfile(
+			parseJSON(scratch.read('studies/files/profiles/local.json') ?? ''),
+		)
+		if (!isRecord(original.settings) || !isRecord(original.settings.metadata))
+			throw new Error('Missing recording settings')
+		scratch.write(
+			'studies/files/profiles/local.json',
+			JSON.stringify({
+				...original,
+				...(nested
+					? {
+							bounds: {
+								request: { ...original.bounds.request, duration: 10000 },
+								goal: { ...original.bounds.goal, duration: 30000 },
+								trial: { ...original.bounds.trial, duration: 40000 },
+								series: { ...original.bounds.series, duration: 120000 },
+							},
+						}
+					: {}),
+				record: { bytes: 65536, calls: 3, duration: 15000 },
+				settings: { ...original.settings, metadata: { ...original.settings.metadata, calls: 8 } },
+			}),
+		)
+		const built = await buildStudyCLI(scratch)
+		const entry = nested ? nestStudyConsumer(scratch, built) : built
+		const command = new StudyCommand({ root: scratch.path, entry })
+		const recorded = join(scratch.path, 'baseline')
+		await command.execute(
+			['execute', 'assessment', '--out', recorded],
+			new AbortController().signal,
+		)
+		const result = await readStudyResult(recorded)
+		if (result.status !== 'sealed') throw new Error('Replay fixture did not seal')
+		const trial = requireValue(result.manifest.schedule[0])
+		const history = await readStudyExchanges(result, trial.id)
+		const profile = parseStudyProfile(
+			parseJSON(scratch.read('studies/files/profiles/local.json') ?? ''),
+		)
+		return {
+			scratch,
+			entry,
+			command,
+			server,
+			recorded,
+			result,
+			history,
+			profile,
+			close: async () => {
+				await server.close()
+				library.destroy()
+				scratch.destroy()
+			},
+		}
+	} catch (error) {
+		await server.close()
+		library.destroy()
+		scratch.destroy()
+		throw error
+	}
+}
+
+/** Names replay request changes with independently known cursor outcomes. */
+export const STUDY_REPLAY_DIVERGENCE_CASES = Object.freeze([
+	'same-length',
+	'longer',
+	'extra',
+	'early',
+] as const)
 import { BudgetError as LocalBudgetError, isBudgetError } from '@orkestrel/budget'
 import { isObject } from '@orkestrel/contract'
 import { createOllama, extractTiming } from '@orkestrel/ollama'
@@ -1826,7 +1964,7 @@ export function executeStudyCLI(
 		execFile(
 			process.execPath,
 			[entry, ...tokens],
-			{ cwd: root, windowsHide: true, timeout: 20000, maxBuffer: 16 * 1024 * 1024 },
+			{ cwd: root, windowsHide: true, timeout: 60000, maxBuffer: 16 * 1024 * 1024 },
 			(error, stdout, stderr) =>
 				complete({
 					code: error === null ? 0 : typeof error.code === 'number' ? error.code : 1,

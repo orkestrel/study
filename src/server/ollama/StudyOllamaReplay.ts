@@ -3,11 +3,11 @@ import type {
 	StudyOllamaFetchFunction,
 	StudyOllamaReplayInterface,
 	StudyOllamaReplayOptions,
-	StudyOllamaStep,
 } from './types.js'
 import { StudyError } from '@src/core'
 import { validateStudyExchangeHistory } from '../stores/helpers.js'
 import { isStudyOllamaMetadata } from './validators.js'
+import { describeStudyReplayDifference } from './helpers.js'
 
 /** Answers declared HTTP prefixes from complete ordered recorded application bytes. */
 export class StudyOllamaReplay implements StudyOllamaReplayInterface {
@@ -20,7 +20,6 @@ export class StudyOllamaReplay implements StudyOllamaReplayInterface {
 	#calls = 0
 	#fault: { readonly error: unknown } | undefined
 	#closed = false
-	readonly #procedure: readonly StudyOllamaStep[]
 
 	/** Owns and revalidates the complete selected history before any sender can be reached.
 	 * @param options - Verified history, explicit prefix, executing origin and independent bounds.
@@ -50,30 +49,18 @@ export class StudyOllamaReplay implements StudyOllamaReplayInterface {
 			)
 		if (owned.prefix < owned.history.declaration.maintenance.length)
 			throw new StudyError('CONFIG', 'Replay prefix omits recorded maintenance')
+		if (
+			fetch !== undefined &&
+			(owned.history.exchanges[owned.prefix - 1]?.attempt.stage === 'postflight' ||
+				owned.history.exchanges[owned.prefix]?.attempt.stage === 'preflight')
+		)
+			throw new StudyError(
+				'CONFIG',
+				'Live replay prefix must end after preflight and before postflight',
+			)
 		signal.throwIfAborted()
 		this.#options = { ...owned, signal, ...(fetch === undefined ? {} : { fetch }) }
 		this.#cursor = owned.history.declaration.maintenance.length
-		this.#procedure = (owned.history.declaration.procedure ?? []).map((step) => {
-			const pair = owned.history.exchanges.find(
-				(entry) => entry.attempt.step === step.ordinal && entry.attempt.ordinal <= owned.prefix,
-			)
-			if (pair === undefined) return step
-			const { admission: _admission, ...identity } = step
-			const { bytes: _bytes, ...exact } = identity
-			return {
-				...exact,
-				admission: 'exact',
-				body: new TextDecoder('utf-8', { fatal: true }).decode(
-					Buffer.from(pair.attempt.body, 'base64'),
-				),
-				input: pair.attempt.digest,
-			}
-		})
-	}
-
-	/** Holds exact recorded bodies for model requests inside the declared prefix. */
-	get procedure(): readonly StudyOllamaStep[] {
-		return structuredClone(this.#procedure)
 	}
 
 	/** Supplies recorded native responses, forwarding only after the exact declared prefix.
@@ -133,26 +120,38 @@ export class StudyOllamaReplay implements StudyOllamaReplayInterface {
 		init.signal?.throwIfAborted()
 		if (this.#cursor >= this.#options.prefix) {
 			if (this.#options.fetch === undefined)
-				throw new StudyError('FAULT', 'Offline replay has no later sender')
+				throw new StudyError(
+					'FAULT',
+					describeStudyReplayDifference(undefined, {
+						ordinal: this.#cursor + 1,
+						path: new URL(input).pathname,
+						method: init.method ?? 'GET',
+						role,
+						body: new Uint8Array(),
+					}) ?? 'Replay member=none',
+				)
 			return this.#options.fetch(role, input, init)
 		}
 		const pair = this.#options.history.exchanges[this.#cursor]
 		const url = new URL(input)
 		const request = new Request(url, init)
 		const body = Buffer.from(await request.arrayBuffer())
-		if (
-			pair === undefined ||
-			url.origin !== new URL(this.#options.url).origin ||
-			url.username !== '' ||
-			url.password !== '' ||
-			url.search !== '' ||
-			url.hash !== '' ||
-			url.pathname !== pair.attempt.path ||
-			request.method !== pair.attempt.method ||
-			role !== pair.attempt.role ||
-			!body.equals(Buffer.from(pair.attempt.body, 'base64'))
-		)
-			throw new StudyError('FAULT', 'Replay request differs from the next recorded exchange')
+		const reason = describeStudyReplayDifference(pair?.attempt, {
+			ordinal: this.#cursor + 1,
+			path:
+				url.origin === new URL(this.#options.url).origin &&
+				url.username === '' &&
+				url.password === '' &&
+				url.search === '' &&
+				url.hash === ''
+					? url.pathname
+					: url.href,
+			method: request.method,
+			role,
+			body,
+		})
+		if (reason !== undefined) throw new StudyError('FAULT', reason)
+		if (pair === undefined) throw new StudyError('FAULT', 'Replay cursor has no recorded exchange')
 		this.#calls += 1
 		this.#bytes += body.length + pair.response.size
 		if (this.#calls > this.#options.limit.calls || this.#bytes > this.#options.limit.bytes)

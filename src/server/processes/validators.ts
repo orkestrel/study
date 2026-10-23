@@ -165,6 +165,8 @@ export function isStudyIdentity(value: unknown): value is StudyIdentity {
 		() =>
 			isRecord(value) &&
 			isStudyDigest(value.agent) &&
+			isStudyDigest(value.runtime) &&
+			isStudyDigest(value.content) &&
 			isStudyDigest(value.subject) &&
 			(value.provider === undefined || isStudyDigest(value.provider)) &&
 			isStudyDigest(value.instrument) &&

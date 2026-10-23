@@ -75,11 +75,47 @@ import {
 	writeStudyBurstEntry,
 	writeStudyCheckEntry,
 	createStudyConsumer,
+	nestStudyConsumer,
+	createStudyReplayFixture,
 	createStudyScratch,
 	writeStudyConsumer,
 	writeStudyLauncherEntry,
 	writeStudyOrphan,
 } from './setupServer.js'
+
+it('nests fixture packages beneath the consumer root and rewrites every selected entry', () => {
+	const scratch = createStudyConsumer()
+	try {
+		scratch.write(
+			'runtime/package.json',
+			JSON.stringify({ name: '@orkestrel/study', version: '1.0.0', type: 'module' }),
+		)
+		const entry = scratch.write('runtime/dist/bin/main.js', 'export const runtime = true\n')
+		const nested = nestStudyConsumer(scratch, entry)
+		const profile = parseStudyProfile(
+			parseJSON(scratch.read('studies/files/profiles/local.json') ?? ''),
+		)
+		expect(profile.roots[0]).toBe(scratch.path)
+		expect(profile.agent).toBe(join(scratch.path, 'node_modules/file-subject/dist/index.js'))
+		expect(profile.subject).toBe(profile.agent)
+		expect(nested).toBe(join(scratch.path, 'node_modules/@orkestrel/study/dist/bin/main.js'))
+		expect(readFileSync(nested, 'utf8')).toBe('export const runtime = true\n')
+	} finally {
+		scratch.destroy()
+	}
+})
+
+it('owns a sealed replay fixture and removes its resources on close', async () => {
+	const fixture = await createStudyReplayFixture()
+	try {
+		expect(fixture.scratch.has('baseline/seal.json')).toBe(true)
+		expect(fixture.history.declaration.trial).toBe(fixture.result.manifest.schedule[0]?.id)
+		expect(fixture.server.requests.length).toBe(fixture.history.completion.count)
+	} finally {
+		await fixture.close()
+	}
+	expect(existsSync(fixture.scratch.path)).toBe(false)
+}, 120000)
 
 describe('sealed exchange fixtures', () => {
 	it('retains independent Unicode bytes, complete pairing and precise malformed controls', () => {

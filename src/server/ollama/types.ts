@@ -167,10 +167,17 @@ export interface StudyOllamaReplayOptions {
 	readonly fetch?: StudyOllamaFetchFunction
 }
 
+/** Holds the executing request compared with the recorded cursor. */
+export interface StudyOllamaReplayRequest {
+	readonly ordinal: number
+	readonly path: string
+	readonly method: string
+	readonly role: StudyRole
+	readonly body: Uint8Array
+}
+
 /** Answers an exact recorded prefix through the role-aware transport collaborator. */
 export interface StudyOllamaReplayInterface {
-	/** Holds model steps with recorded prefix bodies projected to exact admission. */
-	readonly procedure: readonly StudyOllamaStep[]
 	/** Supplies native responses over retained bytes without settling a Study ticket. */
 	readonly fetch: StudyOllamaFetchFunction
 	/** Refuses a latched mismatch, an unread response, or an incompletely consumed prefix.

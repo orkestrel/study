@@ -1,4 +1,5 @@
 import type {
+	StudyAncestor,
 	StudyAttempt,
 	StudyManifest,
 	StudyProduct,
@@ -112,11 +113,26 @@ export interface StudyExchangeDeclaration {
 	/** Declares exact or capture steps; absence admits an open execution sequence. */
 	readonly procedure?: readonly StudyOllamaStep[]
 	readonly maintenance: readonly StudyOllamaModel[]
+	readonly ancestor?: StudyExchangeAncestor
+}
+
+/** Identifies the sealed sidecar and complete exchange prefix served by replay. */
+export interface StudyExchangeAncestor extends StudyAncestor {
+	readonly file: StudyFile
+	readonly prefix: number
 }
 
 /** Retains admitted request bytes durably before the corresponding send begins. */
 export interface StudyExchangeAttempt extends StudyExchangeIdentity, StudyExchangeBytes {
 	readonly phase: 'attempt'
+}
+
+/** Locates the first changed request or unmatched position in a replay. */
+export interface StudyExchangeDivergence {
+	readonly ordinal: number
+	readonly expected: StudyExchangeAttempt | undefined
+	readonly actual: StudyExchangeAttempt | undefined
+	readonly offset: number | undefined
 }
 
 /** Retains response status, headers, and original application-body chunk lengths.

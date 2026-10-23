@@ -11,7 +11,11 @@ import {
 	buildStudySparse,
 } from '../../../setupStudy.js'
 import { STUDY_CUSTODY_BYTES } from '../../../../src/server/stores/constants.js'
-import { buildCustodyPacketLabeling, retainStudyFixture } from '../../../setupServer.js'
+import {
+	buildCustodyPacketLabeling,
+	retainStudyFixture,
+	buildStudyExchangeHistory,
+} from '../../../setupServer.js'
 import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
 import {
 	checkStudyDirectory,
@@ -27,9 +31,39 @@ import {
 	validateStudyEvidenceBytes,
 	translateStudyPacketLabeling,
 	writeStudyBytes,
+	computeStudyExchangeOffset,
+	scanStudyDivergence,
 } from '../../../../src/server/stores/helpers.js'
 
 describe('study custody helpers', () => {
+	it('RP2 finds unmatched requests after a completed history without revalidating caller-owned rows', () => {
+		const history = buildStudyExchangeHistory()
+		const rows = buildStudyExchangeRows()
+		const last = history.exchanges.at(-1)?.attempt
+		if (last === undefined) throw new Error('Missing history completion')
+		const extra = { ...last, ordinal: history.completion.count + 1 }
+		expect(scanStudyDivergence(history, [...rows, extra])).toEqual({
+			ordinal: history.completion.count + 1,
+			expected: undefined,
+			actual: extra,
+			offset: undefined,
+		})
+		expect(scanStudyDivergence(history, rows)).toBeUndefined()
+		expect(scanStudyDivergence(history, [])).toEqual({
+			ordinal: 1,
+			expected: history.exchanges[0]?.attempt,
+			actual: undefined,
+			offset: undefined,
+		})
+	})
+
+	it('locates byte substitutions and unequal suffixes without confusing UTF-8 bytes with characters', () => {
+		expect(computeStudyExchangeOffset(Buffer.from('café'), Buffer.from('cafe'))).toBe(3)
+		expect(computeStudyExchangeOffset(Buffer.from('same'), Buffer.from('same'))).toBeUndefined()
+		expect(computeStudyExchangeOffset(Buffer.from('same'), Buffer.from('same plus'))).toBe(4)
+		expect(computeStudyExchangeOffset(Buffer.from('same plus'), Buffer.from('same'))).toBe(4)
+		expect(computeStudyExchangeOffset(Buffer.from(''), Buffer.from('added'))).toBe(0)
+	})
 	it('constructs a neutral complete semantic packet and translates only its bound label identities', async () => {
 		const scratch = createScratch()
 		try {

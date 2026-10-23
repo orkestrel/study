@@ -1,5 +1,6 @@
 import type {
 	StudyAttempt,
+	StudyAncestor,
 	StudyEvidence,
 	StudyFailure,
 	StudyManifest,
@@ -9,6 +10,7 @@ import type {
 import type {
 	StudyExchangeBytes,
 	StudyExchangeDeclaration,
+	StudyExchangeAncestor,
 	StudyExchangeHistory,
 	StudyExchangeIdentity,
 	StudyExchangeReply,
@@ -41,6 +43,7 @@ import {
 } from '@orkestrel/contract'
 import { STUDY_RESERVED_NAME } from './constants.js'
 import { hashStudyBytes } from '../helpers.js'
+import { isStudyIdentity } from '../processes/validators.js'
 import {
 	isStudyOllamaMetadata,
 	isStudyOllamaModel,
@@ -60,6 +63,38 @@ export function isStudyCustodyName(value: unknown): value is string {
 	return isStudyName(value) && !STUDY_RESERVED_NAME.test(value)
 }
 
+/** Checks a sealed source reference and its retained identities.
+ * @param value - The candidate source reference.
+ * @returns True if the reference has exactly its declared members; false otherwise.
+ */
+export function isStudyAncestor(value: unknown): value is StudyAncestor {
+	return holds(
+		() =>
+			isRecord(value) &&
+			matchesStudyKeys(value, ['result', 'seal', 'identity']) &&
+			isStudyCustodyName(value.result) &&
+			isStudyDigest(value.seal) &&
+			isStudyIdentity(value.identity),
+	)
+}
+
+/** Checks a sealed sidecar reference and its positive exchange prefix.
+ * @param value - The candidate replay provenance.
+ * @returns True if the sidecar reference is valid; false otherwise.
+ */
+export function isStudyExchangeAncestor(value: unknown): value is StudyExchangeAncestor {
+	return holds(
+		() =>
+			isRecord(value) &&
+			matchesStudyKeys(value, ['result', 'seal', 'identity', 'file', 'prefix']) &&
+			isStudyAncestor({ result: value.result, seal: value.seal, identity: value.identity }) &&
+			isStudyCustodyFile(value.file) &&
+			Number.isSafeInteger(value.prefix) &&
+			typeof value.prefix === 'number' &&
+			value.prefix > 0,
+	)
+}
+
 /**
  * Checks whether a manifest exactly binds its declared population and identities.
  * @param value - The candidate manifest
@@ -76,7 +111,7 @@ export function isStudyCustodyManifest(value: unknown): value is StudyManifest {
 			!matchesStudyKeys(
 				value,
 				['id', 'created', 'definition', 'scenarios', 'identity', 'schedule', 'bounds', 'host'],
-				['qualification', 'record'],
+				['qualification', 'record', 'ancestor'],
 			) ||
 			!isStudyCustodyName(value.id) ||
 			!isStudyTimestamp(value.created) ||
@@ -85,10 +120,11 @@ export function isStudyCustodyManifest(value: unknown): value is StudyManifest {
 			!value.scenarios.every(isStudyScenario) ||
 			!isStudyBounds(value.bounds) ||
 			(value.record !== undefined && !isStudyRecord(value.record)) ||
+			(value.ancestor !== undefined && !isStudyAncestor(value.ancestor)) ||
 			!isRecord(value.identity) ||
 			!matchesStudyKeys(
 				value.identity,
-				['agent', 'subject', 'instrument', 'fixtures', 'profile'],
+				['agent', 'subject', 'instrument', 'fixtures', 'profile', 'runtime', 'content'],
 				['provider'],
 			) ||
 			(value.identity.provider !== undefined && !isStudyDigest(value.identity.provider)) ||
@@ -100,8 +136,8 @@ export function isStudyCustodyManifest(value: unknown): value is StudyManifest {
 			return false
 		const identity = value.identity
 		if (
-			!['agent', 'subject', 'instrument', 'fixtures', 'profile'].every((key) =>
-				isStudyDigest(identity[key]),
+			!['agent', 'subject', 'instrument', 'fixtures', 'profile', 'runtime', 'content'].every(
+				(key) => isStudyDigest(identity[key]),
 			)
 		)
 			return false
@@ -461,7 +497,7 @@ export function isStudyExchangeDeclaration(value: unknown): value is StudyExchan
 					'goals',
 					'configuration',
 				],
-				['procedure'],
+				['procedure', 'ancestor'],
 			) ||
 			value.phase !== 'declaration' ||
 			!isStudyCustodyName(value.trial) ||
@@ -471,6 +507,7 @@ export function isStudyExchangeDeclaration(value: unknown): value is StudyExchan
 			!Object.values(value.models).every(isStudyOllamaModel) ||
 			!isStudyOllamaMetadata(value.metadata) ||
 			!isStudyRecord(value.record) ||
+			(value.ancestor !== undefined && !isStudyExchangeAncestor(value.ancestor)) ||
 			!isStudyDigest(value.configuration) ||
 			!isArray(value.goals) ||
 			value.goals.length === 0 ||

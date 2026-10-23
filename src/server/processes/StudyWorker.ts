@@ -152,14 +152,25 @@ export class StudyWorker {
 				throw new StudyError('CONFIG', 'Worker replay selection is invalid')
 			if (!isStudyExchangeDestination(destination))
 				throw new StudyError('CONFIG', 'Replay requires a declaration')
-			const history = await readStudyReplayHistory(value.replay, value.profile, value.trial)
+			const history = await readStudyReplayHistory(
+				value.replay,
+				value.profile,
+				value.trial,
+				destination.declaration,
+			)
 			const prefix = value.replay.prefix[value.trial.id]
 			if (prefix === undefined) throw new StudyError('CONFIG', 'Worker replay prefix is absent')
+			if (destination.declaration.ancestor?.identity.runtime !== value.identity.runtime)
+				throw new StudyError('CONFIG', 'Worker replay runtime differs from its ancestor')
 			this.#replay = new StudyOllamaReplay({
 				history,
 				prefix,
 				url: value.profile.provider.url,
-				limit: destination.declaration.metadata,
+				limit: {
+					calls: destination.declaration.record.calls + destination.declaration.metadata.calls,
+					bytes: destination.declaration.record.bytes,
+					duration: value.profile.bounds.trial.duration,
+				},
 				signal: this.#control.signal,
 				...(value.replay.offline ? {} : { fetch: this.#forward.bind(this) }),
 			})
@@ -229,6 +240,8 @@ export class StudyWorker {
 		const identity = await this.#artifacts.inspect()
 		if (
 			identity.agent !== value.identity.agent ||
+			identity.runtime !== value.identity.runtime ||
+			identity.content !== value.identity.content ||
 			identity.subject !== value.identity.subject ||
 			identity.provider !== value.identity.provider ||
 			identity.instrument !== value.identity.instrument ||

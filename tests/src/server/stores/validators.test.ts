@@ -1,7 +1,11 @@
 import { STUDY_STOP_CAUSES, STUDY_OTHER_CAUSES } from '../../../setupStudy.js'
 import { buildStudyStop, STUDY_INVALID_STOPS } from '../../../setupStudy.js'
 import { STUDY_FINITE_READINGS } from '../../../setupStudy.js'
-import { createForeignBudgetError } from '../../../setupServer.js'
+import {
+	createForeignBudgetError,
+	buildStudyExchangeHistory,
+	buildOllamaDeclaration,
+} from '../../../setupServer.js'
 import { readStudyFailure, translateStudyAgentStop } from '../../../../src/core/index.js'
 import { isStudyProcessFailure } from '../../../../src/server/processes/validators.js'
 import type { StudyFailure, StudyObservation } from '../../../../src/core/types.js'
@@ -28,9 +32,51 @@ import {
 	isStudyCustodyObservation,
 	isStudyCustodySeal,
 	isStudyCustodyTrial,
+	isStudyAncestor,
+	isStudyExchangeAncestor,
+	isStudyExchangeDeclaration,
 } from '../../../../src/server/stores/validators.js'
 
 describe('custody validators', () => {
+	it('validates replay ancestry and requires native and content identities in sealed manifests', () => {
+		const manifest = buildCustodyManifest()
+		const history = buildStudyExchangeHistory()
+		const ancestor = { result: manifest.id, seal: history.seal, identity: manifest.identity }
+		const exchange = { ...ancestor, file: history.file, prefix: history.completion.count }
+		expect(isStudyAncestor(ancestor)).toBe(true)
+		expect(isStudyExchangeAncestor(exchange)).toBe(true)
+		expect(isStudyCustodyManifest({ ...manifest, ancestor })).toBe(true)
+		expect(isStudyExchangeDeclaration({ ...buildOllamaDeclaration(), ancestor: exchange })).toBe(
+			true,
+		)
+		expect(isStudyAncestor({ ...ancestor, seal: 'invalid' })).toBe(false)
+		expect(
+			isStudyAncestor({ ...ancestor, identity: { ...ancestor.identity, runtime: undefined } }),
+		).toBe(false)
+		expect(
+			isStudyAncestor({ ...ancestor, identity: { ...ancestor.identity, content: undefined } }),
+		).toBe(false)
+		expect(isStudyExchangeAncestor({ ...exchange, prefix: 0 })).toBe(false)
+		expect(
+			isStudyExchangeAncestor({ ...exchange, file: { ...history.file, digest: 'invalid' } }),
+		).toBe(false)
+		expect(
+			isStudyCustodyManifest({
+				...manifest,
+				identity: { ...manifest.identity, content: undefined },
+			}),
+		).toBe(false)
+		expect(
+			isStudyExchangeDeclaration({
+				...buildOllamaDeclaration(),
+				ancestor: { ...exchange, prefix: 0 },
+			}),
+		).toBe(false)
+		const revoked = Proxy.revocable(ancestor, {})
+		revoked.revoke()
+		expect(isStudyAncestor(revoked.proxy)).toBe(false)
+		expect(isStudyExchangeAncestor(revoked.proxy)).toBe(false)
+	})
 	it('retains finite foreign readings unchanged through IPC and custody', () => {
 		for (const max of STUDY_FINITE_READINGS) {
 			for (const consumed of STUDY_FINITE_READINGS) {

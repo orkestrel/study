@@ -411,6 +411,8 @@ export function buildStudyManifest(): StudyManifest {
 		definition,
 		scenarios,
 		identity: {
+			runtime: 'e'.repeat(64),
+			content: 'f'.repeat(64),
 			agent: '1'.repeat(64),
 			subject: 'a'.repeat(64),
 			provider: undefined,

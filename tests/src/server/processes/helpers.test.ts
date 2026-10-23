@@ -12,7 +12,10 @@ import {
 	readStudyOrphan,
 	releaseStudyPid,
 	writeStudyOrphan,
+	retainStudyExchangeFixture,
 } from '../../../setupServer.js'
+import { parseStudyProfile } from '../../../../src/core/parsers.js'
+import { readStudyResult, readStudyExchanges } from '../../../../src/server/stores/helpers.js'
 import { describe, expect, it } from 'vitest'
 import { requireValue, waitForEvent } from '@orkestrel/test'
 import { createScratch, isRunning } from '@orkestrel/test/server'
@@ -36,9 +39,85 @@ import {
 	readStudyVersion,
 	readStudyPreparedDestination,
 	validateStudyRuntime,
+	readStudyReplayHistory,
 } from '../../../../src/server/processes/helpers.js'
 
 describe('process helpers', () => {
+	it('rechecks a sealed replay ancestor against its selected file, identity, prefix, and goal horizon', async () => {
+		const scratch = createScratch()
+		try {
+			const fixture = await retainStudyExchangeFixture(resolve(scratch.path, 'result'))
+			await fixture.store.seal()
+			const result = await readStudyResult(fixture.directory)
+			if (result.status !== 'sealed') throw new Error('Missing sealed source')
+			const trial = requireValue(result.manifest.schedule[0])
+			const history = await readStudyExchanges(result, trial.id)
+			const profile = parseStudyProfile({
+				...buildStudyProfile(),
+				provider: { ...buildStudyDaemonProvider(), daemon: undefined },
+				record: history.declaration.record,
+				settings: {
+					version: history.declaration.version,
+					metadata: history.declaration.metadata,
+					procedure: history.declaration.procedure,
+				},
+			})
+			const selection = {
+				result: fixture.directory,
+				prefix: { [trial.id]: history.completion.count },
+				offline: true,
+			}
+			const ancestor = {
+				result: result.manifest.id,
+				seal: result.seal.id,
+				identity: result.manifest.identity,
+				file: history.file,
+				prefix: history.completion.count,
+			}
+			const declaration = { ...history.declaration, ancestor }
+			expect(await readStudyReplayHistory(selection, profile, trial, declaration)).toEqual(history)
+			await expect(
+				readStudyReplayHistory(selection, profile, trial, history.declaration),
+			).rejects.toThrow(/ancestor differs/)
+			await expect(
+				readStudyReplayHistory(selection, profile, trial, {
+					...declaration,
+					ancestor: { ...ancestor, prefix: 1 },
+				}),
+			).rejects.toThrow(/ancestor differs/)
+			await expect(
+				readStudyReplayHistory(selection, profile, trial, {
+					...declaration,
+					ancestor: { ...ancestor, file: { ...history.file, digest: 'f'.repeat(64) } },
+				}),
+			).rejects.toThrow(/ancestor differs/)
+			await expect(
+				readStudyReplayHistory(selection, profile, trial, {
+					...declaration,
+					ancestor: { ...ancestor, identity: { ...ancestor.identity, content: 'e'.repeat(64) } },
+				}),
+			).rejects.toThrow(/ancestor differs/)
+			await expect(
+				readStudyReplayHistory(selection, profile, trial, { ...declaration, goals: ['different'] }),
+			).rejects.toThrow(/horizon/)
+			await expect(
+				readStudyReplayHistory(
+					{ ...selection, offline: false, prefix: { [trial.id]: 1 } },
+					profile,
+					trial,
+				),
+			).rejects.toThrow(/after preflight/)
+			await expect(
+				readStudyReplayHistory(
+					{ ...selection, offline: false, prefix: { [trial.id]: history.completion.count - 1 } },
+					profile,
+					trial,
+				),
+			).rejects.toThrow(/before postflight/)
+		} finally {
+			scratch.destroy()
+		}
+	})
 	it('composes open horizons once and validates the parent declaration against every held member', () => {
 		const opening = buildOllamaDeclaration()
 		const profile = {

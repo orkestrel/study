@@ -9,6 +9,7 @@ import type {
 import type {
 	StudyFile,
 	StudyExchangeAttempt,
+	StudyExchangeDivergence,
 	StudyExchangeDeclaration,
 	StudyExchangeHistory,
 	StudyExchangeIdentity,
@@ -36,6 +37,66 @@ import {
 	isStudyExchangeHistory,
 	isStudyExchangeRow,
 } from './validators.js'
+
+/** Locates the first differing byte, including a length difference after a shared prefix.
+ * @param expected - The recorded bytes.
+ * @param actual - The executing bytes.
+ * @returns The zero-based byte offset, or undefined when the bodies are equal.
+ */
+export function computeStudyExchangeOffset(
+	expected: Uint8Array,
+	actual: Uint8Array,
+): number | undefined {
+	const offset = expected.findIndex((byte, index) => byte !== actual[index])
+	return offset >= 0 ? offset : expected.length !== actual.length ? expected.length : undefined
+}
+
+/** Finds the first changed or unmatched non-maintenance request by position.
+ * @param history - The history already read by the strict sealed reader.
+ * @param rows - Replay rows already read by the strict row reader.
+ * @returns The first divergence, or undefined after equal complete requests.
+ */
+export function scanStudyDivergence(
+	history: StudyExchangeHistory,
+	rows: readonly StudyExchangeRow[],
+): StudyExchangeDivergence | undefined {
+	const expected = history.exchanges
+		.map((pair) => pair.attempt)
+		.filter((row) => row.stage !== 'maintenance')
+	const actual = rows.filter(
+		(row): row is StudyExchangeAttempt => row.phase === 'attempt' && row.stage !== 'maintenance',
+	)
+	const index = Array.from(
+		{ length: Math.max(expected.length, actual.length) },
+		(_entry, position) => position,
+	).find((position) => {
+		const left = expected[position]
+		const right = actual[position]
+		return (
+			left === undefined ||
+			right === undefined ||
+			left.path !== right.path ||
+			left.method !== right.method ||
+			left.role !== right.role ||
+			left.body !== right.body
+		)
+	})
+	if (index === undefined) return undefined
+	const left = expected[index]
+	const right = actual[index]
+	return {
+		ordinal: left?.ordinal ?? history.completion.count + 1,
+		expected: left,
+		actual: right,
+		offset:
+			left === undefined || right === undefined
+				? undefined
+				: computeStudyExchangeOffset(
+						Buffer.from(left.body, 'base64'),
+						Buffer.from(right.body, 'base64'),
+					),
+	}
+}
 
 /**
  * Builds neutral semantic identities for the complete eligible sealed horizon.
@@ -913,7 +974,16 @@ export async function readStudyTrialExchanges(
 		scenario === undefined ||
 		canonicalStringify(declaration.goals) !==
 			canonicalStringify(scenario.goals.map((goal) => goal.id)) ||
-		canonicalStringify(declaration.record) !== canonicalStringify(manifest.record)
+		canonicalStringify(declaration.record) !== canonicalStringify(manifest.record) ||
+		canonicalStringify(
+			declaration.ancestor === undefined
+				? undefined
+				: {
+						result: declaration.ancestor.result,
+						seal: declaration.ancestor.seal,
+						identity: declaration.ancestor.identity,
+					},
+		) !== canonicalStringify(manifest.ancestor)
 	)
 		throw new StudyError('CUSTODY', 'Exchange declaration differs from its trial')
 	const evidenceBytes = await readStudyBytes(

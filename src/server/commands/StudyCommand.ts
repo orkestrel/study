@@ -319,6 +319,13 @@ export class StudyCommand {
 
 	async #execution(request: StudyExecutionRequest, signal: AbortSignal): Promise<JSONValue> {
 		const replay = request.replay === undefined ? undefined : await this.#replay(request, signal)
+		const source = replay === undefined ? undefined : await readStudyResult(replay.result)
+		if (source !== undefined && source.status !== 'sealed')
+			throw new StudyError('CUSTODY', 'Replay source is not sealed')
+		const ancestor =
+			source === undefined
+				? undefined
+				: { result: source.manifest.id, seal: source.seal.id, identity: source.manifest.identity }
 		const preparation = await this.#prepare(request, signal)
 		const fingerprint = computeStudyCommandFingerprint(
 			preparation.identity,
@@ -353,6 +360,7 @@ export class StudyCommand {
 					definition: preparation.definition,
 					scenarios: preparation.scenarios,
 					identity: preparation.identity,
+					...(ancestor === undefined ? {} : { ancestor }),
 					schedule: buildStudySchedule(preparation.definition, preparation.scenarios),
 					bounds: preparation.profile.bounds,
 					...(preparation.profile.record === undefined
@@ -381,11 +389,22 @@ export class StudyCommand {
 										)
 										if (scenario === undefined)
 											throw new StudyError('CONFIG', 'Recording scenario is absent')
+										const prefix = replay?.prefix[trial.id]
+										if (replay !== undefined && prefix === undefined)
+											throw new StudyError('CONFIG', 'Replay prefix is absent')
 										const declaration = buildStudyExchangeDeclaration(
 											preparation.profile,
 											trial,
 											scenario,
 											daemon !== undefined,
+											ancestor === undefined || replay === undefined || prefix === undefined
+												? undefined
+												: {
+														...ancestor,
+														file: (await readStudyReplayHistory(replay, preparation.profile, trial))
+															.file,
+														prefix,
+													},
 										)
 										return [trial.id, await store.exchanges(trial, declaration)] as const
 									}),
@@ -494,13 +513,8 @@ export class StudyCommand {
 			fixtures: computeStudyFixtureDigest(definition, fixtures),
 			profile: computeStudyProfileDigest(profile),
 		}
-		if (
-			selected.agent !== source.manifest.identity.agent ||
-			selected.subject !== source.manifest.identity.subject ||
-			selected.instrument !== source.manifest.identity.instrument ||
-			selected.provider !== source.manifest.identity.provider
-		)
-			throw new StudyError('CONFIG', 'Replay artifact declaration changed')
+		if (selected.runtime !== source.manifest.identity.runtime)
+			throw new StudyError('CONFIG', 'Replay runtime declaration changed')
 		if (
 			request.expected !== undefined &&
 			request.expected !== computeStudyCommandFingerprint(identity, profile.bounds, definition)

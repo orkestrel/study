@@ -1,5 +1,11 @@
 import type { Dir, Dirent, BigIntStats } from 'node:fs'
-import type { ArtifactSource, ArtifactClosure, ArtifactMember, ArtifactPackage } from './types.js'
+import type {
+	ArtifactSource,
+	ArtifactClosure,
+	ArtifactMember,
+	ArtifactPackage,
+	ArtifactInventory,
+} from './types.js'
 import { isRecord, parseJSON } from '@orkestrel/contract'
 import {
 	closeSync,
@@ -144,6 +150,48 @@ export function computeArtifactClosureDigest(
 					root: relative(destination, entry.root).split(sep).join('/'),
 				}))
 				.toSorted((left, right) => (left.root < right.root ? -1 : left.root > right.root ? 1 : 0)),
+		}),
+	)
+}
+
+/** Computes the location-independent native execution identity.
+ * @param inventory - The captured Node version and execution settings.
+ * @returns The SHA-256 identity of the native runtime declaration.
+ */
+export function computeArtifactRuntimeDigest(inventory: ArtifactInventory): string {
+	return hashStudyBytes(encodeStudyJSON({ node: inventory.node, runtime: inventory.runtime }))
+}
+
+/** Computes a location-independent identity of captured code and selected entries.
+ * @param inventory - The code inventory, without custody-only assets.
+ * @param entry - The trusted Study executable's byte digest.
+ * @returns The SHA-256 identity relative to the admitted roots' common base.
+ */
+export function computeArtifactContentDigest(inventory: ArtifactInventory, entry: string): string {
+	const base = resolveArtifactBase(
+		inventory.packages.map((member) => join(member.root, 'package.json')),
+	)
+	return hashStudyBytes(
+		encodeStudyJSON({
+			entry,
+			entries: inventory.entries.map((path) => relative(base, path).split(sep).join('/')).sort(),
+			source:
+				inventory.source === undefined
+					? undefined
+					: {
+							root: relative(base, inventory.source.root).split(sep).join('/'),
+							entry: relative(base, inventory.source.entry).split(sep).join('/'),
+						},
+			packages: inventory.packages
+				.map((member) => ({ ...member, root: relative(base, member.root).split(sep).join('/') }))
+				.toSorted((left, right) => (left.root < right.root ? -1 : left.root > right.root ? 1 : 0)),
+			files: inventory.files
+				.map(({ path, digest, size }) => ({
+					key: relative(base, path).split(sep).join('/'),
+					digest,
+					size,
+				}))
+				.toSorted((left, right) => (left.key < right.key ? -1 : left.key > right.key ? 1 : 0)),
 		}),
 	)
 }
