@@ -97,24 +97,24 @@
 		"@orkestrel/agent": "^0.0.31",
 		"@orkestrel/budget": "^0.0.14",
 		"@orkestrel/contract": "^0.0.19",
-		"@orkestrel/ollama": "^0.0.24",
+		"@orkestrel/ollama": "^0.0.25",
 		"@orkestrel/timeout": "^0.0.13",
 		"@orkestrel/tool": "^0.0.19"
 	},
 	"devDependencies": {
 		"@microsoft/api-extractor": "^7.59.4",
-		"@orkestrel/guide": "^0.0.24",
+		"@orkestrel/guide": "^0.0.25",
 		"@orkestrel/mcp": "^0.0.39",
 		"@orkestrel/probe": "^0.0.24",
 		"@orkestrel/router": "^0.0.17",
 		"@orkestrel/scaffold": "^0.0.104",
 		"@orkestrel/server": "^0.0.23",
-		"@orkestrel/test": "^0.0.28",
+		"@orkestrel/test": "^0.0.29",
 		"@types/node": "^26.6.5",
 		"oxfmt": "^0.74.0",
 		"oxlint": "^1.89.0",
 		"typescript": "^6.0.3",
-		"vite": "^8.3.4",
+		"vite": "^8.3.5",
 		"vitest": "^4.1.12"
 	},
 	"devEngines": {
