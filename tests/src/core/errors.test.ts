@@ -144,7 +144,7 @@ it('uses captured reflection for nested stop members', () => {
 	expect(isStudyError(error)).toBe(true)
 })
 
-it('refuses malformed stop fields and hostile nested access', () => {
+it('refuses malformed stop fields and unexpected nested access', () => {
 	const failure: StudyFailure = {
 		cause: 'capacity',
 		message: 'Reached',
@@ -165,11 +165,11 @@ it('refuses malformed stop fields and hostile nested access', () => {
 	Object.defineProperty(failure, 'stop', {
 		value: { layer: 'model', id: 'num_predict', max: Infinity, consumed: 101 },
 	})
-	expect(isStudyError(error)).toBe(false)
+	expect(isStudyError(error)).toBe(true)
 	Object.defineProperty(failure, 'stop', {
 		value: { layer: 'model', id: 'num_predict', max: 100, consumed: NaN },
 	})
-	expect(isStudyError(error)).toBe(false)
+	expect(isStudyError(error)).toBe(true)
 	Object.defineProperty(failure, 'stop', {
 		value: { layer: 'model', id: 'num_predict', max: '100', consumed: 101 },
 	})
@@ -198,6 +198,12 @@ it('refuses malformed stop fields and hostile nested access', () => {
 		value: { layer: 'model', id: 'num_predict', max: -0, consumed: undefined },
 	})
 	expect(isStudyError(error)).toBe(true)
+})
+
+it('validates the optional stack member of a study error', () => {
+	const error = new StudyError('CONFIG', 'Malformed stack')
+	Object.defineProperty(error, 'stack', { value: 7 })
+	expect(isStudyError(error)).toBe(false)
 })
 
 it('refuses malformed failure members on an otherwise valid error', () => {

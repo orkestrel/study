@@ -206,6 +206,29 @@ describe('readStudyOllamaFailure', () => {
 })
 
 describe('readStudyOllamaTerminal', () => {
+	it('retains the summary role and unknown usage when terminal counts are malformed', () => {
+		const error = captureError(() =>
+			readStudyOllamaTerminal(
+				{ ...finished, prompt_eval_count: -1 },
+				{ ...agentRequest, role: 'summary' },
+			),
+		)
+		expect(error).toMatchObject({
+			code: 'FAULT',
+			failure: {
+				cause: 'infrastructure',
+				message: 'Malformed Ollama usage',
+				role: 'summary',
+			},
+		})
+		expect(readStudyFailure(error)).toEqual({
+			cause: 'infrastructure',
+			message: 'Malformed Ollama usage',
+			role: 'summary',
+		})
+		expect(error).not.toHaveProperty('prompt')
+		expect(error).not.toHaveProperty('completion')
+	})
 	it('keeps absent and partial usage unknown and reads complete usage exactly', () => {
 		expect(readStudyOllamaTerminal(finished, agentRequest)).toEqual({
 			prompt: undefined,

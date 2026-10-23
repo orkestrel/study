@@ -17,7 +17,7 @@ export class StudyAgentSummary {
 	 * @throws StudyError - Thrown with code `CONFIG` when the limit is not a positive safe integer, or the gauge scale is not finite and greater than 0 or its overhead is not finite and at least 0.
 	 */
 	constructor(options: StudyAgentSummaryOptions) {
-		// Validate the owned readings so later caller mutation cannot bypass the bound.
+		// Validate the owned readings so later caller mutation cannot change the bound.
 		const { limit } = options
 		const { scale, overhead } = options.gauge
 		const gauge = { scale, overhead }

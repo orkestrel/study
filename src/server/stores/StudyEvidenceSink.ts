@@ -87,7 +87,7 @@ export class StudyEvidenceSink implements StudyCustodySinkInterface {
 		return this.#closing
 	}
 
-	// Writes after every earlier write settled, and refuses once any earlier write failed.
+	// Writes after every earlier write settled, and refuses after any earlier write failed.
 	async #write(bytes: Uint8Array): Promise<void> {
 		if (this.#fault !== undefined) throw this.#fault.error
 		try {

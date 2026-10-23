@@ -167,7 +167,7 @@ export class StudyAgentScript implements ProviderInterface {
 				else failStudyTicket(ticket, error, 'agent')
 				throw error
 			} finally {
-				// Generator return bypasses the catch, before Agent publishes the stop's layer.
+				// Generator return skips the catch, before Agent publishes the stop's layer.
 				if (isBudgetError(signal.reason)) this.#cut(ticket, bytes, started)
 				else
 					failStudyTicket(

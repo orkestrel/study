@@ -254,6 +254,7 @@ process.on('message', frame => {
 				await waitForCondition('the peer request is edited', () => edited.count === 1, {
 					budget: 3000,
 				})
+				expect(edited.calls).toEqual([[]])
 				expect(handled.calls).toEqual([['accepted']])
 				if (rejected) gate.reject(new Error('boundary refusal'))
 				else gate.resolve(true)

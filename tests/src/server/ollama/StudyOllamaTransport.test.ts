@@ -385,6 +385,7 @@ describe('StudyOllamaTransport', () => {
 				})
 				const outcome = first.catch((error: unknown) => error)
 				await waitForCondition('capture admission entered', () => entered.count === 1)
+				expect(entered.calls).toEqual([[]])
 				await expect(fixture.transport.verify()).rejects.toMatchObject({ code: 'FAULT' })
 				release.abort()
 				expect(await outcome).toMatchObject({ code: 'FAULT' })
@@ -562,6 +563,7 @@ describe('StudyOllamaTransport', () => {
 				})
 				const outcome = sending.catch((error: unknown) => error)
 				await waitForCondition('capture collaborator send', () => entered.count === 1)
+				expect(entered.calls).toEqual([[]])
 				caller.abort(reason)
 				expect(await outcome).toBe(reason)
 				expect(fixture.goal.usage()).toEqual([
@@ -871,7 +873,7 @@ describe('StudyOllamaTransport', () => {
 					body: STUDY_OLLAMA_CHAT_BODY,
 				}),
 			).rejects.toBe(reason)
-			expect(calls.count).toBe(1)
+			expect(calls.calls.map(([role]) => role)).toEqual(['agent'])
 			expect(fixture.server.requests).toEqual([])
 			expect(fixture.goal.usage()).toEqual([
 				{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
@@ -961,6 +963,7 @@ describe('StudyOllamaTransport', () => {
 			await reader.read()
 			caller.abort(reason)
 			await expect(reader.read()).rejects.toBe(reason)
+			expect(calls.calls.map(([role]) => role)).toEqual(['agent'])
 			expect(requireValue(calls.calls[0])[2].signal?.reason).toBe(reason)
 			expect(captureError(() => fixture.transport.check())).toBe(reason)
 			expect(fixture.goal.usage()).toEqual([
@@ -997,6 +1000,7 @@ describe('StudyOllamaTransport', () => {
 			expect(fixture.goal.usage()).toEqual([])
 			caller.abort(reason)
 			expect(await pending).toBe(reason)
+			expect(calls.calls.map(([role]) => role)).toEqual(['agent'])
 			expect(requireValue(calls.calls[0])[2].signal?.reason).toBe(reason)
 			expect(captureError(() => fixture.transport.check())).toBe(reason)
 			expect(fixture.goal.usage()).toEqual([
@@ -1040,6 +1044,7 @@ describe('StudyOllamaTransport', () => {
 			expect(settled.calls).toEqual([])
 			expect(fixture.goal.usage()).toEqual([])
 			caller.abort(reason)
+			expect(calls.calls.map(([role]) => role)).toEqual(['agent'])
 			expect(requireValue(calls.calls[0])[2].signal?.reason).toBe(reason)
 			await waitForCondition(
 				'caller abort settles pending collaborator',
@@ -1096,6 +1101,7 @@ describe('StudyOllamaTransport', () => {
 			await waitForCondition('collaborator entry', () => calls.count === 1)
 			expect(settled.calls).toEqual([])
 			expect(fixture.goal.usage()).toEqual([])
+			expect(calls.calls.map(([role]) => role)).toEqual(['agent'])
 			const signal = requireValue(requireValue(calls.calls[0])[2].signal)
 			await waitForAbort(signal)
 			const reason: unknown = signal.reason
@@ -1148,6 +1154,7 @@ describe('StudyOllamaTransport', () => {
 			expect(settled.calls).toEqual([])
 			expect(fixture.goal.usage()).toEqual([])
 			const closing = fixture.transport.close()
+			expect(calls.calls.map(([role]) => role)).toEqual(['agent'])
 			const signal = requireValue(requireValue(calls.calls[0])[2].signal)
 			const reason: unknown = signal.reason
 			expect(reason).toMatchObject({ code: 'FAULT', message: 'Ollama transport closed' })

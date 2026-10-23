@@ -64,7 +64,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 	// Wraps the first retained failure so a thrown undefined or null is still a presence.
 	#fault: { readonly error: unknown } | undefined
 	#count = 0
-	// The model of the latest model dispatch; it spans goals, so the next goal's first dispatch reports a switch.
+	// The model of the preceding model dispatch; it spans goals, so the next goal's first dispatch reports a switch.
 	#previous: string | undefined
 
 	/** Records immutable transport bounds and refuses a role policy the inventory cannot serve.

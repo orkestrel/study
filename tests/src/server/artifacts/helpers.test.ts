@@ -24,6 +24,44 @@ import {
 	buildArtifactClosureOptions,
 } from '../../../setupServer.js'
 
+it('recognizes branded artifact refusals and refuses malformed members and proxies', () => {
+	class DerivedArtifactError extends ArtifactError {
+		constructor() {
+			super('Subclass refusal', 'DRIFT')
+			this.name = 'DerivedArtifactError'
+		}
+	}
+	const error = new DerivedArtifactError()
+	const brand = Symbol.for('@orkestrel/study.ArtifactError')
+	expect(Object.getOwnPropertyDescriptor(error, brand)).toMatchObject({
+		value: error,
+		enumerable: false,
+		writable: false,
+	})
+	expect(isArtifactError(error)).toBe(true)
+	expect(isArtifactError(new Proxy(error, {}))).toBe(false)
+	expect(isArtifactError(Object.assign(new Error('Look-alike'), { code: 'DRIFT' }))).toBe(false)
+	const plain = {}
+	Object.defineProperty(plain, brand, { value: plain })
+	expect(isArtifactError(plain)).toBe(false)
+	const revoked = Proxy.revocable(error, {})
+	revoked.revoke()
+	expect(isArtifactError(revoked.proxy)).toBe(false)
+	const invalid = new ArtifactError('Invalid code')
+	Object.defineProperty(invalid, 'code', { value: 'CONFIG' })
+	expect(isArtifactError(invalid)).toBe(false)
+	const malformed = new ArtifactError('Invalid member')
+	Object.defineProperty(malformed, 'message', { value: 7 })
+	expect(isArtifactError(malformed)).toBe(false)
+	const access = new ArtifactError('Throwing member')
+	Object.defineProperty(access, 'code', {
+		get: () => {
+			throw new Error('Unreadable code')
+		},
+	})
+	expect(isArtifactError(access)).toBe(false)
+})
+
 it('refuses exact credential names and portable key hazards before reading while retaining benign case variants', () => {
 	for (const name of ARTIFACT_REFUSED_KEYS.flatMap((part) => [part, part.toUpperCase()])) {
 		expect(() => resolveArtifactMember(process.cwd(), name)).toThrow(ArtifactError)

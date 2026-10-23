@@ -171,7 +171,7 @@ describe('translateStudyAgentStop', () => {
 			message: 'Agent model reached its own token limit',
 			failure: { stop: { layer: 'model', id: 'provider', max: undefined, consumed: 7 } },
 		})
-		expect(completion.count).toBe(1)
+		expect(completion.calls).toEqual([[]])
 	})
 
 	it('keeps an absent stop absent and contains malformed and throwing records', () => {

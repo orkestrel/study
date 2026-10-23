@@ -116,8 +116,8 @@ export function computeStudyOutputStop(
 }
 
 /**
- * Records an error that escaped admitted work as the failure of its ticket.
- * @param ticket - The admitted request whose work escaped
+ * Records an error thrown by admitted work as the failure of its ticket.
+ * @param ticket - The admitted request whose work threw
  * @param error - The caught value, read through `readStudyFailure`
  * @param role - The responsibility that replaces any role the reading carries; Default: the carried role, else the ticket's admitted role
  * @remarks
@@ -126,7 +126,7 @@ export function computeStudyOutputStop(
  * so the parent's ownership is respected rather than inferred as local settlement. A refusal
  * thrown by the ticket's own settlement propagates.
  * @throws Thrown when the ticket's settlement refuses the failure.
- * @example Fail an escaped request
+ * @example Fail an admitted request
  * ```ts
  * import type { StudyTicket } from '@orkestrel/study'
  * import { failStudyTicket } from '@orkestrel/study'

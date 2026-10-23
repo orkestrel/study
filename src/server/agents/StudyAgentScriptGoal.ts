@@ -18,7 +18,7 @@ export class StudyAgentScriptGoal {
 	}
 
 	/** Takes the next declared response and advances past it.
-	 * @returns The response; undefined once the sequence is exhausted, which it then stays.
+	 * @returns The response; undefined after the sequence is exhausted, which it then stays.
 	 */
 	take(): StudyAgentResponse | undefined {
 		const response = this.#plan.responses[this.#cursor]

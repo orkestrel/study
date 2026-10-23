@@ -1,5 +1,5 @@
 import type { StudyErrorCode, StudyFailure } from './types.js'
-import { holds, INTRINSICS, isError, isFiniteNumber, isObject } from '@orkestrel/contract'
+import { holds, INTRINSICS, isNumber, isObject } from '@orkestrel/contract'
 import { STUDY_ERROR_BRAND } from './constants.js'
 import { isStudyCause, isStudyErrorCode, isStudyLayer, isStudyRole } from './validators.js'
 
@@ -35,9 +35,9 @@ export class StudyError extends Error {
  * valid optional failure members, and an own {@link STUDY_ERROR_BRAND} descriptor whose value is
  * the error itself. Subclasses can replace the name.
  * The global key is recognized across package, ESM, CommonJS and captured module copies; it is
- * not unforgeable provenance. A transparent proxy is refused because its forwarded descriptor
+ * not proof of origin. A transparent proxy is refused because its forwarded descriptor
  * stores the target, and an unbranded copy, an inherited brand, or a property-only lookalike
- * stays outside the type. Hostile property access returns false instead of throwing.
+ * stays outside the type. Throwing property access returns false instead of throwing.
  * @param value - The caught value
  * @returns True if the value is a study error; false otherwise
  * @example
@@ -47,15 +47,21 @@ export class StudyError extends Error {
  */
 export function isStudyError(value: unknown): value is StudyError {
 	return holds(() => {
-		if (!isError(value) || INTRINSICS.prototype(value) === INTRINSICS.error.prototype) return false
+		if (
+			!(value instanceof INTRINSICS.error) ||
+			INTRINSICS.prototype(value) === INTRINSICS.error.prototype
+		)
+			return false
 		const brand: unknown = INTRINSICS.describe(value, STUDY_ERROR_BRAND)?.value
 		const code: unknown = INTRINSICS.reflect.read(value, 'code')
 		const failure: unknown = INTRINSICS.reflect.read(value, 'failure')
+		const stack: unknown = INTRINSICS.reflect.read(value, 'stack')
 		if (
 			brand !== value ||
 			!isStudyErrorCode(code) ||
 			typeof INTRINSICS.reflect.read(value, 'name') !== 'string' ||
-			typeof INTRINSICS.reflect.read(value, 'message') !== 'string'
+			typeof INTRINSICS.reflect.read(value, 'message') !== 'string' ||
+			(stack !== undefined && typeof stack !== 'string')
 		)
 			return false
 		if (failure === undefined) return true
@@ -79,8 +85,8 @@ export function isStudyError(value: unknown): value is StudyError {
 		return (
 			isStudyLayer(layer) &&
 			typeof id === 'string' &&
-			(max === undefined || isFiniteNumber(max)) &&
-			(consumed === undefined || isFiniteNumber(consumed))
+			(max === undefined || isNumber(max)) &&
+			(consumed === undefined || isNumber(consumed))
 		)
 	})
 }

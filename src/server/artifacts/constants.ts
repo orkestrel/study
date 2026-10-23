@@ -15,3 +15,23 @@ export const ARTIFACT_DEPTH = 64
 
 /** Bounds selected package roots before traversal begins. */
 export const ARTIFACT_ROOTS = 128
+import type { ArtifactErrorCode } from './types.js'
+
+/** Marks artifact errors across module formats and installations. */
+export const ARTIFACT_ERROR_BRAND = Symbol.for('@orkestrel/study.ArtifactError')
+
+/** Lists the artifact refusal codes. */
+export const ARTIFACT_ERROR_CODES: readonly ArtifactErrorCode[] = Object.freeze([
+	'ARTIFACT',
+	'TRAVERSAL',
+	'REDIRECT',
+	'ALIAS',
+	'NAME',
+	'DUPLICATE',
+	'OCCUPIED',
+	'OVERLAP',
+	'STALE',
+	'VOLUME',
+	'DRIFT',
+	'LIMIT',
+])

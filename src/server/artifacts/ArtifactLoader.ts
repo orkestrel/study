@@ -38,7 +38,7 @@ import { Resolution } from './Resolution.js'
 
 /** Captures built ESM and a separate strip-only consumer adapter in a fresh worker.
  * @remarks
- * Loads trusted code, not a hostile-code sandbox. Native process APIs, eval and external
+ * Loads trusted code without sandboxing untrusted code. Native process APIs, eval and external
  * services are not replayed. One inventory may load per process; terminate it afterwards.
  */
 export class ArtifactLoader implements ArtifactLoaderInterface {

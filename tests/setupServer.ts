@@ -1,11 +1,10 @@
 import type { BudgetError, BudgetErrorContext } from '@orkestrel/budget'
+import type { DistributionObservation, DistributionStage } from './setupDistribution.js'
 import type { StudyLaunchResult } from '../src/server/launchers/types.js'
 import type { ScratchInterface } from '@orkestrel/test/server'
 import type { ArtifactLoaderOptions } from '../src/server/artifacts/types.js'
 import type { ChildProcess } from 'node:child_process'
 import type { StudyDaemonFixture } from './src/server/commands/types.js'
-import { isArray, isInteger, isRecord, parseJSON } from '@orkestrel/contract'
-import { createScratch, isRunning } from '@orkestrel/test/server'
 import type {
 	StudyAttempt,
 	StudyCriterion,
@@ -41,37 +40,6 @@ import type {
 	StudyTaskFixture,
 	StudyTaskMode,
 } from './src/server/processes/types.js'
-import { requireValue, waitForCondition, waitForEvent, waitForDelay } from '@orkestrel/test'
-import { execFile, fork, spawn } from 'node:child_process'
-import { mkdirSync, readFileSync, realpathSync } from 'node:fs'
-import { writeFile } from 'node:fs/promises'
-import { dirname, join, relative, resolve } from 'node:path'
-import { createRequire, isBuiltin } from 'node:module'
-import { pathToFileURL } from 'node:url'
-import { build } from 'vite'
-import { mergeOverride, peers, srcCore, srcServer } from '../vite.config.js'
-import binConfig from '../configs/src/vite.bin.config.js'
-import { outputBoundary, resolveExternal } from '../configs/helpers.js'
-import { encodeStudyJSON, hashStudyBytes } from '../src/server/helpers.js'
-import { parseStudyProfile } from '../src/core/parsers.js'
-import {
-	isStudyCharge,
-	isStudyEvidence,
-	isStudyFrame,
-	isStudyIdentity,
-	isStudyProcessFailure,
-	isStudyTrial,
-} from '../src/server/processes/validators.js'
-import { StudyTask } from '../src/server/processes/StudyTask.js'
-import { STUDY_TASK_DURATION } from '../src/server/processes/constants.js'
-import { STUDY_LAUNCH_BYTES } from '../src/server/launchers/constants.js'
-import { collectStudyEvidence } from '../src/server/commands/helpers.js'
-import { StudyResultStore } from '../src/server/stores/StudyResultStore.js'
-import {
-	buildStudyPacket,
-	buildStudyPacketLinks,
-	readStudyResult,
-} from '../src/server/stores/helpers.js'
 import type { ProviderInterface } from '@orkestrel/agent'
 import type { StudyAgentDispatch } from '../src/core/agents/types.js'
 import type {
@@ -101,6 +69,52 @@ import type {
 	StudyMCPProxy,
 	StudySparseEvidence,
 } from './src/server/adapters/types.js'
+import {
+	DISTRIBUTION_FORMATS,
+	DISTRIBUTION_RESOLUTIONS,
+	checkDistributionProject,
+	filterDistributionEntries,
+	isDistributionRecord,
+	readDistributionJSON,
+	readDistributionOutput,
+	runDistributionNode,
+	runDistributionNpm,
+	writeDistributionFile,
+	writeDistributionProject,
+} from './setupDistribution.js'
+import { isArray, isInteger, isRecord, parseJSON } from '@orkestrel/contract'
+import { createScratch, isRunning } from '@orkestrel/test/server'
+import { requireValue, waitForCondition, waitForEvent, waitForDelay } from '@orkestrel/test'
+import { execFile, fork, spawn } from 'node:child_process'
+import { cpSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
+import { writeFile } from 'node:fs/promises'
+import { dirname, join, relative, resolve } from 'node:path'
+import { createRequire, isBuiltin } from 'node:module'
+import { pathToFileURL } from 'node:url'
+import { build } from 'vite'
+import { mergeOverride, peers, srcCore, srcServer } from '../vite.config.js'
+import binConfig from '../configs/src/vite.bin.config.js'
+import { outputBoundary, resolveExternal } from '../configs/helpers.js'
+import { encodeStudyJSON, hashStudyBytes } from '../src/server/helpers.js'
+import { parseStudyProfile } from '../src/core/parsers.js'
+import {
+	isStudyCharge,
+	isStudyEvidence,
+	isStudyFrame,
+	isStudyIdentity,
+	isStudyProcessFailure,
+	isStudyTrial,
+} from '../src/server/processes/validators.js'
+import { StudyTask } from '../src/server/processes/StudyTask.js'
+import { STUDY_TASK_DURATION } from '../src/server/processes/constants.js'
+import { STUDY_LAUNCH_BYTES } from '../src/server/launchers/constants.js'
+import { collectStudyEvidence } from '../src/server/commands/helpers.js'
+import { StudyResultStore } from '../src/server/stores/StudyResultStore.js'
+import {
+	buildStudyPacket,
+	buildStudyPacketLinks,
+	readStudyResult,
+} from '../src/server/stores/helpers.js'
 import { BudgetError as LocalBudgetError, isBudgetError } from '@orkestrel/budget'
 import { isObject } from '@orkestrel/contract'
 import { createOllama, extractTiming } from '@orkestrel/ollama'
@@ -2807,4 +2821,157 @@ export function createBudgetLookalike(): Error {
 		code: 'exhaust',
 		context: { id: 'foreign', max: 1, consumed: 2 },
 	})
+}
+
+/** Names the consumer's ESM core identity driver. */
+export const CORE_ESM_DRIVER = 'core.mjs'
+/** Names the consumer's CommonJS core identity driver. */
+export const CORE_CJS_DRIVER = 'core.cjs'
+/** Drives the server's refusal through the ESM root class. */
+export const CORE_ESM_DRIVER_SOURCE = `import { StudyError } from '@orkestrel/study'
+import { parseStudyArguments } from '@orkestrel/study/server'
+try { parseStudyArguments([]) } catch (error) {
+ process.stdout.write(JSON.stringify({ shared: error instanceof StudyError, code: error.code }))
+}
+`
+/** Drives the server's refusal through the CommonJS root class. */
+export const CORE_CJS_DRIVER_SOURCE = `const { StudyError } = require('@orkestrel/study')
+const { parseStudyArguments } = require('@orkestrel/study/server')
+try { parseStudyArguments([]) } catch (error) {
+ process.stdout.write(JSON.stringify({ shared: error instanceof StudyError, code: error.code }))
+}
+`
+
+/** Checks that server refusals share the root error class in each module format.
+ * @param stage - The installed consumer.
+ * @returns The observed core identities and codes.
+ */
+export function readStudyDistributionCore(stage: DistributionStage): readonly unknown[] {
+	return [
+		[CORE_ESM_DRIVER, CORE_ESM_DRIVER_SOURCE],
+		[CORE_CJS_DRIVER, CORE_CJS_DRIVER_SOURCE],
+	].map(([driver, source]) => {
+		if (driver === undefined || source === undefined) throw new Error('Missing core driver')
+		const path = join(stage.consumer, driver)
+		writeDistributionFile(path, source)
+		const result = runDistributionNode([path], stage.consumer)
+		if (result.status !== 0) throw new Error(readDistributionOutput(result))
+		return JSON.parse(result.stdout)
+	})
+}
+
+/** Reads the installed command's version through its npm shim.
+ * @param stage - The installed consumer.
+ * @returns The command output and the manifest's declared version.
+ */
+export function readStudyDistributionVersion(stage: DistributionStage): DistributionObservation {
+	const manifest = readDistributionJSON(join(stage.installed, 'package.json'))
+	if (!isDistributionRecord(manifest) || typeof manifest.version !== 'string')
+		throw new Error('The installed manifest declares no version')
+	const executable = join(
+		stage.consumer,
+		'node_modules',
+		'.bin',
+		process.platform === 'win32' ? 'study.cmd' : 'study',
+	)
+	const result = runDistributionNpm(
+		['exec', '--offline', '--no', '--loglevel=silent', '--', executable, '--version'],
+		stage.consumer,
+		stage.consumer,
+	)
+	return {
+		actual: { code: result.status, stdout: result.stdout, stderr: result.stderr },
+		expected: { code: 0, stdout: manifest.version + '\n', stderr: '' },
+	}
+}
+
+/** Checks the nominal control contract under every published consumer resolution.
+ * @param stage - The installed consumer.
+ * @returns The diagnostics and silent negative controls.
+ */
+export function checkStudyDistributionControl(stage: DistributionStage): readonly string[] {
+	return DISTRIBUTION_RESOLUTIONS.flatMap((driver) =>
+		DISTRIBUTION_FORMATS.flatMap(([extension, format]) => {
+			if (filterDistributionEntries(stage.entries, driver.conditions[format]).length === 0)
+				return []
+			const label = driver.label + '.' + extension
+			const valid = 'study-control.' + label
+			const invalid = 'study-invalid-control.' + label
+			writeDistributionFile(
+				join(stage.consumer, valid),
+				"import { StudyControl } from '@orkestrel/study'\nimport type { StudyChannel, StudyRemoteMeterOptions } from '@orkestrel/study/server'\ndeclare const channel: StudyChannel\nexport const options: StudyRemoteMeterOptions = { channel, control: new StudyControl() }\n",
+			)
+			writeDistributionFile(
+				join(stage.consumer, invalid),
+				"import type { StudyChannel, StudyRemoteMeterOptions } from '@orkestrel/study/server'\ndeclare const channel: StudyChannel\nexport const options: StudyRemoteMeterOptions = { channel, control: new Map() }\n",
+			)
+			return [
+				...checkDistributionProject(
+					stage,
+					writeDistributionProject(stage, valid, driver, ['./' + valid]),
+				).map((message) => label + ': ' + message),
+				...(checkDistributionProject(
+					stage,
+					writeDistributionProject(stage, invalid, driver, ['./' + invalid]),
+				).length === 0
+					? [label + ': invalid control accepted']
+					: []),
+			]
+		}),
+	)
+}
+
+/** Defines the consumer's error recognition checks across formats and duplicate paths. */
+export const STUDY_DISTRIBUTION_ERROR_SOURCE = `import { createRequire } from 'node:module'
+import { pathToFileURL } from 'node:url'
+import { join } from 'node:path'
+const require = createRequire(import.meta.url)
+const imported = await import('@orkestrel/study')
+const required = require('@orkestrel/study')
+const server = await import('@orkestrel/study/server')
+const common = require('@orkestrel/study/server')
+const duplicate = process.argv[2]
+const coreCopy = await import(pathToFileURL(join(duplicate, 'dist/src/core/index.js')).href)
+const coreRequired = require(join(duplicate, 'dist/src/core/index.cjs'))
+const serverCopy = await import(pathToFileURL(join(duplicate, 'dist/src/server/index.js')).href)
+const serverRequired = require(join(duplicate, 'dist/src/server/index.cjs'))
+const pairs = [
+	[imported, required, 'StudyError', 'isStudyError', ['CONFIG', 'Refused'], '@orkestrel/study.error'],
+	[imported, coreCopy, 'StudyError', 'isStudyError', ['CONFIG', 'Refused'], '@orkestrel/study.error'],
+	[required, coreRequired, 'StudyError', 'isStudyError', ['CONFIG', 'Refused'], '@orkestrel/study.error'],
+	[server, common, 'ArtifactError', 'isArtifactError', ['Refused', 'DRIFT'], '@orkestrel/study.ArtifactError'],
+	[server, serverCopy, 'ArtifactError', 'isArtifactError', ['Refused', 'DRIFT'], '@orkestrel/study.ArtifactError'],
+	[common, serverRequired, 'ArtifactError', 'isArtifactError', ['Refused', 'DRIFT'], '@orkestrel/study.ArtifactError'],
+]
+const checks = pairs.flatMap(([first, second, name, guard, args, brand]) => [[first, second], [second, first]].map(([owner, reader]) => {
+	const error = new owner[name](...args)
+	class Derived extends owner[name] { constructor() { super(...args); this.name = 'Derived' } }
+	const lookalike = Object.assign(new Error('Look-alike'), { code: error.code })
+	const plain = {}
+	Object.defineProperty(plain, Symbol.for(brand), { value: plain })
+	return { cross: reader[guard](error), subclass: reader[guard](new Derived()), lookalike: reader[guard](lookalike), proxy: reader[guard](new Proxy(error, {})), plain: reader[guard](plain) }
+}))
+const failure = { cause: 'capacity', message: 'Context full', role: 'agent' }
+process.stdout.write(JSON.stringify({
+	distinct: pairs.every(([first, second, name]) => first[name] !== second[name]), checks,
+	capacity: imported.readStudyFailure(new required.StudyError('CAPACITY', 'Required capacity')),
+	deadline: required.readStudyFailure(new imported.StudyError('DEADLINE', 'Imported deadline')),
+	retained: imported.readStudyFailure(new required.StudyError('FAULT', 'Rejected', failure)) === failure,
+}))
+`
+
+/** Reads error recognition from independently loaded copies of the packed files.
+ * @param stage - The installed consumer.
+ * @returns The driver's observed guard decisions and failure attribution.
+ */
+export function readStudyDistributionErrors(stage: DistributionStage): unknown {
+	const duplicate = join(stage.consumer, 'node_modules', '@orkestrel', 'study-copy')
+	mkdirSync(duplicate, { recursive: true })
+	cpSync(join(stage.installed, 'package.json'), join(duplicate, 'package.json'))
+	cpSync(join(stage.installed, 'dist'), join(duplicate, 'dist'), { recursive: true })
+	const path = join(stage.consumer, 'study-errors.mjs')
+	writeDistributionFile(path, STUDY_DISTRIBUTION_ERROR_SOURCE)
+	const result = runDistributionNode([path, duplicate], stage.consumer)
+	if (result.status !== 0) throw new Error(readDistributionOutput(result))
+	return JSON.parse(result.stdout)
 }

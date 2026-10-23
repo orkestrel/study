@@ -33,7 +33,7 @@ describe('buildStudyOllamaTransportOptions', () => {
 			exchanges: new OllamaExchangeRecorder(),
 		})
 		const owned = buildStudyOllamaTransportOptions(caller)
-		expect(reads.count).toBe(1)
+		expect(reads.calls).toEqual([[]])
 		Reflect.set(step, 'body', 'changed')
 		Reflect.set(policy.options, 'seed', 2)
 		Reflect.set(caller.metadata, 'calls', 1)
@@ -61,7 +61,7 @@ describe('buildStudyOllamaTransportOptions', () => {
 			},
 		})
 		const owned = buildStudyOllamaTransportOptions(caller)
-		expect(reads.count).toBe(1)
+		expect(reads.calls).toEqual([[]])
 		expect(owned.fetch).toBe(fetch)
 		expect(Object.isFrozen(owned.fetch)).toBe(false)
 		expect('fetch' in buildStudyOllamaTransportOptions(options)).toBe(false)

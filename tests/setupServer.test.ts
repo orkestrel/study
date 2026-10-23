@@ -245,6 +245,7 @@ describe('study server fixtures', () => {
 				throw failure
 			}),
 		).toThrow(failure)
+		expect(created.calls).toEqual([[expect.any(String)]])
 		const [path] = created.calls[0] ?? []
 		if (path === undefined) throw new Error('The writer never received the scratch')
 		expect(existsSync(path)).toBe(false)

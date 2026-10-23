@@ -48,7 +48,7 @@ describe('StudyOllamaReplay', () => {
 					body,
 				}),
 			).rejects.toThrow('Replay request differs from the next recorded exchange')
-			expect(sent.count).toBe(0)
+			expect(sent.calls).toEqual([])
 			expect(() => replay.check()).toThrow('Replay request differs from the next recorded exchange')
 		} finally {
 			await replay.close()
@@ -108,7 +108,7 @@ describe('StudyOllamaReplay', () => {
 					}),
 			).toThrow(/\S/)
 		}
-		expect(calls.count).toBe(0)
+		expect(calls.calls).toEqual([])
 	})
 	it('refuses completion until the response is read and the full prefix is consumed', async () => {
 		const history = buildStudyExchangeHistory()
@@ -155,7 +155,7 @@ describe('StudyOllamaReplay', () => {
 					body: 'changed',
 				}),
 			).rejects.toMatchObject({ code: 'FAULT' })
-			expect(sent.count).toBe(0)
+			expect(sent.calls).toEqual([])
 			expect(() => replay.check()).toThrow(/\S/)
 		} finally {
 			await replay.close()
@@ -215,7 +215,7 @@ describe('StudyOllamaReplay', () => {
 			expect(await (await replay.fetch('metadata', 'http://127.0.0.1:1/api/tags', {})).text()).toBe(
 				'live',
 			)
-			expect(sent.count).toBe(1)
+			expect(sent.calls).toEqual([['http://127.0.0.1:1/api/tags']])
 			expect(() => replay.check()).not.toThrow()
 		} finally {
 			await replay.close()
