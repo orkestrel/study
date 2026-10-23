@@ -1,6 +1,6 @@
 {
 	"name": "@orkestrel/study",
-	"version": "0.0.2",
+	"version": "0.0.3",
 	"description": "Runs declared comparative studies with admitted requests, sealed execution custody, and independent grading. Part of the @orkestrel line.",
 	"keywords": [
 		"agent",
