@@ -38,7 +38,13 @@ export class StudyLauncher {
 				if (this.#interruption.signal.aborted) return 130
 				return (await this.#launch(entry, arguments_, STUDY_LAUNCH_DURATION, true)).code
 			}
-			const check = ['check', request.target, '--profile', request.profile]
+			const check = [
+				'check',
+				request.target,
+				'--profile',
+				request.profile,
+				...(request.closure === undefined ? [] : ['--closure', request.closure]),
+			]
 			const reading = await this.#launch(entry, check, STUDY_LAUNCH_DURATION, false)
 			if (reading.code !== 0) {
 				process.stdout.write(reading.output)
@@ -64,6 +70,17 @@ export class StudyLauncher {
 				'--profile',
 				request.profile,
 				...(request.out === undefined ? [] : ['--out', request.out]),
+				...(request.closure === undefined ? [] : ['--closure', request.closure]),
+				...(request.replay === undefined
+					? []
+					: [
+							'--replay',
+							request.replay.result,
+							'--prefix',
+							JSON.stringify(request.replay.prefix),
+							'--offline',
+							String(request.replay.offline),
+						]),
 				'--expected',
 				value.fingerprint,
 			]

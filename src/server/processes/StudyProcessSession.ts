@@ -19,7 +19,12 @@ import { STUDY_LOG_BYTES, STUDY_PROCESS_LABEL, STUDY_WORKER_OPERATION } from './
 import { createStudyProcessFailure, drainStudyChild, valueToWire } from './helpers.js'
 import { StudyChannel } from './StudyChannel.js'
 import { StudyProcessGoal } from './StudyProcessGoal.js'
-import { isStudyCharge, isStudyEvidence, isStudyProcessFailure } from './validators.js'
+import {
+	isStudyCharge,
+	isStudyEvidence,
+	isStudyExchangeDestination,
+	isStudyProcessFailure,
+} from './validators.js'
 
 /** Keeps admission and evidence custody in the parent of one fresh trial process. */
 export class StudyProcessSession implements StudySessionInterface {
@@ -54,6 +59,14 @@ export class StudyProcessSession implements StudySessionInterface {
 		if (this.#control.failure !== undefined) throw failureToStudyError(this.#control.failure)
 		if (![this.#options.entry, this.#options.root, this.#options.directory].every(isAbsolute))
 			throw new StudyError('CONFIG', 'Study process paths must be absolute')
+		const destination = this.#options.exchanges?.[this.#options.trial.id]
+		if (
+			this.#options.profile.record === undefined
+				? destination !== undefined
+				: !isStudyExchangeDestination(destination) ||
+					destination.record.bytes !== this.#options.profile.record.bytes
+		)
+			throw new StudyError('CONFIG', 'Session recording differs from its reserved allowance')
 		const directory = await mkdtemp(join(this.#options.directory, 'trial-'))
 		if (this.#control.failure !== undefined) throw failureToStudyError(this.#control.failure)
 		const child = fork(this.#options.entry, [STUDY_WORKER_OPERATION], {

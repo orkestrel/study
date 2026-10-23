@@ -16,15 +16,26 @@ import { StudyAgentJudge } from '../../../../src/core/agents/StudyAgentJudge.js'
 import { StudyError } from '../../../../src/core/errors.js'
 import { readStudyFailure } from '../../../../src/core/engines/helpers.js'
 import { StudyOllamaTransport } from '../../../../src/server/ollama/StudyOllamaTransport.js'
+import { hashStudyBytes } from '../../../../src/server/helpers.js'
 import {
 	STUDY_AGENT_MESSAGES,
 	STUDY_JUDGE_REQUEST,
 	STUDY_OLLAMA_OPTIONS,
 	STUDY_OLLAMA_PARTIAL_ROW,
+	STUDY_OLLAMA_CAPTURE_LENGTHS,
+	STUDY_OLLAMA_RECORDING_FAILURES,
+	STUDY_OLLAMA_ADMISSION_CASES,
+	STUDY_OLLAMA_FORBIDDEN_STEPS,
+	STUDY_OLLAMA_METADATA_FAILURES,
+	STUDY_OLLAMA_POSTFLIGHT_FAILURES,
+	STUDY_OLLAMA_BYTE_FAILURES,
+	STUDY_OLLAMA_METADATA_REQUESTS,
+	STUDY_OLLAMA_CHARGED_FAILURES,
 	buildOllamaRow,
 	buildOllamaStream,
 	createOllamaJudgeFixture,
 	requireStudyRecord,
+	readOllamaDefault,
 } from '../../../setupStudy.js'
 import {
 	STUDY_OLLAMA_CHAT_BODY,
@@ -36,11 +47,579 @@ import {
 	createOllamaContext,
 	createOllamaTransportFixture,
 	createOllamaTransportProvider,
+	buildOllamaStep,
+	createOllamaRecordingFixture,
+	OllamaExchangeRecorder,
+	buildOllamaRoleBodies,
 } from '../../../setupServer.js'
 
 const encoder = new TextEncoder()
 
 describe('StudyOllamaTransport', () => {
+	describe('bounded exchange recording', () => {
+		it.each(STUDY_OLLAMA_CAPTURE_LENGTHS)(
+			'refuses invalid capture length %s before sending',
+			(bytes) => {
+				const step = buildOllamaStep()
+				Reflect.set(step, 'bytes', bytes)
+				expect(
+					captureError(
+						() =>
+							new StudyOllamaTransport(
+								buildOllamaTransportOptions('http://127.0.0.1:1', {
+									version: 'fixture-version',
+									procedure: [step],
+									exchanges: new OllamaExchangeRecorder(),
+								}),
+							),
+					),
+				).toMatchObject({ code: 'CONFIG' })
+			},
+		)
+
+		it.each(STUDY_OLLAMA_FORBIDDEN_STEPS)(
+			'refuses conflicting $admission declaration with undefined $field',
+			({ admission, field }) => {
+				const step = buildOllamaStep(admission)
+				Reflect.set(step, field, undefined)
+				expect(
+					captureError(
+						() =>
+							new StudyOllamaTransport(
+								buildOllamaTransportOptions('http://127.0.0.1:1', {
+									version: 'fixture-version',
+									procedure: [step],
+									exchanges: new OllamaExchangeRecorder(),
+								}),
+							),
+					),
+				).toMatchObject({ code: 'CONFIG' })
+			},
+		)
+
+		it.each(STUDY_OLLAMA_FORBIDDEN_STEPS)(
+			'refuses nonenumerable $field on $admission admission',
+			({ admission, field }) => {
+				const step = buildOllamaStep(admission)
+				Object.defineProperty(step, field, { value: undefined, enumerable: false })
+				expect(
+					captureError(
+						() =>
+							new StudyOllamaTransport(
+								buildOllamaTransportOptions('http://127.0.0.1:1', {
+									version: 'fixture-version',
+									procedure: [step],
+									exchanges: new OllamaExchangeRecorder(),
+								}),
+							),
+					),
+				).toMatchObject({ code: 'CONFIG' })
+			},
+		)
+
+		it('refuses a same-length changed exact body before any model send and keeps the refusal latched', async () => {
+			const body = `${STUDY_OLLAMA_CHAT_BODY.slice(0, -1)},"prompt":"first"}`
+			const fixture = await createOllamaRecordingFixture([buildOllamaStep('exact', body)])
+			try {
+				await fixture.transport.verify()
+				await expect(
+					fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+						method: 'POST',
+						body: body.replace('first', 'other'),
+					}),
+				).rejects.toMatchObject({ code: 'FAULT' })
+				expect(captureError(() => fixture.transport.check())).toMatchObject({ code: 'FAULT' })
+				expect(fixture.server.requests.some((row) => row.path === '/api/chat')).toBe(false)
+				expect(fixture.goal.usage()).toEqual([])
+			} finally {
+				await fixture.close()
+			}
+		})
+
+		it.each(STUDY_OLLAMA_ADMISSION_CASES)(
+			'refuses capture %s before a model send',
+			async (scenario) => {
+				const fixture = await createOllamaRecordingFixture([
+					buildOllamaStep(
+						'capture',
+						STUDY_OLLAMA_CHAT_BODY,
+						'agent',
+						1,
+						scenario === 'goal' ? 'second' : 'first',
+					),
+				])
+				try {
+					await fixture.transport.verify()
+					const body =
+						scenario === 'length'
+							? `${STUDY_OLLAMA_CHAT_BODY} `
+							: scenario === 'options'
+								? STUDY_OLLAMA_CHAT_BODY.replace('"seed":0', '"seed":1')
+								: STUDY_OLLAMA_CHAT_BODY
+					await expect(
+						fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+							method: 'POST',
+							body,
+						}),
+					).rejects.toBeDefined()
+					expect(fixture.server.requests.some((row) => row.path === '/api/chat')).toBe(false)
+				} finally {
+					await fixture.close()
+				}
+			},
+		)
+
+		it('records capture bytes matching the peer digest and exact Unicode CRLF reply before completing postflight', async () => {
+			const body = `${STUDY_OLLAMA_CHAT_BODY.slice(0, -1)},"prompt":"é café 🦉\r\n"}`
+				.replace(/\r/g, '\\r')
+				.replace(/\n/g, '\\n')
+			const reply = buildOllamaStream(['café 🦉', 'é']).replace(/\n/g, '\r\n')
+			const bytes = encoder.encode(reply)
+			const fixture = await createOllamaRecordingFixture(
+				[buildOllamaStep('capture', body)],
+				[
+					{
+						path: '/api/chat',
+						body: reply,
+						chunks: [bytes.slice(0, 77), bytes.slice(77, 79), bytes.slice(79)],
+					},
+				],
+			)
+			try {
+				await fixture.transport.verify()
+				const response = await fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+					method: 'POST',
+					body,
+				})
+				expect(await response.text()).toBe(reply)
+				await fixture.transport.verify()
+				const attempt = fixture.rows.find((row) => row.phase === 'attempt' && row.role === 'agent')
+				const retained = fixture.rows.find(
+					(row) => row.phase === 'response' && row.role === 'agent',
+				)
+				const peer = requireValue(fixture.server.requests.find((row) => row.path === '/api/chat'))
+				expect(attempt).toMatchObject({
+					phase: 'attempt',
+					ordinal: 5,
+					step: 1,
+					stage: 'execution',
+					body: Buffer.from(peer.body).toString('base64'),
+					digest: hashStudyBytes(peer.body),
+					size: Buffer.byteLength(body),
+				})
+				expect(retained).toMatchObject({
+					phase: 'response',
+					body: Buffer.from(reply).toString('base64'),
+					digest: hashStudyBytes(reply),
+					size: bytes.byteLength,
+				})
+				if (retained?.phase !== 'response') throw new Error('Missing recorded model response')
+				expect(retained.chunks.length).toBeGreaterThan(1)
+				expect(retained.chunks.reduce((total, length) => total + length, 0)).toBe(bytes.byteLength)
+				expect(fixture.rows.at(-1)).toEqual({ phase: 'complete', count: 9 })
+				expect(fixture.goal.usage().map(({ role }) => role)).toEqual(['agent'])
+				expect(fixture.server.requests.map(({ path }) => path)).toEqual([
+					'/api/version',
+					'/api/tags',
+					'/api/show',
+					'/api/show',
+					'/api/chat',
+					'/api/version',
+					'/api/tags',
+					'/api/show',
+					'/api/show',
+				])
+			} finally {
+				await fixture.close()
+			}
+		})
+
+		it.each(STUDY_OLLAMA_RECORDING_FAILURES)(
+			'records a failure without a response or completion for $name',
+			async ({ body }) => {
+				const fixture = await createOllamaRecordingFixture(undefined, [{ path: '/api/chat', body }])
+				try {
+					await fixture.transport.verify()
+					const response = await fixture.transport.fetch(
+						'agent',
+						`${fixture.server.url}/api/chat`,
+						{ method: 'POST', body: STUDY_OLLAMA_CHAT_BODY },
+					)
+					await expect(response.text()).rejects.toBeDefined()
+					expect(fixture.rows.some((row) => row.phase === 'failure' && row.role === 'agent')).toBe(
+						true,
+					)
+					expect(fixture.rows.some((row) => row.phase === 'response' && row.role === 'agent')).toBe(
+						false,
+					)
+					expect(fixture.rows.some((row) => row.phase === 'complete')).toBe(false)
+					expect(fixture.goal.usage()).toHaveLength(1)
+				} finally {
+					await fixture.close()
+				}
+			},
+		)
+
+		it('refuses a second request and verification while capture admission is awaiting its meter', async () => {
+			const entered = createRecorder<[]>()
+			const release = new AbortController()
+			const fixture = await createOllamaRecordingFixture()
+			try {
+				await fixture.transport.verify()
+				fixture.transport.clear()
+				fixture.transport.prepare({
+					goal: 'first',
+					checkpoint: undefined,
+					context: {
+						...fixture.goal.context,
+						meter: {
+							signal: fixture.goal.context.meter.signal,
+							get usage() {
+								return fixture.goal.context.meter.usage
+							},
+							admit: async (charge) => {
+								entered.handler()
+								await waitForAbort(release.signal)
+								return fixture.goal.context.meter.admit(charge)
+							},
+						},
+					},
+				})
+				const first = fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+					method: 'POST',
+					body: STUDY_OLLAMA_CHAT_BODY,
+				})
+				const outcome = first.catch((error: unknown) => error)
+				await waitForCondition('capture admission entered', () => entered.count === 1)
+				await expect(fixture.transport.verify()).rejects.toMatchObject({ code: 'FAULT' })
+				release.abort()
+				expect(await outcome).toMatchObject({ code: 'FAULT' })
+				expect(fixture.server.requests.some((row) => row.path === '/api/chat')).toBe(false)
+			} finally {
+				release.abort()
+				await fixture.close()
+			}
+		})
+
+		it('refuses postflight before all declared model steps finish', async () => {
+			const fixture = await createOllamaRecordingFixture()
+			try {
+				await fixture.transport.verify()
+				await expect(fixture.transport.verify()).rejects.toMatchObject({ code: 'FAULT' })
+				expect(fixture.server.requests.filter((row) => row.path === '/api/version')).toHaveLength(1)
+			} finally {
+				await fixture.close()
+			}
+		})
+
+		it.each(STUDY_OLLAMA_METADATA_FAILURES)(
+			'refuses $name metadata before any model send',
+			async ({ reply, metadata }) => {
+				const fixture = await createOllamaRecordingFixture(
+					undefined,
+					[reply],
+					metadata === undefined ? {} : { metadata },
+				)
+				try {
+					await expect(fixture.transport.verify()).rejects.toBeDefined()
+					expect(captureError(() => fixture.transport.check())).toBeDefined()
+					expect(fixture.goal.usage()).toEqual([])
+					expect(fixture.server.requests.some((row) => row.path === '/api/chat')).toBe(false)
+					expect(fixture.rows.some((row) => row.phase === 'failure')).toBe(true)
+					expect(fixture.rows.some((row) => row.phase === 'complete')).toBe(false)
+				} finally {
+					await fixture.close()
+				}
+			},
+		)
+
+		it.each(STUDY_OLLAMA_POSTFLIGHT_FAILURES)(
+			'refuses $name in postflight and preserves completed model charges',
+			async ({ reply }) => {
+				const fixture = await createOllamaRecordingFixture(undefined, [
+					{ path: reply.path, body: readOllamaDefault(reply.path) },
+					reply,
+				])
+				try {
+					await fixture.transport.verify()
+					const response = await fixture.transport.fetch(
+						'agent',
+						`${fixture.server.url}/api/chat`,
+						{ method: 'POST', body: STUDY_OLLAMA_CHAT_BODY },
+					)
+					await response.text()
+					await expect(fixture.transport.verify()).rejects.toMatchObject({ code: 'FAULT' })
+					expect(fixture.goal.usage()).toHaveLength(1)
+					expect(fixture.rows.at(-1)).toMatchObject({
+						phase: 'failure',
+						role: 'metadata',
+						stage: 'postflight',
+					})
+					expect(fixture.rows.some((row) => row.phase === 'complete')).toBe(false)
+				} finally {
+					await fixture.close()
+				}
+			},
+		)
+
+		it.each(STUDY_OLLAMA_BYTE_FAILURES)(
+			'retains failed raw bytes without a manufactured response for %j',
+			async (reply) => {
+				const fixture = await createOllamaRecordingFixture(undefined, [reply])
+				try {
+					await fixture.transport.verify()
+					const response = await fixture.transport.fetch(
+						'agent',
+						`${fixture.server.url}/api/chat`,
+						{ method: 'POST', body: STUDY_OLLAMA_CHAT_BODY },
+					)
+					await expect(response.text()).rejects.toBeDefined()
+					const failure = fixture.rows.find(
+						(row) => row.phase === 'failure' && row.role === 'agent',
+					)
+					expect(failure).toMatchObject({
+						phase: 'failure',
+						ordinal: 5,
+						response: { body: Buffer.concat(reply.chunks ?? []).toString('base64') },
+					})
+					expect(fixture.rows.some((row) => row.phase === 'response' && row.role === 'agent')).toBe(
+						false,
+					)
+					expect(fixture.goal.usage()).toHaveLength(1)
+				} finally {
+					await fixture.close()
+				}
+			},
+		)
+
+		it('records every model role body and ordered metadata without spending model quota on metadata', async () => {
+			const bodies = buildOllamaRoleBodies()
+			const fixture = await createOllamaRecordingFixture(
+				bodies.map(([role, body], index) =>
+					buildOllamaStep(role === 'summary' ? 'capture' : 'exact', body, role, index + 1),
+				),
+			)
+			try {
+				await fixture.transport.verify()
+				for (const [role, body] of bodies) {
+					const response = await fixture.transport.fetch(
+						role,
+						`${fixture.server.url}${role === 'judge' ? '/api/generate' : '/api/chat'}`,
+						{ method: 'POST', body },
+					)
+					await response.text()
+				}
+				await fixture.transport.verify()
+				const attempts = fixture.rows.filter((row) => row.phase === 'attempt')
+				expect(attempts.map((row) => Buffer.from(row.body, 'base64').toString('utf8'))).toEqual(
+					fixture.server.requests.map((row) => row.body),
+				)
+				expect(attempts.map((row) => row.role)).toEqual([
+					'metadata',
+					'metadata',
+					'metadata',
+					'metadata',
+					'agent',
+					'summary',
+					'judge',
+					'metadata',
+					'metadata',
+					'metadata',
+					'metadata',
+				])
+				expect(fixture.goal.usage().map((row) => row.role)).toEqual(['agent', 'summary', 'judge'])
+				const dispatches = fixture.goal.evidence
+					.filter((row) => row.event === 'dispatch')
+					.map((row) => requireStudyRecord(row.value).ordinal)
+				const wires = fixture.goal.evidence
+					.filter((row) => row.event === 'wire')
+					.map((row) => requireStudyRecord(row.value).ordinal)
+				expect(dispatches).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+				expect(wires).toEqual(dispatches)
+			} finally {
+				await fixture.close()
+			}
+		})
+
+		it('keeps the admitted capture charge and failure row when a collaborator send aborts and arrives late', async () => {
+			const entered = createRecorder<[]>()
+			const cancelled = createRecorder<readonly [unknown]>()
+			const caller = new AbortController()
+			const release = new AbortController()
+			const reason = new Error('Capture collaborator aborted')
+			const fixture = await createOllamaRecordingFixture(undefined, [], {
+				fetch: async (role, input, init) => {
+					if (role === 'metadata') return globalThis.fetch(input, init)
+					entered.handler()
+					await waitForAbort(release.signal)
+					return new Response(
+						new ReadableStream<Uint8Array>({
+							cancel: (error: unknown) => cancelled.handler(error),
+						}),
+					)
+				},
+			})
+			try {
+				await fixture.transport.verify()
+				const sending = fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+					method: 'POST',
+					body: STUDY_OLLAMA_CHAT_BODY,
+					signal: caller.signal,
+				})
+				const outcome = sending.catch((error: unknown) => error)
+				await waitForCondition('capture collaborator send', () => entered.count === 1)
+				caller.abort(reason)
+				expect(await outcome).toBe(reason)
+				expect(fixture.goal.usage()).toEqual([
+					{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
+				])
+				expect(fixture.rows.at(-1)).toMatchObject({ phase: 'failure', role: 'agent', ordinal: 5 })
+				expect(fixture.rows.some((row) => row.phase === 'response' && row.role === 'agent')).toBe(
+					false,
+				)
+				release.abort()
+				await waitForCondition('late capture response cancellation', () => cancelled.count === 1)
+				expect(cancelled.calls).toEqual([[reason]])
+				expect(captureError(() => fixture.transport.check())).toBe(reason)
+			} finally {
+				release.abort()
+				await fixture.close()
+			}
+		})
+
+		it('refuses a second in-flight request while retaining the first attempted exchange', async () => {
+			const fixture = await createOllamaRecordingFixture(undefined, [
+				{ path: '/api/chat', body: STUDY_OLLAMA_PARTIAL_ROW, open: true },
+			])
+			try {
+				await fixture.transport.verify()
+				const response = await fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+					method: 'POST',
+					body: STUDY_OLLAMA_CHAT_BODY,
+				})
+				await expect(
+					fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+						method: 'POST',
+						body: STUDY_OLLAMA_CHAT_BODY,
+					}),
+				).rejects.toMatchObject({ code: 'FAULT' })
+				await response.body?.cancel(new Error('End held response'))
+				expect(fixture.server.requests.filter((row) => row.path === '/api/chat')).toHaveLength(1)
+				expect(fixture.rows.at(-1)).toMatchObject({ phase: 'failure', role: 'agent' })
+			} finally {
+				await fixture.close()
+			}
+		})
+
+		it.each(STUDY_OLLAMA_METADATA_REQUESTS)(
+			'refuses a metadata route or body before any peer send: %j',
+			async ({ path, init }) => {
+				const fixture = await createOllamaRecordingFixture()
+				try {
+					await expect(
+						fixture.transport.fetch('metadata', `${fixture.server.url}${path}`, init),
+					).rejects.toMatchObject({ code: 'CONFIG' })
+					expect(fixture.server.requests).toEqual([])
+					expect(fixture.goal.usage()).toEqual([])
+				} finally {
+					await fixture.close()
+				}
+			},
+		)
+
+		it.each(STUDY_OLLAMA_CHARGED_FAILURES)(
+			'retains charged failure without a response or completion for $name',
+			async ({ status, body }) => {
+				const fixture = await createOllamaRecordingFixture(
+					undefined,
+					[{ path: '/api/chat', body, status }],
+					{ limit: { duration: 2000, bytes: 1024 } },
+				)
+				try {
+					await fixture.transport.verify()
+					await expect(
+						fixture.transport
+							.fetch('agent', `${fixture.server.url}/api/chat`, {
+								method: 'POST',
+								body: STUDY_OLLAMA_CHAT_BODY,
+							})
+							.then((response) => response.text()),
+					).rejects.toBeDefined()
+					expect(fixture.goal.usage()).toHaveLength(1)
+					expect(fixture.goal.usage()[0]).toMatchObject({ role: 'agent', calls: 1 })
+					expect(fixture.rows.at(-1)).toMatchObject({ phase: 'failure', role: 'agent', ordinal: 5 })
+					expect(fixture.rows.some((row) => row.phase === 'response' && row.role === 'agent')).toBe(
+						false,
+					)
+					expect(fixture.rows.some((row) => row.phase === 'complete')).toBe(false)
+					expect(captureError(() => fixture.transport.check())).toBeDefined()
+				} finally {
+					await fixture.close()
+				}
+			},
+		)
+
+		it('attributes the captured body cap before admission', async () => {
+			const body = `${STUDY_OLLAMA_CHAT_BODY.slice(0, -1)},"prompt":"${'x'.repeat(2048)}"}`
+			const fixture = await createOllamaRecordingFixture([buildOllamaStep('capture', body)], [], {
+				limit: { duration: 2000, bytes: 1024 },
+			})
+			try {
+				await fixture.transport.verify()
+				await expect(
+					fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+						method: 'POST',
+						body,
+					}),
+				).rejects.toMatchObject({
+					code: 'CAPACITY',
+					failure: { role: 'agent', stop: { id: 'Wire bytes' } },
+				})
+				expect(fixture.goal.usage()).toEqual([])
+				expect(fixture.server.requests.some((row) => row.path === '/api/chat')).toBe(false)
+			} finally {
+				await fixture.close()
+			}
+		})
+
+		it('keeps metadata call exhaustion separate from model quotas', async () => {
+			const limited = await createOllamaRecordingFixture(undefined, [], {
+				metadata: { calls: 3, bytes: 1048576, duration: 2000 },
+			})
+			try {
+				await expect(limited.transport.verify()).rejects.toMatchObject({
+					code: 'CAPACITY',
+					failure: { role: 'metadata' },
+				})
+				expect(limited.server.requests).toHaveLength(3)
+				expect(limited.goal.usage()).toEqual([])
+			} finally {
+				await limited.close()
+			}
+		})
+
+		it('excludes model execution time from the independent metadata duration', async () => {
+			const fixture = await createOllamaRecordingFixture(
+				undefined,
+				[{ path: '/api/chat', body: buildOllamaRow(), pause: 500 }],
+				{ metadata: { calls: 32, bytes: 1048576, duration: 400 } },
+			)
+			try {
+				await fixture.transport.verify()
+				const response = await fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+					method: 'POST',
+					body: STUDY_OLLAMA_CHAT_BODY,
+				})
+				await response.text()
+				await fixture.transport.verify()
+				expect(fixture.rows.at(-1)).toEqual({ phase: 'complete', count: 9 })
+				expect(fixture.goal.usage().map((row) => row.role)).toEqual(['agent'])
+			} finally {
+				await fixture.close()
+			}
+		})
+	})
+
 	it('forwards exact validated agent and summary requests to the collaborator with one shared model', async () => {
 		const calls = createRecorder<Parameters<StudyOllamaFetchFunction>>()
 		const fixture = await createOllamaTransportFixture([], {
@@ -171,12 +750,7 @@ describe('StudyOllamaTransport', () => {
 					([, , init]) => init.redirect === 'error' && init.signal instanceof AbortSignal,
 				),
 			).toBe(true)
-			expect(fixture.goal.usage().map(({ role }) => role)).toEqual([
-				'metadata',
-				'metadata',
-				'metadata',
-				'judge',
-			])
+			expect(fixture.goal.usage().map(({ role }) => role)).toEqual(['judge'])
 			const wire = requireValue(fixture.goal.evidence.findLast((row) => row.event === 'wire'))
 			expect(requireStudyRecord(wire.value)).toMatchObject({
 				role: 'judge',
@@ -585,11 +1159,7 @@ describe('StudyOllamaTransport', () => {
 				{ model: 'a'.repeat(64), judge: 'b'.repeat(64) },
 			])
 			const usage = fixture.goal.usage().map(({ role, tokens }) => [role, tokens])
-			expect(usage).toEqual([
-				['metadata', 0],
-				['metadata', 0],
-				['metadata', 0],
-			])
+			expect(usage).toEqual([])
 		} finally {
 			await fixture.close()
 		}
@@ -614,9 +1184,7 @@ describe('StudyOllamaTransport', () => {
 				message: 'Serving inventory does not match the required model digest',
 			})
 			expect(fixture.goal.evidence.some((row) => row.event === 'inventory')).toBe(false)
-			expect(fixture.goal.usage()).toEqual([
-				{ role: 'metadata', calls: 1, tokens: undefined, bytes: undefined },
-			])
+			expect(fixture.goal.usage()).toEqual([])
 		} finally {
 			await fixture.close()
 		}
@@ -1574,7 +2142,7 @@ describe('transport stop chain', () => {
 			).rejects.toMatchObject({
 				failure: {
 					cause: 'capacity',
-					role: undefined,
+					role: 'agent',
 					stop: {
 						layer: 'scope',
 						id: 'Wire bytes',

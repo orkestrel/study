@@ -1,12 +1,102 @@
 import { createScratch, destroyScratch } from '@orkestrel/test/server'
 import { closeSync, openSync, opendirSync } from 'node:fs'
+import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { ArtifactError, isArtifactError } from '../../../../src/server/artifacts/errors.js'
 import {
 	iterateArtifactEntries,
 	readArtifact,
 	readArtifactBytes,
+	matchesArtifactCredential,
+	readArtifactPhysical,
+	resolveArtifactMember,
+	resolveArtifactBase,
+	relocateArtifactPath,
+	computeArtifactClosureDigest,
+	verifyArtifactClosure,
 } from '../../../../src/server/artifacts/helpers.js'
+import { ArtifactLoader } from '../../../../src/server/artifacts/ArtifactLoader.js'
+import {
+	ARTIFACT_BENIGN_NAMES,
+	ARTIFACT_CREDENTIAL_NAMES,
+	ARTIFACT_REFUSED_KEYS,
+	ARTIFACT_CLOSURE_FILES,
+	buildArtifactClosureOptions,
+} from '../../../setupServer.js'
+
+it('refuses exact credential names and portable key hazards before reading while retaining benign case variants', () => {
+	for (const name of ARTIFACT_REFUSED_KEYS.flatMap((part) => [part, part.toUpperCase()])) {
+		expect(() => resolveArtifactMember(process.cwd(), name)).toThrow(ArtifactError)
+	}
+	for (const name of ARTIFACT_CREDENTIAL_NAMES)
+		expect(() => readArtifactPhysical(join(process.cwd(), 'nonexistent', name))).toThrow(
+			ArtifactError,
+		)
+	for (const name of ARTIFACT_BENIGN_NAMES.flatMap((part) => [part, part.toUpperCase()])) {
+		expect(matchesArtifactCredential(name)).toBe(false)
+		expect(resolveArtifactMember(process.cwd(), `plain/${name}/plain.txt`)).toBe(
+			join(process.cwd(), 'plain', name, 'plain.txt'),
+		)
+	}
+	expect(matchesArtifactCredential('api-token.txt')).toBe(true)
+})
+
+it('admits benign credential-like physical ancestors in either case', () => {
+	const scratch = createScratch()
+	try {
+		for (const name of ARTIFACT_BENIGN_NAMES.flatMap((part) => [part, part.toUpperCase()])) {
+			const path = scratch.ensure(join(Buffer.from(name).toString('hex'), name, 'plain'))
+			expect(readArtifactPhysical(path).isDirectory()).toBe(true)
+		}
+	} finally {
+		scratch.destroy()
+	}
+})
+
+it('verifies complete independent membership and portable keys and excludes provenance from the digest', async () => {
+	const scratch = createScratch({ files: ARTIFACT_CLOSURE_FILES })
+	try {
+		const closure = await new ArtifactLoader(buildArtifactClosureOptions(scratch)).materialize(
+			join(scratch.path, 'copy'),
+		)
+		verifyArtifactClosure(closure)
+		expect(resolveArtifactBase(closure.members.map((member) => member.source))).toBe(
+			join(scratch.path, 'subject'),
+		)
+		expect(relocateArtifactPath(closure, join(scratch.path, 'subject'))).toBe(closure.destination)
+		expect(() => relocateArtifactPath(closure, scratch.path)).toThrow(/traverses/)
+		const inventory = new ArtifactLoader(closure.options).inspect()
+		expect(
+			computeArtifactClosureDigest(closure.members, inventory.packages, closure.destination),
+		).toBe(closure.digest)
+		expect(
+			computeArtifactClosureDigest(
+				closure.members.map((member) => ({ ...member, source: 'ignored-provenance' })),
+				inventory.packages,
+				closure.destination,
+			),
+		).toBe(closure.digest)
+		const member = closure.members[0]
+		if (member === undefined) throw new Error('Missing copied member')
+		expect(() =>
+			verifyArtifactClosure({ ...closure, members: [...closure.members, member] }),
+		).toThrow(/duplicated/)
+		for (const key of ARTIFACT_REFUSED_KEYS)
+			expect(() =>
+				verifyArtifactClosure({
+					...closure,
+					members: [{ ...member, key }, ...closure.members.slice(1)],
+				}),
+			).toThrow(ArtifactError)
+		scratch.write('copy/closure.json', '{}')
+		expect(() => verifyArtifactClosure(closure)).toThrow(/membership/)
+		verifyArtifactClosure(closure, true)
+		scratch.write('copy/other.json', '{}')
+		expect(() => verifyArtifactClosure(closure, true)).toThrow(/membership/)
+	} finally {
+		await destroyScratch(scratch)
+	}
+})
 
 it('fills a buffer from the file position it continues at and returns only the bytes before an early end of file', async () => {
 	const scratch = createScratch()

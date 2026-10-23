@@ -86,3 +86,54 @@ describe('study command arguments', () => {
 		})
 	})
 })
+it('parses freeze, closure and an explicit replay selection without defaulting its bounds', () => {
+	expect(
+		parseStudyArguments(['freeze', 'files', '--profile', 'local', '--to', 'closure']),
+	).toMatchObject({ command: 'freeze', destination: 'closure' })
+	expect(parseStudyArguments(['check', 'files', '--closure', 'closure'])).toMatchObject({
+		command: 'check',
+		closure: 'closure',
+	})
+	expect(
+		parseStudyArguments([
+			'execute',
+			'files',
+			'--replay',
+			'retained',
+			'--prefix',
+			'{"trial":7}',
+			'--offline',
+			'true',
+		]),
+	).toMatchObject({ replay: { result: 'retained', prefix: { trial: 7 }, offline: true } })
+	expect(() => parseStudyArguments(['execute', 'files', '--replay', 'retained'])).toThrow(
+		/--replay/,
+	)
+	expect(() =>
+		parseStudyArguments(['execute', 'files', '--prefix', '{}', '--offline', 'true']),
+	).toThrow(/--replay/)
+	expect(() =>
+		parseStudyArguments([
+			'execute',
+			'files',
+			'--replay',
+			'retained',
+			'--prefix',
+			'{"trial":0}',
+			'--offline',
+			'true',
+		]),
+	).toThrow(/--prefix/)
+	expect(() =>
+		parseStudyArguments([
+			'execute',
+			'files',
+			'--replay',
+			'retained',
+			'--prefix',
+			'{"trial":7}',
+			'--offline',
+			'yes',
+		]),
+	).toThrow(/--offline/)
+})

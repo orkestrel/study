@@ -1,6 +1,7 @@
 import type { StudyAttempt, StudyManifest, StudySinkInterface, StudyTrial } from '@src/core'
 import type {
 	StudyCustodyPhase,
+	StudyExchangeDestination,
 	StudyResultStoreOptions,
 	StudyResultStoreInterface,
 	StudySeal,
@@ -17,6 +18,7 @@ import {
 	computeStudySealId,
 	readStudyBytes,
 	readStudyResult,
+	readStudyTrialExchanges,
 	scanStudyExecution,
 	validateStudyEvidenceBytes,
 	writeStudyBytes,
@@ -30,6 +32,7 @@ export class StudyResultStore implements StudyResultStoreInterface {
 	readonly #manifest: StudyManifest
 	readonly #trials = new Map<string, StudyTrialCustody>()
 	readonly #starting = new Set<string>()
+	readonly #exchanges = new Map<string, StudyExchangeDestination>()
 	#phase: StudyCustodyPhase = 'new'
 	#bytes = 0
 
@@ -73,6 +76,32 @@ export class StudyResultStore implements StudyResultStoreInterface {
 		}
 	}
 
+	/** Reserves a trial's entire exchange allowance before any worker starts.
+	 * @param trial - The exact scheduled trial whose manifest declares recording.
+	 * @returns Its exclusive sidecar destination, without creating the trial directory.
+	 */
+	async exchanges(trial: StudyTrial): Promise<StudyExchangeDestination> {
+		const scheduled = this.#manifest.schedule.find((entry) => entry.id === trial.id)
+		if (
+			this.#phase !== 'ready' ||
+			!isStudyCustodyTrial(trial) ||
+			scheduled === undefined ||
+			this.#manifest.record === undefined ||
+			canonicalStringify(scheduled) !== canonicalStringify(trial) ||
+			this.#exchanges.has(trial.id) ||
+			this.#trials.has(trial.id) ||
+			this.#starting.has(trial.id)
+		)
+			throw new StudyError('CUSTODY', 'Trial sidecar cannot be reserved')
+		this.#reserve(this.#manifest.record.bytes)
+		const destination = Object.freeze({
+			path: join(this.#directory, 'execution', 'trials', scheduled.id, 'exchanges.jsonl'),
+			record: Object.freeze({ ...this.#manifest.record }),
+		})
+		this.#exchanges.set(scheduled.id, destination)
+		return destination
+	}
+
 	/**
 	 * Exclusively creates the evidence sink for an exact scheduled trial.
 	 * @param trial - The scheduled trajectory
@@ -92,6 +121,7 @@ export class StudyResultStore implements StudyResultStoreInterface {
 		if (
 			scheduled === undefined ||
 			scenario === undefined ||
+			(this.#manifest.record !== undefined && !this.#exchanges.has(trial.id)) ||
 			canonicalStringify(scheduled) !== canonicalStringify(trial)
 		)
 			throw new StudyError('CUSTODY', 'Trial differs from the execution schedule')
@@ -168,9 +198,18 @@ export class StudyResultStore implements StudyResultStoreInterface {
 			)
 				throw new StudyError('CUSTODY', 'Execution changed before sealing')
 			const files = await scanStudyExecution(join(this.#directory, 'execution'), this.#manifest)
-			if (files.length !== 1 + this.#manifest.schedule.length * 2)
+			if (
+				files.length !==
+				1 + this.#manifest.schedule.length * (this.#manifest.record === undefined ? 2 : 3)
+			)
 				throw new StudyError('CUSTODY', 'Execution inventory is incomplete')
 			for (const trial of this.#manifest.schedule) {
+				if (this.#manifest.record !== undefined) {
+					const file = files.find((entry) => entry.path === `trials/${trial.id}/exchanges.jsonl`)
+					if (file === undefined || !this.#exchanges.has(trial.id))
+						throw new StudyError('CUSTODY', 'Recorded trial has no reserved complete sidecar')
+					await readStudyTrialExchanges(this.#directory, this.#manifest, trial.id, file)
+				}
 				validateStudyEvidenceBytes(
 					await readStudyBytes(
 						join(this.#directory, 'execution', 'trials', trial.id, 'evidence.jsonl'),

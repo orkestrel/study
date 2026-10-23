@@ -37,7 +37,7 @@ export interface StudyResultStoreInterface extends StudyStoreInterface {
 	 * @param trial - A scheduled trial whose recording declaration is present.
 	 * @returns The destination after reserving its complete allowance from series custody.
 	 */
-	exchanges?(trial: StudyTrial): Promise<StudyExchangeDestination>
+	exchanges(trial: StudyTrial): Promise<StudyExchangeDestination>
 }
 
 /** Holds the parent-reserved destination of one trial's exchange sidecar.
@@ -186,6 +186,8 @@ export interface StudyExchangeHistory {
  * The first custody refusal remains latched and prevents completion even if the caller catches it.
  */
 export interface StudyExchangeSinkInterface {
+	/** Holds the next contiguous one-based HTTP ordinal, derived from every accepted row, including a retained prefix. */
+	readonly next: number
 	/** Appends one validated row after reserving its complete serialized size.
 	 * @param row - The next declaration, attempt, terminal, or completion in strict order.
 	 * @returns Completion after the bytes are retained; a refusal stays latched.

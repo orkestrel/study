@@ -31,6 +31,10 @@ it('omits undefined entries in order and keeps falsy declared values', () => {
 
 it('normalizes a profile so every undeclared optional role is absent and the declared order holds', () => {
 	const base = buildStudyProfile()
+	expect(normalizeStudyProfile({ ...base, record: undefined })).not.toHaveProperty('record')
+	expect(normalizeStudyProfile({ ...base, record: { bytes: 4096 } })).toHaveProperty('record', {
+		bytes: 4096,
+	})
 	const absent = normalizeStudyProfile(base)
 	expect(Object.keys(absent)).toEqual(['name', 'agent', 'subject', 'roots', 'bounds', 'room'])
 	const provider = {

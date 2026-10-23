@@ -1,4 +1,4 @@
-import { retainStudyFixture } from '../../../setupServer.js'
+import { retainStudyExchangeFixture, retainStudyFixture } from '../../../setupServer.js'
 import { createScratch } from '@orkestrel/test/server'
 import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -8,6 +8,8 @@ import type { StudyProduct } from '../../../../src/core/types.js'
 import { StudyResultStore } from '../../../../src/server/stores/StudyResultStore.js'
 import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
 import { readStudyResult } from '../../../../src/server/stores/helpers.js'
+import { readStudyExchanges } from '../../../../src/server/stores/helpers.js'
+import { STUDY_EXCHANGE_MUTATIONS } from '../../../setupStudy.js'
 import { StudyEvidenceSink } from '../../../../src/server/stores/StudyEvidenceSink.js'
 import {
 	buildCompactCustodyManifest,
@@ -22,6 +24,57 @@ import {
 } from '../../../setupStudy.js'
 
 describe('StudyResultStore', () => {
+	it('seals only complete joined exchange sidecars and reads them under their exact seal', async () => {
+		const scratch = createScratch()
+		try {
+			const fixture = await retainStudyExchangeFixture(join(scratch.path, 'recorded'))
+			await fixture.store.seal()
+			const result = await readStudyResult(fixture.directory)
+			if (result.status !== 'sealed') throw new Error('Fixture did not seal')
+			const trial = result.manifest.schedule[0]
+			if (trial === undefined) throw new Error('Missing trial')
+			const history = await readStudyExchanges(result, trial.id)
+			expect(history.exchanges.length).toBe(7)
+			expect(history.seal).toBe(result.seal.id)
+			await appendFile(join(result.directory, 'execution', history.file.path), 'changed')
+			await expect(readStudyExchanges(result, trial.id)).rejects.toMatchObject({ code: 'CUSTODY' })
+		} finally {
+			scratch.destroy()
+		}
+	})
+	it.each(STUDY_EXCHANGE_MUTATIONS)('refuses sealing %s exchange history', async (mutation) => {
+		const scratch = createScratch()
+		try {
+			const fixture = await retainStudyExchangeFixture(join(scratch.path, 'recorded'), mutation)
+			await expect(fixture.store.seal()).rejects.toMatchObject({ code: 'CUSTODY' })
+			expect(scratch.has('recorded/seal.json')).toBe(false)
+		} finally {
+			scratch.destroy()
+		}
+	})
+	it('refuses an unrecorded sidecar and a recorded trial without its sidecar, preserving unknown-file refusal', async () => {
+		const scratch = createScratch()
+		try {
+			const unrecorded = await retainStudyExchangeFixture(
+				join(scratch.path, 'unrecorded'),
+				'complete',
+				false,
+			)
+			await expect(unrecorded.store.seal()).rejects.toMatchObject({ code: 'CUSTODY' })
+			const missing = await retainStudyExchangeFixture(
+				join(scratch.path, 'missing'),
+				'complete',
+				true,
+				false,
+			)
+			await expect(missing.store.seal()).rejects.toMatchObject({ code: 'CUSTODY' })
+			const unknown = await retainStudyExchangeFixture(join(scratch.path, 'unknown'))
+			scratch.write('unknown/execution/unexpected.json', '{}')
+			await expect(unknown.store.seal()).rejects.toMatchObject({ code: 'CUSTODY' })
+		} finally {
+			scratch.destroy()
+		}
+	})
 	it('owns an exact scheduled trial by value across its filesystem awaits', async () => {
 		const scratch = createScratch()
 		const sinks: StudyEvidenceSink[] = []

@@ -40,6 +40,10 @@ import {
 	STUDY_AGENT_TOOLS,
 	STUDY_EXECUTION_CASES,
 	STUDY_OLLAMA_PROVIDER,
+	STUDY_OLLAMA_CAPTURE_LENGTHS,
+	STUDY_OLLAMA_RECORDING_FAILURES,
+	STUDY_OLLAMA_METADATA_FAILURES,
+	STUDY_OLLAMA_BYTE_FAILURES,
 	STUDY_PROFILE_SETTINGS,
 	STUDY_SCRIPT_CALL,
 	STUDY_SCRIPT_INVALID_RESPONSES,
@@ -683,5 +687,24 @@ describe('study settlement reader', () => {
 		const refused = Promise.reject(new Error('refused'))
 		expect(await readSettled(refused)).toBe(true)
 		await expect(refused).rejects.toThrow('refused')
+	})
+})
+
+describe('Ollama admission witness tables', () => {
+	it('retains invalid capture lengths, malformed terminals and raw invalid bytes', () => {
+		expect(STUDY_OLLAMA_CAPTURE_LENGTHS).toContain(1.5)
+		expect(STUDY_OLLAMA_CAPTURE_LENGTHS).toContain('2')
+		expect(STUDY_OLLAMA_CAPTURE_LENGTHS.some((value) => Object.is(value, -0))).toBe(true)
+		expect(
+			STUDY_OLLAMA_RECORDING_FAILURES.find((row) => row.name === 'nonfinite usage')?.body,
+		).toContain('1e999')
+		expect(STUDY_OLLAMA_METADATA_FAILURES.map((row) => row.name)).toEqual([
+			'wrong version',
+			'wrong digest',
+			'redirect',
+			'oversized reply',
+			'slow reply',
+		])
+		expect(STUDY_OLLAMA_BYTE_FAILURES[0]?.chunks?.[0]).toEqual(new Uint8Array([0xff, 10]))
 	})
 })

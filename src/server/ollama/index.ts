@@ -1,4 +1,6 @@
 export * from './types.js'
 export * from './helpers.js'
 export * from './cloners.js'
+export * from './validators.js'
 export * from './StudyOllamaTransport.js'
+export * from './StudyOllamaReplay.js'

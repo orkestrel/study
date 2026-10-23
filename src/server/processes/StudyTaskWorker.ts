@@ -13,6 +13,8 @@ import {
 import { arrayOf, isArray, isRecord, isString } from '@orkestrel/contract'
 import { dirname } from 'node:path'
 import { ArtifactLoader } from '../artifacts/ArtifactLoader.js'
+import { verifyArtifactClosure } from '../artifacts/helpers.js'
+import { isStudyClosure } from '../commands/validators.js'
 import { readStudyAdapter } from '../adapters/helpers.js'
 import { hashStudyBytes } from '../helpers.js'
 import { STUDY_CUSTODY_BYTES } from '../stores/constants.js'
@@ -63,6 +65,10 @@ export class StudyTaskWorker {
 			!isRecord(value.input)
 		)
 			throw new StudyError('CONFIG', 'Adapter request is malformed')
+		if (value.closure !== undefined && !isStudyClosure(value.closure))
+			throw new StudyError('CONFIG', 'Adapter closure selection is malformed')
+		const closure = value.closure
+		if (closure !== undefined) verifyArtifactClosure(closure.closure, true)
 		const runtime = resolveStudyInstrument(value.entry)
 		const roots = [...new Set([...value.roots, runtime])]
 		validateStudyRuntime(runtime, roots)
@@ -89,6 +95,7 @@ export class StudyTaskWorker {
 				? this.#grade(adapter, value.input)
 				: this.#validate(adapter, value.input, profile)
 		loader.verify()
+		if (closure !== undefined) verifyArtifactClosure(closure.closure, true)
 		return valueToWire({ instrument, value: output })
 	}
 

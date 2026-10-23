@@ -1,6 +1,7 @@
 import type { StudyGrading, StudyManifest } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
 import type { StudySealedResult } from '../stores/types.js'
+import type { StudyOllamaReplaySelection } from '../ollama/types.js'
 import type {
 	StudyCommandOptions,
 	StudyExecutionRequest,
@@ -9,6 +10,8 @@ import type {
 	StudyLabelRequest,
 	StudyPreparation,
 	StudyReportRequest,
+	StudyFreezeRequest,
+	StudyClosure,
 } from './types.js'
 import {
 	StudyError,
@@ -21,9 +24,9 @@ import {
 	StudySeries,
 	isStudyJudgment,
 } from '@src/core'
-import { arrayOf, isArray, isString, parseJSON } from '@orkestrel/contract'
+import { arrayOf, canonicalStringify, isArray, isString, parseJSON } from '@orkestrel/contract'
 import { randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, resolve } from 'node:path'
 import { StudyArtifactLoader } from '../processes/StudyArtifactLoader.js'
 import { StudyProcessDriver } from '../processes/StudyProcessDriver.js'
@@ -31,9 +34,11 @@ import {
 	computeStudyInstrumentDigest,
 	computeStudyProfileDigest,
 	resolveStudyInstrument,
+	readStudyReplayHistory,
 	valueToWire,
 } from '../processes/helpers.js'
 import { ArtifactLoader } from '../artifacts/ArtifactLoader.js'
+import { relocateArtifactPath, verifyArtifactClosure } from '../artifacts/helpers.js'
 import { decodeStudyJSON, encodeStudyJSON, hashStudyBytes, matchesSystemError } from '../helpers.js'
 import { STUDY_CUSTODY_BYTES, STUDY_PACKET_DISCLOSURE } from '../stores/constants.js'
 import {
@@ -57,8 +62,10 @@ import {
 	resolveStudyProfile,
 	readStudyDeclaration,
 	readStudyDeclarationBytes,
+	readStudyClosure,
 } from './helpers.js'
 import { parseStudyArguments } from './parsers.js'
+import { isStudyReplaySelection } from '../processes/validators.js'
 
 /** Executes validated study operations with execution and grading custody kept independent. */
 export class StudyCommand {
@@ -86,20 +93,124 @@ export class StudyCommand {
 		signal.throwIfAborted()
 		if (request.command === 'check') return this.#check(await this.#prepare(request, signal))
 		if (request.command === 'execute') return this.#execution(request, signal)
+		if (request.command === 'freeze') return this.#freeze(request, signal)
 		if (request.command === 'grade') return this.#grade(request, signal)
 		if (request.command === 'label') return this.#label(request, signal)
 		if (request.command === 'report') return this.#report(request, signal)
 		throw new StudyError('CONFIG', 'Unsupported study operation')
 	}
 
-	async #prepare(request: StudyExecutionRequest, signal: AbortSignal): Promise<StudyPreparation> {
+	async #freeze(request: StudyFreezeRequest, signal: AbortSignal): Promise<JSONValue> {
+		const selection: StudyExecutionRequest = {
+			command: 'check',
+			target: request.target,
+			profile: request.profile,
+			out: undefined,
+			expected: undefined,
+		}
+		const original = await this.#prepare(selection, signal)
+		const instrument = resolveStudyInstrument(this.#entry)
+		const directory = resolveStudyPath(join(this.#root, 'studies'), request.target)
+		const assets = [
+			...new Set([
+				this.#entry,
+				join(directory, 'study.json'),
+				resolveStudyPath(directory, original.definition.rubric),
+				resolveStudyPath(original.bundle, `profiles/${request.profile}.json`),
+				...original.definition.scenarios.map((id) =>
+					resolveStudyPath(original.bundle, `scenarios/${id}.json`),
+				),
+			]),
+		]
+		const loader = new ArtifactLoader({
+			entries: [
+				...new Set([
+					original.profile.agent,
+					original.profile.subject,
+					...(original.profile.provider === undefined ? [] : [original.profile.provider.entry]),
+				]),
+			],
+			roots: [...new Set([...original.profile.roots, instrument])],
+			source: { root: original.bundle, entry: join(original.bundle, 'index.ts') },
+			instrument,
+			assets,
+		})
+		loader.inspect()
+		signal.throwIfAborted()
+		const closure = await loader.materialize(request.destination)
+		const candidate: StudyClosure = {
+			closure,
+			root: relocateArtifactPath(closure, this.#root),
+			entry: relocateArtifactPath(closure, this.#entry),
+			target: request.target,
+			profile: request.profile,
+			source: original.identity,
+			identity: original.identity,
+			fingerprint: computeStudyCommandFingerprint(
+				original.identity,
+				original.profile.bounds,
+				original.definition,
+			),
+		}
+		const checked = await this.#prepare(selection, signal, candidate)
+		if (
+			checked.source !== original.source ||
+			checked.identity.fixtures !== original.identity.fixtures ||
+			hashStudyBytes(encodeStudyJSON(checked.definition)) !==
+				hashStudyBytes(encodeStudyJSON(original.definition)) ||
+			hashStudyBytes(encodeStudyJSON(checked.rubric)) !==
+				hashStudyBytes(encodeStudyJSON(original.rubric))
+		)
+			throw new StudyError('FAULT', 'Study declarations changed during freezing')
+		const publication: StudyClosure = {
+			...candidate,
+			identity: checked.identity,
+			fingerprint: computeStudyCommandFingerprint(
+				checked.identity,
+				checked.profile.bounds,
+				checked.definition,
+			),
+		}
+		original.artifacts.verify()
+		loader.verify()
+		checked.artifacts.verify()
+		verifyArtifactClosure(closure)
+		signal.throwIfAborted()
+		await writeFile(join(closure.destination, 'closure.json'), encodeStudyJSON(publication), {
+			flag: 'wx',
+		})
+		return valueToWire({
+			command: 'freeze',
+			path: closure.destination,
+			digest: closure.digest,
+			fingerprint: publication.fingerprint,
+		})
+	}
+
+	#closure(request: StudyExecutionRequest): StudyClosure {
+		if (request.closure === undefined)
+			throw new StudyError('CONFIG', 'Study closure selection is absent')
+		const closure = readStudyClosure(resolve(this.#root, request.closure))
+		if (closure.target !== request.target || closure.profile !== request.profile)
+			throw new StudyError('CONFIG', 'Study closure selectors differ from the checked selection')
+		return closure
+	}
+
+	async #prepare(
+		request: StudyExecutionRequest,
+		signal: AbortSignal,
+		retained?: StudyClosure,
+	): Promise<StudyPreparation> {
+		const closure = retained ?? (request.closure === undefined ? undefined : this.#closure(request))
+		const root = closure?.root ?? this.#root
+		const entry = closure?.entry ?? this.#entry
 		const { bundle, definition, scenarios, fixtures, rubric } = await readStudyDeclaration(
-			this.#root,
+			root,
 			request.target,
 			signal,
 		)
 		const profileBytes = await readStudyDeclarationBytes(
-			this.#root,
+			root,
 			resolveStudyPath(bundle, `profiles/${request.profile}.json`),
 		)
 		const source = parseStudyProfile(decodeStudyJSON(profileBytes))
@@ -107,26 +218,28 @@ export class StudyCommand {
 			throw new StudyError('CONFIG', 'Profile name differs from its selected file')
 		if (source.bounds.series.duration > STUDY_COMMAND_DURATION)
 			throw new StudyError('CONFIG', 'Series duration exceeds the 24-hour host ceiling')
-		const profile = resolveStudyProfile(this.#root, source)
+		const profile = resolveStudyProfile(root, source, closure?.closure)
 		validateStudyInputs(definition, scenarios, rubric, profile)
 		signal.throwIfAborted()
 		const artifacts = new StudyArtifactLoader({
-			root: this.#root,
-			entry: this.#entry,
+			root,
+			entry,
 			profile,
 			adapter: join(bundle, 'index.ts'),
+			...(closure === undefined ? {} : { closure }),
 		})
 		const selected = await artifacts.inspect()
 		const validation = await new StudyTask({
-			root: this.#root,
-			entry: this.#entry,
+			root,
+			entry,
 			adapter: join(bundle, 'index.ts'),
 			roots: profile.roots,
+			...(closure === undefined ? {} : { closure }),
 		}).execute({ operation: 'validate', input: { definition, scenarios, rubric, profile } }, signal)
 		if (validation.value !== true || validation.instrument !== selected.instrument)
 			throw new StudyError('FAULT', 'Adapter validation identity differs')
 		artifacts.verify()
-		return {
+		const preparation: StudyPreparation = {
 			bundle,
 			definition,
 			scenarios: Object.freeze(scenarios),
@@ -139,7 +252,28 @@ export class StudyCommand {
 			},
 			artifacts,
 			source: hashStudyBytes(profileBytes),
+			...(closure === undefined ? {} : { closure }),
 		}
+		if (
+			request.closure !== undefined &&
+			closure !== undefined &&
+			(computeStudyCommandFingerprint(preparation.identity, profile.bounds, definition) !==
+				closure.fingerprint ||
+				hashStudyBytes(encodeStudyJSON(preparation.identity)) !==
+					hashStudyBytes(encodeStudyJSON(closure.identity)))
+		)
+			throw new StudyError(
+				'FAULT',
+				`Study closure checked identity differs: ${Object.entries(preparation.identity)
+					.filter(([name, digest]) =>
+						Object.entries(closure.identity).some(
+							([key, expected]) => key === name && digest !== expected,
+						),
+					)
+					.map(([name]) => name)
+					.join(', ')}`,
+			)
+		return preparation
 	}
 
 	#check(preparation: StudyPreparation): JSONValue {
@@ -157,6 +291,14 @@ export class StudyCommand {
 			bounds: preparation.profile.bounds,
 			identity: preparation.identity,
 			provenance: { profile: preparation.source },
+			...(preparation.closure === undefined
+				? {}
+				: {
+						closure: {
+							digest: preparation.closure.closure.digest,
+							source: preparation.closure.source,
+						},
+					}),
 			fingerprint,
 			next: [
 				'execute',
@@ -165,12 +307,16 @@ export class StudyCommand {
 				preparation.profile.name,
 				'--expected',
 				fingerprint,
+				...(preparation.closure === undefined
+					? []
+					: ['--closure', preparation.closure.closure.destination]),
 			],
 			schedule: buildStudySchedule(preparation.definition, preparation.scenarios),
 		})
 	}
 
 	async #execution(request: StudyExecutionRequest, signal: AbortSignal): Promise<JSONValue> {
+		const replay = request.replay === undefined ? undefined : await this.#replay(request, signal)
 		const preparation = await this.#prepare(request, signal)
 		const fingerprint = computeStudyCommandFingerprint(
 			preparation.identity,
@@ -194,6 +340,7 @@ export class StudyCommand {
 			identity: preparation.identity,
 			schedule: buildStudySchedule(preparation.definition, preparation.scenarios),
 			bounds: preparation.profile.bounds,
+			...(preparation.profile.record === undefined ? {} : { record: preparation.profile.record }),
 			qualification,
 			host: {
 				node: process.version,
@@ -205,16 +352,29 @@ export class StudyCommand {
 		}
 		const store = new StudyResultStore({ directory, manifest })
 		await store.create()
+		const destinations =
+			preparation.profile.record === undefined
+				? undefined
+				: Object.fromEntries(
+						await Promise.all(
+							manifest.schedule.map(
+								async (trial) => [trial.id, await store.exchanges(trial)] as const,
+							),
+						),
+					)
 		const scratch = await mkdtemp(join(parent, 'scratch-'))
 		try {
 			const driver = new StudyProcessDriver({
-				root: this.#root,
-				entry: this.#entry,
+				root: preparation.closure?.root ?? this.#root,
+				entry: preparation.closure?.entry ?? this.#entry,
 				profile: preparation.profile,
 				identity: preparation.identity,
 				driver: preparation.definition.driver,
 				adapter: join(preparation.bundle, 'index.ts'),
 				directory: scratch,
+				...(preparation.closure === undefined ? {} : { closure: preparation.closure }),
+				...(destinations === undefined ? {} : { exchanges: destinations }),
+				...(replay === undefined ? {} : { replay }),
 			})
 			const attempts = await new StudySeries({ manifest, driver, store, signal }).execute()
 			preparation.artifacts.verify()
@@ -241,6 +401,81 @@ export class StudyCommand {
 		} finally {
 			await rm(scratch, { recursive: true, force: true, maxRetries: 3 })
 		}
+	}
+
+	async #replay(
+		request: StudyExecutionRequest,
+		signal: AbortSignal,
+	): Promise<StudyOllamaReplaySelection> {
+		if (!isStudyReplaySelection(request.replay))
+			throw new StudyError(
+				'CONFIG',
+				'Replay requires an explicit sealed source, prefixes and offline behavior',
+			)
+		const selection = {
+			...structuredClone(request.replay),
+			result: this.#file(request.replay.result),
+		}
+		const source = await readStudyResult(selection.result)
+		if (source.status !== 'sealed') throw new StudyError('CUSTODY', 'Replay source is not sealed')
+		const closure = request.closure === undefined ? undefined : this.#closure(request)
+		const root = closure?.root ?? this.#root
+		const entry = closure?.entry ?? this.#entry
+		const { bundle, definition, scenarios, fixtures } = await readStudyDeclaration(
+			root,
+			request.target,
+			signal,
+		)
+		const bytes = await readStudyDeclarationBytes(
+			root,
+			resolveStudyPath(bundle, `profiles/${request.profile}.json`),
+		)
+		const profile = resolveStudyProfile(
+			root,
+			parseStudyProfile(decodeStudyJSON(bytes)),
+			closure?.closure,
+		)
+		const schedule = buildStudySchedule(definition, scenarios)
+		if (
+			canonicalStringify(definition) !== canonicalStringify(source.manifest.definition) ||
+			canonicalStringify(scenarios) !== canonicalStringify(source.manifest.scenarios) ||
+			canonicalStringify(schedule) !== canonicalStringify(source.manifest.schedule) ||
+			computeStudyFixtureDigest(definition, fixtures) !== source.manifest.identity.fixtures ||
+			Object.keys(selection.prefix).length !== schedule.length ||
+			!schedule.every((trial) => Object.hasOwn(selection.prefix, trial.id))
+		)
+			throw new StudyError('CONFIG', 'Replay declaration or scheduled membership changed')
+		for (const trial of schedule) {
+			signal.throwIfAborted()
+			await readStudyReplayHistory(selection, profile, trial)
+		}
+		const artifacts = new StudyArtifactLoader({
+			root,
+			entry,
+			profile,
+			adapter: join(bundle, 'index.ts'),
+			...(closure === undefined ? {} : { closure }),
+		})
+		const selected = await artifacts.inspect()
+		const identity = {
+			...selected,
+			fixtures: computeStudyFixtureDigest(definition, fixtures),
+			profile: computeStudyProfileDigest(profile),
+		}
+		if (
+			selected.agent !== source.manifest.identity.agent ||
+			selected.subject !== source.manifest.identity.subject ||
+			selected.instrument !== source.manifest.identity.instrument ||
+			selected.provider !== source.manifest.identity.provider
+		)
+			throw new StudyError('CONFIG', 'Replay artifact declaration changed')
+		if (
+			request.expected !== undefined &&
+			request.expected !== computeStudyCommandFingerprint(identity, profile.bounds, definition)
+		)
+			throw new StudyError('CONFIG', 'Replay execution bounds or declaration changed after check')
+		artifacts.verify()
+		return selection
 	}
 
 	async #grade(request: StudyGradeRequest, signal: AbortSignal): Promise<JSONValue> {

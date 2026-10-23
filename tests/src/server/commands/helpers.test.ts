@@ -24,6 +24,8 @@ import {
 	createStudyConsumer,
 	buildStudyReportResult,
 	retainStudyFixture,
+	ARTIFACT_CLOSURE_FILES,
+	buildArtifactClosureOptions,
 } from '../../../setupServer.js'
 import {
 	collectStudyEvidence,
@@ -36,6 +38,8 @@ import {
 	resolveStudyProfile,
 	readStudyDeclaration,
 	readStudyDeclarationBytes,
+	readStudyClosure,
+	resolveStudyClosurePath,
 } from '../../../../src/server/commands/helpers.js'
 import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
 import { buildStudyProfile } from '../../../setupStudy.js'
@@ -43,6 +47,44 @@ import { buildStudyStop } from '../../../setupStudy.js'
 import { isStudyCustodyAttempt } from '../../../../src/server/stores/validators.js'
 import { readStudyBytes } from '../../../../src/server/stores/helpers.js'
 import { STUDY_CAUSES, STUDY_ROLES, STUDY_LAYERS } from '../../../../src/core/constants.js'
+import { ArtifactLoader } from '../../../../src/server/artifacts/ArtifactLoader.js'
+
+it('reads an exact published forest and relocates original and active profile paths', async () => {
+	const scratch = createScratch({ files: ARTIFACT_CLOSURE_FILES })
+	try {
+		const closure = await new ArtifactLoader(buildArtifactClosureOptions(scratch)).materialize(
+			join(scratch.path, 'copy'),
+		)
+		const entry = closure.options.entries[0]
+		if (entry === undefined) throw new Error('Missing relocated entry')
+		const identity = buildCustodyManifest().identity
+		const publication = {
+			closure,
+			root: closure.destination,
+			entry,
+			target: 'assessment',
+			profile: 'local',
+			source: identity,
+			identity,
+			fingerprint: '0'.repeat(64),
+		}
+		await writeFile(join(closure.destination, 'closure.json'), encodeStudyJSON(publication))
+		expect(readStudyClosure(closure.destination)).toEqual(publication)
+		expect(resolveStudyClosurePath(closure.destination, 'dist/index.js', closure)).toBe(entry)
+		expect(
+			resolveStudyClosurePath(
+				closure.destination,
+				join(scratch.path, 'subject', 'dist', 'index.js'),
+				closure,
+			),
+		).toBe(entry)
+		expect(resolveStudyClosurePath(scratch.path, 'plain')).toBe(join(scratch.path, 'plain'))
+		await writeFile(join(closure.destination, 'extra.txt'), 'extra')
+		expect(() => readStudyClosure(closure.destination)).toThrow(/membership/)
+	} finally {
+		scratch.destroy()
+	}
+})
 
 describe('study command helpers', () => {
 	for (const { path, directory, declaration } of STUDY_LINKED_DECLARATIONS) {

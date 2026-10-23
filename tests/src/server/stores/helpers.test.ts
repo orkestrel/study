@@ -381,3 +381,21 @@ describe('readStudyHandle', () => {
 		}
 	})
 })
+import * as exchangeStores from '../../../../src/server/stores/index.js'
+import { buildStudyExchangeRows, mutateStudyExchangeRows } from '../../../setupServer.js'
+import { STUDY_EXCHANGE_MUTATIONS } from '../../../setupStudy.js'
+describe('strict exchange rows', () => {
+	it('reads the complete independent journal control', () => {
+		const rows = buildStudyExchangeRows()
+		expect(exchangeStores.readStudyExchangeRows(mutateStudyExchangeRows(rows, 'complete'))).toEqual(
+			rows,
+		)
+	})
+	it.each(STUDY_EXCHANGE_MUTATIONS)('refuses %s history', (mutation) => {
+		expect(() =>
+			exchangeStores.readStudyExchangeRows(
+				mutateStudyExchangeRows(buildStudyExchangeRows(), mutation),
+			),
+		).toThrow(/\S/)
+	})
+})

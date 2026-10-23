@@ -11,8 +11,41 @@ import {
 } from '../../../setupStudy.js'
 import { StudyResultStore } from '../../../../src/server/stores/StudyResultStore.js'
 import { join } from 'node:path'
+import { buildStudySessionOptions, writeStudyPreparationPeer } from '../../../setupServer.js'
+import { createRecorder } from '@orkestrel/test'
 
 describe('StudyProcessDriver', () => {
+	it('awaits parent preparation before starting a worker and strips the callback from transported options', async () => {
+		const scratch = createScratch()
+		const prepared = createRecorder<readonly [string]>()
+		try {
+			const options = buildStudySessionOptions(
+				scratch,
+				writeStudyPreparationPeer(scratch),
+				new AbortController().signal,
+			)
+			const { trial, signal, ...configuration } = options
+			const driver = new StudyProcessDriver({
+				...configuration,
+				prepare: async (selected, borrowed, destination) => {
+					expect(scratch.has('worker-opening.json')).toBe(false)
+					expect(borrowed).toBe(signal)
+					expect(destination).toBeUndefined()
+					prepared.handler(selected.id)
+					return undefined
+				},
+			})
+			const session = await driver.open(trial, signal)
+			try {
+				expect(prepared.calls).toEqual([[trial.id]])
+				expect(scratch.read('worker-opening.json')).not.toContain('prepare')
+			} finally {
+				await session.close()
+			}
+		} finally {
+			scratch.destroy()
+		}
+	})
 	it('denies a real child request before dispatch through the actual parent meter', async () => {
 		const scratch = createScratch()
 		const fixture = createStudyMeterFixture()

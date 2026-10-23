@@ -95,7 +95,7 @@ export interface ArtifactLoaderInterface {
 	 * @returns The verified relocation and complete physical membership.
 	 * @throws ArtifactError - Thrown with the refused boundary's ArtifactErrorCode.
 	 */
-	materialize?(destination: string): Promise<ArtifactClosure>
+	materialize(destination: string): Promise<ArtifactClosure>
 }
 
 /** Records the exact bytes admitted at one absolute file path. */

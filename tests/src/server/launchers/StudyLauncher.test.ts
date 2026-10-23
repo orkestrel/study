@@ -27,6 +27,32 @@ import {
 } from '../../../setupServer.js'
 
 describe('StudyLauncher', () => {
+	it('forwards closure to the check and forwards the full explicit replay selection to execution', async () => {
+		const scratch = createScratch()
+		try {
+			const entry = writeStudyCheckEntry(scratch, 60000)
+			const code = await new StudyLauncher({ root: scratch.path, entry }).execute([
+				'execute',
+				'files',
+				'--closure',
+				'retained',
+				'--replay',
+				'recorded',
+				'--prefix',
+				'{"trial":7}',
+				'--offline',
+				'true',
+			])
+			expect(code).toBe(0)
+			const commands = readStudyCommands(scratch)
+			expect(commands[0]).toContain('--closure retained')
+			expect(commands[1]).toContain(
+				'--closure retained --replay recorded --prefix {"trial":7} --offline true',
+			)
+		} finally {
+			scratch.destroy()
+		}
+	})
 	it('terminates a held command at the public default duration and returns 124', async () => {
 		const scratch = createScratch()
 		const launcher = new StudyLauncher({

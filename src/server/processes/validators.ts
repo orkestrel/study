@@ -1,7 +1,60 @@
 import type { StudyCharge, StudyEvidence, StudyFailure, StudyTrial, StudyIdentity } from '@src/core'
 import type { StudyFrame } from './types.js'
-import { isStudyCause, isStudyDigest, isStudyName, isStudyRole, isStudyStop } from '@src/core'
+import type { StudyExchangeDestination } from '../stores/types.js'
+import type { StudyOllamaReplaySelection } from '../ollama/types.js'
+import {
+	isStudyCause,
+	isStudyDigest,
+	isStudyName,
+	isStudyRole,
+	isStudyRecord,
+	isStudyStop,
+	matchesStudyKeys,
+} from '@src/core'
+import { isAbsolute, basename } from 'node:path'
+import { isStudyCustodyFile, isStudyCustodyName } from '../stores/validators.js'
 import { holds, isJSONValue, isRecord } from '@orkestrel/contract'
+
+/** Checks whether a worker destination has an absolute sidecar path and finite reservation.
+ * @param value - The decoded destination.
+ * @returns True if its path, allowance and optional retained identity are valid; false otherwise.
+ */
+export function isStudyExchangeDestination(value: unknown): value is StudyExchangeDestination {
+	return holds(
+		() =>
+			isRecord(value) &&
+			matchesStudyKeys(value, ['path', 'record'], ['retained']) &&
+			typeof value.path === 'string' &&
+			isAbsolute(value.path) &&
+			basename(value.path) === 'exchanges.jsonl' &&
+			isStudyRecord(value.record) &&
+			(value.retained === undefined || isStudyCustodyFile(value.retained)),
+	)
+}
+
+/** Checks whether replay explicitly selects a sealed directory and per-trial prefix counts.
+ * @param value - The decoded replay selection.
+ * @returns True if result, offline and every prefix are declared; false otherwise.
+ */
+export function isStudyReplaySelection(value: unknown): value is StudyOllamaReplaySelection {
+	return holds(
+		() =>
+			isRecord(value) &&
+			matchesStudyKeys(value, ['result', 'prefix', 'offline']) &&
+			typeof value.result === 'string' &&
+			value.result.length > 0 &&
+			typeof value.offline === 'boolean' &&
+			isRecord(value.prefix) &&
+			Object.keys(value.prefix).length > 0 &&
+			Object.entries(value.prefix).every(
+				([trial, count]) =>
+					isStudyCustodyName(trial) &&
+					typeof count === 'number' &&
+					Number.isSafeInteger(count) &&
+					count > 0,
+			),
+	)
+}
 
 /** Checks the complete transport envelope before domain handling.
  * @param value - Native IPC decoded value.

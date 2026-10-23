@@ -1,9 +1,15 @@
 import type { OllamaTiming } from '@orkestrel/ollama'
 import type { StudyOllamaTerminal, StudyOllamaWire } from './types.js'
+import type { StudyExchangeReply } from '../stores/types.js'
 import { StudyError } from '@src/core'
+import { buildStudyOllamaBytes } from './helpers.js'
 
 /** Tracks one owned HTTP response through its counted bytes, decoded rows, terminal and settlement. */
 export class StudyOllamaExchange implements StudyOllamaWire {
+	readonly slot: StudyOllamaWire['slot']
+	readonly identity: StudyOllamaWire['identity']
+	readonly headers: StudyOllamaWire['headers']
+	readonly ceiling: number
 	readonly activity: StudyOllamaWire['activity']
 	readonly request: StudyOllamaWire['request']
 	readonly ticket: StudyOllamaWire['ticket']
@@ -20,6 +26,8 @@ export class StudyOllamaExchange implements StudyOllamaWire {
 	#terminal: StudyOllamaTerminal | undefined
 	#timing: OllamaTiming | undefined
 	#settled = false
+	#chunks: readonly Uint8Array[] = []
+	#recorded = false
 
 	/** Binds the facts of one dispatched request and its open response.
 	 * @param wire - The request, accounting boundary, reader and identities; its byte count starts the tally.
@@ -39,8 +47,16 @@ export class StudyOllamaExchange implements StudyOllamaWire {
 			| 'sent'
 			| 'dispatch'
 			| 'bytes'
+			| 'slot'
+			| 'identity'
+			| 'headers'
+			| 'ceiling'
 		>,
 	) {
+		this.slot = wire.slot
+		this.identity = wire.identity
+		this.headers = wire.headers
+		this.ceiling = wire.ceiling
 		this.activity = wire.activity
 		this.request = wire.request
 		this.ticket = wire.ticket
@@ -78,6 +94,34 @@ export class StudyOllamaExchange implements StudyOllamaWire {
 	/** Reports whether the request was accounted, finished or failed. */
 	get settled(): boolean {
 		return this.#settled
+	}
+
+	/** Reports whether a sidecar terminal has already been admitted. */
+	get recorded(): boolean {
+		return this.#recorded
+	}
+
+	/** Holds the exact bounded bytes and native chunk lengths observed so far. */
+	get reply(): StudyExchangeReply {
+		return {
+			status: this.status,
+			headers: this.headers,
+			...buildStudyOllamaBytes(Buffer.concat(this.#chunks)),
+			chunks: this.#chunks.map((chunk) => chunk.byteLength),
+		}
+	}
+
+	/** Retains one bounded chunk before decoding changes its representation.
+	 * @param chunk - The native response bytes already counted under the ceiling.
+	 */
+	retain(chunk: Uint8Array): void {
+		if (this.identity !== undefined && chunk.byteLength > 0)
+			this.#chunks = [...this.#chunks, Buffer.from(chunk)]
+	}
+
+	/** Marks a sidecar terminal admitted so failure cleanup cannot append another. */
+	record(): void {
+		this.#recorded = true
 	}
 
 	/** Adds a response chunk's bytes to the tally and refuses a tally beyond the allowance.

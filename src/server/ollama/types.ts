@@ -8,7 +8,11 @@ import type {
 } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
 import type { OllamaOptions, OllamaTiming, extractTiming } from '@orkestrel/ollama'
-import type { StudyExchangeHistory, StudyExchangeSinkInterface } from '../stores/types.js'
+import type {
+	StudyExchangeHistory,
+	StudyExchangeIdentity,
+	StudyExchangeSinkInterface,
+} from '../stores/types.js'
 
 /**
  * Names the model roles an Ollama study transport dispatches under a declared policy.
@@ -204,8 +208,8 @@ export interface StudyOllamaTransportOptions {
 	readonly observe: boolean
 	readonly timing: typeof extractTiming
 	readonly fetch?: StudyOllamaFetchFunction | undefined
-	/** Bounds both metadata passes independently; required when the transport implementation lands. */
-	readonly metadata?: StudyOllamaMetadata
+	/** Bounds both metadata passes independently of every model quota. */
+	readonly metadata: StudyOllamaMetadata
 	/** Pins GET /api/version before and after model execution; required with recording. */
 	readonly version?: string
 	/** Declares every ordered model step; present together with exchanges and version. */
@@ -231,7 +235,7 @@ export interface StudyOllamaSnapshot {
 export interface StudyOllamaActivity {
 	readonly goal: string
 	readonly context: StudyContext
-	/** Holds the owned public view retained with the goal's first model dispatch; undefined retains neither it nor request bodies. */
+	/** Holds the public view retained with the goal's first observed dispatch; undefined omits that view and observed request bodies independently of exchange recording. */
 	readonly checkpoint: JSONValue | undefined
 }
 
@@ -258,6 +262,14 @@ export interface StudyOllamaTerminal {
 
 /** Tracks one owned HTTP response until its end or cancellation. */
 export interface StudyOllamaWire {
+	/** Holds the admission registry key until this exchange settles. */
+	readonly slot: symbol
+	/** Holds the sidecar identity when recording is declared. */
+	readonly identity: StudyExchangeIdentity | undefined
+	/** Holds bounded reply headers in native iteration order. */
+	readonly headers: ReadonlyArray<readonly [string, string]>
+	/** Holds the combined request and response byte ceiling admitted for this exchange. */
+	readonly ceiling: number
 	readonly activity: StudyOllamaActivity
 	readonly request: StudyOllamaRequest
 	readonly ticket: StudyTicket

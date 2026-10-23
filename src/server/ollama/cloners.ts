@@ -20,7 +20,23 @@ import { StudyError } from '@src/core'
 export function buildStudyOllamaTransportOptions(
 	options: StudyOllamaTransportOptions,
 ): StudyOllamaTransportOptions {
-	const { url, room, limit, models, roles, signal, observe, timing, fetch } = options
+	const {
+		url,
+		room,
+		limit,
+		models,
+		roles,
+		signal,
+		observe,
+		timing,
+		fetch,
+		metadata,
+		version,
+		procedure,
+		exchanges,
+	} = options
+	if (Object.hasOwn(roles, 'maintenance'))
+		throw new StudyError('CONFIG', 'Maintenance cannot declare a generation policy')
 	const owned: Record<string, StudyOllamaModel> = Object.fromEntries(
 		Object.entries(models).map(([label, { name, digest }]) => [
 			label,
@@ -51,6 +67,29 @@ export function buildStudyOllamaTransportOptions(
 		signal,
 		observe,
 		timing,
+		metadata: Object.freeze({ ...metadata }),
+		...(version === undefined ? {} : { version }),
+		...(procedure === undefined
+			? {}
+			: {
+					procedure: Object.freeze(
+						procedure.map((step) => {
+							const { policy, ...identity } = step
+							if (
+								(identity.admission === 'exact' && Object.hasOwn(step, 'bytes')) ||
+								(identity.admission === 'capture' &&
+									(Object.hasOwn(step, 'body') || Object.hasOwn(step, 'input')))
+							)
+								throw new StudyError('CONFIG', 'Conflicting model-step admission declarations')
+							const { options: wire, ...settings } = policy
+							return Object.freeze({
+								...identity,
+								policy: Object.freeze({ ...settings, options: Object.freeze({ ...wire }) }),
+							})
+						}),
+					),
+				}),
+		...(exchanges === undefined ? {} : { exchanges }),
 		...(fetch === undefined ? {} : { fetch }),
 	})
 }

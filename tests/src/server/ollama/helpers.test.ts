@@ -18,6 +18,9 @@ import {
 	validateStudyOllamaCompletion,
 	validateStudyOllamaInventory,
 	validateStudyOllamaRoles,
+	buildStudyOllamaBytes,
+	validateStudyOllamaRecording,
+	validateStudyOllamaStep,
 } from '../../../../src/server/ollama/helpers.js'
 import {
 	STUDY_OLLAMA_OPTIONS,
@@ -29,6 +32,8 @@ import {
 	STUDY_OLLAMA_NO_FAILURES,
 	buildOllamaTransportOptions,
 	STUDY_OLLAMA_NATIVE_ERROR,
+	buildOllamaStep,
+	OllamaExchangeRecorder,
 } from '../../../setupServer.js'
 
 const options = buildOllamaTransportOptions(STUDY_OLLAMA_ORIGIN)
@@ -56,6 +61,55 @@ const judgeRequest: StudyOllamaRequest = {
 	output: 1,
 	length: true,
 }
+
+describe('recording declaration and byte helpers', () => {
+	it('encodes byte receipts without text normalization', () => {
+		expect(buildStudyOllamaBytes(new Uint8Array([97, 98, 99]))).toEqual({
+			body: 'YWJj',
+			size: 3,
+			digest: 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+		})
+		expect(buildStudyOllamaBytes(new Uint8Array())).toEqual({
+			body: '',
+			size: 0,
+			digest: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+		})
+	})
+
+	it('requires a complete recording group and contiguous policies', () => {
+		expect(() => validateStudyOllamaRecording(options)).not.toThrow()
+		expect(() => validateStudyOllamaRecording({ ...options, version: 'fixture-version' })).toThrow(
+			expect.objectContaining({ code: 'CONFIG' }),
+		)
+		const recorded = {
+			...options,
+			version: 'fixture-version',
+			procedure: [buildOllamaStep()],
+			exchanges: new OllamaExchangeRecorder(),
+		}
+		expect(() => validateStudyOllamaRecording(recorded)).not.toThrow()
+		expect(() =>
+			validateStudyOllamaRecording({
+				...recorded,
+				procedure: [buildOllamaStep('capture', undefined, 'agent', 2)],
+			}),
+		).toThrow(expect.objectContaining({ code: 'CONFIG' }))
+	})
+
+	it('requires the declared goal and byte content independently of the supplied receipt', () => {
+		const exact = buildOllamaStep('exact', JSON.stringify(agentBody))
+		const request = { ...agentRequest, bytes: Buffer.byteLength(JSON.stringify(agentBody)) }
+		expect(() =>
+			validateStudyOllamaStep(exact, 'first', request, JSON.stringify(agentBody)),
+		).not.toThrow()
+		expect(() =>
+			validateStudyOllamaStep(exact, 'second', request, JSON.stringify(agentBody)),
+		).toThrow(expect.objectContaining({ code: 'FAULT' }))
+		expect(() =>
+			validateStudyOllamaStep(exact, 'first', request, `${JSON.stringify(agentBody)} `),
+		).toThrow(expect.objectContaining({ code: 'FAULT' }))
+	})
+})
 
 describe('buildStudyOllamaModels', () => {
 	it('pins the model and the judge when both are declared', () => {

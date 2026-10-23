@@ -2,6 +2,7 @@ import type { StudyRole, StudyTicket, StudyAgentDispatch, StudyLatchInterface } 
 import type { BudgetError } from '@orkestrel/budget'
 import type { JSONValue } from '@orkestrel/contract'
 import type { OllamaTiming } from '@orkestrel/ollama'
+import type { ReadableStreamReadResult } from 'node:stream/web'
 import type {
 	StudyOllamaActivity,
 	StudyOllamaFetchFunction,
@@ -10,10 +11,20 @@ import type {
 	StudyOllamaTerminal,
 	StudyOllamaTransportOptions,
 } from './types.js'
-import { StudyError, readStudyFailure, buildStudyAgentDispatch, studyStopToJSON } from '@src/core'
+import type { StudyExchangeIdentity } from '../stores/types.js'
+import {
+	StudyError,
+	StudyControl,
+	StudyScope,
+	StudyMeter,
+	readStudyFailure,
+	buildStudyAgentDispatch,
+	studyStopToJSON,
+} from '@src/core'
 import { Abort } from '@orkestrel/abort'
 import { isBudgetError } from '@orkestrel/budget'
 import { isFunction, isRecord, parseJSON } from '@orkestrel/contract'
+import { MAX_TIMEOUT_MS } from '@orkestrel/timeout'
 import { buildStudyOllamaSnapshot, buildStudyOllamaTransportOptions } from './cloners.js'
 import { StudyOllamaExchange } from './StudyOllamaExchange.js'
 import { StudyOllamaGoal } from './StudyOllamaGoal.js'
@@ -29,6 +40,9 @@ import {
 	validateStudyOllamaCompletion,
 	validateStudyOllamaInventory,
 	validateStudyOllamaRoles,
+	validateStudyOllamaRecording,
+	validateStudyOllamaStep,
+	buildStudyOllamaBytes,
 } from './helpers.js'
 
 /** Admits and accounts Ollama wire requests under declared policies and latches failure. */
@@ -37,6 +51,13 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 	readonly #abort = new AbortController()
 	readonly #sends = new Set<Promise<StudyOllamaExchange>>()
 	readonly #wires = new Set<StudyOllamaExchange>()
+	readonly #requests = new Set<symbol>()
+	readonly #verifications = new Set<symbol>()
+	readonly #metadataControl: StudyControl
+	readonly #metadataScope: StudyScope
+	readonly #metadataMeter: StudyMeter
+	#passes = 0
+	#step = 0
 	// The bound goal; `prepare` binds it and `clear` or `close` releases it. An admitted request keeps the goal it was admitted under.
 	#goal: StudyOllamaGoal | undefined
 	// Wraps the first retained failure so a thrown undefined or null is still a presence.
@@ -53,7 +74,25 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		if (owned.fetch !== undefined && !isFunction(owned.fetch))
 			throw new StudyError('CONFIG', 'Ollama fetch collaborator must be callable')
 		validateStudyOllamaRoles(owned.roles, owned.models)
+		validateStudyOllamaRecording(owned)
 		this.#options = owned
+		this.#metadataControl = new StudyControl(owned.signal)
+		const duration = Math.min(MAX_TIMEOUT_MS, Math.ceil(owned.metadata.duration))
+		this.#metadataScope = new StudyScope({
+			limit: { ...owned.metadata, duration: MAX_TIMEOUT_MS, tokens: 1 },
+			control: this.#metadataControl,
+			label: 'Metadata',
+		})
+		this.#metadataMeter = new StudyMeter({
+			request: {
+				duration: Math.min(duration, owned.limit.duration),
+				calls: 1,
+				tokens: 1,
+				bytes: owned.metadata.bytes,
+			},
+			scopes: [this.#metadataScope],
+			control: this.#metadataControl,
+		})
 	}
 
 	/** Binds subsequent wire requests to one live goal until `clear` or `close` ends it.
@@ -98,7 +137,25 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 	 * @throws StudyError - Thrown with code `FAULT` when no goal is bound; the transport retains this refusal as its failure, as it retains every verification failure.
 	 */
 	async verify(): Promise<void> {
+		const verification = Symbol('verification')
 		try {
+			this.check()
+			if (this.#requests.size !== 0 || this.#verifications.size !== 0)
+				throw new StudyError('FAULT', 'Verification cannot overlap an admitted request')
+			if (this.#goal === undefined)
+				throw new StudyError('FAULT', 'Model dispatch outside an active goal')
+			if (
+				this.#options.procedure !== undefined &&
+				(this.#passes > 1 || (this.#passes === 1 && this.#step !== this.#options.procedure.length))
+			)
+				throw new StudyError('FAULT', 'Postflight requires the complete model procedure')
+			this.#verifications.add(verification)
+			if (this.#options.version !== undefined) {
+				const version = await this.fetch('metadata', new URL('/api/version', this.#options.url), {
+					method: 'GET',
+				})
+				await version.text()
+			}
 			const response = await this.fetch('metadata', new URL('/api/tags', this.#options.url), {
 				method: 'GET',
 			})
@@ -129,9 +186,21 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 					Object.entries(this.#options.models).map(([label, model]) => [label, model.digest]),
 				),
 			})
+			this.check()
+			this.#passes += 1
+			if (this.#options.exchanges !== undefined && this.#passes === 2) {
+				if (this.#requests.size !== 0 || this.#sends.size !== 0 || this.#wires.size !== 0)
+					throw new StudyError('FAULT', 'Cannot complete while an exchange is pending')
+				await this.#options.exchanges.append({
+					phase: 'complete',
+					count: this.#options.exchanges.next - 1,
+				})
+			}
 		} catch (error) {
 			this.fail(error)
 			throw error
+		} finally {
+			this.#verifications.delete(verification)
 		}
 	}
 
@@ -154,64 +223,39 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		const goal = this.#goal
 		if (goal === undefined) throw new StudyError('FAULT', 'Model dispatch outside an active goal')
 		const activity = goal.activity
+		const slot = Symbol('request')
 		try {
+			if (this.#requests.size !== 0)
+				throw new StudyError('FAULT', 'A previous Ollama request is still in flight')
+			if (this.#verifications.size !== 0 && role !== 'metadata')
+				throw new StudyError('FAULT', 'Model dispatch cannot overlap verification')
+			this.#requests.add(slot)
 			// Everything the request depends on is owned before the first await; the caller's originals are never read again.
 			const snapshot = buildStudyOllamaSnapshot(input, init, original)
 			const settings = snapshot.init
 			const request = readStudyOllamaRequest(this.#options, role, snapshot.url, settings)
-			const limit = this.#options.limit
-			if (request.bytes >= limit.bytes) {
-				const message = 'Encoded request consumes the response byte allowance'
-				throw new StudyError('CAPACITY', message, {
-					cause: 'capacity',
-					message,
-					role: undefined,
-					stop: { layer: 'scope', id: 'Wire bytes', max: limit.bytes, consumed: request.bytes },
-				})
+			if (this.#options.procedure !== undefined && role !== 'metadata') {
+				if (this.#passes !== 1)
+					throw new StudyError(
+						'FAULT',
+						'Model dispatch requires completed preflight and open execution',
+					)
+				validateStudyOllamaStep(
+					this.#options.procedure[this.#step],
+					activity.goal,
+					request,
+					settings?.body,
+				)
 			}
-			const ticket = await activity.context.meter.admit({
-				role,
-				tokens: role === 'metadata' ? 0 : this.#options.room.context - this.#options.room.safety,
-				bytes: limit.bytes,
-			})
-			const id = ++this.#count
-			const started = performance.now()
-			const signal = AbortSignal.any([
-				this.#options.signal,
-				this.#abort.signal,
-				activity.context.signal,
-				activity.context.meter.signal,
-				ticket.signal,
-				AbortSignal.timeout(limit.duration),
-				...(settings?.signal === undefined || settings.signal === null ? [] : [settings.signal]),
-			])
-			const sending = this.#send(role, goal, ticket, request, snapshot, signal, id, started)
-			this.#sends.add(sending)
-			const wire = await sending.finally(() => this.#sends.delete(sending))
-			if (wire.status < 200 || wire.status > 299) return await this.#refuse(wire)
-			return new Response(
-				new ReadableStream<Uint8Array>({
-					pull: (controller) => this.#pull(wire, controller),
-					// A consumer cancel without a reason is the only absence; any thrown value keeps its identity.
-					cancel: (reason: unknown) =>
-						isBudgetError(reason)
-							? this.#cut(wire, reason)
-							: this.#failWire(
-									wire,
-									reason === undefined
-										? new StudyError('FAULT', 'Ollama response cancelled before its end')
-										: reason,
-								),
-				}),
-				{
-					status: wire.status,
-					headers: {
-						'content-type':
-							role === 'judge' || role === 'metadata' ? 'application/json' : 'application/x-ndjson',
-					},
-				},
+			if (
+				this.#options.exchanges !== undefined &&
+				role === 'metadata' &&
+				this.#verifications.size === 0
 			)
+				throw new StudyError('FAULT', 'Recorded metadata requires a verification pass')
+			return await this.#request(slot, role, goal, request, snapshot)
 		} catch (error) {
+			this.#requests.delete(slot)
 			this.fail(error)
 			throw error
 		}
@@ -229,6 +273,138 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 			[...this.#wires].map((wire) => this.#failWire(wire, this.#abort.signal.reason)),
 		)
 		this.#goal = undefined
+		this.#metadataMeter.close()
+		this.#metadataScope.close()
+		this.#metadataControl.close()
+	}
+
+	async #request(
+		slot: symbol,
+		role: StudyRole,
+		goal: StudyOllamaGoal,
+		request: StudyOllamaRequest,
+		snapshot: StudyOllamaSnapshot,
+	): Promise<Response> {
+		const activity = goal.activity
+		const settings = snapshot.init
+		const metadata = role === 'metadata'
+		const available =
+			this.#options.metadata.bytes -
+			this.#metadataMeter.usage.reduce(
+				(total, usage) => total + (usage.bytes ?? this.#options.metadata.bytes),
+				0,
+			)
+		const remaining = this.#remaining
+		if (metadata && remaining <= 0)
+			throw new StudyError('DEADLINE', 'Metadata duration allowance exhausted', {
+				cause: 'deadline',
+				message: 'Metadata duration allowance exhausted',
+				role,
+				stop: {
+					layer: 'scope',
+					id: 'Metadata duration',
+					max: this.#options.metadata.duration,
+					consumed: this.#options.metadata.duration - remaining,
+				},
+			})
+		const limit = {
+			duration: metadata
+				? Math.min(this.#options.limit.duration, Math.ceil(remaining))
+				: this.#options.limit.duration,
+			bytes: metadata ? Math.min(this.#options.limit.bytes, available) : this.#options.limit.bytes,
+		}
+		if (request.bytes >= limit.bytes) {
+			const message = 'Encoded request consumes the response byte allowance'
+			throw new StudyError('CAPACITY', message, {
+				cause: 'capacity',
+				message,
+				role,
+				stop: { layer: 'scope', id: 'Wire bytes', max: limit.bytes, consumed: request.bytes },
+			})
+		}
+		const ticket = await (metadata ? this.#metadataMeter : activity.context.meter).admit({
+			role,
+			tokens: role === 'metadata' ? 0 : this.#options.room.context - this.#options.room.safety,
+			bytes: limit.bytes,
+		})
+		const id = this.#options.exchanges?.next ?? ++this.#count
+		const started = performance.now()
+		const signal = AbortSignal.any([
+			this.#options.signal,
+			this.#abort.signal,
+			activity.context.signal,
+			...(metadata ? [this.#metadataMeter.signal] : [activity.context.meter.signal]),
+			ticket.signal,
+			AbortSignal.timeout(limit.duration),
+			...(settings?.signal === undefined || settings.signal === null ? [] : [settings.signal]),
+		])
+		const identity: StudyExchangeIdentity | undefined =
+			this.#options.exchanges === undefined
+				? undefined
+				: {
+						ordinal: id,
+						goal: activity.goal,
+						role,
+						path:
+							role === 'metadata'
+								? request.path === '/api/version'
+									? '/api/version'
+									: request.path === '/api/tags'
+										? '/api/tags'
+										: '/api/show'
+								: role === 'judge'
+									? '/api/generate'
+									: '/api/chat',
+						method: settings?.method === 'GET' ? 'GET' : 'POST',
+						stage:
+							role === 'metadata' ? (this.#passes === 0 ? 'preflight' : 'postflight') : 'execution',
+						...(role === 'metadata' ? {} : { step: this.#step + 1 }),
+					}
+		const sending = this.#send(
+			role,
+			goal,
+			ticket,
+			request,
+			snapshot,
+			signal,
+			id,
+			started,
+			slot,
+			identity,
+			limit.bytes,
+		)
+		this.#sends.add(sending)
+		const wire = await sending.finally(() => this.#sends.delete(sending))
+		if (wire.status < 200 || wire.status > 299) return await this.#refuse(wire)
+		return new Response(
+			new ReadableStream<Uint8Array>({
+				pull: (controller) => this.#pull(wire, controller),
+				// A consumer cancel without a reason is the only absence; any thrown value keeps its identity.
+				cancel: (reason: unknown) =>
+					isBudgetError(reason)
+						? this.#cut(wire, reason)
+						: this.#failWire(
+								wire,
+								reason === undefined
+									? new StudyError('FAULT', 'Ollama response cancelled before its end')
+									: reason,
+							),
+			}),
+			{
+				status: wire.status,
+				headers: {
+					'content-type':
+						role === 'judge' || role === 'metadata' ? 'application/json' : 'application/x-ndjson',
+				},
+			},
+		)
+	}
+
+	get #remaining(): number {
+		return (
+			this.#options.metadata.duration -
+			this.#metadataMeter.usage.reduce((total, usage) => total + usage.duration, 0)
+		)
 	}
 
 	// Buffers a non-2xx body under the wire bounds and parses it once at its end, because an error body is one JSON document, not rows.
@@ -246,10 +422,11 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		try {
 			for (;;) {
 				wire.signal.throwIfAborted()
-				const chunk = await wire.reader.read()
+				const chunk = await this.#read(wire)
 				wire.signal.throwIfAborted()
 				if (chunk.done) break
-				wire.count(chunk.value.byteLength, this.#options.limit.bytes)
+				wire.count(chunk.value.byteLength, wire.ceiling)
+				wire.retain(chunk.value)
 				parts.push(decoder.decode(chunk.value, { stream: true }))
 			}
 			const body: unknown = parseJSON(parts.join('') + decoder.decode())
@@ -274,10 +451,11 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 	): Promise<void> {
 		try {
 			wire.signal.throwIfAborted()
-			const chunk = await wire.reader.read()
+			const chunk = await this.#read(wire)
 			wire.signal.throwIfAborted()
 			if (!chunk.done) {
-				wire.count(chunk.value.byteLength, this.#options.limit.bytes)
+				wire.count(chunk.value.byteLength, wire.ceiling)
+				wire.retain(chunk.value)
 				wire.decode(chunk.value)
 				if (wire.request.role !== 'metadata' && wire.request.role !== 'judge')
 					this.#rows(wire, false)
@@ -289,21 +467,51 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				const value: unknown = JSON.parse(wire.text)
 				if (wire.request.path === '/api/tags')
 					validateStudyOllamaInventory(value, this.#options.models)
-				else readStudyOllamaSupport(value, this.#options.room.context)
+				else if (wire.request.path === '/api/version') {
+					if (!isRecord(value) || value.version !== this.#options.version)
+						throw new StudyError('FAULT', 'Serving version differs from the declared version')
+				} else readStudyOllamaSupport(value, this.#options.room.context)
 			} else if (wire.request.role === 'judge') {
 				this.#observe(wire, JSON.parse(wire.text))
 			} else this.#rows(wire, true)
 			if (wire.request.role !== 'metadata' && wire.terminal === undefined)
 				throw new StudyError('FAULT', 'Ollama response has no terminal row')
 			await this.#finish(wire)
+			if (wire.request.role === 'metadata' && this.#remaining < 0) {
+				const message = 'Metadata duration allowance exhausted'
+				throw new StudyError('DEADLINE', message, {
+					cause: 'deadline',
+					message,
+					role: 'metadata',
+					stop: {
+						layer: 'scope',
+						id: 'Metadata duration',
+						max: this.#options.metadata.duration,
+						consumed: this.#options.metadata.duration - this.#remaining,
+					},
+				})
+			}
 			if (wire.terminal !== undefined) await this.#judge(wire, wire.terminal)
+			if (wire.identity !== undefined) {
+				this.check()
+				wire.record()
+				await this.#options.exchanges?.append({
+					phase: 'response',
+					...wire.identity,
+					...wire.reply,
+				})
+				if (wire.identity.step !== undefined) this.#step += 1
+			}
+			this.#requests.delete(wire.slot)
 			controller.close()
 		} catch (error) {
 			this.fail(error)
 			try {
+				if (wire.settled) await this.#recordFailure(wire, error)
 				if (isBudgetError(error)) await this.#cut(wire, error)
 				else await this.#failWire(wire, error)
 			} finally {
+				this.#requests.delete(wire.slot)
 				controller.error(error)
 			}
 		}
@@ -366,10 +574,22 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		signal: AbortSignal,
 		id: number,
 		started: number,
+		slot: symbol,
+		identity: StudyExchangeIdentity | undefined,
+		ceiling: number,
 	): Promise<StudyOllamaExchange> {
 		const { url, init: settings, dispatch } = snapshot
 		try {
+			this.check()
 			signal.throwIfAborted()
+			if (identity !== undefined)
+				await this.#options.exchanges?.append({
+					phase: 'attempt',
+					...identity,
+					...buildStudyOllamaBytes(
+						new TextEncoder().encode(typeof settings?.body === 'string' ? settings.body : ''),
+					),
+				})
 			await goal.activity.context.evidence.append({
 				event: 'dispatch',
 				goal: goal.activity.goal,
@@ -379,10 +599,12 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 					model: request.model ?? null,
 					options: { ...request.options },
 					bytes: request.bytes,
+					...(identity === undefined ? {} : { ordinal: identity.ordinal }),
 					...(this.#options.observe ? this.#dispatch(goal, request, id, settings, dispatch) : {}),
 				},
 			})
 			signal.throwIfAborted()
+			this.check()
 			const sent = performance.now()
 			const response =
 				this.#options.fetch === undefined
@@ -395,6 +617,12 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 			if (response.body === null)
 				throw new StudyError('FAULT', `Ollama HTTP response refused: ${response.status}`)
 			const wire = new StudyOllamaExchange({
+				slot,
+				identity,
+				ceiling,
+				headers: [...response.headers.entries()].filter(
+					([name]) => name === 'content-type' || name === 'content-encoding',
+				),
 				activity: goal.activity,
 				request,
 				ticket,
@@ -411,20 +639,59 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 			this.#wires.add(wire)
 			return wire
 		} catch (error) {
-			if (!ticket.signal.aborted) {
-				// An Agent budget's cut before the wire exists is Agent's own stop: the request is accounted with unknown cost.
-				if (isBudgetError(error))
-					ticket.finish({
-						role,
-						calls: 1,
-						tokens: undefined,
-						bytes: undefined,
-						duration: Math.ceil(performance.now() - started),
+			try {
+				if (
+					identity !== undefined &&
+					this.#options.exchanges !== undefined &&
+					this.#options.exchanges.next > identity.ordinal
+				) {
+					this.#fault ??= { error }
+					await this.#options.exchanges.append({
+						phase: 'failure',
+						...identity,
+						reason: readStudyFailure(error).message.slice(0, 256),
 					})
-				else ticket.fail({ ...readStudyFailure(error), role })
+				}
+			} finally {
+				if (!ticket.settled && !ticket.signal.aborted) {
+					// Agent reports its budget cut; the admitted request still keeps unknown cost.
+					if (isBudgetError(error))
+						ticket.finish({
+							role,
+							calls: 1,
+							tokens: undefined,
+							bytes: undefined,
+							duration: Math.ceil(performance.now() - started),
+						})
+					else ticket.fail({ ...readStudyFailure(error), role })
+				}
 			}
 			throw error
 		}
+	}
+
+	#read(wire: StudyOllamaExchange): Promise<ReadableStreamReadResult<Uint8Array>> {
+		const listeners = new Abort()
+		return new Promise<ReadableStreamReadResult<Uint8Array>>((resolve, reject) => {
+			wire.signal.addEventListener('abort', () => reject(wire.signal.reason), {
+				once: true,
+				signal: listeners.signal,
+			})
+			wire.signal.throwIfAborted()
+			wire.reader.read().then(resolve, reject)
+		}).finally(() => listeners.abort())
+	}
+
+	async #recordFailure(wire: StudyOllamaExchange, error: unknown): Promise<void> {
+		if (wire.identity === undefined || wire.recorded) return
+		this.#fault ??= { error }
+		wire.record()
+		await this.#options.exchanges?.append({
+			phase: 'failure',
+			...wire.identity,
+			reason: readStudyFailure(error).message.slice(0, 256),
+			response: wire.reply,
+		})
 	}
 
 	// Bounds the collaborator independently of its cooperation and releases a response that arrives after cancellation.
@@ -507,6 +774,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				prompt: terminal?.prompt ?? null,
 				completion: terminal?.completion ?? null,
 				bytes: wire.bytes,
+				...(wire.identity === undefined ? {} : { ordinal: wire.identity.ordinal }),
 				...observation,
 			},
 		})
@@ -537,6 +805,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		const observation = this.#options.observe ? this.#timeline(wire) : {}
 		const stop = readStudyFailure(error).stop
 		try {
+			await this.#recordFailure(wire, error)
 			await wire.activity.context.evidence.append({
 				event: 'cut',
 				goal: wire.activity.goal,
@@ -566,6 +835,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				wire.ticket.fail({ ...readStudyFailure(failure), role: wire.request.role })
 			throw failure
 		} finally {
+			this.#requests.delete(wire.slot)
 			this.#wires.delete(wire)
 			await wire.reader.cancel(error).catch(() => undefined)
 			wire.reader.releaseLock()
@@ -580,6 +850,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		const failure = readStudyFailure(this.#fault?.error)
 		try {
 			if (!wire.ticket.signal.aborted) wire.ticket.fail({ ...failure, role: wire.request.role })
+			await this.#recordFailure(wire, error)
 			await wire.activity.context.evidence.append({
 				event: 'failure',
 				goal: wire.activity.goal,
@@ -594,6 +865,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				},
 			})
 		} finally {
+			this.#requests.delete(wire.slot)
 			this.#wires.delete(wire)
 			await wire.reader.cancel(error).catch(() => undefined)
 			wire.reader.releaseLock()

@@ -4,7 +4,11 @@ import type {
 	StudyEvidence,
 	StudyUsage,
 } from '../../../../src/core/types.js'
-import type { StudyOllamaPolicy } from '../../../../src/server/ollama/types.js'
+import type { StudyOllamaMetadata, StudyOllamaPolicy } from '../../../../src/server/ollama/types.js'
+import type {
+	StudyExchangeRow,
+	StudyExchangeSinkInterface,
+} from '../../../../src/server/stores/types.js'
 import type { StudyOllamaExchange } from '../../../../src/server/ollama/StudyOllamaExchange.js'
 import type { StudyOllamaTransport } from '../../../../src/server/ollama/StudyOllamaTransport.js'
 import type { StudyMeterFixture } from '../../core/engines/types.js'
@@ -19,6 +23,21 @@ export interface OllamaServerFixture {
 	/** Holds the queued replies the fixture has not served. */
 	readonly replies: readonly OllamaReplyFixture[]
 	close(): Promise<void>
+}
+
+/** Holds raw protocol response chunks and deterministic fixture failures. */
+export interface OllamaWireReplyFixture extends OllamaReplyFixture {
+	readonly chunks?: readonly Uint8Array[]
+	readonly headers?: Readonly<Record<string, string>>
+	readonly pause?: number
+	readonly interrupted?: boolean
+}
+
+/** Holds metadata failures that must prevent every model send. */
+export interface OllamaMetadataFailureFixture {
+	readonly name: string
+	readonly reply: OllamaWireReplyFixture
+	readonly metadata?: StudyOllamaMetadata
 }
 
 /** Holds caller-owned strict role declarations a test mutates after construction. */
@@ -49,6 +68,12 @@ export interface OllamaTransportFixture {
 	readonly goal: OllamaContextFixture
 	readonly transport: StudyOllamaTransport
 	close(): Promise<void>
+}
+
+/** Holds a recording transport and the append-only sink's complete row population. */
+export interface OllamaRecordingFixture extends OllamaTransportFixture {
+	readonly sink: StudyExchangeSinkInterface
+	readonly rows: readonly StudyExchangeRow[]
 }
 
 /** Holds a 200 response body whose reading must fail, and the failure the transport must retain. */

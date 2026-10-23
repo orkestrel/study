@@ -1,6 +1,7 @@
 import type { BudgetError, BudgetErrorContext } from '@orkestrel/budget'
 import type { StudyLaunchResult } from '../src/server/launchers/types.js'
 import type { ScratchInterface } from '@orkestrel/test/server'
+import type { ArtifactLoaderOptions } from '../src/server/artifacts/types.js'
 import type { ChildProcess } from 'node:child_process'
 import { isArray, isInteger, isRecord, parseJSON } from '@orkestrel/contract'
 import { createScratch, isRunning } from '@orkestrel/test/server'
@@ -16,7 +17,16 @@ import type {
 	StudyRubric,
 } from '../src/core/types.js'
 import type { StudyAdjudication, StudyGradeFunction } from '../src/server/adapters/types.js'
-import type { StudySealedResult } from '../src/server/stores/types.js'
+import type {
+	StudyExchangeDeclaration,
+	StudyExchangeHistory,
+	StudyExchangeIdentity,
+	StudySealedResult,
+} from '../src/server/stores/types.js'
+import type {
+	StudyExchangeCustodyFixture,
+	StudyExchangeMutation,
+} from './src/server/stores/types.js'
 import type {
 	StudyProcessSessionOptions,
 	StudyTaskOptions,
@@ -30,9 +40,10 @@ import type {
 	StudyTaskFixture,
 	StudyTaskMode,
 } from './src/server/processes/types.js'
-import { requireValue, waitForCondition, waitForEvent } from '@orkestrel/test'
+import { requireValue, waitForCondition, waitForEvent, waitForDelay } from '@orkestrel/test'
 import { execFile, fork, spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, realpathSync } from 'node:fs'
+import { writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import { createRequire, isBuiltin } from 'node:module'
 import { pathToFileURL } from 'node:url'
@@ -61,7 +72,12 @@ import {
 } from '../src/server/stores/helpers.js'
 import type { ProviderInterface } from '@orkestrel/agent'
 import type { StudyAgentDispatch } from '../src/core/agents/types.js'
-import type { StudyOllamaRole, StudyOllamaTransportOptions } from '../src/server/ollama/types.js'
+import type {
+	StudyOllamaRole,
+	StudyOllamaStep,
+	StudyOllamaTransportOptions,
+} from '../src/server/ollama/types.js'
+import type { StudyExchangeRow, StudyExchangeSinkInterface } from '../src/server/stores/types.js'
 import type { JSONValue } from '@orkestrel/contract'
 import type { OllamaReplyFixture, OllamaRequestFixture } from './src/core/agents/types.js'
 import type {
@@ -73,6 +89,8 @@ import type {
 	OllamaStreamFailureFixture,
 	OllamaStrictRolesFixture,
 	OllamaTransportFixture,
+	OllamaRecordingFixture,
+	OllamaWireReplyFixture,
 } from './src/server/ollama/types.js'
 import type {
 	StudyMCPAnswer,
@@ -91,6 +109,7 @@ import { createServer as createHost } from '@orkestrel/server'
 import { createTool, createToolManager } from '@orkestrel/tool'
 import { StudyOllamaExchange } from '../src/server/ollama/StudyOllamaExchange.js'
 import { StudyOllamaTransport } from '../src/server/ollama/StudyOllamaTransport.js'
+import { buildStudyOllamaBytes } from '../src/server/ollama/helpers.js'
 import { createServer } from 'node:http'
 import {
 	buildCompactCustodyManifest,
@@ -111,6 +130,436 @@ import {
 	STUDY_OLLAMA_OPTIONS,
 	STUDY_OLLAMA_PARTIAL_ROW,
 } from './setupStudy.js'
+
+/** Builds a declared complete exchange journal without using the production reader.
+ * @param trial - The scheduled trial identity.
+ * @param captured - If true, declares capture admission; if false, declares exact bytes.
+ * @returns The declaration, paired exchanges and completion.
+ */
+export function buildStudyExchangeRows(
+	trial = 'r1-first-small',
+	captured = false,
+): readonly StudyExchangeRow[] {
+	const policy = {
+		model: 'model',
+		options: { num_ctx: 32, num_predict: 8 },
+		think: false,
+		strict: false,
+		length: false,
+	}
+	const body = JSON.stringify({
+		model: 'model',
+		messages: [{ role: 'user', content: 'remember' }],
+		stream: true,
+		think: false,
+		options: policy.options,
+	})
+	const declaration: StudyExchangeDeclaration = {
+		phase: 'declaration',
+		trial,
+		version: '0.40.3',
+		models: { model: { name: 'model', digest: 'a'.repeat(64) } },
+		metadata: { calls: 6, bytes: 65536, duration: 5000 },
+		procedure: [
+			captured
+				? {
+						admission: 'capture',
+						ordinal: 1,
+						goal: 'write',
+						role: 'agent',
+						path: '/api/chat',
+						policy,
+						bytes: Buffer.byteLength(body),
+					}
+				: {
+						admission: 'exact',
+						ordinal: 1,
+						goal: 'write',
+						role: 'agent',
+						path: '/api/chat',
+						policy,
+						body,
+						input: hashStudyBytes(Buffer.from(body)),
+					},
+		],
+		maintenance: [],
+	}
+	const identities: readonly StudyExchangeIdentity[] = [
+		{
+			ordinal: 1,
+			goal: 'write',
+			role: 'metadata',
+			path: '/api/version',
+			method: 'GET',
+			stage: 'preflight',
+		},
+		{
+			ordinal: 2,
+			goal: 'write',
+			role: 'metadata',
+			path: '/api/tags',
+			method: 'GET',
+			stage: 'preflight',
+		},
+		{
+			ordinal: 3,
+			goal: 'write',
+			role: 'metadata',
+			path: '/api/show',
+			method: 'POST',
+			stage: 'preflight',
+		},
+		{
+			ordinal: 4,
+			goal: 'write',
+			role: 'agent',
+			path: '/api/chat',
+			method: 'POST',
+			stage: 'execution',
+			step: 1,
+		},
+		{
+			ordinal: 5,
+			goal: 'write',
+			role: 'metadata',
+			path: '/api/version',
+			method: 'GET',
+			stage: 'postflight',
+		},
+		{
+			ordinal: 6,
+			goal: 'write',
+			role: 'metadata',
+			path: '/api/tags',
+			method: 'GET',
+			stage: 'postflight',
+		},
+		{
+			ordinal: 7,
+			goal: 'write',
+			role: 'metadata',
+			path: '/api/show',
+			method: 'POST',
+			stage: 'postflight',
+		},
+	]
+	return [
+		declaration,
+		...identities.flatMap((identity): readonly StudyExchangeRow[] => {
+			const request =
+				identity.stage === 'execution'
+					? body
+					: identity.path === '/api/show'
+						? JSON.stringify({ model: 'model' })
+						: ''
+			const reply =
+				identity.path === '/api/version'
+					? JSON.stringify({ version: declaration.version })
+					: identity.path === '/api/tags'
+						? JSON.stringify({ models: [{ name: 'model', digest: 'a'.repeat(64) }] })
+						: identity.path === '/api/show'
+							? JSON.stringify({
+									capabilities: ['completion'],
+									model_info: { 'general.architecture': 'llama', 'llama.context_length': 8192 },
+								})
+							: buildOllamaRow({ content: 'remember' })
+			const bytes = buildStudyOllamaBytes(Buffer.from(reply))
+			return [
+				{ ...identity, phase: 'attempt', ...buildStudyOllamaBytes(Buffer.from(request)) },
+				{
+					...identity,
+					phase: 'response',
+					status: 200,
+					headers: [['content-type', 'application/json']],
+					chunks: [bytes.size],
+					...bytes,
+				},
+			]
+		}),
+		{ phase: 'complete', count: identities.length },
+	]
+}
+
+/** Produces malformed journals while preserving their otherwise valid independent control.
+ * @param rows - The valid declaration and ordered population.
+ * @param mutation - The precise refused condition.
+ * @returns Exact JSONL bytes, with framing omitted only for the partial case.
+ */
+export function mutateStudyExchangeRows(
+	rows: readonly StudyExchangeRow[],
+	mutation: StudyExchangeMutation,
+): Uint8Array {
+	const attempt = rows.find((row) => row.phase === 'attempt')
+	const response = rows.find((row) => row.phase === 'response')
+	if (attempt === undefined || response === undefined)
+		throw new Error('Missing exchange fixture pair')
+	const selected =
+		mutation === 'missing-response'
+			? rows.filter((row) => row.phase !== 'response' || row.stage !== 'execution')
+			: mutation === 'missing-metadata'
+				? rows.filter((row) => row.phase !== 'response' || row.ordinal !== 2)
+				: mutation === 'duplicate'
+					? [rows[0], attempt, ...rows.slice(1)]
+					: mutation === 'orphan'
+						? [rows[0], response, ...rows.slice(1)]
+						: mutation === 'open'
+							? rows.slice(0, -2)
+							: mutation === 'incomplete'
+								? rows.filter((row) => row.phase !== 'complete')
+								: mutation === 'reversed'
+									? [
+											rows[0],
+											...rows
+												.slice(1, -1)
+												.reduce<ReadonlyArray<readonly StudyExchangeRow[]>>(
+													(pairs, _row, index) =>
+														index % 2 === 0 ? [...pairs, rows.slice(index + 1, index + 3)] : pairs,
+													[],
+												)
+												.toReversed()
+												.flat(),
+											rows.at(-1),
+										]
+									: mutation === 'altered'
+										? rows.map((row) =>
+												row.phase === 'response' && row.stage === 'execution'
+													? { ...row, body: Buffer.from('changed').toString('base64') }
+													: row,
+											)
+										: rows
+	return Buffer.from(
+		selected.map((row) => JSON.stringify(row)).join('\n') + (mutation === 'partial' ? '' : '\n'),
+	)
+}
+
+/** Builds a replay history from independent fixture bytes, without the strict reader.
+ * @param captured - If true, declares capture admission; if false, declares exact bytes.
+ * @returns A complete fixture with a pinned serialized file identity.
+ */
+export function buildStudyExchangeHistory(captured = false): StudyExchangeHistory {
+	const rows = buildStudyExchangeRows('r1-first-small', captured)
+	const declaration = rows[0]
+	const completion = rows.at(-1)
+	if (declaration?.phase !== 'declaration' || completion?.phase !== 'complete')
+		throw new Error('Invalid fixture boundary')
+	return {
+		seal: 'b'.repeat(64),
+		file: {
+			path: `trials/${declaration.trial}/exchanges.jsonl`,
+			bytes: mutateStudyExchangeRows(rows, 'complete').length,
+			digest: hashStudyBytes(mutateStudyExchangeRows(rows, 'complete')),
+		},
+		declaration,
+		completion,
+		exchanges: rows.flatMap((row, index) => {
+			const response = rows[index + 1]
+			return row.phase === 'attempt' && response?.phase === 'response'
+				? [{ attempt: row, response }]
+				: []
+		}),
+	}
+}
+
+/** Reverses paired identities and repins the physical bytes while retaining the original declaration.
+ * @returns An internally paired, renumbered but declaratively reordered replay control.
+ */
+export function buildReversedStudyHistory(): StudyExchangeHistory {
+	const history = buildStudyExchangeHistory()
+	const exchanges = [...history.exchanges].reverse().map((pair, index) => ({
+		attempt: { ...pair.attempt, ordinal: index + 1 },
+		response: { ...pair.response, ordinal: index + 1 },
+	}))
+	const bytes = Buffer.from(
+		[
+			history.declaration,
+			...exchanges.flatMap((pair) => [pair.attempt, pair.response]),
+			history.completion,
+		]
+			.map((row) => JSON.stringify(row) + '\n')
+			.join(''),
+	)
+	return {
+		...history,
+		exchanges,
+		file: { ...history.file, bytes: bytes.length, digest: hashStudyBytes(bytes) },
+	}
+}
+
+/** Writes a protocol-faithful worker peer that retains its exact opening declaration.
+ * @param scratch - The owned peer and receipt directory.
+ * @returns The peer entry for a real process driver.
+ */
+export function writeStudyPreparationPeer(scratch: ScratchInterface): string {
+	return scratch.write(
+		'preparation-peer.cjs',
+		`const fs = require('node:fs')
+process.on('message', frame => {
+ if (frame.operation === 'open') { fs.writeFileSync(${JSON.stringify(join(scratch.path, 'worker-opening.json'))}, JSON.stringify(frame.value)); process.send({id:frame.id, operation:'reply', value:{pid:process.pid, ...frame.value.identity}}) }
+ if (frame.operation === 'close') process.send({id:frame.id, operation:'reply', value:true})
+})`,
+	)
+}
+
+/** Retains independent complete trial evidence with a selectable sidecar refusal control.
+ * @param directory - The absent owned result directory.
+ * @param mutation - The sidecar mutation; Default: complete.
+ * @param recording - If true, declares and reserves recording; if false, leaves the sidecar unrequested.
+ * @param sidecar - If true, writes sidecars; if false, leaves them missing.
+ * @returns The real store and manifest after every trial has terminated.
+ */
+export async function retainStudyExchangeFixture(
+	directory: string,
+	mutation: StudyExchangeMutation = 'complete',
+	recording = true,
+	sidecar = true,
+): Promise<StudyExchangeCustodyFixture> {
+	const manifest = {
+		...buildCompactCustodyManifest(),
+		...(recording ? { record: { bytes: 16384 } } : {}),
+	}
+	const store = new StudyResultStore({ directory, manifest })
+	await store.create()
+	for (const trial of manifest.schedule) {
+		if (recording) await store.exchanges(trial)
+		const sink = await store.start(trial)
+		const rows = buildStudyExchangeRows(trial.id)
+		for (const row of rows) {
+			if (row.phase === 'attempt' || row.phase === 'response')
+				await sink.append({
+					event: row.phase === 'attempt' ? 'dispatch' : 'wire',
+					goal: row.goal,
+					value: { ordinal: row.ordinal, role: row.role, path: row.path },
+				})
+		}
+		if (sidecar)
+			await writeFile(
+				join(directory, 'execution', 'trials', trial.id, 'exchanges.jsonl'),
+				mutateStudyExchangeRows(rows, mutation),
+			)
+		await store.finish(buildCustodyAttempt(manifest, trial))
+	}
+	return { store, manifest, directory }
+}
+
+/** Writes a real transport consumer whose captured model request can replay in a fresh worker.
+ * @param scratch - The owned consumer fixture.
+ * @param origin - The loopback Ollama peer.
+ * @param library - The built real Study server library admitted as the subject.
+ */
+export function writeStudyRecordingConsumer(
+	scratch: ScratchInterface,
+	origin: string,
+	library: string,
+): void {
+	writeStudyConsumer(scratch)
+	const original = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
+	if (!isRecord(original)) throw new Error('Missing recording profile')
+	const bounds = {
+		request: { duration: 3000, calls: 1, tokens: 8176, bytes: 4096 },
+		goal: { duration: 5000, calls: 2, tokens: 16384, bytes: 8192 },
+		trial: { duration: 10000, calls: 4, tokens: 32768, bytes: 32768 },
+		series: { duration: 20000, calls: 8, tokens: 65536, bytes: 131072 },
+	}
+	const policy = {
+		model: 'model',
+		options: { num_ctx: 8192, num_predict: 8 },
+		think: false,
+		strict: false,
+		length: false,
+	}
+	const body = JSON.stringify({
+		model: 'model',
+		messages: [{ role: 'user', content: 'remember' }],
+		stream: true,
+		think: false,
+		options: policy.options,
+	})
+	scratch.write(
+		'studies/files/profiles/local.json',
+		JSON.stringify({
+			...original,
+			bounds,
+			room: { ...buildStudyProfile().room, context: 8192, output: 8 },
+			subject: library,
+			roots: [
+				...(isArray(original.roots) ? original.roots : []),
+				dirname(dirname(library)),
+				...collectStudyRoots(['@orkestrel/ollama']),
+			],
+			provider: {
+				entry: resolveStudyEntry('@orkestrel/ollama'),
+				url: origin,
+				model: 'model',
+				digest: { model: 'a'.repeat(64) },
+			},
+			record: { bytes: 32768 },
+			settings: {
+				version: 'fixture-version',
+				metadata: { calls: 8, bytes: 65536, duration: 5000 },
+				procedure: [
+					{
+						admission: 'capture',
+						ordinal: 1,
+						goal: 'write',
+						role: 'agent',
+						path: '/api/chat',
+						policy,
+						bytes: Buffer.byteLength(body),
+					},
+				],
+				body,
+			},
+		}),
+	)
+	scratch.write(
+		'studies/files/scenarios/first.json',
+		JSON.stringify({ id: 'first', goals: [{ id: 'write', input: 'remember' }] }),
+	)
+	scratch.write(
+		'studies/assessment/rubric.json',
+		JSON.stringify({
+			version: '1',
+			criteria: [
+				{
+					id: 'first-write',
+					scenario: 'first',
+					goal: 'write',
+					method: 'state',
+					critical: true,
+					assertion: { equals: 'remember' },
+				},
+			],
+		}),
+	)
+	scratch.write(
+		'studies/files/index.ts',
+		`import { appendFileSync } from 'node:fs'
+export function createStudyAdapter() { return {
+ validate() { appendFileSync(${JSON.stringify(join(scratch.path, 'validations.log'))}, String(process.pid) + '\\n') },
+ driver({ subject, provider, profile, exchanges, replay }) { return { async open(trial, signal) {
+  appendFileSync(${JSON.stringify(join(scratch.path, 'workers.log'))}, String(process.pid) + '\\n')
+  const transport = new subject.StudyOllamaTransport({ url: profile.provider.url, room: profile.room, limit: profile.bounds.request, models: { model: { name: profile.provider.model, digest: profile.provider.digest.model } }, roles: { agent: profile.settings.procedure[0].policy }, metadata: profile.settings.metadata, version: profile.settings.version, procedure: replay?.procedure ?? profile.settings.procedure, exchanges, signal, observe: false, timing: provider.extractTiming, ...(replay === undefined ? {} : { fetch: replay.fetch }) })
+  return {
+   async execute(goal, context) {
+    transport.prepare({ goal: goal.id, context })
+    try {
+     await transport.verify()
+     const response = await transport.fetch('agent', profile.provider.url + '/api/chat', { method: 'POST', body: profile.settings.body })
+     const text = await response.text()
+     await transport.verify()
+     transport.check()
+     const value = JSON.parse(text.trim()).message.content
+     return { value, partial: false }
+    } finally { transport.clear() }
+   },
+   async close() { await transport.close() }
+  }
+ } } },
+ grade() { return [] }
+} }
+`,
+	)
+}
 
 /** Supplies the validation request a task sends to its adapter child. */
 export function buildStudyTaskRequest(): StudyTaskRequest {
@@ -182,6 +631,110 @@ export const ARTIFACT_NATIVE_FILES = Object.freeze({
 		'{"name":"provider","version":"1.0.0","type":"module","exports":"./dist/index.js","dependencies":{"same-name":"1.0.0"}}\n',
 	'subject/node_modules/provider/dist/index.js': "export { value } from 'same-name'\n",
 })
+
+/** Supplies a physical forest with duplicate package copies, source modules, and exact asset bytes. */
+export const ARTIFACT_CLOSURE_FILES = Object.freeze({
+	...ARTIFACT_NATIVE_FILES,
+	'subject/node_modules/same-name/dist/index.js': 'export const value = 22\n',
+	'subject/studies/adapter/index.ts': 'export const value: number = 7\n',
+	'subject/studies/adapter/helper.ts': 'export const helper: number = 3\n',
+	'subject/studies/adapter/caf\u00e9/e\u0301.txt': '\ufeffline\r\n\ud83d\ude00 ',
+	'subject/studies/adapter/rubric.json': '{"value":9}\n',
+	'subject/assets/custody.js': 'export const value = 9\n',
+})
+
+/** Supplies benign credential-like segments and their uppercase controls. */
+export const ARTIFACT_BENIGN_NAMES = Object.freeze([
+	'monkey',
+	'keyboard',
+	'tokenizer',
+	'hotkeys',
+	'run-aKeY9x',
+	'run-aToKeN9x',
+	'.environment',
+	'.envoy',
+	'.npmrc-copy',
+	'auth.json.bak',
+	'identity.key.txt',
+	'certificate.pem.txt',
+	'id_rsa.pub',
+	'id_dsa.pub',
+	'id_ecdsa.pub',
+	'id_ed25519.pub',
+	'api-tokens.txt',
+	'pretoken.json',
+	'tokenized',
+])
+
+/** Supplies inert credential names without creating credential fixtures. */
+export const ARTIFACT_CREDENTIAL_NAMES = Object.freeze([
+	'.env',
+	'.env.local',
+	'.env.production.local',
+	'.npmrc',
+	'auth.json',
+	'identity.key',
+	'identity.pem',
+	'identity.p12',
+	'identity.pfx',
+	'.key',
+	'.pem',
+	'.p12',
+	'.pfx',
+	'id_rsa',
+	'id_dsa',
+	'id_ecdsa',
+	'id_ed25519',
+	'token',
+	'token.json',
+	'api-token.txt',
+	'.token',
+	'api_token.txt',
+	'token-cache',
+])
+
+/** Supplies inert credential and unsafe keys; no credential fixture is opened. */
+export const ARTIFACT_REFUSED_KEYS = Object.freeze([
+	'../outside',
+	'C:/outside',
+	'part\\outside',
+	'CON.txt',
+	'trail.',
+	'x//y',
+	'x/./y',
+	...ARTIFACT_CREDENTIAL_NAMES,
+])
+
+/** Names the distinct populations that a copied census must retain. */
+export const ARTIFACT_MEMBER_SUFFIXES = Object.freeze([
+	'helper.ts',
+	'same-name/dist/index.js',
+	'e\u0301.txt',
+])
+
+/** Selects the duplicate package forest and its custody-only Unicode asset.
+ * @param scratch - The scratch seeded with the closure files.
+ * @returns Canonical package, source, and asset selections.
+ */
+export function buildArtifactClosureOptions(scratch: ScratchInterface): ArtifactLoaderOptions {
+	const subject = join(scratch.path, 'subject')
+	return {
+		entries: [
+			join(subject, 'dist', 'index.js'),
+			join(subject, 'node_modules', 'provider', 'dist', 'index.js'),
+		],
+		roots: [
+			subject,
+			join(subject, 'node_modules', 'same-name'),
+			join(subject, 'node_modules', 'provider'),
+		],
+		source: {
+			root: join(subject, 'studies', 'adapter'),
+			entry: join(subject, 'studies', 'adapter', 'index.ts'),
+		},
+		assets: [join(subject, 'studies', 'adapter', 'caf\u00e9', 'e\u0301.txt')],
+	}
+}
 
 /** Writes a native child entry that loads the source library before driving artifacts.
  * @param scratch - The owned temporary resource.
@@ -1120,7 +1673,7 @@ export function createStudyAdapter() { return {
  * @returns The fixture origin, the exact received requests, the unserved replies, and its close.
  */
 export async function createOllamaServer(
-	replies: readonly OllamaReplyFixture[] = [],
+	replies: readonly OllamaWireReplyFixture[] = [],
 	answer?: StudyMCPAnswer,
 ): Promise<OllamaServerFixture> {
 	const queue = new OllamaReplyQueue(replies)
@@ -1133,11 +1686,22 @@ export async function createOllamaServer(
 		const path = request.url ?? ''
 		const text = Buffer.concat(chunks).toString('utf8')
 		const supplied = queue.claim(path)
+		const scripted = replies.find((entry) => entry === supplied)
 		requests.append({ path, body: text })
 		const header = request.headers['x-study-owned']
 		owners.append(typeof header === 'string' ? header : undefined)
 		const body = supplied?.body ?? answer?.(path, text) ?? readOllamaDefault(path)
-		response.writeHead(supplied?.status ?? 200)
+		if (scripted?.pause !== undefined) await waitForDelay(scripted.pause)
+		response.writeHead(supplied?.status ?? 200, scripted?.headers)
+		if (scripted?.chunks !== undefined) {
+			for (const chunk of scripted.chunks) {
+				response.write(chunk)
+				await waitForDelay(1)
+			}
+			if (scripted.interrupted === true) response.destroy()
+			else if (scripted.open !== true) response.end()
+			return
+		}
 		if (supplied?.open === true) response.write(body)
 		else response.end(body)
 	})
@@ -1176,6 +1740,7 @@ export function buildOllamaTransportOptions(
 		url,
 		room: { context: 32768, safety: 128 },
 		limit: { duration: 2000, bytes: 1048576 },
+		metadata: { calls: 32, bytes: 16777216, duration: 15000 },
 		models: {
 			model: { name: 'model', digest: 'a'.repeat(64) },
 			judge: { name: 'judge', digest: 'b'.repeat(64) },
@@ -1233,6 +1798,113 @@ export function buildOllamaStrictRoles(): OllamaStrictRolesFixture {
 	}
 }
 
+/** Records every supplied exchange row without implementing production sink validation. */
+export class OllamaExchangeRecorder implements StudyExchangeSinkInterface {
+	readonly #rows: StudyExchangeRow[] = []
+
+	/** Holds all rows in append order. */
+	get rows(): readonly StudyExchangeRow[] {
+		return this.#rows
+	}
+
+	/** Reports the next HTTP ordinal from accepted attempts. */
+	get next(): number {
+		return this.#rows.filter((row) => row.phase === 'attempt').length + 1
+	}
+
+	/** Retains one row as an owned snapshot.
+	 * @param row - The supplied exchange row.
+	 * @returns Completion after the row is retained.
+	 */
+	async append(row: StudyExchangeRow): Promise<void> {
+		this.#rows.push(structuredClone(row))
+	}
+
+	/** Closes this inert recorder.
+	 * @returns Immediate completion.
+	 */
+	async close(): Promise<void> {}
+}
+
+/** Builds a declared model step over the fixture's exact role policy.
+ * @param admission - The exact or capture admission contract.
+ * @param body - The body whose bytes the declaration bounds.
+ * @param role - The responsible model role.
+ * @param ordinal - The contiguous model-step ordinal.
+ * @param goal - The declared goal.
+ * @returns The complete step declaration.
+ */
+export function buildOllamaStep(
+	admission: 'exact' | 'capture' = 'capture',
+	body = STUDY_OLLAMA_CHAT_BODY,
+	role: StudyOllamaRole = 'agent',
+	ordinal = 1,
+	goal = 'first',
+): StudyOllamaStep {
+	const policy = requireValue(buildOllamaTransportOptions('http://127.0.0.1:1').roles[role])
+	const identity = {
+		ordinal,
+		goal,
+		role,
+		path: role === 'judge' ? ('/api/generate' as const) : ('/api/chat' as const),
+		policy: { ...policy, options: { ...policy.options } },
+	}
+	return admission === 'exact'
+		? { ...identity, admission, body, input: hashStudyBytes(body) }
+		: { ...identity, admission, bytes: Buffer.byteLength(body) }
+}
+
+/** Supplies distinct agent, summary and raw judge body bytes under their declared policies.
+ * @returns Model-role and body pairs in the declared execution order.
+ */
+export function buildOllamaRoleBodies(): ReadonlyArray<readonly [StudyOllamaRole, string]> {
+	return [
+		['agent', STUDY_OLLAMA_CHAT_BODY],
+		[
+			'summary',
+			JSON.stringify({
+				model: 'model',
+				stream: true,
+				think: false,
+				options: { ...STUDY_OLLAMA_OPTIONS, num_predict: 256 },
+				messages: [{ role: 'user', content: 'résumé' }],
+			}),
+		],
+		[
+			'judge',
+			JSON.stringify({
+				model: 'judge',
+				stream: false,
+				raw: true,
+				logprobs: true,
+				options: STUDY_JUDGE_OPTIONS,
+				prompt: 'A\r\n🦉',
+			}),
+		],
+	]
+}
+
+/** Creates a recording transport whose sink retains every row for independent assertions.
+ * @param procedure - The declared model-step population.
+ * @param replies - The loopback server's protocol responses.
+ * @param change - Explicit transport overrides.
+ * @returns The transport fixture and retained exchange rows.
+ */
+export async function createOllamaRecordingFixture(
+	procedure: readonly StudyOllamaStep[] = [buildOllamaStep()],
+	replies: readonly OllamaWireReplyFixture[] = [],
+	change: Partial<StudyOllamaTransportOptions> = {},
+): Promise<OllamaRecordingFixture> {
+	const sink = new OllamaExchangeRecorder()
+	const fixture = await createOllamaTransportFixture(replies, {
+		version: 'fixture-version',
+		procedure,
+		exchanges: sink,
+		...change,
+	})
+	return { ...fixture, sink, rows: sink.rows }
+}
+
 /** Creates real goal accounting and an append-only evidence recorder sized for the fixture transport.
  * @param signal - The goal's cancellation.
  * @returns The context, its evidence, the real meter, and one cleanup boundary.
@@ -1275,6 +1947,10 @@ export async function createOllamaExchange(bytes = 10): Promise<OllamaExchangeFi
 	try {
 		return {
 			exchange: new StudyOllamaExchange({
+				slot: Symbol('exchange'),
+				identity: undefined,
+				headers: [],
+				ceiling: 1048576,
 				activity: { goal: 'first', context: goal.context, checkpoint: undefined },
 				request: {
 					role: 'agent',
@@ -1313,7 +1989,7 @@ export async function createOllamaExchange(bytes = 10): Promise<OllamaExchangeFi
  * @returns The server, goal accounting, the transport prepared for goal `first`, and one cleanup boundary that closes the transport and so ends its goal.
  */
 export async function createOllamaTransportFixture(
-	replies: readonly OllamaReplyFixture[] = [],
+	replies: readonly OllamaWireReplyFixture[] = [],
 	change: Partial<StudyOllamaTransportOptions> = {},
 	checkpoint?: JSONValue,
 ): Promise<OllamaTransportFixture> {

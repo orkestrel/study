@@ -1,5 +1,6 @@
 import type {
 	StudyAttempt,
+	StudyEvidence,
 	StudyJudgment,
 	StudyLabeling,
 	StudyManifest,
@@ -7,6 +8,12 @@ import type {
 } from '@src/core'
 import type {
 	StudyFile,
+	StudyExchangeAttempt,
+	StudyExchangeDeclaration,
+	StudyExchangeHistory,
+	StudyExchangeIdentity,
+	StudyExchangeRow,
+	StudyRecordedExchange,
 	StudyPacketBundle,
 	StudyPacketEntry,
 	StudyPacketLink,
@@ -15,7 +22,7 @@ import type {
 } from './types.js'
 import type { FileHandle } from 'node:fs/promises'
 import { StudyError } from '@src/core'
-import { attempt, canonicalStringify, parseJSON } from '@orkestrel/contract'
+import { attempt, canonicalStringify, isRecord, parseJSON } from '@orkestrel/contract'
 import { constants } from 'node:fs'
 import { lstat, open, readdir } from 'node:fs/promises'
 import { dirname, join, parse, relative, resolve, sep } from 'node:path'
@@ -26,6 +33,8 @@ import {
 	isStudyCustodyEvidence,
 	isStudyCustodyManifest,
 	isStudyCustodySeal,
+	isStudyExchangeHistory,
+	isStudyExchangeRow,
 } from './validators.js'
 
 /**
@@ -297,7 +306,13 @@ export async function scanStudyExecution(
 ): Promise<readonly StudyFile[]> {
 	await checkStudyDirectory(directory)
 	const known = new Set(manifest.schedule.map((trial) => trial.id))
-	const files = await scanStudyTree(directory, '', known, manifest.bounds.series.bytes)
+	const files = await scanStudyTree(
+		directory,
+		'',
+		known,
+		manifest.bounds.series.bytes,
+		manifest.record !== undefined,
+	)
 	return Object.freeze(
 		[...files].sort((left, right) =>
 			left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
@@ -319,6 +334,7 @@ export async function scanStudyTree(
 	prefix: string,
 	known: ReadonlySet<string>,
 	allowance: number,
+	recording = false,
 ): Promise<readonly StudyFile[]> {
 	const files: StudyFile[] = []
 	const directories: string[] = []
@@ -342,7 +358,9 @@ export async function scanStudyTree(
 				(names.length === 3 &&
 					names[0] === 'trials' &&
 					known.has(names[1] ?? '') &&
-					(names[2] === 'attempt.json' || names[2] === 'evidence.jsonl'))
+					(names[2] === 'attempt.json' ||
+						names[2] === 'evidence.jsonl' ||
+						(recording && names[2] === 'exchanges.jsonl')))
 			)
 		)
 			throw new StudyError('CUSTODY', 'Execution contains an unknown file')
@@ -358,7 +376,7 @@ export async function scanStudyTree(
 	const steps: Array<{ readonly found: readonly StudyFile[]; readonly left: number }> = []
 	for (const child of [...directories].reverse()) {
 		const before = steps.at(-1)?.left ?? remaining
-		const found = await scanStudyTree(directory, child, known, before)
+		const found = await scanStudyTree(directory, child, known, before, recording)
 		steps.push({ found, left: found.reduce((left, file) => left - file.bytes, before) })
 	}
 	return [...files, ...steps.flatMap((step) => step.found)]
@@ -542,9 +560,17 @@ export async function readStudyResult(directory: string): Promise<StudyResultRea
 		seal.id !== computeStudySealId(manifest.id, files) ||
 		canonicalStringify(seal.files) !== canonicalStringify(files) ||
 		attempts.length !== manifest.schedule.length ||
-		files.length !== 1 + manifest.schedule.length * 2
+		files.length !== 1 + manifest.schedule.length * (manifest.record === undefined ? 2 : 3)
 	)
 		throw new StudyError('CUSTODY', 'Execution seal does not match the complete byte inventory')
+	if (manifest.record !== undefined) {
+		for (const trial of manifest.schedule) {
+			const file = files.find((entry) => entry.path === `trials/${trial.id}/exchanges.jsonl`)
+			if (file === undefined)
+				throw new StudyError('CUSTODY', 'Recorded trial is missing its exchange sidecar')
+			await readStudyTrialExchanges(absolute, manifest, trial.id, file)
+		}
+	}
 	return Object.freeze({
 		status: 'sealed',
 		directory: absolute,
@@ -552,4 +578,345 @@ export async function readStudyResult(directory: string): Promise<StudyResultRea
 		attempts: Object.freeze(attempts),
 		seal,
 	})
+}
+
+/** Projects the declaration onto its complete ordered HTTP identity population.
+ * @param declaration - The validated opening row.
+ * @returns Maintenance, preflight, model and postflight identities in declaration order.
+ */
+export function buildStudyExchangeSequence(
+	declaration: StudyExchangeDeclaration,
+): readonly StudyExchangeIdentity[] {
+	const first = declaration.procedure[0]
+	const last = declaration.procedure.at(-1)
+	if (first === undefined || last === undefined)
+		throw new StudyError('CUSTODY', 'Exchange procedure is empty')
+	const models = Object.values(declaration.models).filter(
+		(model, index, entries) => entries.findIndex((entry) => entry.name === model.name) === index,
+	)
+	const maintenance: readonly StudyExchangeIdentity[] = declaration.maintenance.map(
+		(_model, index) => ({
+			ordinal: index + 1,
+			goal: first.goal,
+			role: 'maintenance',
+			path: '/api/generate',
+			method: 'POST',
+			stage: 'maintenance',
+		}),
+	)
+	const preflight: readonly StudyExchangeIdentity[] = [
+		'/api/version',
+		'/api/tags',
+		...models.map(() => '/api/show'),
+	].map((path, index) => ({
+		ordinal: maintenance.length + index + 1,
+		goal: first.goal,
+		role: 'metadata',
+		path:
+			path === '/api/version' ? '/api/version' : path === '/api/tags' ? '/api/tags' : '/api/show',
+		method: path === '/api/show' ? 'POST' : 'GET',
+		stage: 'preflight',
+	}))
+	const execution: readonly StudyExchangeIdentity[] = declaration.procedure.map((step, index) => ({
+		ordinal: maintenance.length + preflight.length + index + 1,
+		goal: step.goal,
+		role: step.role,
+		path: step.path,
+		method: 'POST',
+		stage: 'execution',
+		step: step.ordinal,
+	}))
+	const postflight: readonly StudyExchangeIdentity[] = preflight.map((identity, index) => ({
+		...identity,
+		ordinal: maintenance.length + preflight.length + execution.length + index + 1,
+		goal: last.goal,
+		stage: 'postflight',
+	}))
+	return [...maintenance, ...preflight, ...execution, ...postflight]
+}
+
+/** Projects only the repeated identity fields of a retained HTTP exchange.
+ * @param identity - The row whose body and lifecycle fields are omitted.
+ * @returns The identity repeated by its attempt and terminal.
+ */
+export function projectStudyExchangeIdentity(
+	identity: StudyExchangeIdentity,
+): StudyExchangeIdentity {
+	return {
+		ordinal: identity.ordinal,
+		goal: identity.goal,
+		role: identity.role,
+		path: identity.path,
+		method: identity.method,
+		stage: identity.stage,
+		...(identity.step === undefined ? {} : { step: identity.step }),
+	}
+}
+
+/** Validates the exact declaration order and request bytes of an admitted exchange.
+ * @param declaration - The complete opening procedure.
+ * @param request - The admitted request to join.
+ * @returns Nothing after identity, exact-body or capture-length validation.
+ */
+export function validateStudyExchangeRequest(
+	declaration: StudyExchangeDeclaration,
+	request: StudyExchangeAttempt,
+): void {
+	const expected = buildStudyExchangeSequence(declaration)[request.ordinal - 1]
+	if (
+		expected === undefined ||
+		canonicalStringify(expected) !== canonicalStringify(projectStudyExchangeIdentity(request))
+	)
+		throw new StudyError('CUSTODY', 'Exchange differs from its declared order')
+	const bytes = Buffer.from(request.body, 'base64')
+	if (request.stage === 'execution') {
+		const step = declaration.procedure.find((entry) => entry.ordinal === request.step)
+		if (
+			step === undefined ||
+			(step.admission === 'exact'
+				? !bytes.equals(Buffer.from(step.body)) || request.digest !== step.input
+				: bytes.length !== step.bytes)
+		)
+			throw new StudyError('CUSTODY', 'Exchange request differs from its declared admission')
+		return
+	}
+	if (request.stage === 'maintenance') {
+		const model = declaration.maintenance[request.ordinal - 1]
+		const body = parseJSON(bytes.toString('utf8'))
+		if (
+			model === undefined ||
+			!isRecord(body) ||
+			body.model !== model.name ||
+			body.keep_alive !== 0
+		)
+			throw new StudyError('CUSTODY', 'Maintenance request differs from its declaration')
+		return
+	}
+	const models = Object.values(declaration.models).filter(
+		(model, index, entries) => entries.findIndex((entry) => entry.name === model.name) === index,
+	)
+	const population = models.length + 2
+	const offset =
+		request.ordinal -
+		declaration.maintenance.length -
+		(request.stage === 'postflight' ? population + declaration.procedure.length : 0) -
+		1
+	const model = models[offset - 2]
+	const body =
+		request.path === '/api/show' && model !== undefined ? JSON.stringify({ model: model.name }) : ''
+	if (!bytes.equals(Buffer.from(body)))
+		throw new StudyError('CUSTODY', 'Metadata request differs from its declaration')
+}
+
+/** Validates a serialized journal prefix or its complete successful population.
+ * @param rows - The owned rows in physical append order.
+ * @param complete - If true, requires successful completion; if false, admits an unfinished prefix.
+ * @returns Nothing when every row joins its preceding attempt and declared sequence.
+ */
+export function validateStudyExchangeRows(
+	rows: readonly StudyExchangeRow[],
+	complete = true,
+): void {
+	const declaration = rows[0]
+	if (declaration?.phase !== 'declaration' || !rows.every(isStudyExchangeRow))
+		throw new StudyError('CUSTODY', 'Exchange declaration or row is invalid')
+	const attempts = rows.filter((row) => row.phase === 'attempt')
+	for (const [index, row] of rows.entries()) {
+		if (index === 0) continue
+		const previous = rows[index - 1]
+		if (row.phase === 'attempt') {
+			if (previous?.phase !== 'declaration' && previous?.phase !== 'response')
+				throw new StudyError('CUSTODY', 'Exchange attempt overlaps an unfinished attempt')
+			if (
+				row.ordinal !==
+				rows.slice(0, index).filter((entry) => entry.phase === 'attempt').length + 1
+			)
+				throw new StudyError('CUSTODY', 'Exchange ordinals are not contiguous')
+			validateStudyExchangeRequest(declaration, row)
+		} else if (row.phase === 'response' || row.phase === 'failure') {
+			if (
+				previous?.phase !== 'attempt' ||
+				canonicalStringify(projectStudyExchangeIdentity(previous)) !==
+					canonicalStringify(projectStudyExchangeIdentity(row))
+			)
+				throw new StudyError('CUSTODY', 'Exchange terminal has no matching attempt')
+		} else if (row.phase === 'complete') {
+			if (
+				index !== rows.length - 1 ||
+				previous?.phase !== 'response' ||
+				row.count !== attempts.length ||
+				row.count !== buildStudyExchangeSequence(declaration).length ||
+				rows.some((entry) => entry.phase === 'failure')
+			)
+				throw new StudyError('CUSTODY', 'Exchange completion is partial or failed')
+		} else throw new StudyError('CUSTODY', 'Exchange declaration repeats')
+	}
+	if (complete && rows.at(-1)?.phase !== 'complete')
+		throw new StudyError('CUSTODY', 'Exchange history has no successful completion')
+}
+
+/** Reads strict complete LF-framed exchange rows with verified bodies and declaration joins.
+ * @param bytes - The bounded retained sidecar bytes.
+ * @param complete - If true, requires completion; if false, admits a verified unfinished prefix.
+ * @returns Owned rows in physical order.
+ */
+export function readStudyExchangeRows(
+	bytes: Uint8Array,
+	complete = true,
+): readonly StudyExchangeRow[] {
+	try {
+		const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+		if (!text.endsWith('\n'))
+			throw new StudyError('CUSTODY', 'Exchange sidecar ends with a partial record')
+		const rows = text
+			.split(/\r\n|\n/)
+			.slice(0, -1)
+			.map((line) => {
+				const row = parseJSON(line)
+				if (!isStudyExchangeRow(row))
+					throw new StudyError('CUSTODY', 'Exchange sidecar contains an invalid row')
+				return row
+			})
+		validateStudyExchangeRows(rows, complete)
+		return rows
+	} catch (error) {
+		throw new StudyError(
+			'CUSTODY',
+			error instanceof Error ? error.message : 'Invalid exchange bytes',
+		)
+	}
+}
+
+/** Validates complete history envelopes again before a replay may perform dependent work.
+ * @param history - The strict-reader result, treated as untrusted at this boundary.
+ * @returns Nothing after complete row, file and declaration verification.
+ */
+export function validateStudyExchangeHistory(history: StudyExchangeHistory): void {
+	if (
+		!isStudyExchangeHistory(history) ||
+		history.file.path !== `trials/${history.declaration.trial}/exchanges.jsonl`
+	)
+		throw new StudyError('CUSTODY', 'Replay requires a verified sealed exchange history')
+	const rows = [
+		history.declaration,
+		...history.exchanges.flatMap((pair) => [pair.attempt, pair.response]),
+		history.completion,
+	]
+	validateStudyExchangeRows(rows)
+	const bytes = Buffer.from(rows.map((row) => JSON.stringify(row) + '\n').join(''))
+	if (history.file.bytes !== bytes.length || history.file.digest !== hashStudyBytes(bytes))
+		throw new StudyError('CUSTODY', 'Replay history differs from its retained file identity')
+}
+
+/** Joins recorded exchanges to exactly one dispatch and wire evidence identity per ordinal.
+ * @param rows - The complete successful sidecar rows.
+ * @param evidence - The validated trial evidence rows.
+ * @returns Nothing when all retained exchange identities have exact evidence counterparts.
+ */
+export function validateStudyExchangeEvidence(
+	rows: readonly StudyExchangeRow[],
+	evidence: readonly StudyEvidence[],
+): void {
+	const attempts = rows.filter((row) => row.phase === 'attempt')
+	for (const event of ['dispatch', 'wire']) {
+		const joined = evidence.filter(
+			(row) => row.event === event && isRecord(row.value) && row.value.ordinal !== undefined,
+		)
+		if (
+			joined.length !== attempts.length ||
+			!joined.every((row, index) => {
+				const request = attempts[index]
+				return (
+					request !== undefined &&
+					isRecord(row.value) &&
+					row.value.ordinal === request.ordinal &&
+					row.goal === request.goal &&
+					row.value.role === request.role &&
+					row.value.path === request.path
+				)
+			})
+		)
+			throw new StudyError('CUSTODY', 'Exchange sidecar and evidence ordinals do not join exactly')
+	}
+}
+
+/** Reads and joins a complete trial sidecar before or after sealing.
+ * @param directory - The result directory.
+ * @param manifest - The verified manifest declaring recording and bounds.
+ * @param trial - The exact scheduled trial id.
+ * @param file - The inventory identity read for this sidecar.
+ * @returns Complete rows after byte, declaration and evidence joins.
+ */
+export async function readStudyTrialExchanges(
+	directory: string,
+	manifest: StudyManifest,
+	trial: string,
+	file: StudyFile,
+): Promise<readonly StudyExchangeRow[]> {
+	if (manifest.record === undefined || file.path !== `trials/${trial}/exchanges.jsonl`)
+		throw new StudyError('CUSTODY', 'Sidecar has no recording declaration')
+	const bytes = await readStudyBytes(
+		join(directory, 'execution', 'trials', trial, 'exchanges.jsonl'),
+		manifest.record.bytes,
+	)
+	if (bytes.length !== file.bytes || hashStudyBytes(bytes) !== file.digest)
+		throw new StudyError('CUSTODY', 'Exchange sidecar changed during reading')
+	const rows = readStudyExchangeRows(bytes)
+	const declaration = rows[0]
+	const scheduled = manifest.schedule.find((entry) => entry.id === trial)
+	const scenario = manifest.scenarios.find((entry) => entry.id === scheduled?.scenario)
+	if (
+		declaration?.phase !== 'declaration' ||
+		declaration.trial !== trial ||
+		scenario === undefined ||
+		!declaration.procedure.every((step) => scenario.goals.some((goal) => goal.id === step.goal))
+	)
+		throw new StudyError('CUSTODY', 'Exchange declaration differs from its trial')
+	const evidenceBytes = await readStudyBytes(
+		join(directory, 'execution', 'trials', trial, 'evidence.jsonl'),
+		manifest.bounds.trial.bytes,
+	)
+	validateStudyEvidenceBytes(evidenceBytes, manifest, trial)
+	const evidence = new TextDecoder('utf-8', { fatal: true })
+		.decode(evidenceBytes)
+		.split(/\r\n|\n/)
+		.slice(0, -1)
+		.map((line) => {
+			const row = parseJSON(line)
+			if (!isStudyCustodyEvidence(row)) throw new StudyError('CUSTODY', 'Invalid exchange evidence')
+			return row
+		})
+	validateStudyExchangeEvidence(rows, evidence)
+	return rows
+}
+
+/** Reads a sealed trial's exact complete exchange history after reverifying its entire result.
+ * @param result - The sealed execution selected for replay.
+ * @param trial - The scheduled trial id.
+ * @returns Complete ordered request and response pairs with their verified file and seal identities.
+ */
+export async function readStudyExchanges(
+	result: StudySealedResult,
+	trial: string,
+): Promise<StudyExchangeHistory> {
+	const reading = await readStudyResult(result.directory)
+	if (reading.status !== 'sealed' || reading.seal.id !== result.seal.id)
+		throw new StudyError('CUSTODY', 'Replay result is unsealed or changed')
+	const file = reading.seal.files.find((entry) => entry.path === `trials/${trial}/exchanges.jsonl`)
+	if (file === undefined)
+		throw new StudyError('CUSTODY', 'Recorded trial is missing its exchange sidecar')
+	const rows = await readStudyTrialExchanges(reading.directory, reading.manifest, trial, file)
+	const declaration = rows[0]
+	const completion = rows.at(-1)
+	if (declaration?.phase !== 'declaration' || completion?.phase !== 'complete')
+		throw new StudyError('CUSTODY', 'Exchange boundaries are missing')
+	const exchanges: readonly StudyRecordedExchange[] = rows.flatMap((row, index) => {
+		const response = rows[index + 1]
+		return row.phase === 'attempt' && response?.phase === 'response'
+			? [{ attempt: row, response }]
+			: []
+	})
+	const history = { seal: reading.seal.id, file, declaration, exchanges, completion }
+	validateStudyExchangeHistory(history)
+	return history
 }

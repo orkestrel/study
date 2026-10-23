@@ -11,6 +11,7 @@ import type {
 	StudyLimit,
 	StudyProduct,
 	StudyProfile,
+	StudyRecord,
 	StudyProvider,
 	StudyLayer,
 	StudyRole,
@@ -345,7 +346,7 @@ export function isStudyProfile(value: unknown): value is StudyProfile {
 			matchesStudyKeys(
 				value,
 				['name', 'agent', 'subject', 'roots', 'bounds', 'room'],
-				['provider', 'qualification', 'settings'],
+				['provider', 'qualification', 'settings', 'record'],
 			) &&
 			isStudyName(value.name) &&
 			isNonEmptyString(value.agent) &&
@@ -358,10 +359,26 @@ export function isStudyProfile(value: unknown): value is StudyProfile {
 			isStudyBounds(value.bounds) &&
 			isStudyRoom(value.room) &&
 			(value.provider === undefined || isStudyProvider(value.provider)) &&
+			(value.record === undefined || isStudyRecord(value.record)) &&
 			(value.qualification === undefined || isNonEmptyString(value.qualification)) &&
 			(value.settings === undefined || (isRecord(value.settings) && isJSONValue(value.settings)))
 		)
 	})
+}
+
+/** Checks whether a recording declaration bounds every serialized sidecar byte.
+ * @param value - The candidate declaration.
+ * @returns True if its byte allowance is a positive safe integer; false otherwise.
+ */
+export function isStudyRecord(value: unknown): value is StudyRecord {
+	return holds(
+		() =>
+			isRecord(value) &&
+			matchesStudyKeys(value, ['bytes']) &&
+			typeof value.bytes === 'number' &&
+			Number.isSafeInteger(value.bytes) &&
+			value.bytes > 0,
+	)
 }
 
 /**

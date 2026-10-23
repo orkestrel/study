@@ -11,6 +11,8 @@ import type {
 	StudyScenario,
 } from '@src/core'
 import type { StudyAttributionSource, StudyCommandArtifact, StudyDeclaration } from './types.js'
+import type { StudyClosure } from './types.js'
+import type { ArtifactClosure } from '../artifacts/types.js'
 import type { StudySealedResult } from '../stores/types.js'
 import type { JSONValue } from '@orkestrel/contract'
 import {
@@ -37,6 +39,50 @@ import {
 import { readStudyBytes } from '../stores/helpers.js'
 import { isStudyCustodyEvidence } from '../stores/validators.js'
 import { STUDY_CUSTODY_BYTES, STUDY_RESERVED_NAME } from '../stores/constants.js'
+import { readArtifact, verifyArtifactClosure, relocateArtifactPath } from '../artifacts/helpers.js'
+import { isStudyClosure } from './validators.js'
+
+/** Reads and independently verifies an exclusively published closure.
+ * @param directory - The canonical closure destination.
+ * @returns The verified publication and its copied physical forest.
+ * @throws StudyError - Thrown when publication or its command inputs are invalid.
+ */
+export function readStudyClosure(directory: string): StudyClosure {
+	const marker = readArtifact(join(directory, 'closure.json'), STUDY_CUSTODY_BYTES)
+	const value = decodeStudyJSON(marker.source)
+	if (!isStudyClosure(value) || value.closure.destination !== directory)
+		throw new StudyError('CONFIG', 'Study closure publication is invalid')
+	verifyArtifactClosure(value.closure, true)
+	if (
+		(value.root !== directory && !containsArtifact(directory, value.root)) ||
+		!value.closure.members.some(
+			(member) => resolve(directory, ...member.key.split('/')) === value.entry,
+		)
+	)
+		throw new StudyError('CONFIG', 'Study closure command inputs leave the copied forest')
+	if (readArtifact(join(directory, 'closure.json'), STUDY_CUSTODY_BYTES).digest !== marker.digest)
+		throw new StudyError('FAULT', 'Study closure publication changed while reading')
+	return value
+}
+
+/** Resolves a profile path through a retained physical relocation when selected.
+ * @param root - The active consumer root.
+ * @param path - The profile's absolute or consumer-relative selection.
+ * @param closure - The optional verified physical forest.
+ * @returns The active canonical selection.
+ */
+export function resolveStudyClosurePath(
+	root: string,
+	path: string,
+	closure?: ArtifactClosure,
+): string {
+	const absolute = resolve(root, path)
+	return closure === undefined ||
+		absolute === closure.destination ||
+		containsArtifact(closure.destination, absolute)
+		? absolute
+		: relocateArtifactPath(closure, absolute)
+}
 
 /** Reads one declaration file and refuses a missing or linked path with its root-relative path.
  * @param root - The consumer root used to describe a missing or linked declaration.
@@ -173,24 +219,32 @@ export function resolveStudyPath(directory: string, path: string): string {
  * Resolves the execution profile's caller-selected built artifact paths.
  * @param root - The repository root
  * @param profile - The validated source profile
+ * @param closure - The optional verified physical forest used to relocate executable selections
  * @returns The reproducible resolved execution profile
  * @example
  * ```ts
  * resolveStudyProfile(root, profile)
  * ```
  */
-export function resolveStudyProfile(root: string, profile: StudyProfile): StudyProfile {
+export function resolveStudyProfile(
+	root: string,
+	profile: StudyProfile,
+	closure?: ArtifactClosure,
+): StudyProfile {
 	return {
 		...profile,
 		qualification:
 			profile.qualification === undefined ? undefined : resolve(root, profile.qualification),
-		agent: resolve(root, profile.agent),
-		subject: resolve(root, profile.subject),
-		roots: profile.roots.map((path) => resolve(root, path)),
+		agent: resolveStudyClosurePath(root, profile.agent, closure),
+		subject: resolveStudyClosurePath(root, profile.subject, closure),
+		roots: profile.roots.map((path) => resolveStudyClosurePath(root, path, closure)),
 		provider:
 			profile.provider === undefined
 				? undefined
-				: { ...profile.provider, entry: resolve(root, profile.provider.entry) },
+				: {
+						...profile.provider,
+						entry: resolveStudyClosurePath(root, profile.provider.entry, closure),
+					},
 	}
 }
 

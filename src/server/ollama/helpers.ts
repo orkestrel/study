@@ -7,7 +7,11 @@ import type {
 	StudyOllamaOptions,
 	StudyOllamaTerminal,
 	StudyOllamaTransportOptions,
+	StudyOllamaStep,
 } from './types.js'
+import type { StudyExchangeBytes } from '../stores/types.js'
+import { hashStudyBytes } from '../helpers.js'
+import { isStudyOllamaMetadata, isStudyOllamaModel, isStudyOllamaStep } from './validators.js'
 import { StudyError, parseStudyReading } from '@src/core'
 import {
 	attempt,
@@ -80,6 +84,84 @@ export function validateStudyOllamaRoles(
 	}
 }
 
+/** Encodes exact application bytes with their decoded size and SHA-256 identity.
+ * @param bytes - The request or response application bytes.
+ * @returns Canonical base64 and the independent byte receipt.
+ */
+export function buildStudyOllamaBytes(bytes: Uint8Array): StudyExchangeBytes {
+	return {
+		body: Buffer.from(bytes).toString('base64'),
+		digest: hashStudyBytes(bytes),
+		size: bytes.byteLength,
+	}
+}
+
+/** Validates independent metadata bounds and the complete optional recording group.
+ * @param options - The owned transport configuration.
+ * @returns Nothing when declarations are executable.
+ * @throws StudyError - Thrown with CONFIG for invalid bounds, groups, identities or ordered policies.
+ */
+export function validateStudyOllamaRecording(options: StudyOllamaTransportOptions): void {
+	if (!isStudyOllamaMetadata(options.metadata))
+		throw new StudyError('CONFIG', 'Invalid independent metadata budget')
+	if (!Object.values(options.models).every(isStudyOllamaModel))
+		throw new StudyError('CONFIG', 'Invalid pinned model identity')
+	const declared = [options.version, options.procedure, options.exchanges].filter(
+		(value) => value !== undefined,
+	).length
+	if (declared === 0) return
+	if (
+		declared !== 3 ||
+		typeof options.version !== 'string' ||
+		options.version.length === 0 ||
+		!Array.isArray(options.procedure) ||
+		options.exchanges === undefined ||
+		!Number.isSafeInteger(options.exchanges.next) ||
+		options.exchanges.next < 1
+	)
+		throw new StudyError('CONFIG', 'Recording requires version, procedure and an exchange sink')
+	for (const [index, step] of options.procedure.entries()) {
+		if (
+			!isStudyOllamaStep(step) ||
+			step.ordinal !== index + 1 ||
+			canonicalStringify(step.policy) !== canonicalStringify(options.roles[step.role])
+		)
+			throw new StudyError('CONFIG', 'Invalid ordered model-step declaration')
+		if (step.admission === 'exact')
+			readStudyOllamaRequest(options, step.role, new URL(step.path, options.url), {
+				method: 'POST',
+				body: step.body,
+			})
+	}
+}
+
+/** Admits one model request against its next exact or capture declaration.
+ * @param step - The next model step, absent after the procedure ends.
+ * @param goal - The bound goal identity.
+ * @param request - The independently validated request policy and byte length.
+ * @param body - The owned encoded request body.
+ * @returns Nothing when identity, policy and bytes match the declaration.
+ * @throws StudyError - Thrown with FAULT before sending any mismatched request.
+ */
+export function validateStudyOllamaStep(
+	step: StudyOllamaStep | undefined,
+	goal: string,
+	request: StudyOllamaRequest,
+	body: RequestInit['body'],
+): void {
+	if (
+		step === undefined ||
+		step.goal !== goal ||
+		step.role !== request.role ||
+		step.path !== request.path ||
+		typeof body !== 'string' ||
+		(step.admission === 'exact'
+			? !Buffer.from(step.body).equals(Buffer.from(body))
+			: step.bytes !== request.bytes)
+	)
+		throw new StudyError('FAULT', 'Request differs from the declared model step')
+}
+
 /**
  * Reads exact outbound Ollama facts and refuses a request outside its declared policy.
  * @remarks
@@ -104,7 +186,9 @@ export function readStudyOllamaRequest(
 		role === 'metadata'
 			? init?.method === 'POST'
 				? '/api/show'
-				: '/api/tags'
+				: url.pathname === '/api/version'
+					? '/api/version'
+					: '/api/tags'
 			: role === 'judge'
 				? '/api/generate'
 				: '/api/chat'
@@ -158,7 +242,7 @@ export function readStudyOllamaRequest(
 	}
 	if (init?.method !== 'POST' || typeof init.body !== 'string')
 		throw new StudyError('CONFIG', 'Ollama transport requires an encoded JSON POST')
-	const policy = role === 'tool' ? undefined : options.roles[role]
+	const policy = role === 'tool' || role === 'maintenance' ? undefined : options.roles[role]
 	if (policy === undefined)
 		throw new StudyError('CONFIG', 'Ollama transport role has no declared wire policy')
 	const output = policy.options.num_predict

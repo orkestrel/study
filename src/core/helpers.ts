@@ -43,7 +43,7 @@ export function omitStudyAbsent(value: object): Readonly<Record<string, unknown>
  * ```
  */
 export function normalizeStudyProfile(profile: StudyProfile): Readonly<Record<string, unknown>> {
-	const { provider, qualification, settings, room, ...required } = profile
+	const { provider, qualification, settings, record, room, ...required } = profile
 	return {
 		...required,
 		room: omitStudyAbsent(room),
@@ -52,6 +52,7 @@ export function normalizeStudyProfile(profile: StudyProfile): Readonly<Record<st
 			: { provider: { ...omitStudyAbsent(provider), digest: omitStudyAbsent(provider.digest) } }),
 		...(qualification === undefined ? {} : { qualification }),
 		...(settings === undefined ? {} : { settings }),
+		...(record === undefined ? {} : { record }),
 	}
 }
 

@@ -34,6 +34,10 @@ import type {
 } from './src/core/engines/types.js'
 import type { StudyExecutionCase } from './src/server/stores/types.js'
 import type {
+	OllamaMetadataFailureFixture,
+	OllamaWireReplyFixture,
+} from './src/server/ollama/types.js'
+import type {
 	JudgeInterface,
 	JudgeRequest,
 	LedgerGauge,
@@ -610,6 +614,19 @@ export function buildStudyFailure(
 	return { cause, message, role: undefined, stop: undefined }
 }
 
+/** Names the strict sidecar reader's malformed journal witnesses. */
+export const STUDY_EXCHANGE_MUTATIONS = Object.freeze([
+	'missing-response',
+	'missing-metadata',
+	'duplicate',
+	'orphan',
+	'open',
+	'partial',
+	'reversed',
+	'altered',
+	'incomplete',
+] as const)
+
 /** Builds a model ceiling with independently selectable readings.
  * @param change - Members replacing the default cap reading.
  * @returns The inert stop.
@@ -1103,6 +1120,94 @@ export const STUDY_OLLAMA_OPTIONS = Object.freeze({
 /** Supplies one streamed content row that a held response sends before it stays open. */
 export const STUDY_OLLAMA_PARTIAL_ROW = `${JSON.stringify({ model: 'model', done: false, message: { role: 'assistant', content: 'par' } })}\n`
 
+/** Supplies capture lengths outside the declared positive safe integer contract. */
+export const STUDY_OLLAMA_CAPTURE_LENGTHS: readonly unknown[] = Object.freeze([
+	0,
+	-0,
+	-1,
+	1.5,
+	'2',
+	Infinity,
+	NaN,
+])
+
+/** Supplies capture refusals over the declared length, goal and model options. */
+export const STUDY_OLLAMA_ADMISSION_CASES = Object.freeze(['length', 'goal', 'options'])
+
+/** Supplies forbidden own members for each declared admission shape. */
+export const STUDY_OLLAMA_FORBIDDEN_STEPS = Object.freeze([
+	{ admission: 'exact', field: 'bytes' },
+	{ admission: 'capture', field: 'body' },
+	{ admission: 'capture', field: 'input' },
+] as const)
+
+/** Supplies metadata routes and bodies outside the admitted protocol. */
+export const STUDY_OLLAMA_METADATA_REQUESTS = Object.freeze([
+	{ path: '/outside', init: { method: 'GET' } },
+	{ path: '/api/version?extra=1', init: { method: 'GET' } },
+	{ path: '/api/version', init: { method: 'POST', body: '{}' } },
+	{ path: '/api/tags', init: { method: 'GET', body: '{}' } },
+	{ path: '/api/show', init: { method: 'POST', body: '{"model":"other"}' } },
+	{ path: '/api/show', init: { method: 'POST', body: '{"model":"model","extra":true}' } },
+])
+
+/** Supplies model request refusals that must keep an attempted failure terminal. */
+export const STUDY_OLLAMA_CHARGED_FAILURES = Object.freeze([
+	{ name: 'HTTP refusal', status: 503, body: '{"error":"unavailable"}' },
+	{ name: 'output quota exhaustion', status: 200, body: buildOllamaRow({ completion: 512 }) },
+	{ name: 'response cap', status: 200, body: buildOllamaRow({ content: 'x'.repeat(4096) }) },
+])
+
+/** Supplies metadata peers that cannot satisfy the declared preflight. */
+export const STUDY_OLLAMA_METADATA_FAILURES: readonly OllamaMetadataFailureFixture[] =
+	Object.freeze([
+		{ name: 'wrong version', reply: { path: '/api/version', body: '{"version":"other"}' } },
+		{ name: 'wrong digest', reply: { path: '/api/tags', body: '{"models":[]}' } },
+		{
+			name: 'redirect',
+			reply: { path: '/api/version', body: '', status: 302, headers: { location: '/api/tags' } },
+		},
+		{
+			name: 'oversized reply',
+			reply: { path: '/api/version', body: 'x'.repeat(4096) },
+			metadata: { calls: 32, bytes: 1024, duration: 2000 },
+		},
+		{
+			name: 'slow reply',
+			reply: { path: '/api/version', body: '{"version":"fixture-version"}', pause: 120 },
+			metadata: { calls: 32, bytes: 1048576, duration: 40 },
+		},
+	])
+
+/** Supplies serving identities that must also refuse after model execution. */
+export const STUDY_OLLAMA_POSTFLIGHT_FAILURES = Object.freeze(
+	STUDY_OLLAMA_METADATA_FAILURES.filter(
+		(row) => row.name === 'wrong version' || row.name === 'wrong digest',
+	),
+)
+
+/** Supplies byte-invalid and interrupted native response streams. */
+export const STUDY_OLLAMA_BYTE_FAILURES: readonly OllamaWireReplyFixture[] = Object.freeze([
+	{ path: '/api/chat', body: '', chunks: [new Uint8Array([0xff, 10])] },
+	{
+		path: '/api/chat',
+		body: '',
+		chunks: [new TextEncoder().encode(STUDY_OLLAMA_PARTIAL_ROW)],
+		interrupted: true,
+	},
+])
+
+/** Supplies malformed response bodies that cannot produce a recorded completion. */
+export const STUDY_OLLAMA_RECORDING_FAILURES = Object.freeze([
+	{ name: 'bad JSON', body: '{broken}\n' },
+	{ name: 'missing terminal', body: STUDY_OLLAMA_PARTIAL_ROW },
+	{ name: 'duplicate terminal', body: `${buildOllamaRow()}${buildOllamaRow()}` },
+	{
+		name: 'nonfinite usage',
+		body: buildOllamaRow().replace('"eval_count":2', '"eval_count":1e999'),
+	},
+])
+
 /** Supplies one complete request's messages. */
 export const STUDY_AGENT_MESSAGES: readonly Message[] = Object.freeze<readonly Message[]>([
 	{ id: 'm1', role: 'user', content: 'Count the orders' },
@@ -1207,6 +1312,7 @@ export function buildOllamaJudgeRow(options: Readonly<Record<string, JSONValue>>
  * @returns The default inventory, metadata, judge, or chat answer.
  */
 export function readOllamaDefault(path: string): string {
+	if (path === '/api/version') return JSON.stringify({ version: 'fixture-version' })
 	if (path === '/api/tags')
 		return JSON.stringify({
 			models: [

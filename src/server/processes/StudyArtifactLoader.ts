@@ -8,6 +8,7 @@ import { StudyError } from '@src/core'
 import { dirname, isAbsolute } from 'node:path'
 import { readFileSync } from 'node:fs'
 import { ArtifactLoader } from '../artifacts/ArtifactLoader.js'
+import { verifyArtifactClosure } from '../artifacts/helpers.js'
 import { readStudyAdapter } from '../adapters/helpers.js'
 import { hashStudyBytes } from '../helpers.js'
 import { readStudyBytes } from '../stores/helpers.js'
@@ -46,6 +47,8 @@ export class StudyArtifactLoader {
 	 * @returns Bound executable and instrumentation identities.
 	 */
 	async inspect(): Promise<StudyArtifactIdentity> {
+		const closure = this.#options.closure
+		if (closure !== undefined) verifyArtifactClosure(closure.closure, true)
 		if (this.#identity !== undefined) {
 			this.verify()
 			return this.#identity
@@ -58,12 +61,16 @@ export class StudyArtifactLoader {
 		this.#instrument = new ArtifactLoader({ entries: [], roots, source, instrument })
 		const entry = hashStudyBytes(await readStudyBytes(this.#options.entry, STUDY_CUSTODY_BYTES))
 		this.#entry = entry
-		this.#loader = new ArtifactLoader({
-			entries: collectStudyEntries(profile),
-			roots,
-			source,
-			instrument,
-		})
+		this.#loader = new ArtifactLoader(
+			closure === undefined
+				? {
+						entries: collectStudyEntries(profile),
+						roots,
+						source,
+						instrument,
+					}
+				: closure.closure.options,
+		)
 		const inventory = this.#loader.inspect()
 		this.#identity = Object.freeze({
 			agent: inventory.digest,
@@ -111,5 +118,7 @@ export class StudyArtifactLoader {
 			throw new StudyError('FAULT', 'Study instrument bytes drifted')
 		this.#loader.verify()
 		this.#instrument.verify()
+		if (this.#options.closure !== undefined)
+			verifyArtifactClosure(this.#options.closure.closure, true)
 	}
 }

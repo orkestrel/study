@@ -136,7 +136,7 @@ export interface StudyProfile {
 	/** Holds driver-owned JSON; the driver owns its interpretation and Study only validates and owns the object. */
 	readonly settings: Readonly<Record<string, JSONValue>> | undefined
 	/** Requires one bounded exchange sidecar for every trial when present. */
-	readonly record?: StudyRecord
+	readonly record?: StudyRecord | undefined
 }
 
 /** Holds a scheduled trajectory, with a fresh state for each repetition and arm. */
@@ -169,7 +169,7 @@ export interface StudyManifest {
 	readonly qualification: string | undefined
 	readonly host: Readonly<Record<string, string>>
 	/** Copies the profile's recording declaration before any trial starts. */
-	readonly record?: StudyRecord
+	readonly record?: StudyRecord | undefined
 }
 
 /**

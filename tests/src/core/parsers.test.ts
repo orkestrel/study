@@ -61,6 +61,17 @@ it('owns frozen declaration snapshots that satisfy each paired guard', () => {
 	expect(owned.goals[0]?.input).toEqual({ text: 'before' })
 })
 
+it('owns the recording allowance and omits an explicit absent recording declaration', () => {
+	const record = { bytes: 4096 }
+	const parsed = parseStudyProfile({ ...buildStudyProfile(), record })
+	record.bytes = 8192
+	expect(parsed.record).toEqual({ bytes: 4096 })
+	expect(Object.isFrozen(parsed.record)).toBe(true)
+	expect(parseStudyProfile({ ...buildStudyProfile(), record: undefined })).not.toHaveProperty(
+		'record',
+	)
+})
+
 it('owns driver settings as a frozen JSON snapshot and leaves absent settings out of the profile', () => {
 	const base = buildStudyProfile()
 	const absent = {

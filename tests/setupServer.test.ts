@@ -30,6 +30,10 @@ import {
 	createOllamaContext,
 	createOllamaExchange,
 	createOllamaServer,
+	OllamaExchangeRecorder,
+	buildOllamaStep,
+	buildOllamaRoleBodies,
+	createOllamaRecordingFixture,
 	resolveStudyEntry,
 	resolveStudyPackage,
 	sumStudyCalls,
@@ -40,8 +44,17 @@ import {
 	buildStudyCLI,
 	buildStudyLibrary,
 	buildStudySessionOptions,
+	buildStudyExchangeRows,
+	buildStudyExchangeHistory,
+	buildReversedStudyHistory,
+	mutateStudyExchangeRows,
+	retainStudyExchangeFixture,
+	writeStudyRecordingConsumer,
+	writeStudyPreparationPeer,
 	buildStudyTaskOptions,
 	createArtifactWorker,
+	ARTIFACT_CLOSURE_FILES,
+	buildArtifactClosureOptions,
 	createStudyPeer,
 	executeStudyCLI,
 	readStudyCheck,
@@ -62,6 +75,54 @@ import {
 	writeStudyOrphan,
 } from './setupServer.js'
 
+describe('sealed exchange fixtures', () => {
+	it('retains independent Unicode bytes, complete pairing and precise malformed controls', () => {
+		const rows = buildStudyExchangeRows('selected-trial')
+		expect(rows[0]).toMatchObject({ phase: 'declaration', trial: 'selected-trial' })
+		expect(rows.at(-1)).toEqual({ phase: 'complete', count: 7 })
+		const history = buildStudyExchangeHistory(true)
+		expect(history.declaration.procedure[0]?.admission).toBe('capture')
+		expect(history.exchanges.map((pair) => pair.attempt.ordinal)).toEqual([1, 2, 3, 4, 5, 6, 7])
+		expect(buildReversedStudyHistory().exchanges[0]?.attempt).toMatchObject({
+			ordinal: 1,
+			stage: 'postflight',
+			path: '/api/show',
+		})
+		expect(Buffer.from(mutateStudyExchangeRows(rows, 'complete')).toString().endsWith('\n')).toBe(
+			true,
+		)
+		expect(Buffer.from(mutateStudyExchangeRows(rows, 'partial')).toString().endsWith('\n')).toBe(
+			false,
+		)
+		expect(mutateStudyExchangeRows(rows, 'missing-response').length).toBeLessThan(
+			mutateStudyExchangeRows(rows, 'complete').length,
+		)
+	})
+	it('writes replay consumer declarations and complete per-trial custody fixture files', async () => {
+		const scratch = createScratch()
+		try {
+			writeStudyRecordingConsumer(
+				scratch,
+				'http://127.0.0.1:1',
+				join(scratch.path, 'library', 'dist', 'index.js'),
+			)
+			const profile = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
+			expect(profile).toMatchObject({
+				record: { bytes: 32768 },
+				settings: { version: 'fixture-version' },
+			})
+			expect(scratch.read('studies/files/index.ts')).toContain('replay?.procedure')
+			expect(writeStudyPreparationPeer(scratch)).toBe(join(scratch.path, 'preparation-peer.cjs'))
+			const fixture = await retainStudyExchangeFixture(join(scratch.path, 'recorded'))
+			expect(fixture.manifest.record).toEqual({ bytes: 16384 })
+			for (const trial of fixture.manifest.schedule)
+				expect(scratch.has(`recorded/execution/trials/${trial.id}/exchanges.jsonl`)).toBe(true)
+		} finally {
+			scratch.destroy()
+		}
+	})
+})
+
 it('constructs foreign branded budget readings and an unbranded control', () => {
 	const context = { id: 'foreign-negative', max: -1, consumed: -0.5 }
 	const error = createForeignBudgetError(context)
@@ -72,6 +133,29 @@ it('constructs foreign branded budget readings and an unbranded control', () => 
 	const lookalike = createBudgetLookalike()
 	expect(lookalike).toMatchObject({ name: 'BudgetError', code: 'exhaust' })
 	expect(isBudgetError(lookalike)).toBe(false)
+})
+
+it('selects closure packages and separate source and exact Unicode asset fixtures', () => {
+	const scratch = createScratch({ files: ARTIFACT_CLOSURE_FILES })
+	try {
+		const options = buildArtifactClosureOptions(scratch)
+		expect(options.roots).toEqual(
+			['subject', 'subject/node_modules/same-name', 'subject/node_modules/provider'].map((path) =>
+				join(scratch.path, path),
+			),
+		)
+		expect(options.entries).toEqual(
+			['subject/dist/index.js', 'subject/node_modules/provider/dist/index.js'].map((path) =>
+				join(scratch.path, path),
+			),
+		)
+		expect(options.source?.entry).toBe(join(scratch.path, 'subject/studies/adapter/index.ts'))
+		for (const asset of options.assets ?? [])
+			expect(scratch.read(asset)).toBe('\ufeffline\r\n\ud83d\ude00 ')
+		expect(options.assets).toHaveLength(1)
+	} finally {
+		scratch.destroy()
+	}
 })
 
 describe('study server fixtures', () => {
@@ -743,5 +827,44 @@ describe('study server fixtures', () => {
 	it('lists the hostile reference values a typed caller cannot supply', () => {
 		expect(STUDY_HOSTILE_REFERENCES).toEqual([null, undefined, 'evidence', 1, []])
 		expect(Object.isFrozen(STUDY_HOSTILE_REFERENCES)).toBe(true)
+	})
+})
+
+describe('Ollama recording fixtures', () => {
+	it('supplies role bodies with distinct policies and raw judge fields', () => {
+		const bodies = buildOllamaRoleBodies()
+		expect(bodies.map(([role]) => role)).toEqual(['agent', 'summary', 'judge'])
+		expect(bodies.map(([, body]) => JSON.parse(body))).toMatchObject([
+			{ model: 'model', options: { num_predict: 512 } },
+			{ model: 'model', options: { num_predict: 256 } },
+			{ model: 'judge', raw: true, logprobs: true, options: { num_predict: 1 } },
+		])
+	})
+	it('retains owned rows and derives next only from accepted attempts', async () => {
+		const recorder = new OllamaExchangeRecorder()
+		expect(recorder.next).toBe(1)
+		const row = { phase: 'complete' as const, count: 0 }
+		await recorder.append(row)
+		Reflect.set(row, 'count', 9)
+		expect(recorder.rows).toEqual([{ phase: 'complete', count: 0 }])
+		expect(recorder.next).toBe(1)
+		await recorder.close()
+	})
+
+	it('builds exclusive exact and capture declarations and exposes every recorded fixture row', async () => {
+		const exact = buildOllamaStep('exact')
+		const capture = buildOllamaStep('capture')
+		expect(exact.admission).toBe('exact')
+		expect('bytes' in exact).toBe(false)
+		expect(capture.admission).toBe('capture')
+		expect('body' in capture).toBe(false)
+		const fixture = await createOllamaRecordingFixture([])
+		try {
+			await fixture.transport.verify()
+			expect(fixture.rows.filter((row) => row.phase === 'attempt')).toHaveLength(4)
+			expect(fixture.sink.next).toBe(5)
+		} finally {
+			await fixture.close()
+		}
 	})
 })

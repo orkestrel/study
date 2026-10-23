@@ -1,5 +1,7 @@
-import type { StudySessionInterface } from '@src/core'
+import type { StudyRole, StudySessionInterface } from '@src/core'
 import type { StudyOperation } from './types.js'
+import type { StudyExchangeSinkInterface, StudyExchangeRow } from '../stores/types.js'
+import type { StudyOllamaReplayInterface } from '../ollama/types.js'
 import type { JSONValue } from '@orkestrel/contract'
 import {
 	StudyControl,
@@ -11,13 +13,31 @@ import {
 	isStudyProduct,
 	isStudyProfile,
 } from '@src/core'
-import { isRecord } from '@orkestrel/contract'
+import { canonicalStringify, isRecord } from '@orkestrel/contract'
+import { open } from 'node:fs/promises'
 import { STUDY_PROCESS_LABEL } from './constants.js'
-import { computeStudyProfileDigest, createStudyProcessFailure, valueToWire } from './helpers.js'
+import {
+	computeStudyProfileDigest,
+	createStudyProcessFailure,
+	readStudyRecordingDeclaration,
+	readStudyReplayHistory,
+	valueToWire,
+} from './helpers.js'
+import { readStudyBytes, readStudyExchangeRows } from '../stores/helpers.js'
+import { hashStudyBytes } from '../helpers.js'
+import { StudyExchangeSink } from '../stores/StudyExchangeSink.js'
+import { StudyOllamaReplay } from '../ollama/StudyOllamaReplay.js'
+import { isStudyClosure } from '../commands/validators.js'
 import { StudyArtifactLoader } from './StudyArtifactLoader.js'
 import { StudyChannel } from './StudyChannel.js'
 import { StudyRemoteMeter } from './StudyRemoteMeter.js'
-import { isStudyIdentity, isStudyProcessFailure, isStudyTrial } from './validators.js'
+import {
+	isStudyExchangeDestination,
+	isStudyReplaySelection,
+	isStudyIdentity,
+	isStudyProcessFailure,
+	isStudyTrial,
+} from './validators.js'
 
 /** Executes one verified trial behind parent-authorized admission and custody. */
 export class StudyWorker {
@@ -30,6 +50,9 @@ export class StudyWorker {
 	#closing = false
 	#duration = 1000
 	#executed = false
+	#exchanges: StudyExchangeSinkInterface | undefined
+	#replay: StudyOllamaReplayInterface | undefined
+	#maintenance: readonly StudyExchangeRow[] = []
 	readonly #evidence = new Set<Promise<void>>()
 
 	/** Serves the inherited IPC channel until its parent disconnects.
@@ -55,6 +78,7 @@ export class StudyWorker {
 					.wait(this.#session.close())
 					.catch(() => undefined)
 			this.#session = undefined
+			await Promise.allSettled([this.#exchanges?.close(), this.#replay?.close()])
 			this.#channel.close()
 			this.#control.close()
 		}
@@ -67,17 +91,24 @@ export class StudyWorker {
 			if (operation === 'close') {
 				if (this.#closing) throw new StudyError('FAULT', 'Worker cleanup repeated')
 				this.#closing = true
-				this.#control.fail({
-					cause: 'interrupted',
-					message: 'Worker cleanup requested',
-					role: undefined,
-					stop: undefined,
-				})
+				if (this.#meters.size !== 0 || this.#control.failure !== undefined)
+					this.#control.fail({
+						cause: 'interrupted',
+						message: 'Worker cleanup requested',
+						role: undefined,
+						stop: undefined,
+					})
 				if (this.#session !== undefined)
 					await new StudyDeadline({ duration: this.#duration, label: STUDY_PROCESS_LABEL }).wait(
 						this.#session.close(),
 					)
 				this.#session = undefined
+				try {
+					this.#replay?.check()
+				} finally {
+					await this.#replay?.close()
+					await this.#exchanges?.close()
+				}
 				this.#artifacts?.verify()
 				return true
 			}
@@ -108,11 +139,94 @@ export class StudyWorker {
 				'Worker opening declaration is invalid or driver is unsupported',
 			)
 		this.#duration = value.profile.bounds.request.duration
+		if (value.closure !== undefined && !isStudyClosure(value.closure))
+			throw new StudyError('CONFIG', 'Worker closure selection is malformed')
+		if (value.replay !== undefined) {
+			if (!isStudyReplaySelection(value.replay) || value.profile.provider === undefined)
+				throw new StudyError('CONFIG', 'Worker replay selection is invalid')
+			const history = await readStudyReplayHistory(value.replay, value.profile, value.trial)
+			const prefix = value.replay.prefix[value.trial.id]
+			if (prefix === undefined) throw new StudyError('CONFIG', 'Worker replay prefix is absent')
+			this.#replay = new StudyOllamaReplay({
+				history,
+				prefix,
+				url: value.profile.provider.url,
+				limit: readStudyRecordingDeclaration(value.profile, value.trial).metadata,
+				signal: this.#control.signal,
+				...(value.replay.offline ? {} : { fetch: this.#forward.bind(this) }),
+			})
+		}
+		const destination = isRecord(value.exchanges) ? value.exchanges[value.trial.id] : undefined
+		if (value.profile.record === undefined && destination !== undefined)
+			throw new StudyError('CONFIG', 'Unrecorded worker received a sidecar')
+		if (value.profile.record !== undefined) {
+			if (
+				!isStudyExchangeDestination(destination) ||
+				destination.record.bytes !== value.profile.record.bytes
+			)
+				throw new StudyError('CONFIG', 'Recorded worker has no matching reserved sidecar')
+			const declaration = readStudyRecordingDeclaration(value.profile, value.trial)
+			const retained =
+				destination.retained === undefined
+					? undefined
+					: await readStudyBytes(destination.path, destination.record.bytes)
+			if (
+				retained !== undefined &&
+				(hashStudyBytes(retained) !== destination.retained?.digest ||
+					retained.length !== destination.retained.bytes ||
+					destination.retained.path !== `trials/${value.trial.id}/exchanges.jsonl`)
+			)
+				throw new StudyError('CUSTODY', 'Maintenance prefix changed before worker opening')
+			const rows = retained === undefined ? undefined : readStudyExchangeRows(retained, false)
+			if (
+				rows !== undefined &&
+				(rows[0]?.phase !== 'declaration' ||
+					rows[0].trial !== value.trial.id ||
+					rows.some(
+						(row) =>
+							row.phase !== 'declaration' &&
+							((row.phase !== 'attempt' && row.phase !== 'response') ||
+								row.stage !== 'maintenance'),
+					) ||
+					rows.at(-1)?.phase !== 'response')
+			)
+				throw new StudyError('CUSTODY', 'Retained prefix is not completed maintenance')
+			if (rows !== undefined && rows[0]?.phase === 'declaration') {
+				const { maintenance: _retainedMaintenance, ...opening } = rows[0]
+				const { maintenance: _maintenance, ...expected } = declaration
+				if (
+					canonicalStringify(opening) !== canonicalStringify(expected) ||
+					rows.filter((row) => row.phase === 'response').length !== rows[0].maintenance.length
+				)
+					throw new StudyError(
+						'CUSTODY',
+						'Retained maintenance declaration differs from the executing profile',
+					)
+			}
+			const file = await open(destination.path, rows === undefined ? 'wx' : 'a')
+			try {
+				this.#exchanges = new StudyExchangeSink({
+					file,
+					record: destination.record,
+					...(rows === undefined ? {} : { retained: rows }),
+				})
+			} catch (error) {
+				await file.close()
+				throw error
+			}
+			if (rows === undefined)
+				await this.#exchanges.append({
+					...declaration,
+					procedure: this.#replay?.procedure ?? declaration.procedure,
+				})
+			else this.#maintenance = rows
+		}
 		this.#artifacts = new StudyArtifactLoader({
 			entry: value.entry,
 			root: value.root,
 			profile: value.profile,
 			adapter: value.adapter,
+			...(value.closure === undefined ? {} : { closure: value.closure }),
 		})
 		const identity = await this.#artifacts.inspect()
 		if (
@@ -129,6 +243,8 @@ export class StudyWorker {
 			...modules,
 			profile: value.profile,
 			directory: value.directory,
+			...(this.#exchanges === undefined ? {} : { exchanges: this.#exchanges }),
+			...(this.#replay === undefined ? {} : { replay: this.#replay }),
 		})
 		this.#session = await driver.open(value.trial, this.#control.signal)
 		if (this.#control.failure !== undefined) throw failureToStudyError(this.#control.failure)
@@ -148,6 +264,17 @@ export class StudyWorker {
 		const meter = new StudyRemoteMeter({ channel: this.#channel, control: this.#control })
 		this.#meters.add(meter)
 		try {
+			for (const row of this.#maintenance) {
+				if (row.phase === 'attempt' || row.phase === 'response')
+					await this.#append(
+						valueToWire({
+							event: row.phase === 'attempt' ? 'dispatch' : 'wire',
+							goal: value.id,
+							value: { ordinal: row.ordinal, role: row.role, path: row.path },
+						}),
+					)
+			}
+			this.#maintenance = []
 			const product = await this.#control.wait(
 				this.#session.execute(value, {
 					signal: this.#control.signal,
@@ -201,5 +328,15 @@ export class StudyWorker {
 				throw new StudyError('FAULT', 'Worker ticket cancellation is foreign')
 			meter.abort(value.id, value.failure)
 		}
+	}
+
+	#forward(_role: StudyRole, input: string | URL, init: RequestInit): Promise<Response> {
+		return globalThis.fetch(input, {
+			...init,
+			signal: AbortSignal.any([
+				this.#control.signal,
+				...(init.signal === undefined || init.signal === null ? [] : [init.signal]),
+			]),
+		})
 	}
 }

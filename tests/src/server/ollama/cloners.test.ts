@@ -5,13 +5,48 @@ import {
 	buildStudyOllamaSnapshot,
 } from '../../../../src/server/ollama/cloners.js'
 import { STUDY_OLLAMA_ORIGIN } from '../../../setupStudy.js'
-import { buildOllamaTransportOptions } from '../../../setupServer.js'
+import {
+	buildOllamaStep,
+	buildOllamaTransportOptions,
+	OllamaExchangeRecorder,
+} from '../../../setupServer.js'
 
 const options = buildOllamaTransportOptions(STUDY_OLLAMA_ORIGIN)
 const agentPolicy = requireValue(options.roles.agent)
 const chat = `${STUDY_OLLAMA_ORIGIN}/api/chat`
 
 describe('buildStudyOllamaTransportOptions', () => {
+	it('owns every recording declaration once and retains only the sink live identity', () => {
+		const reads = createRecorder<[]>()
+		const step = buildOllamaStep('exact')
+		const policy = step.policy
+		Object.defineProperty(step, 'policy', {
+			enumerable: true,
+			get: () => {
+				reads.handler()
+				return policy
+			},
+		})
+		const caller = buildOllamaTransportOptions(STUDY_OLLAMA_ORIGIN, {
+			version: 'fixture-version',
+			procedure: [step],
+			exchanges: new OllamaExchangeRecorder(),
+		})
+		const owned = buildStudyOllamaTransportOptions(caller)
+		expect(reads.count).toBe(1)
+		Reflect.set(step, 'body', 'changed')
+		Reflect.set(policy.options, 'seed', 2)
+		Reflect.set(caller.metadata, 'calls', 1)
+		expect(owned.metadata.calls).toBe(32)
+		expect(owned.procedure?.[0]?.policy.options.seed).toBe(0)
+		expect(owned.procedure?.[0]).toMatchObject({
+			admission: 'exact',
+			body: expect.stringContaining('model'),
+		})
+		expect(owned.exchanges).toBe(caller.exchanges)
+		expect(Object.isFrozen(owned.procedure)).toBe(true)
+		expect(Object.isFrozen(owned.procedure?.[0]?.policy.options)).toBe(true)
+	})
 	it('reads the collaborator once and retains its callable identity without freezing it', () => {
 		const reads = createRecorder<[]>()
 		const caller = buildOllamaTransportOptions(STUDY_OLLAMA_ORIGIN, {

@@ -1,5 +1,6 @@
 import type { StudyCommandRequest } from './types.js'
 import { StudyError, isStudyDigest } from '@src/core'
+import { isRecord, parseJSON } from '@orkestrel/contract'
 import { isAbsolute, resolve } from 'node:path'
 import { isStudyCustodyName } from '../stores/validators.js'
 import { STUDY_COMMAND_HELP } from './constants.js'
@@ -21,8 +22,8 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 	const target = arguments_[1]
 	const usage =
 		STUDY_COMMAND_HELP.split('\n').find((line) => line.startsWith('study ' + command + ' ')) ??
-		'Expected study check, execute, grade, label, or report; use study --help.'
-	if (!['check', 'execute', 'grade', 'label', 'report'].includes(command ?? ''))
+		'Expected study check, freeze, execute, grade, label, or report; use study --help.'
+	if (!['check', 'freeze', 'execute', 'grade', 'label', 'report'].includes(command ?? ''))
 		throw new StudyError(
 			'CONFIG',
 			'Unknown or missing command ' + JSON.stringify(command ?? '<command>') + '. ' + usage,
@@ -31,7 +32,9 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 		throw new StudyError(
 			'CONFIG',
 			'Missing <' +
-				(command === 'check' || command === 'execute' ? 'study' : 'result') +
+				(command === 'check' || command === 'execute' || command === 'freeze'
+					? 'study'
+					: 'result') +
 				'> before ' +
 				JSON.stringify(target ?? '<end>') +
 				'. ' +
@@ -39,14 +42,16 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 		)
 	const allowed =
 		command === 'check'
-			? ['--profile']
+			? ['--profile', '--closure']
 			: command === 'execute'
-				? ['--profile', '--out', '--expected']
-				: command === 'grade'
-					? ['--rubric']
-					: command === 'label'
-						? ['--grading', '--labels']
-						: ['--grading']
+				? ['--profile', '--out', '--expected', '--closure', '--replay', '--prefix', '--offline']
+				: command === 'freeze'
+					? ['--profile', '--to']
+					: command === 'grade'
+						? ['--rubric']
+						: command === 'label'
+							? ['--grading', '--labels']
+							: ['--grading']
 	const tokens: ReadonlyArray<string | undefined> = arguments_.slice(2)
 	// Positions, not present elements: a sparse token array keeps each hole as an absent flag or value.
 	const pairs = [...tokens.entries()].flatMap(([index, flag]) =>
@@ -78,7 +83,7 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 			flag === undefined || value === undefined ? [] : [[flag, value] as const],
 		),
 	)
-	if (command === 'check' || command === 'execute') {
+	if (command === 'check' || command === 'execute' || command === 'freeze') {
 		if (!isStudyCustodyName(target))
 			throw new StudyError(
 				'CONFIG',
@@ -92,6 +97,13 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 				'CONFIG',
 				'--profile ' + JSON.stringify(profile) + ' must be a portable name. ' + usage,
 			)
+		if (command === 'freeze') {
+			if (!flags.has('--profile')) throw new StudyError('CONFIG', 'Missing --profile. ' + usage)
+			const destination = flags.get('--to')
+			if (destination === undefined) throw new StudyError('CONFIG', 'Missing --to. ' + usage)
+			if (!isAbsolute(destination)) resolveStudyPath(resolve('.'), destination)
+			return { command, target, profile, destination }
+		}
 		if (out !== undefined && !isAbsolute(out)) {
 			try {
 				resolveStudyPath(resolve('.'), out)
@@ -110,7 +122,50 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 				'CONFIG',
 				'--expected ' + JSON.stringify(expected) + ' must be a SHA-256 fingerprint. ' + usage,
 			)
-		return { command, target, profile, out, expected }
+		const closure = flags.get('--closure')
+		if (closure !== undefined && !isAbsolute(closure)) resolveStudyPath(resolve('.'), closure)
+		const result = flags.get('--replay')
+		const prefix = flags.get('--prefix')
+		const offline = flags.get('--offline')
+		if (result === undefined && (prefix !== undefined || offline !== undefined))
+			throw new StudyError('CONFIG', '--prefix and --offline require --replay. ' + usage)
+		const replay = result === undefined ? undefined : parseJSON(prefix ?? '')
+		if (
+			result !== undefined &&
+			(!isRecord(replay) ||
+				Object.keys(replay).length === 0 ||
+				!Object.entries(replay).every(
+					([trial, count]) =>
+						isStudyCustodyName(trial) &&
+						typeof count === 'number' &&
+						Number.isSafeInteger(count) &&
+						count > 0,
+				) ||
+				(offline !== 'true' && offline !== 'false'))
+		)
+			throw new StudyError(
+				'CONFIG',
+				'--replay requires --prefix trial counts and --offline true or false. ' + usage,
+			)
+		return {
+			command,
+			target,
+			profile,
+			out,
+			expected,
+			...(closure === undefined ? {} : { closure }),
+			...(result === undefined || !isRecord(replay)
+				? {}
+				: {
+						replay: {
+							result,
+							prefix: Object.fromEntries(
+								Object.entries(replay).map(([trial, count]) => [trial, Number(count)]),
+							),
+							offline: offline === 'true',
+						},
+					}),
+		}
 	}
 	if (command === 'grade') {
 		const rubric = flags.get('--rubric')

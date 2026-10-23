@@ -77,7 +77,7 @@ const sealed = reading.status === 'sealed' && reading.seal.id === seal.id // tru
 
 ## Limits
 
-Captured identities bind admitted files, module selections, and Node runtime settings. They do not identify the entire machine or replay external services. Neutral semantic identifiers omit treatment and model names, but input and product text can reveal design details. This guide's executable examples prove local admission and custody; they do not establish GPU capacity or model quality.
+Captured identities bind admitted files, module selections, and Node runtime settings. Recorded replay reproduces exact application HTTP bodies through the declared collaborator; it identifies neither the entire machine nor the external service, TLS records, or transfer framing. Neutral semantic identifiers omit treatment and model names, but input and product text can reveal design details. This guide's executable examples prove local admission and custody; they do not establish GPU capacity or model quality.
 
 ## Captured loading
 
@@ -85,9 +85,13 @@ Select canonical absolute package roots and built ESM entries under each package
 
 Admit every package root reached by native dependency resolution, including installed copies alongside a selected local package. Distinct canonical roots may share a package name; each root and its captured bytes retain their own identity. Repeated roots refuse inspection, and imports into omitted roots refuse loading before evaluation.
 
-Select a consumer-owned source directory separately when the adapter needs strip-only TypeScript. Its graph cannot overlap a built package graph. Source JSON assets are excluded; fixture and rubric bytes retain separate identities. Native package exports and extension rules still govern resolution. The inventory records package manifests, captured files, selected entries, Node version, and runtime settings.
+Select a consumer-owned source directory separately when the adapter needs strip-only TypeScript. Its graph cannot overlap a built package graph. Source JSON files cannot be executable imports. Explicit assets retain exact file bytes in custody without granting import eligibility. Fixture and rubric bytes retain separate execution identities. Native package exports and extension rules still govern resolution. The inventory records package manifests, captured files, explicit assets, selected entries, Node version, and runtime settings.
 
 Select excluded built files to refuse every import edge that reaches them; exclusion leaves the inventory identity unchanged. Run loading in a disposable worker and terminate the worker afterwards. A process admits one loaded inventory. Trusted code can use native process APIs, evaluation, and external services; the loader does not replay those resources or sandbox hostile code.
+
+Call the `materialize` method with an absent absolute destination under an existing physical parent. Materialization preserves the admitted physical forest, including nested node_modules and duplicate package copies. It copies exact bytes and verifies source before and after copying and the entire destination before returning. Explicit assets join the existing aggregate capture limits. Different source or destination volumes, overlap, occupied destinations, links and redirected ancestors, aliases, unsafe names, duplicate keys, and stale source references refuse before copying through them.
+
+The portable closure digest binds sorted member keys, byte digests, sizes, and relative package identities. It excludes source provenance and the destination path. The relocated loader identity retains its canonical paths and runtime settings separately. Path checks and reads do not provide an atomic filesystem snapshot, concurrent hardlink-race resistance, or crash recovery.
 
 ### Inspect selected bytes
 
@@ -117,7 +121,9 @@ Call `gradeStudyEvidence` from an adapter's grade method to traverse the declare
 
 An Agent-backed consumer passes the admitted Agent namespace to the shared instrumentation, which imports Agent types only and constructs nothing from an installed Agent copy. Request measurements, the nominal Agent error, and daemon timing keep the types their owning Agent and Ollama packages export; Study declares no copy of them. The `StudyAgentObserver` class delegates every provider call unchanged and records one size reading before each dispatch. The gauge is explicit: without one, a reading carries no projection. The enforced option selects the usage policy separately from observation, so a passive reading refuses no return. The `StudyAgentJudge` class binds a real judge to a `StudyLatchInterface` owner, so a caught classification failure stays visible to the study.
 
-The `StudyOllamaTransport` class admits each Ollama wire request through the goal's meter, reads each response under the declared byte and duration limits, accounts actual usage before any policy refusal, and retains the first operational failure with its identity. Each model role declares its wire policy: the exact Ollama options object, the think allowance, the strict truncate and shift fields, and whether a length finish is the declared completion. The transport supplies no default policy, refuses an undeclared role, and keeps unreported usage unknown. The `prepare` method binds later requests to one goal until the `clear` or `close` method ends it, and refuses with the `FAULT` code while a goal is bound or a model response is open. The `fetch` and `verify` methods refuse with the `FAULT` code when no goal is bound, and `verify` retains that refusal as the transport's failure. A request admitted before `clear` keeps its goal, and each goal's checkpoint joins only that goal's first observed dispatch.
+The `StudyOllamaTransport` class admits model requests through the goal's meter and metadata through an independent declared budget for calls, bytes, and duration. Metadata has no model-meter parent. Each response retains its byte and duration limits, actual usage precedes a policy refusal, and the first operational failure keeps its identity. Each model role declares its exact Ollama options, think allowance, strict truncate and shift fields, and length-finish policy. Maintenance attribution carries no generation policy. The transport refuses an undeclared role and keeps unreported usage unknown. The `prepare` method binds later requests to one goal until the `clear` or `close` method ends it, and refuses with the `FAULT` code while a goal is bound or a response is open. The `fetch` and `verify` methods refuse with the `FAULT` code when no goal is bound, and `verify` retains that refusal. A request admitted before `clear` keeps its goal, and each goal's checkpoint joins only that goal's first observed dispatch.
+
+Recording requires version, procedure, and exchange sink together. Preflight and postflight verify version, tags, and show for each distinct pinned model. Ordered exact steps compare UTF-8 bytes and verify their declared SHA-256 receipt; capture steps require their declared positive safe byte length and forbid body or input members. Goal, role, route, policy, and order are checked before sending. A second request and verification during request admission refuse. The sink supplies each HTTP ordinal, which joins dispatch and wire evidence even without passive observation. An attempt retains request bytes before sending. A validated response retains native status, selected headers, exact bytes, and chunk lengths; a failure retains bounded partial bytes and cannot produce completion. Successful postflight appends completion after every declared step has finished. The worker owns the preceding declaration and any maintenance prefix.
 
 The transport owns its configuration before validation and snapshots each outbound URL, settings, headers, and request correlation before awaiting admission. Later caller mutation cannot change the admitted request. Cancellation signals, the timing callback, and the optional fetch collaborator retain their live identity.
 
@@ -200,6 +206,18 @@ The Ollama transport appends a `stop` evidence row after its `wire` row when com
 
 ## Native command
 
+Recording declares `record.bytes` on the profile. The manifest retains the same declaration, and the parent reserves that complete allowance separately for each trial before starting workers. The allowance covers every serialized sidecar byte, including base64 expansion, opening and terminal rows, and LF framing. It consumes series custody without consuming goal evidence or model quota. Recording profiles explicitly supply `settings.version`, `settings.metadata`, and `settings.procedure`; the worker validates those declarations before constructing the adapter driver.
+
+The `StudyExchangeSink` class owns the trial's exclusive exchanges.jsonl descriptor. Its `next` property derives the next HTTP ordinal from accepted attempts, including a verified maintenance prefix. Callers await every append before sending or appending another row. The sink reserves failure-terminal space before an attempt and retains its first refusal. Caught refusals prevent successful completion.
+
+The store admits exchanges.jsonl only when recording is declared. Sealing requires each scheduled trial's complete sidecar, exact declaration order, paired identities, valid raw-body receipts, and one ordered dispatch and wire evidence row per HTTP ordinal. Duplicate, orphaned, reordered, failed, partial, missing, and unrequested histories refuse with the CUSTODY code. Every other unknown file remains refused. The `readStudyExchanges` function reverifies the complete seal and this evidence join before returning a replay history.
+
+Replay execution requires `--replay <result> --prefix <JSON trial counts> --offline <true|false>`. Each positive prefix counts complete HTTP exchanges, including metadata and maintenance. The command verifies every selected trial before adapter validation or worker startup, and each worker rechecks its selected history. The executing profile supplies replay bounds. A supervisor fingerprint also pins changed execution bounds before dependent replay work.
+
+The `StudyOllamaReplay` class validates the complete retained history before construction succeeds. Its projected procedure supplies recorded exact bodies inside the prefix, including bodies originally admitted as capture. A capture declaration without a sealed completed history cannot replay. A changed request inside the prefix refuses without forwarding. After the prefix, only an explicit live collaborator can send requests. Offline replay consumes the complete recorded population and constructs no daemon or native sender. Recorded maintenance consumes prefix positions without sending unload requests. Its `check` method refuses an incomplete prefix, unread responses, or a retained mismatch; its `close` method releases response readers.
+
+The process driver accepts `StudyProcessDriverOptions`. Its optional `prepare` callback runs in the parent before session construction, preserves the reserved destination and allowance, and never crosses structured cloning or IPC. Offline replay refuses a preparation callback. A worker verifies any retained maintenance prefix before resuming the sidecar and projects those ordinals into its first goal's evidence.
+
 Install the package in the consumer workspace, then run the study executable from that workspace. The selected declaration lives at studies/<name>/study.json, and its declared rubric path resolves inside that same directory. Its driver field selects a bundle at studies/<driver>/ containing scenarios/<scenario>.json, profiles/<profile>.json, and the adapter module index.ts. Several declarations can share one driver bundle while each keeps its own rubric. The profile defaults to local. JSON declarations use the public definition, scenario, profile, and rubric contracts.
 
 The `readStudyDeclaration` function reads the selected definition, scenarios in declared order, and the rubric the definition names. It returns a `StudyDeclaration` record with the driver bundle and each scenario's bundle-relative fixture path and exact byte digest. It refuses a definition name or scenario identity that differs from its selection. The command uses this reader before reading the selected profile, so the refusal order is definition, scenarios, rubric, profile. The `StudyPreparation` record carries the driver's directory as `bundle`.
@@ -216,21 +234,26 @@ A profile may carry an optional settings object of JSON values. The selected dri
 
 The command supports explicit operations with operation-specific flags. Every flag takes a value and can appear once.
 
-| Operation     | Command                                                                       | Result                                                                |
-| ------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| Validate      | study check <study> [--profile <name>]                                        | Fingerprint and suggested pinned execution arguments                  |
-| Execute       | study execute <study> [--profile <name>] [--out <path>] [--expected <sha256>] | Execution result identity and suggested independent grading arguments |
-| Grade         | study grade <result> --rubric <path>                                          | Immutable grading identity and suggested report arguments             |
-| Import labels | study label <result> --grading <sha256> --labels <path>                       | Another immutable grading identity and suggested report arguments     |
-| Report        | study report <result> --grading <sha256>                                      | Whole-horizon results for the selected grading                        |
+| Operation     | Command                                                                                                                                                                        | Result                                                                |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| Validate      | study check <study> [--profile <name>] [--closure <directory>]                                                                                                                 | Fingerprint and suggested pinned execution arguments                  |
+| Execute       | study execute <study> [--profile <name>] [--out <path>] [--expected <sha256>] [--closure <directory>] [--replay <result> --prefix <JSON trial counts> --offline <true\|false>] | Execution result identity and suggested independent grading arguments |
+| Grade         | study grade <result> --rubric <path>                                                                                                                                           | Immutable grading identity and suggested report arguments             |
+| Import labels | study label <result> --grading <sha256> --labels <path>                                                                                                                        | Another immutable grading identity and suggested report arguments     |
+| Report        | study report <result> --grading <sha256>                                                                                                                                       | Whole-horizon results for the selected grading                        |
+| Freeze        | study freeze <study> --profile <name> --to <directory>                                                                                                                         | Verified closure publication and relocated check fingerprint          |
 
 Success writes a JSON document. The next field contains suggested argv and never executes it automatically. Execution returns a result identity independently of the original study selector. Result selection accepts an identity under tmp/studies, a contained root-relative path, or an absolute path. Relative output paths stay inside the consumer working directory; existing output directories refuse execution. A relative result, --out, --rubric or --labels path, and a declared rubric path, separates its names with forward slashes and names no . or .. segment; profile paths resolve against the consumer root. Without --out, execution writes its result under tmp/studies by its new identity; the suggested execution arguments a check returns carry no --out.
+
+Freeze retains the selected declarations, exact scenario and profile bytes, the adapter graph, every admitted package member, and the trusted runtime entry. It validates the relocated selection in a fresh captured child, rechecks source and destination, and writes closure.json exclusively after those checks pass. The publication retains the original execution identity, the relocated identity, and the relocated fingerprint separately. A validation-time write leaves the destination available for inspection with no publication marker; retry with an absent destination.
+
+Check and execute accept --closure <directory>. Each operation verifies the published member census and bytes, uses the relocated root, entry, profile, and adapter, and compares the fresh check to the retained relocated identity. Only the root closure.json marker sits outside the copied-member census. An added file, omitted member, or changed non-entry dependency or asset refuses validation. The suggested execution arguments retain the closure selection for the supervisor.
 
 Check returns a fingerprint for the declared execution selection. Pass that fingerprint through --expected to pin execution. Both check and execute require a quality profile to declare a qualification path. Execute then requires that path to select a sealed capacity result with the same identity, bounds, schedule, and scenarios and no operational failures. Check validates the declaration offline without opening the capacity result. Capacity and mechanism studies execute without a qualification. Grade names an exact independent rubric path. Label and report require an exact grading identity; no operation guesses a grading version. Imported labels are caller-supplied bytes, not a labeler invoked by this command. A labeled grading binds the preceding grading's instrument, so equal labels over different gradings retain different identities.
 
 The `validateStudyInputs` function enforces the quality qualification requirement after the existing population, profile, room, reference, and coverage checks. Direct callers receive the same `CONFIG` refusal as the command when a quality profile omits its qualification. Capacity and mechanism inputs require no qualification.
 
-A labeled grading's instrument combines the executable entry's byte hash with the inventory digest for its owning Study package. The inventory binds the exact bytes of `package.json` and every `.js`, `.mjs`, `.cjs`, and `.json` file under `dist`, including the server and core entries, with the selected entry, canonical paths, package identity, file sizes, Node version, runtime arguments, `NODE_OPTIONS`, platform, and architecture. Changing the manifest or an included file changes the digest; changing `.d.ts`, `.d.mts`, `.d.cts`, or `.map` files does not. Label identities are host-sensitive, as grading identities are.
+A labeled grading's instrument combines the executable entry's byte hash with the inventory digest for its owning Study package. The inventory binds the exact bytes of `package.json` and every `.js`, `.mjs`, `.cjs`, and `.json` file under `dist`, including the server and core entries, with the selected entry, canonical paths, package identity, file sizes, Node version, runtime arguments, `NODE_OPTIONS`, platform, and architecture. Declaration and source-map files are excluded from module capture unless explicitly selected as custody-only assets. Changing an admitted manifest, module, or explicit asset changes its inventory digest. Label identities are host-sensitive, as grading identities are.
 
 Help succeeds on stdout when --help appears anywhere. Empty arguments and invalid public grammar report on stderr with exit code 64. Operational diagnostics carry a study:CODE prefix and the refused token or path when applicable. Other exits are 0 for success, 124 for deadline, 130 for interruption, and 1 for operational failure. Private child routes require the native IPC boundary.
 
@@ -238,7 +261,7 @@ The `study --version` command prints the installed Study package's version and a
 
 An adapter error response preserves the `CONFIG` code and translates other returned codes to `FAULT`.
 
-Check, grade, label, and report have a fixed 60-second allowance. Execution checks first, then uses the declared series duration with a 15-second cleanup allowance. The command supervises process trees; consumer adapters remain trusted code.
+Check, freeze, grade, label, and report have a fixed 60-second allowance. Execution checks first with the selected closure, then forwards the complete closure and replay selections unchanged and uses the declared series duration with a 15-second cleanup allowance. The command supervises process trees; consumer adapters remain trusted code.
 
 ## Guide parity
 
@@ -462,6 +485,7 @@ The following declarations describe this concept.
 | `buildStudyAgentReadings`          | function  | Builds the JSON evidence form of a Ledger result's logical classifier readings.                                                |
 | `buildStudyAgentRevision`          | function  | Builds a request revision by hashing its canonical rendering exactly as rendered.                                              |
 | `buildStudyOllamaModels`           | function  | Declares the pinned serving identities the Ollama transport verifies, keyed by the label their inventory evidence carries.     |
+| `buildStudyOllamaBytes`            | function  | Encodes exact application bytes with their decoded size and SHA-256 identity.                                                  |
 | `buildStudyOllamaOptions`          | function  | Builds the provider options one role's declared wire policy determines.                                                        |
 | `buildStudyOllamaRaw`              | function  | Builds a reading of the raw prompt text an encoded request body carries, as sent.                                              |
 | `buildStudyOllamaSnapshot`         | function  | Builds an owned snapshot of one outbound request before anything is awaited.                                                   |
@@ -577,6 +601,12 @@ The following declarations describe this concept.
 | `validateStudyOllamaCompletion`    | function  | Checks terminal policy after the actual wire cost has been retained.                                                           |
 | `validateStudyOllamaInventory`     | function  | Verifies that each pinned name resolves to one inventory entry with its pinned digest.                                         |
 | `validateStudyOllamaRoles`         | function  | Validates declared role policies against the pinned inventory before any dispatch.                                             |
+| `validateStudyOllamaRecording`     | function  | Validates independent metadata bounds and the complete optional recording group.                                               |
+| `validateStudyOllamaStep`          | function  | Admits one model request against its next exact or capture declaration.                                                        |
+| `isStudyOllamaMetadata`            | function  | Checks whether a value declares independent positive metadata allowances.                                                      |
+| `isStudyOllamaModel`               | function  | Checks whether a value pins a served model name and SHA-256 digest.                                                            |
+| `isStudyOllamaPolicy`              | function  | Checks whether a value declares a complete finite model-generation policy.                                                     |
+| `isStudyOllamaStep`                | function  | Checks whether a value declares exclusive exact or capture admission with a valid receipt.                                     |
 | `validateStudyRuntime`             | function  | Refuses a profile that omits the actual host runtime's declared dependency bytes.                                              |
 | `valueToWire`                      | function  | Projects optional domain fields into the JSON wire representation.                                                             |
 | `writeStudyBytes`                  | function  | Writes an exclusive regular record and synchronizes it before reporting success.                                               |
@@ -604,6 +634,20 @@ The following declarations describe this concept.
 | `ArtifactMember`                   | interface | Maps one admitted physical file to its exact bytes inside a materialized forest.                                               |
 | `ArtifactClosure`                  | interface | Binds a verified physical forest to its relocated selections and complete membership.                                          |
 | `ArtifactLoaderInterface`          | interface | Captures, verifies, loads, and materializes one admitted physical artifact graph.                                              |
+| `computeArtifactClosureDigest`     | function  | Computes a destination-independent digest of members and relative package identities.                                          |
+| `isArtifactClosure`                | function  | Checks a bounded materialization record before any path is used.                                                               |
+| `isArtifactKey`                    | function  | Checks whether a key names portable, non-credential members within a closure.                                                  |
+| `isArtifactLoaderOptions`          | function  | Checks the bounded loader selections retained in a publication.                                                                |
+| `isArtifactMember`                 | function  | Checks the exact file identity and provenance of a closure member.                                                             |
+| `isStudyClosure`                   | function  | Checks a closure publication before using its command inputs.                                                                  |
+| `matchesArtifactCredential`        | function  | Checks whether a portable segment identifies credentials.                                                                      |
+| `readArtifactPhysical`             | function  | Checks every existing physical ancestor before using a canonical absolute path.                                                |
+| `readStudyClosure`                 | function  | Reads and independently verifies an exclusively published closure.                                                             |
+| `relocateArtifactPath`             | function  | Relocates an original path through a closure's retained physical forest.                                                       |
+| `resolveArtifactBase`              | function  | Finds the common physical parent that preserves every selected path's relative resolution.                                     |
+| `resolveArtifactMember`            | function  | Resolves a portable member key without traversing outside its destination.                                                     |
+| `resolveStudyClosurePath`          | function  | Resolves a profile path through a retained physical relocation when selected.                                                  |
+| `verifyArtifactClosure`            | function  | Verifies complete copied membership, path safety, exact bytes, and portable identity.                                          |
 | `StudyOllamaMetadata`              | interface | Bounds metadata calls, encoded bytes, and elapsed milliseconds outside model quotas.                                           |
 | `StudyOllamaStage`                 | type      | Names the ordered verification, model work, and daemon maintenance stages.                                                     |
 | `StudyOllamaStepIdentity`          | interface | Declares an ordered model request's goal, responsibility, route, and wire policy.                                              |
@@ -631,6 +675,29 @@ The following declarations describe this concept.
 | `StudyClosure`                     | interface | Publishes a validated closure with relocated command inputs and execution provenance.                                          |
 | `StudyTrialPreparationFunction`    | type      | Prepares one trial's external resources before its worker starts.                                                              |
 | `StudyProcessDriverOptions`        | interface | Supplies parent-only trial preparation separately from serializable worker options.                                            |
+| `StudyExchangeSink`                | class     | Retains ordered exchange rows under a parent-reserved serialized byte allowance.                                               |
+| `StudyOllamaReplay`                | class     | Answers declared HTTP prefixes from complete ordered recorded application bytes.                                               |
+| `isStudyRecord`                    | function  | Checks whether a recording declaration bounds every serialized sidecar byte.                                                   |
+| `isStudyExchangeBytes`             | function  | Checks whether encoded body bytes have their exact canonical base64 and SHA-256 identity.                                      |
+| `isStudyExchangeIdentity`          | function  | Checks whether an exchange carries an admissible ordered HTTP identity.                                                        |
+| `isStudyExchangeReply`             | function  | Checks whether a retained reply describes bounded successful application bytes and chunks.                                     |
+| `isStudyExchangeDeclaration`       | function  | Checks whether the opening row declares a finite ordered procedure and serving identities.                                     |
+| `isStudyExchangeRow`               | function  | Checks whether a sidecar row has exactly its declared fields and verified byte identities.                                     |
+| `isStudyExchangeHistory`           | function  | Checks whether a history has verified row shapes before its complete relational validation.                                    |
+| `buildStudyExchangeSequence`       | function  | Projects the declaration onto its complete ordered HTTP identity population.                                                   |
+| `projectStudyExchangeIdentity`     | function  | Projects only the repeated identity fields of a retained HTTP exchange.                                                        |
+| `validateStudyExchangeRequest`     | function  | Validates the exact declaration order and request bytes of an admitted exchange.                                               |
+| `validateStudyExchangeRows`        | function  | Validates a serialized journal prefix or its complete successful population.                                                   |
+| `readStudyExchangeRows`            | function  | Reads strict complete LF-framed exchange rows with verified bodies and declaration joins.                                      |
+| `validateStudyExchangeHistory`     | function  | Validates complete history envelopes again before a replay may perform dependent work.                                         |
+| `validateStudyExchangeEvidence`    | function  | Joins recorded exchanges to exactly one dispatch and wire evidence identity per ordinal.                                       |
+| `readStudyTrialExchanges`          | function  | Reads and joins a complete trial sidecar before or after sealing.                                                              |
+| `readStudyExchanges`               | function  | Reads a sealed trial's exact complete exchange history after reverifying its entire result.                                    |
+| `isStudyExchangeDestination`       | function  | Checks whether a worker destination has an absolute sidecar path and finite reservation.                                       |
+| `isStudyReplaySelection`           | function  | Checks whether replay explicitly selects a sealed directory and per-trial prefix counts.                                       |
+| `readStudyRecordingDeclaration`    | function  | Reads the executing profile's explicit recording declarations before a worker starts.                                          |
+| `readStudyPreparedDestination`     | function  | Validates parent preparation output without permitting a destination or allowance substitution.                                |
+| `readStudyReplayHistory`           | function  | Rechecks the sealed source and this trial's prefix under the executing profile declaration.                                    |
 
 ## Methods
 
@@ -640,11 +707,23 @@ The following tables name the callable members.
 
 The declaration exposes these methods.
 
-| Method    | Summary                                                                  |
-| --------- | ------------------------------------------------------------------------ |
-| `inspect` | Reads and identifies admitted files without evaluating selected modules. |
-| `load`    | Imports one selected entry through synchronous captured-byte hooks.      |
-| `verify`  | Refuses byte and population drift since inspection.                      |
+| Method        | Summary                                                                    |
+| ------------- | -------------------------------------------------------------------------- |
+| `inspect`     | Reads and identifies admitted files without evaluating selected modules.   |
+| `load`        | Imports one selected entry through synchronous captured-byte hooks.        |
+| `materialize` | Copies the inspected physical forest into an exclusive absent destination. |
+| `verify`      | Refuses byte and population drift since inspection.                        |
+
+#### `ArtifactLoaderInterface`
+
+The declaration exposes these methods.
+
+| Method        | Summary                                                                    |
+| ------------- | -------------------------------------------------------------------------- |
+| `inspect`     | Captures the complete admitted population without evaluating modules.      |
+| `verify`      | Refuses changed bytes or membership after inspection.                      |
+| `load`        | Loads an admitted entry through captured-byte hooks in a fresh process.    |
+| `materialize` | Copies the inspected physical forest into an exclusive absent destination. |
 
 #### `Resolution`
 
@@ -950,12 +1029,49 @@ The declaration exposes these methods.
 
 The declaration exposes these methods.
 
-| Method   | Summary                                                                           |
-| -------- | --------------------------------------------------------------------------------- |
-| `create` | Exclusively creates the result directory and initial manifest bytes.              |
-| `finish` | Closes evidence admission, drains admitted appends, and writes a terminal record. |
-| `seal`   | Seals exact execution inventory after every scheduled trial has terminated.       |
-| `start`  | Exclusively creates the evidence sink for an exact scheduled trial.               |
+| Method      | Summary                                                                           |
+| ----------- | --------------------------------------------------------------------------------- |
+| `create`    | Exclusively creates the result directory and initial manifest bytes.              |
+| `exchanges` | Reserves a trial's entire exchange allowance before any worker starts.            |
+| `finish`    | Closes evidence admission, drains admitted appends, and writes a terminal record. |
+| `seal`      | Seals exact execution inventory after every scheduled trial has terminated.       |
+| `start`     | Exclusively creates the evidence sink for an exact scheduled trial.               |
+
+#### `StudyExchangeSink`
+
+The declaration exposes these methods.
+
+| Method   | Summary                                                                                  |
+| -------- | ---------------------------------------------------------------------------------------- |
+| `append` | Appends one owned row after validating order and reserving its complete serialized size. |
+| `close`  | Closes admission, drains accepted writes and synchronizes the owned descriptor.          |
+
+#### `StudyExchangeSinkInterface`
+
+The declaration exposes these methods.
+
+| Method   | Summary                                                                             |
+| -------- | ----------------------------------------------------------------------------------- |
+| `append` | Appends one validated row after reserving its complete serialized size.             |
+| `close`  | Closes admission and synchronizes all admitted writes without inventing completion. |
+
+#### `StudyOllamaReplay`
+
+The declaration exposes these methods.
+
+| Method  | Summary                                                                    |
+| ------- | -------------------------------------------------------------------------- |
+| `check` | Refuses a mismatch, an unread response or an incompletely consumed prefix. |
+| `close` | Closes admission and cancels retained replay responses.                    |
+
+#### `StudyOllamaReplayInterface`
+
+The declaration exposes these methods.
+
+| Method  | Summary                                                                             |
+| ------- | ----------------------------------------------------------------------------------- |
+| `check` | Refuses a latched mismatch, an unread response, or an incompletely consumed prefix. |
+| `close` | Closes admission and cancels or drains owned response readers.                      |
 
 #### `StudyResultStoreInterface`
 
@@ -1832,6 +1948,34 @@ await trace.flush(sink) // appends one `note` row for the goal `count`
 trace.goal // undefined
 ```
 
+### Validate recorded admission
+
+Validate the owned recording group, then check its next model request before dispatch.
+
+```ts
+import type { StudyOllamaTransportOptions, StudyOllamaRequest } from '@orkestrel/study/server'
+import {
+	buildStudyOllamaBytes,
+	isStudyOllamaMetadata,
+	isStudyOllamaModel,
+	isStudyOllamaPolicy,
+	isStudyOllamaStep,
+	validateStudyOllamaRecording,
+	validateStudyOllamaStep,
+} from '@orkestrel/study/server'
+
+declare const configured: StudyOllamaTransportOptions
+declare const request: StudyOllamaRequest
+declare const body: string
+validateStudyOllamaRecording(configured)
+isStudyOllamaMetadata(configured.metadata)
+isStudyOllamaModel(configured.models.model)
+isStudyOllamaPolicy(configured.roles.agent)
+isStudyOllamaStep(configured.procedure?.[0])
+validateStudyOllamaStep(configured.procedure?.[0], 'write', request, body)
+buildStudyOllamaBytes(new TextEncoder().encode(body))
+```
+
 ### Own transport inputs
 
 Copy declared configuration and mutable request headers before asynchronous admission.
@@ -2127,6 +2271,58 @@ declare const validateStudyRuntimeArguments: Parameters<typeof validateStudyRunt
 validateStudyRuntime(...validateStudyRuntimeArguments)
 ```
 
+### Call closure helpers
+
+Supply the declared selections, captured records, and physical paths.
+
+```ts
+import {
+	computeArtifactClosureDigest,
+	isArtifactClosure,
+	isArtifactKey,
+	isArtifactLoaderOptions,
+	isArtifactMember,
+	isStudyClosure,
+	matchesArtifactCredential,
+	readArtifactPhysical,
+	readStudyClosure,
+	relocateArtifactPath,
+	resolveArtifactBase,
+	resolveArtifactMember,
+	resolveStudyClosurePath,
+	verifyArtifactClosure,
+} from '@orkestrel/study/server'
+
+declare const digest: Parameters<typeof computeArtifactClosureDigest>
+computeArtifactClosureDigest(...digest)
+declare const closure: Parameters<typeof isArtifactClosure>
+isArtifactClosure(...closure)
+declare const key: Parameters<typeof isArtifactKey>
+isArtifactKey(...key)
+declare const options: Parameters<typeof isArtifactLoaderOptions>
+isArtifactLoaderOptions(...options)
+declare const member: Parameters<typeof isArtifactMember>
+isArtifactMember(...member)
+declare const publication: Parameters<typeof isStudyClosure>
+isStudyClosure(...publication)
+declare const credential: Parameters<typeof matchesArtifactCredential>
+matchesArtifactCredential(...credential)
+declare const physical: Parameters<typeof readArtifactPhysical>
+readArtifactPhysical(...physical)
+declare const reader: Parameters<typeof readStudyClosure>
+readStudyClosure(...reader)
+declare const relocation: Parameters<typeof relocateArtifactPath>
+relocateArtifactPath(...relocation)
+declare const base: Parameters<typeof resolveArtifactBase>
+resolveArtifactBase(...base)
+declare const target: Parameters<typeof resolveArtifactMember>
+resolveArtifactMember(...target)
+declare const selection: Parameters<typeof resolveStudyClosurePath>
+resolveStudyClosurePath(...selection)
+declare const verification: Parameters<typeof verifyArtifactClosure>
+verifyArtifactClosure(...verification)
+```
+
 ### Call ArtifactLoader methods
 
 Supply an instance of the declared contract.
@@ -2139,6 +2335,8 @@ declare const inspect: Parameters<ArtifactLoader['inspect']>
 instance.inspect(...inspect)
 declare const load: Parameters<ArtifactLoader['load']>
 instance.load(...load)
+declare const materialize: Parameters<ArtifactLoader['materialize']>
+instance.materialize(...materialize)
 declare const verify: Parameters<ArtifactLoader['verify']>
 instance.verify(...verify)
 ```
@@ -2623,6 +2821,8 @@ Supply an instance of the declared contract.
 import type { StudyResultStore } from '@orkestrel/study/server'
 
 declare const instance: StudyResultStore
+declare const exchanges: Parameters<StudyResultStore['exchanges']>
+instance.exchanges(...exchanges)
 declare const create: Parameters<StudyResultStore['create']>
 instance.create(...create)
 declare const finish: Parameters<StudyResultStore['finish']>
@@ -2641,6 +2841,8 @@ Supply an instance of the declared contract.
 import type { StudyResultStoreInterface } from '@orkestrel/study/server'
 
 declare const instance: StudyResultStoreInterface
+declare const exchanges: Parameters<StudyResultStoreInterface['exchanges']>
+instance.exchanges(...exchanges)
 declare const create: Parameters<StudyResultStoreInterface['create']>
 instance.create(...create)
 declare const finish: Parameters<StudyResultStoreInterface['finish']>
@@ -2790,6 +2992,115 @@ instance.execute(...execute)
 ```
 
 ## Tests
+
+### Call exchange and replay helpers
+
+Supply validated declarations, retained bytes, or a selected sealed result as each contract requires.
+
+```ts
+import { isStudyRecord } from '@orkestrel/study'
+import {
+	buildStudyExchangeSequence,
+	isStudyExchangeBytes,
+	isStudyExchangeDeclaration,
+	isStudyExchangeDestination,
+	isStudyExchangeHistory,
+	isStudyExchangeIdentity,
+	isStudyExchangeReply,
+	isStudyExchangeRow,
+	isStudyReplaySelection,
+	projectStudyExchangeIdentity,
+	readStudyExchangeRows,
+	readStudyExchanges,
+	readStudyPreparedDestination,
+	readStudyRecordingDeclaration,
+	readStudyReplayHistory,
+	readStudyTrialExchanges,
+	validateStudyExchangeEvidence,
+	validateStudyExchangeHistory,
+	validateStudyExchangeRequest,
+	validateStudyExchangeRows,
+} from '@orkestrel/study/server'
+
+declare const isStudyRecordArguments: Parameters<typeof isStudyRecord>
+isStudyRecord(...isStudyRecordArguments)
+declare const buildStudyExchangeSequenceArguments: Parameters<typeof buildStudyExchangeSequence>
+buildStudyExchangeSequence(...buildStudyExchangeSequenceArguments)
+declare const isStudyExchangeBytesArguments: Parameters<typeof isStudyExchangeBytes>
+isStudyExchangeBytes(...isStudyExchangeBytesArguments)
+declare const isStudyExchangeDeclarationArguments: Parameters<typeof isStudyExchangeDeclaration>
+isStudyExchangeDeclaration(...isStudyExchangeDeclarationArguments)
+declare const isStudyExchangeDestinationArguments: Parameters<typeof isStudyExchangeDestination>
+isStudyExchangeDestination(...isStudyExchangeDestinationArguments)
+declare const isStudyExchangeHistoryArguments: Parameters<typeof isStudyExchangeHistory>
+isStudyExchangeHistory(...isStudyExchangeHistoryArguments)
+declare const isStudyExchangeIdentityArguments: Parameters<typeof isStudyExchangeIdentity>
+isStudyExchangeIdentity(...isStudyExchangeIdentityArguments)
+declare const isStudyExchangeReplyArguments: Parameters<typeof isStudyExchangeReply>
+isStudyExchangeReply(...isStudyExchangeReplyArguments)
+declare const isStudyExchangeRowArguments: Parameters<typeof isStudyExchangeRow>
+isStudyExchangeRow(...isStudyExchangeRowArguments)
+declare const isStudyReplaySelectionArguments: Parameters<typeof isStudyReplaySelection>
+isStudyReplaySelection(...isStudyReplaySelectionArguments)
+declare const projectStudyExchangeIdentityArguments: Parameters<typeof projectStudyExchangeIdentity>
+projectStudyExchangeIdentity(...projectStudyExchangeIdentityArguments)
+declare const readStudyExchangeRowsArguments: Parameters<typeof readStudyExchangeRows>
+readStudyExchangeRows(...readStudyExchangeRowsArguments)
+declare const readStudyExchangesArguments: Parameters<typeof readStudyExchanges>
+readStudyExchanges(...readStudyExchangesArguments)
+declare const readStudyPreparedDestinationArguments: Parameters<typeof readStudyPreparedDestination>
+readStudyPreparedDestination(...readStudyPreparedDestinationArguments)
+declare const readStudyRecordingDeclarationArguments: Parameters<
+	typeof readStudyRecordingDeclaration
+>
+readStudyRecordingDeclaration(...readStudyRecordingDeclarationArguments)
+declare const readStudyReplayHistoryArguments: Parameters<typeof readStudyReplayHistory>
+readStudyReplayHistory(...readStudyReplayHistoryArguments)
+declare const readStudyTrialExchangesArguments: Parameters<typeof readStudyTrialExchanges>
+readStudyTrialExchanges(...readStudyTrialExchangesArguments)
+declare const validateStudyExchangeEvidenceArguments: Parameters<
+	typeof validateStudyExchangeEvidence
+>
+validateStudyExchangeEvidence(...validateStudyExchangeEvidenceArguments)
+declare const validateStudyExchangeHistoryArguments: Parameters<typeof validateStudyExchangeHistory>
+validateStudyExchangeHistory(...validateStudyExchangeHistoryArguments)
+declare const validateStudyExchangeRequestArguments: Parameters<typeof validateStudyExchangeRequest>
+validateStudyExchangeRequest(...validateStudyExchangeRequestArguments)
+declare const validateStudyExchangeRowsArguments: Parameters<typeof validateStudyExchangeRows>
+validateStudyExchangeRows(...validateStudyExchangeRowsArguments)
+```
+
+### Call exchange sink methods
+
+Supply the worker-owned sink or its declared interface.
+
+```ts
+import type { StudyExchangeSink, StudyExchangeSinkInterface } from '@orkestrel/study/server'
+
+declare const sink: StudyExchangeSink
+declare const append: Parameters<StudyExchangeSink['append']>
+sink.append(...append)
+sink.close()
+declare const contract: StudyExchangeSinkInterface
+declare const row: Parameters<StudyExchangeSinkInterface['append']>
+contract.append(...row)
+contract.close()
+```
+
+### Call replay methods
+
+Supply a replay over a completely verified selected history.
+
+```ts
+import type { StudyOllamaReplay, StudyOllamaReplayInterface } from '@orkestrel/study/server'
+
+declare const replay: StudyOllamaReplay
+replay.check()
+replay.close()
+declare const contract: StudyOllamaReplayInterface
+contract.check()
+contract.close()
+```
 
 See the behavioral proofs in the following directories.
 

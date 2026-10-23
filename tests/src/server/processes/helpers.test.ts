@@ -28,10 +28,39 @@ import {
 	valueToWire,
 	resolveStudyInstrument,
 	readStudyVersion,
+	readStudyPreparedDestination,
 	validateStudyRuntime,
 } from '../../../../src/server/processes/helpers.js'
 
 describe('process helpers', () => {
+	it('keeps the reserved preparation destination and rejects path, allowance and recording substitutions', () => {
+		const scratch = createScratch()
+		try {
+			const destination = {
+				path: resolve(scratch.path, 'exchanges.jsonl'),
+				record: { bytes: 4096 },
+			}
+			expect(readStudyPreparedDestination(destination, { ...destination })).toEqual(destination)
+			expect(readStudyPreparedDestination(undefined, undefined)).toBeUndefined()
+			expect(() =>
+				readStudyPreparedDestination(destination, {
+					...destination,
+					path: resolve(scratch.path, 'other', 'exchanges.jsonl'),
+				}),
+			).toThrow(/changed its reserved destination/)
+			expect(() =>
+				readStudyPreparedDestination(destination, { ...destination, record: { bytes: 8192 } }),
+			).toThrow(/changed its reserved destination/)
+			expect(() => readStudyPreparedDestination(undefined, destination)).toThrow(
+				/changed its reserved destination/,
+			)
+			expect(() => readStudyPreparedDestination(destination, undefined)).toThrow(
+				/changed its reserved destination/,
+			)
+		} finally {
+			scratch.destroy()
+		}
+	})
 	it('reads the owning runtime version and refuses empty missing or non-string versions', () => {
 		const scratch = createScratch()
 		try {

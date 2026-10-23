@@ -1,4 +1,10 @@
-import type { StudyFailure, StudyProfile } from '@src/core'
+import type { StudyFailure, StudyProfile, StudyTrial } from '@src/core'
+import type {
+	StudyExchangeDeclaration,
+	StudyExchangeDestination,
+	StudyExchangeHistory,
+} from '../stores/types.js'
+import type { StudyOllamaReplaySelection } from '../ollama/types.js'
 import type { JSONValue } from '@orkestrel/contract'
 import type { ChildProcess } from 'node:child_process'
 import { StudyError } from '@src/core'
@@ -10,6 +16,92 @@ import { dirname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { hashStudyBytes, matchesSystemError } from '../helpers.js'
 import { STUDY_DRAIN_DURATION } from './constants.js'
+import { buildStudyOllamaModels } from '../ollama/helpers.js'
+import { readStudyExchanges, readStudyResult } from '../stores/helpers.js'
+import { isStudyExchangeDeclaration } from '../stores/validators.js'
+import { isStudyExchangeDestination, isStudyReplaySelection } from './validators.js'
+
+/** Reads the executing profile's explicit recording declarations before a worker starts.
+ * @param profile - The validated executing profile.
+ * @param trial - The scheduled trial identity.
+ * @returns A validated opening row, with no inferred metadata or replay allowance.
+ */
+export function readStudyRecordingDeclaration(
+	profile: StudyProfile,
+	trial: StudyTrial,
+): StudyExchangeDeclaration {
+	if (profile.provider === undefined || profile.settings === undefined)
+		throw new StudyError('CONFIG', 'Recording requires provider and explicit wire declarations')
+	const declaration = {
+		phase: 'declaration',
+		trial: trial.id,
+		version: profile.settings.version,
+		metadata: profile.settings.metadata,
+		procedure: profile.settings.procedure,
+		models: buildStudyOllamaModels(profile.provider),
+		maintenance: [],
+	}
+	if (!isStudyExchangeDeclaration(declaration))
+		throw new StudyError(
+			'CONFIG',
+			'Recording requires valid version, metadata and ordered procedure settings',
+		)
+	return declaration
+}
+
+/** Validates parent preparation output without permitting a destination or allowance substitution.
+ * @param original - The parent-reserved destination, or undefined without recording.
+ * @param prepared - The callback's retained destination.
+ * @returns The validated destination for the worker.
+ */
+export function readStudyPreparedDestination(
+	original: StudyExchangeDestination | undefined,
+	prepared: StudyExchangeDestination | undefined,
+): StudyExchangeDestination | undefined {
+	if (
+		original === undefined
+			? prepared !== undefined
+			: !isStudyExchangeDestination(prepared) ||
+				prepared.path !== original.path ||
+				canonicalStringify(prepared.record) !== canonicalStringify(original.record)
+	)
+		throw new StudyError('CUSTODY', 'Trial preparation changed its reserved destination')
+	return prepared
+}
+
+/** Rechecks the sealed source and this trial's prefix under the executing profile declaration.
+ * @param selection - The explicit sealed source and offline behavior.
+ * @param profile - The executing profile, whose bounds remain authoritative.
+ * @param trial - The trial whose history must be present.
+ * @returns Complete verified history before any dependent sender or worker starts.
+ */
+export async function readStudyReplayHistory(
+	selection: StudyOllamaReplaySelection,
+	profile: StudyProfile,
+	trial: StudyTrial,
+): Promise<StudyExchangeHistory> {
+	if (!isStudyReplaySelection(selection)) throw new StudyError('CONFIG', 'Invalid replay selection')
+	const result = await readStudyResult(selection.result)
+	if (result.status !== 'sealed') throw new StudyError('CUSTODY', 'Replay requires a sealed result')
+	const history = await readStudyExchanges(result, trial.id)
+	const prefix = selection.prefix[trial.id]
+	if (
+		prefix === undefined ||
+		prefix > history.exchanges.length ||
+		(selection.offline && prefix !== history.exchanges.length)
+	)
+		throw new StudyError('CONFIG', 'Replay prefix does not cover its declared trial')
+	const declaration = readStudyRecordingDeclaration(profile, trial)
+	const { metadata: _metadata, maintenance: _maintenance, ...current } = declaration
+	const {
+		metadata: _recordedMetadata,
+		maintenance: _recordedMaintenance,
+		...recorded
+	} = history.declaration
+	if (canonicalStringify(current) !== canonicalStringify(recorded))
+		throw new StudyError('CONFIG', 'Replay declaration differs from recorded execution')
+	return history
+}
 
 /** Projects optional domain fields into the JSON wire representation.
  * @param value - An owned domain value with optional undefined fields.

@@ -1,7 +1,7 @@
 import { createScratch, destroyScratch } from '@orkestrel/test/server'
 import { spawnSync } from 'node:child_process'
-import { closeSync, ftruncateSync, openSync } from 'node:fs'
-import { join } from 'node:path'
+import { closeSync, ftruncateSync, openSync, readFileSync, linkSync, unlinkSync } from 'node:fs'
+import { join, parse } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { expect, it } from 'vitest'
 import { ArtifactLoader } from '../../../../src/server/artifacts/ArtifactLoader.js'
@@ -14,7 +14,267 @@ import {
 	ARTIFACT_VISITS,
 } from '../../../../src/server/artifacts/constants.js'
 import { hashStudyBytes } from '../../../../src/server/helpers.js'
-import { ARTIFACT_NATIVE_FILES, createArtifactWorker } from '../../../setupServer.js'
+import { verifyArtifactClosure } from '../../../../src/server/artifacts/helpers.js'
+import {
+	ARTIFACT_NATIVE_FILES,
+	ARTIFACT_CLOSURE_FILES,
+	ARTIFACT_CREDENTIAL_NAMES,
+	ARTIFACT_MEMBER_SUFFIXES,
+	buildArtifactClosureOptions,
+	createArtifactWorker,
+} from '../../../setupServer.js'
+
+it('materializes exact Unicode BOM and CRLF bytes with a portable digest and native nested resolution', async () => {
+	const scratch = createScratch({ files: ARTIFACT_CLOSURE_FILES })
+	try {
+		const options = buildArtifactClosureOptions(scratch)
+		const artifacts = new ArtifactLoader(options)
+		const inventory = artifacts.inspect()
+		if (options.source === undefined) throw new Error('Missing source selection')
+		expect(
+			new ArtifactLoader({
+				...options,
+				source: { entry: options.source.entry, root: options.source.root },
+			}).inspect().digest,
+		).toBe(inventory.digest)
+		expect(inventory.assets).toEqual(options.assets)
+		const first = await artifacts.materialize(join(scratch.path, 'first'))
+		const second = await artifacts.materialize(join(scratch.path, 'second'))
+		expect(first.digest).toBe(second.digest)
+		expect(scratch.has('first/closure.json')).toBe(false)
+		expect(first.members.map((member) => member.source)).toEqual(
+			inventory.files.map((file) => file.path),
+		)
+		for (const member of first.members)
+			expect(readFileSync(join(first.destination, ...member.key.split('/')))).toEqual(
+				readFileSync(member.source),
+			)
+		const worker = createArtifactWorker(
+			scratch,
+			`
+const closure = ${JSON.stringify(first)}
+const loader = new ArtifactLoader(closure.options)
+const subject = await loader.load(closure.options.entries[0])
+const provider = await loader.load(closure.options.entries[1])
+assert.equal(subject.value, 11)
+assert.equal(provider.value, 22)
+loader.verify()
+console.log('relocated:11:22')
+`,
+		)
+		const result = spawnSync(process.execPath, [worker], {
+			encoding: 'utf8',
+			timeout: 15000,
+			windowsHide: true,
+		})
+		expect({ status: result.status, error: result.status === 0 ? '' : result.stderr }).toEqual({
+			status: 0,
+			error: '',
+		})
+		expect(result.stdout).toContain('relocated:11:22')
+	} finally {
+		await destroyScratch(scratch)
+	}
+}, 30000)
+
+it('refuses occupied overlapping redirected aliased duplicate and stale selections before destination writes', async () => {
+	const scratch = createScratch({ files: ARTIFACT_CLOSURE_FILES })
+	try {
+		const options = buildArtifactClosureOptions(scratch)
+		const artifacts = new ArtifactLoader(options)
+		artifacts.inspect()
+		const occupied = scratch.ensure('occupied')
+		await expect(artifacts.materialize(occupied)).rejects.toMatchObject({ code: 'OCCUPIED' })
+		expect(scratch.names('occupied')).toEqual([])
+		await expect(
+			artifacts.materialize(join(scratch.path, 'subject', 'copy')),
+		).rejects.toMatchObject({ code: 'OVERLAP' })
+		expect(scratch.has('subject/copy')).toBe(false)
+		const outside = scratch.ensure('outside')
+		scratch.link('redirect', outside)
+		await expect(
+			artifacts.materialize(join(scratch.path, 'redirect', 'copy')),
+		).rejects.toMatchObject({ code: 'REDIRECT' })
+		expect(scratch.has('outside/copy')).toBe(false)
+		if (options.source === undefined) throw new Error('Missing source selection')
+		scratch.link('source-alias', options.source.root)
+		await expect(
+			new ArtifactLoader({
+				...options,
+				source: {
+					root: join(scratch.path, 'source-alias'),
+					entry: join(scratch.path, 'source-alias', 'index.ts'),
+				},
+			}).materialize(join(scratch.path, 'redirected-source')),
+		).rejects.toMatchObject({ code: 'REDIRECT' })
+		expect(scratch.has('redirected-source')).toBe(false)
+		for (const name of ARTIFACT_CREDENTIAL_NAMES) {
+			await expect(
+				new ArtifactLoader({
+					...options,
+					assets: [join(scratch.path, 'missing', name)],
+				}).materialize(join(scratch.path, 'unsafe')),
+			).rejects.toMatchObject({ code: 'NAME' })
+			expect(scratch.has('unsafe')).toBe(false)
+		}
+		await expect(
+			new ArtifactLoader({
+				...options,
+				assets: [...(options.assets ?? []), ...(options.assets ?? [])],
+			}).materialize(join(scratch.path, 'duplicate')),
+		).rejects.toMatchObject({ code: 'DUPLICATE' })
+		expect(scratch.has('duplicate')).toBe(false)
+		const helper = join(scratch.path, 'subject', 'studies', 'adapter', 'helper.ts')
+		const alias = join(scratch.path, 'subject', 'studies', 'adapter', 'alias.ts')
+		linkSync(helper, alias)
+		await expect(
+			new ArtifactLoader(options).materialize(join(scratch.path, 'alias-copy')),
+		).rejects.toMatchObject({ code: 'ALIAS' })
+		expect(scratch.has('alias-copy')).toBe(false)
+		unlinkSync(alias)
+		scratch.write(helper, 'export const helper: number = 4\n')
+		await expect(artifacts.materialize(join(scratch.path, 'stale'))).rejects.toMatchObject({
+			code: 'STALE',
+		})
+		expect(scratch.has('stale')).toBe(false)
+	} finally {
+		await destroyScratch(scratch)
+	}
+})
+
+// Native drive-qualified path syntax is required to name a second volume before lookup.
+it.skipIf(!/^[a-z]:\\$/i.test(parse(process.cwd()).root))(
+	'refuses a second destination volume before lookup or writes',
+	async () => {
+		const scratch = createScratch({ files: ARTIFACT_CLOSURE_FILES })
+		try {
+			const other = parse(scratch.path).root.startsWith('C:') ? 'D:\\' : 'C:\\'
+			await expect(
+				new ArtifactLoader(buildArtifactClosureOptions(scratch)).materialize(
+					join(other, 'absent-closure'),
+				),
+			).rejects.toMatchObject({ code: 'VOLUME' })
+			expect(scratch.names()).not.toContain('absent-closure')
+		} finally {
+			await destroyScratch(scratch)
+		}
+	},
+)
+
+it('requires every source module built dependency and explicit asset and refuses added changed or deleted members', async () => {
+	const scratch = createScratch({ files: ARTIFACT_CLOSURE_FILES })
+	try {
+		const closure = await new ArtifactLoader(buildArtifactClosureOptions(scratch)).materialize(
+			join(scratch.path, 'copy'),
+		)
+		verifyArtifactClosure(closure)
+		for (const suffix of ARTIFACT_MEMBER_SUFFIXES) {
+			const member = closure.members.find((entry) => entry.key.endsWith(suffix))
+			if (member === undefined) throw new Error(`Missing population ${suffix}`)
+			expect(() =>
+				verifyArtifactClosure({
+					...closure,
+					members: closure.members.filter((entry) => entry !== member),
+				}),
+			).toThrow(/membership|identity/)
+			const path = join(closure.destination, ...member.key.split('/'))
+			const original = readFileSync(path)
+			scratch.write(path, `${original.toString()}\n`)
+			expect(() => verifyArtifactClosure(closure)).toThrow(/drift/)
+			unlinkSync(path)
+			expect(() => verifyArtifactClosure(closure)).toThrow(/membership/)
+			scratch.write(path, original.toString())
+			verifyArtifactClosure(closure)
+		}
+		scratch.write('copy/extra.txt', 'extra')
+		expect(() => verifyArtifactClosure(closure)).toThrow(/membership/)
+		scratch.remove('copy/extra.txt')
+		scratch.ensure('copy/empty-extra')
+		expect(() => verifyArtifactClosure(closure)).toThrow(/membership/)
+	} finally {
+		await destroyScratch(scratch)
+	}
+})
+
+it('refuses source drift during copying and never publishes a completion marker', async () => {
+	const scratch = createScratch({ files: ARTIFACT_CLOSURE_FILES })
+	try {
+		const artifacts = new ArtifactLoader(buildArtifactClosureOptions(scratch))
+		artifacts.inspect()
+		const copying = artifacts.materialize(join(scratch.path, 'copy'))
+		scratch.write('subject/studies/adapter/helper.ts', 'export const helper: number = 4\n')
+		await expect(copying).rejects.toMatchObject({ code: 'DRIFT' })
+		expect(scratch.has('copy')).toBe(true)
+		expect(scratch.has('copy/closure.json')).toBe(false)
+	} finally {
+		await destroyScratch(scratch)
+	}
+})
+
+it('refuses a redirected destination introduced between copies before writing through it', async () => {
+	const scratch = createScratch({ files: ARTIFACT_CLOSURE_FILES })
+	try {
+		const artifacts = new ArtifactLoader(buildArtifactClosureOptions(scratch))
+		const copying = artifacts.materialize(join(scratch.path, 'copy'))
+		scratch.link('copy/node_modules', scratch.ensure('outside'))
+		await expect(copying).rejects.toMatchObject({ code: 'REDIRECT' })
+		expect(scratch.names('outside')).toEqual([])
+		expect(scratch.has('copy/closure.json')).toBe(false)
+	} finally {
+		await destroyScratch(scratch)
+	}
+})
+
+it('retains explicit JSON and JavaScript asset bytes without granting executable imports', async () => {
+	const scratch = createScratch({ files: ARTIFACT_CLOSURE_FILES })
+	try {
+		const original = buildArtifactClosureOptions(scratch)
+		if (original.source === undefined) throw new Error('Missing source selection')
+		const custody = join(scratch.path, 'subject', 'assets', 'custody.js')
+		const options = {
+			...original,
+			assets: [...(original.assets ?? []), join(original.source.root, 'rubric.json'), custody],
+		}
+		const worker = createArtifactWorker(
+			scratch,
+			`const options = ${JSON.stringify(options)}; const namespace = await new ArtifactLoader(options).load(options.source.entry); console.log('asset-control:' + namespace.value)`,
+		)
+		const control = spawnSync(process.execPath, [worker], {
+			encoding: 'utf8',
+			timeout: 15000,
+			windowsHide: true,
+		})
+		expect({ status: control.status, stderr: control.status === 0 ? '' : control.stderr }).toEqual({
+			status: 0,
+			stderr: '',
+		})
+		expect(control.stdout).toContain('asset-control:7')
+		scratch.write(
+			original.source.entry,
+			"export { default as value } from './rubric.json' with { type: 'json' }\n",
+		)
+		const json = spawnSync(process.execPath, [worker], {
+			encoding: 'utf8',
+			timeout: 15000,
+			windowsHide: true,
+		})
+		expect(json.status).not.toBe(0)
+		expect(json.stderr).toContain('not admitted')
+		scratch.write(
+			original.source.entry,
+			`export { value } from ${JSON.stringify(pathToFileURL(custody).href)}\n`,
+		)
+		const javascript = spawnSync(process.execPath, [worker], {
+			encoding: 'utf8',
+			timeout: 15000,
+			windowsHide: true,
+		})
+		expect(javascript.status).not.toBe(0)
+		expect(javascript.stderr).toContain('not admitted')
+	} finally {
+		await destroyScratch(scratch)
+	}
+}, 30000)
 
 it('admits distinct same-name package roots and preserves native provider dependency resolution', async () => {
 	const scratch = createScratch({ files: ARTIFACT_NATIVE_FILES })

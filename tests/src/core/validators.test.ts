@@ -18,6 +18,7 @@ import {
 	isStudyName,
 	isStudyProduct,
 	isStudyProfile,
+	isStudyRecord,
 	isStudyProvider,
 	isStudyRole,
 	isStudyRoom,
@@ -50,6 +51,23 @@ it('accepts only portable bounded names, digest identities and valid canonical t
 	expect(isStudyTimestamp('2026-10-14T12:00:00.000Z')).toBe(true)
 	expect(isStudyTimestamp('2026-02-30T12:00:00.000Z')).toBe(false)
 	expect(isStudyTimestamp('invalid')).toBe(false)
+})
+
+it('admits explicit recording allowances and refuses unsafe, zero and misspelled declarations', () => {
+	expect(isStudyRecord({ bytes: 4096 })).toBe(true)
+	expect(isStudyProfile({ ...buildStudyProfile(), record: { bytes: 4096 } })).toBe(true)
+	for (const record of [
+		{ bytes: 0 },
+		{ bytes: -1 },
+		{ bytes: 1.5 },
+		{ bytes: Number.NaN },
+		{ bytes: Number.POSITIVE_INFINITY },
+		{ bytes: Number.MAX_SAFE_INTEGER + 1 },
+		{ bytes: 4096, extra: true },
+	]) {
+		expect(isStudyRecord(record)).toBe(false)
+		expect(isStudyProfile({ ...buildStudyProfile(), record })).toBe(false)
+	}
 })
 
 it('rejects unsafe, fractional, nonfinite, negative, unordered and misspelled limits', () => {
@@ -311,10 +329,10 @@ it('accepts JSON products with partial status and refuses non-JSON or hostile ou
 })
 
 it('accepts exactly the declared roles and operational causes in their frozen report order', () => {
-	expect(STUDY_ROLES).toEqual(['agent', 'judge', 'summary', 'metadata', 'tool'])
+	expect(STUDY_ROLES).toEqual(['agent', 'judge', 'summary', 'metadata', 'maintenance', 'tool'])
 	expect(STUDY_CAUSES).toEqual(['capacity', 'infrastructure', 'deadline', 'interrupted', 'content'])
 	expect(Object.isFrozen(STUDY_ROLES) && Object.isFrozen(STUDY_CAUSES)).toBe(true)
-	for (const role of ['agent', 'judge', 'summary', 'metadata', 'tool'])
+	for (const role of ['agent', 'judge', 'summary', 'metadata', 'maintenance', 'tool'])
 		expect(isStudyRole(role)).toBe(true)
 	for (const cause of ['capacity', 'infrastructure', 'deadline', 'interrupted', 'content'])
 		expect(isStudyCause(cause)).toBe(true)

@@ -6,7 +6,16 @@ import type {
 	StudyObservation,
 	StudyTrial,
 } from '@src/core'
-import type { StudyFile, StudySeal } from './types.js'
+import type {
+	StudyExchangeBytes,
+	StudyExchangeDeclaration,
+	StudyExchangeHistory,
+	StudyExchangeIdentity,
+	StudyExchangeReply,
+	StudyExchangeRow,
+	StudyFile,
+	StudySeal,
+} from './types.js'
 import {
 	buildStudySchedule,
 	matchesStudyKeys,
@@ -16,6 +25,7 @@ import {
 	isStudyDigest,
 	isStudyName,
 	isStudyRole,
+	isStudyRecord,
 	isStudyScenario,
 	isStudyStop,
 	isStudyTimestamp,
@@ -30,6 +40,12 @@ import {
 	isRecord,
 } from '@orkestrel/contract'
 import { STUDY_RESERVED_NAME } from './constants.js'
+import { hashStudyBytes } from '../helpers.js'
+import {
+	isStudyOllamaMetadata,
+	isStudyOllamaModel,
+	isStudyOllamaStep,
+} from '../ollama/validators.js'
 
 /**
  * Checks whether a trial name is portable on all supported hosts.
@@ -60,7 +76,7 @@ export function isStudyCustodyManifest(value: unknown): value is StudyManifest {
 			!matchesStudyKeys(
 				value,
 				['id', 'created', 'definition', 'scenarios', 'identity', 'schedule', 'bounds', 'host'],
-				['qualification'],
+				['qualification', 'record'],
 			) ||
 			!isStudyCustodyName(value.id) ||
 			!isStudyTimestamp(value.created) ||
@@ -68,6 +84,7 @@ export function isStudyCustodyManifest(value: unknown): value is StudyManifest {
 			!isArray(value.scenarios) ||
 			!value.scenarios.every(isStudyScenario) ||
 			!isStudyBounds(value.bounds) ||
+			(value.record !== undefined && !isStudyRecord(value.record)) ||
 			!isRecord(value.identity) ||
 			!matchesStudyKeys(
 				value.identity,
@@ -287,7 +304,9 @@ export function isStudyCustodyFile(value: unknown): value is StudyFile {
 			matchesStudyKeys(value, ['path', 'bytes', 'digest']) &&
 			typeof value.path === 'string' &&
 			(value.path === 'manifest.json' ||
-				/^trials\/[a-z0-9]+(?:-[a-z0-9]+)*\/(?:evidence.jsonl|attempt.json)$/.test(value.path)) &&
+				/^trials\/[a-z0-9]+(?:-[a-z0-9]+)*\/(?:evidence.jsonl|attempt.json|exchanges.jsonl)$/.test(
+					value.path,
+				)) &&
 			value.path.split('/').every((name) => !STUDY_RESERVED_NAME.test(name)) &&
 			typeof value.bytes === 'number' &&
 			Number.isSafeInteger(value.bytes) &&
@@ -319,4 +338,221 @@ export function isStudyCustodySeal(value: unknown): value is StudySeal {
 			new Set(value.files.map((entry) => entry.path)).size === value.files.length
 		)
 	})
+}
+
+/** Checks whether encoded body bytes have their exact canonical base64 and SHA-256 identity.
+ * @param value - The candidate byte envelope.
+ * @returns True if decoded length and digest match; false otherwise.
+ */
+export function isStudyExchangeBytes(value: unknown): value is StudyExchangeBytes {
+	return holds(() => {
+		if (
+			!isRecord(value) ||
+			typeof value.body !== 'string' ||
+			typeof value.size !== 'number' ||
+			!Number.isSafeInteger(value.size) ||
+			value.size < 0 ||
+			!isStudyDigest(value.digest)
+		)
+			return false
+		const bytes = Buffer.from(value.body, 'base64')
+		return (
+			bytes.length === value.size &&
+			bytes.toString('base64') === value.body &&
+			hashStudyBytes(bytes) === value.digest
+		)
+	})
+}
+
+/** Checks whether an exchange carries an admissible ordered HTTP identity.
+ * @param value - The candidate identity.
+ * @returns True if identity and stage fields are valid; false otherwise.
+ */
+export function isStudyExchangeIdentity(value: unknown): value is StudyExchangeIdentity {
+	return holds(() => {
+		if (
+			!isRecord(value) ||
+			typeof value.ordinal !== 'number' ||
+			!Number.isSafeInteger(value.ordinal) ||
+			value.ordinal <= 0 ||
+			!isStudyName(value.goal) ||
+			!isStudyRole(value.role) ||
+			(value.method !== 'GET' && value.method !== 'POST')
+		)
+			return false
+		if (value.stage === 'execution')
+			return (
+				(value.role === 'agent' || value.role === 'summary' || value.role === 'judge') &&
+				value.method === 'POST' &&
+				value.path === (value.role === 'judge' ? '/api/generate' : '/api/chat') &&
+				typeof value.step === 'number' &&
+				Number.isSafeInteger(value.step) &&
+				value.step > 0
+			)
+		if (Object.hasOwn(value, 'step')) return false
+		if (value.stage === 'maintenance')
+			return (
+				value.role === 'maintenance' && value.method === 'POST' && value.path === '/api/generate'
+			)
+		return (
+			(value.stage === 'preflight' || value.stage === 'postflight') &&
+			value.role === 'metadata' &&
+			(value.path === '/api/version' || value.path === '/api/tags'
+				? value.method === 'GET'
+				: value.path === '/api/show' && value.method === 'POST')
+		)
+	})
+}
+
+/** Checks whether a retained reply describes bounded successful application bytes and chunks.
+ * @param value - The candidate reply.
+ * @returns True if status, selected headers and chunk lengths are valid; false otherwise.
+ */
+export function isStudyExchangeReply(value: unknown): value is StudyExchangeReply {
+	return holds(
+		() =>
+			isRecord(value) &&
+			isStudyExchangeBytes(value) &&
+			'status' in value &&
+			typeof value.status === 'number' &&
+			Number.isSafeInteger(value.status) &&
+			value.status >= 200 &&
+			value.status <= 599 &&
+			'headers' in value &&
+			isArray(value.headers) &&
+			value.headers.every(
+				(header) =>
+					isArray(header) &&
+					header.length === 2 &&
+					(header[0] === 'content-type' || header[0] === 'content-encoding') &&
+					typeof header[1] === 'string' &&
+					!/[\r\n]/.test(header[1]),
+			) &&
+			'chunks' in value &&
+			isArray(value.chunks) &&
+			value.chunks.every(
+				(size) => typeof size === 'number' && Number.isSafeInteger(size) && size > 0,
+			) &&
+			value.chunks.reduce<number>(
+				(total, size) => total + (typeof size === 'number' ? size : 0),
+				0,
+			) === value.size,
+	)
+}
+
+/** Checks whether the opening row declares a finite ordered procedure and serving identities.
+ * @param value - The candidate declaration.
+ * @returns True if all declared populations are valid; false otherwise.
+ */
+export function isStudyExchangeDeclaration(value: unknown): value is StudyExchangeDeclaration {
+	return holds(() => {
+		if (
+			!isRecord(value) ||
+			!matchesStudyKeys(value, [
+				'phase',
+				'trial',
+				'version',
+				'models',
+				'metadata',
+				'procedure',
+				'maintenance',
+			]) ||
+			value.phase !== 'declaration' ||
+			!isStudyCustodyName(value.trial) ||
+			!isNonEmptyString(value.version) ||
+			!isRecord(value.models) ||
+			Object.keys(value.models).length === 0 ||
+			!Object.values(value.models).every(isStudyOllamaModel) ||
+			!isStudyOllamaMetadata(value.metadata) ||
+			!isArray(value.procedure) ||
+			value.procedure.length === 0 ||
+			!value.procedure.every(isStudyOllamaStep) ||
+			!isArray(value.maintenance) ||
+			!value.maintenance.every(isStudyOllamaModel)
+		)
+			return false
+		const models = Object.values(value.models).filter(isStudyOllamaModel)
+		return (
+			value.procedure.every(
+				(step, index) =>
+					step.ordinal === index + 1 && models.some((model) => model.name === step.policy.model),
+			) &&
+			value.maintenance.every(
+				(model, index, entries) =>
+					entries.findIndex((entry) => entry.name === model.name) === index &&
+					models.some((entry) => entry.name === model.name && entry.digest === model.digest),
+			) &&
+			models.every((model) =>
+				models.every((other) => model.name !== other.name || model.digest === other.digest),
+			)
+		)
+	})
+}
+
+/** Checks whether a sidecar row has exactly its declared fields and verified byte identities.
+ * @param value - The candidate row.
+ * @returns True if the row belongs to the closed sidecar grammar; false otherwise.
+ */
+export function isStudyExchangeRow(value: unknown): value is StudyExchangeRow {
+	return holds(() => {
+		if (!isRecord(value)) return false
+		if (value.phase === 'declaration') return isStudyExchangeDeclaration(value)
+		if (value.phase === 'complete')
+			return (
+				matchesStudyKeys(value, ['phase', 'count']) &&
+				typeof value.count === 'number' &&
+				Number.isSafeInteger(value.count) &&
+				value.count > 0
+			)
+		const identity = ['phase', 'ordinal', 'goal', 'role', 'path', 'method', 'stage']
+		if (!isStudyExchangeIdentity(value)) return false
+		if (value.phase === 'attempt')
+			return (
+				matchesStudyKeys(value, [...identity, 'body', 'size', 'digest'], ['step']) &&
+				isStudyExchangeBytes(value)
+			)
+		if (value.phase === 'response')
+			return (
+				matchesStudyKeys(
+					value,
+					[...identity, 'body', 'size', 'digest', 'status', 'headers', 'chunks'],
+					['step'],
+				) &&
+				isStudyExchangeReply(value) &&
+				value.status < 300
+			)
+		return (
+			value.phase === 'failure' &&
+			matchesStudyKeys(value, [...identity, 'reason'], ['step', 'response']) &&
+			typeof value.reason === 'string' &&
+			(value.response === undefined || isStudyExchangeReply(value.response))
+		)
+	})
+}
+
+/** Checks whether a history has verified row shapes before its complete relational validation.
+ * @param value - The candidate history.
+ * @returns True if its envelopes and rows have valid types; false otherwise.
+ */
+export function isStudyExchangeHistory(value: unknown): value is StudyExchangeHistory {
+	return holds(
+		() =>
+			isRecord(value) &&
+			matchesStudyKeys(value, ['seal', 'file', 'declaration', 'exchanges', 'completion']) &&
+			isStudyDigest(value.seal) &&
+			isStudyCustodyFile(value.file) &&
+			isStudyExchangeDeclaration(value.declaration) &&
+			isArray(value.exchanges) &&
+			value.exchanges.every(
+				(pair) =>
+					isRecord(pair) &&
+					matchesStudyKeys(pair, ['attempt', 'response']) &&
+					isStudyExchangeRow(pair.attempt) &&
+					pair.attempt.phase === 'attempt' &&
+					isStudyExchangeRow(pair.response) &&
+					pair.response.phase === 'response',
+			) &&
+			isStudyExchangeRow(value.completion) &&
+			value.completion.phase === 'complete',
+	)
 }
