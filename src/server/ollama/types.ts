@@ -281,7 +281,7 @@ export interface StudyOllamaWire {
 	readonly ticket: StudyTicket
 	readonly signal: AbortSignal
 	readonly reader: ReadableStreamDefaultReader<Uint8Array>
-	readonly decoder: TextDecoder
+	readonly decoder: InstanceType<typeof TextDecoder>
 	/** Holds the HTTP status the daemon answered with. */
 	readonly status: number
 	readonly started: number
