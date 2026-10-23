@@ -7,7 +7,7 @@ export type ArtifactResolveHandler = Parameters<ResolveHookSync>[2]
 export type ArtifactLoadHandler = Parameters<LoadHookSync>[2]
 
 /** Selects a consumer-owned executable source directory and its exact adapter entry.
- * @remarks Source JSON assets are not admitted; parsed fixtures and rubrics retain separate identities.
+ * @remarks Source JSON assets are not executable imports; explicitly selected assets retain custody only.
  */
 export interface ArtifactSourceOptions {
 	readonly root: string
@@ -23,6 +23,79 @@ export interface ArtifactLoaderOptions {
 	readonly instrument?: string
 	/** Refuses these built files at every import edge; the inventory identity is unchanged. */
 	readonly excluded?: readonly string[]
+	/** Admits explicitly selected canonical regular files without granting import eligibility. */
+	readonly assets?: readonly string[]
+}
+
+/** Names the refused boundary of a captured or materialized artifact graph. */
+export type ArtifactErrorCode =
+	| 'ARTIFACT'
+	| 'TRAVERSAL'
+	| 'REDIRECT'
+	| 'ALIAS'
+	| 'NAME'
+	| 'DUPLICATE'
+	| 'OCCUPIED'
+	| 'OVERLAP'
+	| 'STALE'
+	| 'VOLUME'
+	| 'DRIFT'
+	| 'LIMIT'
+
+/** Maps one admitted physical file to its exact bytes inside a materialized forest. */
+export interface ArtifactMember {
+	/** Names the canonical source path retained as provenance, never used for relocated loading. */
+	readonly source: string
+	/** Names a portable slash-separated key relative to the closure destination. */
+	readonly key: string
+	readonly digest: string
+	readonly size: number
+}
+
+/** Binds a verified physical forest to its relocated selections and complete membership.
+ * @remarks
+ * Digest hashes sorted member keys, digests, sizes, and package roots relative to destination
+ * with their names and versions. Source paths and destination are excluded from that digest.
+ * Options contains canonical destination paths and preserves nested node_modules and distinct
+ * physical copies of one package. Members include non-entry dependencies and explicit assets.
+ * This value proves copying and verification, not successful adapter validation or publication.
+ */
+export interface ArtifactClosure {
+	readonly destination: string
+	readonly digest: string
+	readonly options: ArtifactLoaderOptions
+	readonly members: readonly ArtifactMember[]
+}
+
+/** Captures, verifies, loads, and materializes one admitted physical artifact graph. */
+export interface ArtifactLoaderInterface {
+	/** Captures the complete admitted population without evaluating modules.
+	 * @returns The immutable inventory and runtime identity.
+	 */
+	inspect(): ArtifactInventory
+	/** Refuses changed bytes or membership after inspection.
+	 * @returns Nothing when the inspected population still matches.
+	 */
+	verify(): void
+	/** Loads an admitted entry through captured-byte hooks in a fresh process.
+	 * @param entry - The canonical selected module path.
+	 * @returns The actual module namespace.
+	 */
+	load(entry: string): Promise<unknown>
+	/** Copies the inspected physical forest into an exclusive absent destination.
+	 * @remarks
+	 * Preserves relative resolution and duplicate package copies. Refuses different source or
+	 * destination volumes, overlapping or occupied destinations, redirected ancestors, aliases, unsafe names,
+	 * duplicate keys, traversal, and stale source references before copying through them. Applies
+	 * the aggregate ARTIFACT limits to the whole population, verifies source before and after copy,
+	 * and independently verifies destination bytes and membership before returning. Separate path
+	 * checks and reads do not establish an atomic snapshot or concurrent hardlink-race resistance.
+	 * This operation writes no completion marker; freeze validates in a fresh captured child first.
+	 * @param destination - The absolute absent directory under an existing physical parent.
+	 * @returns The verified relocation and complete physical membership.
+	 * @throws ArtifactError - Thrown with the refused boundary's ArtifactErrorCode.
+	 */
+	materialize?(destination: string): Promise<ArtifactClosure>
 }
 
 /** Records the exact bytes admitted at one absolute file path. */
@@ -49,6 +122,8 @@ export interface ArtifactInventory {
 	readonly source?: ArtifactSourceOptions
 	readonly instrument?: string
 	readonly files: readonly ArtifactFile[]
+	/** Binds explicit custody-only selections independently of executable entries. */
+	readonly assets?: readonly string[]
 }
 
 /** Binds native conditions and host-sensitive builtin behavior to the inventory. */

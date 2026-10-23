@@ -12,6 +12,9 @@ import type { StudyChannel } from './StudyChannel.js'
 import type { JSONValue } from '@orkestrel/contract'
 import type { ChildProcess } from 'node:child_process'
 import type { StudyValidation, StudyAdjudication } from '../adapters/types.js'
+import type { StudyClosure } from '../commands/types.js'
+import type { StudyExchangeDestination } from '../stores/types.js'
+import type { StudyOllamaReplaySelection } from '../ollama/types.js'
 
 /** Holds a bounded adapter-only native operation. */
 export interface StudyTaskOptions {
@@ -20,6 +23,8 @@ export interface StudyTaskOptions {
 	readonly adapter: string
 	readonly roots: readonly string[]
 	readonly duration?: number
+	/** Binds fresh adapter validation to the already verified relocated selection. */
+	readonly closure?: StudyClosure
 }
 
 /** Carries only declarations or sealed evidence to an adapter child. */
@@ -39,6 +44,8 @@ export interface StudyArtifactLoaderOptions {
 	readonly root: string
 	readonly profile: StudyProfile
 	readonly adapter: string
+	/** Selects relocated captured bytes and their checked identity instead of original paths. */
+	readonly closure?: StudyClosure
 }
 
 /** Holds the separately bound instrument and selected module inventory identities. */
@@ -61,6 +68,33 @@ export interface StudyProcessOptions extends StudyArtifactLoaderOptions {
 	readonly identity: StudyIdentity
 	readonly driver: string
 	readonly directory: string
+	/** Names parent-reserved sidecars by scheduled trial; no recorded bodies cross IPC. */
+	readonly exchanges?: Readonly<Record<string, StudyExchangeDestination>>
+	/** Carries sealed source selection; each fresh worker rechecks its own trial's file. */
+	readonly replay?: StudyOllamaReplaySelection
+}
+
+/** Prepares one trial's external resources before its worker starts.
+ * @remarks
+ * The execution owns daemon start and stop. This callback performs the declared pre-trial
+ * unload and closes any maintenance prefix before returning its retained file identity.
+ * A returned destination must preserve the supplied path and record allowance. The driver
+ * awaits it before constructing the session and never serializes this callback over IPC.
+ * Offline replay supplies no callback and starts no external resource.
+ * @param trial - The exact scheduled trial about to open.
+ * @param signal - The enclosing execution cancellation.
+ * @param exchanges - The parent-reserved sidecar destination, when recording is declared.
+ * @returns The same destination with verified maintenance-prefix identity, or undefined without recording.
+ */
+export type StudyTrialPreparationFunction = (
+	trial: StudyTrial,
+	signal: AbortSignal,
+	exchanges: StudyExchangeDestination | undefined,
+) => Promise<StudyExchangeDestination | undefined>
+
+/** Supplies parent-only trial preparation separately from serializable worker options. */
+export interface StudyProcessDriverOptions extends StudyProcessOptions {
+	readonly prepare?: StudyTrialPreparationFunction
 }
 
 /** Names the bounded transport's domain operations. */

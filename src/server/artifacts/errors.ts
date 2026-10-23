@@ -1,15 +1,18 @@
+import type { ArtifactErrorCode } from './types.js'
 import { isInstance } from '@orkestrel/contract'
 
 /** Reports an invalid or drifted artifact inventory. */
 export class ArtifactError extends Error {
-	readonly code = 'ARTIFACT' as const
+	readonly code: ArtifactErrorCode
 
 	/** Records the refused artifact boundary.
 	 * @param message - The specific refusal.
+	 * @param code - The refused boundary. Default: ARTIFACT.
 	 */
-	constructor(message: string) {
+	constructor(message: string, code: ArtifactErrorCode = 'ARTIFACT') {
 		super(message)
 		this.name = 'ArtifactError'
+		this.code = code
 	}
 }
 

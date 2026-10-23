@@ -597,6 +597,40 @@ The following declarations describe this concept.
 | `readStudyDeclarationBytes`        | function  | Reads one declaration file and refuses a missing or linked path with its root-relative path.                                   |
 | `readStudyVersion`                 | function  | Reads the version of the study package that owns an executable entry.                                                          |
 | `matchesSystemError`               | function  | Reports whether a caught value is a Node error carrying the given system code.                                                 |
+| `StudyDaemon`                      | interface | Pins an executable and the model population an execution owns until cleanup.                                                   |
+| `StudyDaemonModel`                 | interface | Pins one model the declared daemon verifies and unloads before each trial.                                                     |
+| `StudyRecord`                      | interface | Bounds the serialized exchange sidecar retained for each scheduled trial.                                                      |
+| `ArtifactErrorCode`                | type      | Names the refused boundary of a captured or materialized artifact graph.                                                       |
+| `ArtifactMember`                   | interface | Maps one admitted physical file to its exact bytes inside a materialized forest.                                               |
+| `ArtifactClosure`                  | interface | Binds a verified physical forest to its relocated selections and complete membership.                                          |
+| `ArtifactLoaderInterface`          | interface | Captures, verifies, loads, and materializes one admitted physical artifact graph.                                              |
+| `StudyOllamaMetadata`              | interface | Bounds metadata calls, encoded bytes, and elapsed milliseconds outside model quotas.                                           |
+| `StudyOllamaStage`                 | type      | Names the ordered verification, model work, and daemon maintenance stages.                                                     |
+| `StudyOllamaStepIdentity`          | interface | Declares an ordered model request's goal, responsibility, route, and wire policy.                                              |
+| `StudyOllamaExactStep`             | interface | Declares an exact UTF-8 request body and its SHA-256 input receipt.                                                            |
+| `StudyOllamaCaptureStep`           | interface | Declares a captured request's positive safe byte length without predicting its content.                                        |
+| `StudyOllamaStep`                  | type      | Separates exact request admission from length-declared capture admission.                                                      |
+| `StudyOllamaReplaySelection`       | interface | Selects a sealed recording and an explicit replay prefix for every scheduled trial.                                            |
+| `StudyOllamaReplayOptions`         | interface | Configures exact recorded replies and optional live continuation after a declared prefix.                                      |
+| `StudyOllamaReplayInterface`       | interface | Answers an exact recorded prefix through the role-aware transport collaborator.                                                |
+| `StudyExchangeDestination`         | interface | Holds the parent-reserved destination of one trial's exchange sidecar.                                                         |
+| `StudyExchangeBytes`               | interface | Retains an application HTTP body's exact bytes independently of text decoding.                                                 |
+| `StudyExchangeIdentity`            | interface | Binds one HTTP exchange to its trial-local position and declared execution stage.                                              |
+| `StudyExchangeDeclaration`         | interface | Declares the complete trial procedure before any exchange attempt is appended.                                                 |
+| `StudyExchangeAttempt`             | interface | Retains admitted request bytes durably before the corresponding send begins.                                                   |
+| `StudyExchangeReply`               | interface | Retains response status, headers, and original application-body chunk lengths.                                                 |
+| `StudyExchangeResponse`            | interface | Retains a fully consumed response only after status and terminal validation succeed.                                           |
+| `StudyExchangeFailure`             | interface | Retains an attempted exchange's failure and any bounded response bytes already observed.                                       |
+| `StudyExchangeCompletion`          | interface | Closes a sidecar after the declared procedure and postflight have fully completed.                                             |
+| `StudyExchangeRow`                 | type      | Names every admitted row of the bounded per-trial exchange sidecar.                                                            |
+| `StudyRecordedExchange`            | interface | Holds a strictly verified successful request and response pair.                                                                |
+| `StudyExchangeHistory`             | interface | Binds complete ordered exchanges to a verified sealed sidecar and its declaration.                                             |
+| `StudyExchangeSinkInterface`       | interface | Owns serialized exchange appends under a reserved trial byte allowance.                                                        |
+| `StudyExchangeSinkOptions`         | interface | Supplies an exclusive sidecar descriptor and its parent-reserved byte allowance.                                               |
+| `StudyFreezeRequest`               | interface | Requests exclusive materialization and captured validation before publishing closure.json.                                     |
+| `StudyClosure`                     | interface | Publishes a validated closure with relocated command inputs and execution provenance.                                          |
+| `StudyTrialPreparationFunction`    | type      | Prepares one trial's external resources before its worker starts.                                                              |
+| `StudyProcessDriverOptions`        | interface | Supplies parent-only trial preparation separately from serializable worker options.                                            |
 
 ## Methods
 
@@ -927,12 +961,13 @@ The declaration exposes these methods.
 
 The declaration exposes these methods.
 
-| Method   | Summary                                                                       |
-| -------- | ----------------------------------------------------------------------------- |
-| `create` | Exclusively creates the result directory and initial manifest bytes.          |
-| `finish` | Retains the terminal record for one scheduled trial.                          |
-| `seal`   | Seals a complete terminal population with its exact execution-byte inventory. |
-| `start`  | Opens append-only evidence custody for one scheduled trial.                   |
+| Method      | Summary                                                                                    |
+| ----------- | ------------------------------------------------------------------------------------------ |
+| `create`    | Exclusively creates the result directory and initial manifest bytes.                       |
+| `exchanges` | Reserves a declared trial's sidecar allowance and returns its exclusive write destination. |
+| `finish`    | Retains the terminal record for one scheduled trial.                                       |
+| `seal`      | Seals a complete terminal population with its exact execution-byte inventory.              |
+| `start`     | Opens append-only evidence custody for one scheduled trial.                                |
 
 #### `StudyScope`
 

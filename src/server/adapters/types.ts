@@ -11,6 +11,8 @@ import type {
 	StudyScenario,
 	StudyTrial,
 } from '@src/core'
+import type { StudyExchangeSinkInterface } from '../stores/types.js'
+import type { StudyOllamaReplayInterface } from '../ollama/types.js'
 
 /** Holds declarations for domain validation before agent, subject or provider execution. */
 export interface StudyValidation {
@@ -27,6 +29,10 @@ export interface StudyDriverOptions {
 	readonly provider: unknown
 	readonly profile: StudyProfile
 	readonly directory: string
+	/** Supplies the worker-owned sidecar sink whenever the profile declares recording. */
+	readonly exchanges?: StudyExchangeSinkInterface
+	/** Supplies verified replay whose fetch is passed to the transport inside this worker. */
+	readonly replay?: StudyOllamaReplayInterface
 }
 
 /** Holds retained observations and independent criteria for a grading operation. */

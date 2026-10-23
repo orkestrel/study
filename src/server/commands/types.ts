@@ -9,6 +9,8 @@ import type {
 } from '@src/core'
 import type { StudyArtifactLoader } from '../processes/StudyArtifactLoader.js'
 import type { StudyPacketBundle } from '../stores/types.js'
+import type { ArtifactClosure } from '../artifacts/types.js'
+import type { StudyOllamaReplaySelection } from '../ollama/types.js'
 
 /** Holds the trusted application entry and repository location. */
 export interface StudyCommandOptions {
@@ -24,6 +26,39 @@ export interface StudyExecutionRequest {
 	/** Selects an absolute output or a portable path contained by the consumer root. */
 	readonly out: string | undefined
 	readonly expected: string | undefined
+	/** Selects a published closure directory, reverified before captured validation and execution. */
+	readonly closure?: string
+	/** Selects sealed exchanges and explicit trial prefixes before any dependent worker or daemon. */
+	readonly replay?: StudyOllamaReplaySelection
+}
+
+/** Requests exclusive materialization and captured validation before publishing closure.json. */
+export interface StudyFreezeRequest {
+	readonly command: 'freeze'
+	readonly target: string
+	readonly profile: string
+	/** Names the absent absolute destination supplied by --to. */
+	readonly destination: string
+}
+
+/** Publishes a validated closure with relocated command inputs and execution provenance.
+ * @remarks
+ * Freeze writes this value as closure.json exclusively only after a fresh captured check and
+ * verification of both source and destination. Root and entry are relocated canonical paths;
+ * target and profile retain their command selectors. Source is the pre-copy execution identity,
+ * identity is the checked relocated identity, and fingerprint is the relocated check result.
+ * Closure.json is a publication marker outside the copied-member census, never an admitted
+ * executable or source asset. Its sole permitted presence must not hide any other addition.
+ */
+export interface StudyClosure {
+	readonly closure: ArtifactClosure
+	readonly root: string
+	readonly entry: string
+	readonly target: string
+	readonly profile: string
+	readonly source: StudyIdentity
+	readonly identity: StudyIdentity
+	readonly fingerprint: string
 }
 
 /** Holds an offline predicate grading request. */
@@ -51,6 +86,7 @@ export interface StudyReportRequest {
 /** Names the independently dispatched study command operation. */
 export type StudyCommandRequest =
 	| StudyExecutionRequest
+	| StudyFreezeRequest
 	| StudyGradeRequest
 	| StudyLabelRequest
 	| StudyReportRequest
@@ -93,6 +129,8 @@ export interface StudyPreparation {
 	readonly identity: StudyIdentity
 	readonly artifacts: StudyArtifactLoader
 	readonly source: string
+	/** Carries the verified closure publication when preparation uses relocated inputs. */
+	readonly closure?: StudyClosure
 }
 
 /** Holds artifacts already verified inside a selected immutable grading directory. */

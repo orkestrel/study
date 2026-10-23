@@ -4,7 +4,7 @@ import type { JSONValue } from '@orkestrel/contract'
 export type StudyPurpose = 'mechanism' | 'quality' | 'capacity'
 
 /** Names a request's measured responsibility. */
-export type StudyRole = 'agent' | 'judge' | 'summary' | 'metadata' | 'tool'
+export type StudyRole = 'agent' | 'judge' | 'summary' | 'metadata' | 'maintenance' | 'tool'
 
 /**
  * Names an operational ending separately from task achievement.
@@ -82,6 +82,43 @@ export interface StudyProvider {
 		/** Pins the judge model; declared together with its name or both absent. */
 		readonly judge: string | undefined
 	}
+	/** Declares an execution-owned daemon at this provider's dedicated URL. */
+	readonly daemon?: StudyDaemon
+}
+
+/** Pins an executable and the model population an execution owns until cleanup.
+ * @remarks
+ * Study owns this declaration independently of Ollama's server API. The executable is an absolute
+ * canonical path; digest is its SHA-256 and version is the exact expected version reply. The
+ * provider URL must be a dedicated loopback origin outside port 11434. Environment entries are
+ * explicit non-secret overrides, merged by case-folded name; the host owns OLLAMA_HOST. Models
+ * have distinct names and SHA-256 digests and include every model the provider declares. Execution
+ * verifies identity before use, unloads this population before each trial, and stops and joins
+ * on every ending. Offline replay never creates this daemon.
+ */
+export interface StudyDaemon {
+	readonly executable: string
+	readonly digest: string
+	readonly version: string
+	readonly environment?: Readonly<Record<string, string>>
+	readonly models: readonly StudyDaemonModel[]
+}
+
+/** Pins one model the declared daemon verifies and unloads before each trial. */
+export interface StudyDaemonModel {
+	readonly name: string
+	readonly digest: string
+}
+
+/** Bounds the serialized exchange sidecar retained for each scheduled trial.
+ * @remarks
+ * Bytes is a positive safe integer counting all UTF-8 JSONL bytes, including declarations,
+ * base64 expansion, terminal records, and LF separators. Recording is independent of passive
+ * observation. Sidecars have their own trial allowance and also consume series custody capacity;
+ * they do not consume the goal evidence allowance or the model's request quota.
+ */
+export interface StudyRecord {
+	readonly bytes: number
 }
 
 /** Holds execution settings independently of scenario and grading declarations. */
@@ -98,6 +135,8 @@ export interface StudyProfile {
 	readonly qualification: string | undefined
 	/** Holds driver-owned JSON; the driver owns its interpretation and Study only validates and owns the object. */
 	readonly settings: Readonly<Record<string, JSONValue>> | undefined
+	/** Requires one bounded exchange sidecar for every trial when present. */
+	readonly record?: StudyRecord
 }
 
 /** Holds a scheduled trajectory, with a fresh state for each repetition and arm. */
@@ -129,6 +168,8 @@ export interface StudyManifest {
 	readonly bounds: StudyBounds
 	readonly qualification: string | undefined
 	readonly host: Readonly<Record<string, string>>
+	/** Copies the profile's recording declaration before any trial starts. */
+	readonly record?: StudyRecord
 }
 
 /**

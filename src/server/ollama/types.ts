@@ -8,6 +8,7 @@ import type {
 } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
 import type { OllamaOptions, OllamaTiming, extractTiming } from '@orkestrel/ollama'
+import type { StudyExchangeHistory, StudyExchangeSinkInterface } from '../stores/types.js'
 
 /**
  * Names the model roles an Ollama study transport dispatches under a declared policy.
@@ -70,6 +71,113 @@ export type StudyOllamaFetchFunction = (
 	init: RequestInit,
 ) => Promise<Response>
 
+/** Bounds metadata calls, encoded bytes, and elapsed milliseconds outside model quotas.
+ * @remarks
+ * Each allowance is positive and finite; calls and bytes are safe integers. This budget covers
+ * both verification passes across a trial and has no model-meter parent. The enclosing wall
+ * deadline and sidecar custody budget still apply. No default is inferred from model limits.
+ */
+export interface StudyOllamaMetadata {
+	readonly calls: number
+	readonly bytes: number
+	readonly duration: number
+}
+
+/** Names the ordered verification, model work, and daemon maintenance stages. */
+export type StudyOllamaStage = 'preflight' | 'execution' | 'postflight' | 'maintenance'
+
+/** Declares an ordered model request's goal, responsibility, route, and wire policy.
+ * @remarks
+ * Ordinal is a positive, contiguous, one-based position among declared model steps in a trial.
+ * Metadata and maintenance have their own sidecar ordinals and consume no model-step position.
+ * Path is /api/chat for agent or summary and /api/generate for judge. Goal must be a declared
+ * member of the trial. Policy is checked before body collection and again before sending.
+ */
+export interface StudyOllamaStepIdentity {
+	readonly ordinal: number
+	readonly goal: string
+	readonly role: StudyOllamaRole
+	readonly path: '/api/chat' | '/api/generate'
+	readonly policy: StudyOllamaPolicy
+}
+
+/** Declares an exact UTF-8 request body and its SHA-256 input receipt.
+ * @remarks
+ * Body is compared byte for byte, never as parsed JSON or by length alone. Input is a SHA-256
+ * receipt of the encoded body, verified before execution rather than trusted in place of bytes.
+ * Encoded length is derived from body, so an independent bytes declaration is forbidden.
+ */
+export interface StudyOllamaExactStep extends StudyOllamaStepIdentity {
+	readonly admission: 'exact'
+	readonly body: string
+	readonly input: string
+	readonly bytes?: never
+}
+
+/** Declares a captured request's positive safe byte length without predicting its content.
+ * @remarks
+ * Body and input are forbidden own members, including explicit undefined at runtime. Capture
+ * proves declared identity, policy, and encoded length; it makes no content-fidelity claim.
+ */
+export interface StudyOllamaCaptureStep extends StudyOllamaStepIdentity {
+	readonly admission: 'capture'
+	readonly bytes: number
+	readonly body?: never
+	readonly input?: never
+}
+
+/** Separates exact request admission from length-declared capture admission. */
+export type StudyOllamaStep = StudyOllamaExactStep | StudyOllamaCaptureStep
+
+/** Selects a sealed recording and an explicit replay prefix for every scheduled trial.
+ * @remarks
+ * Result names a sealed result directory. Prefix maps each trial id to its positive safe count
+ * of complete HTTP exchanges, including metadata and maintenance; each prefix ends at an
+ * exchange boundary. Offline true requires the complete recorded population and forbids daemon
+ * startup or a live sender. Offline false permits live continuation only after that prefix.
+ * A changed request inside the prefix always refuses. Replay uses the executing profile's
+ * bounds, never the recorded execution's elapsed-time allowance.
+ */
+export interface StudyOllamaReplaySelection {
+	readonly result: string
+	readonly prefix: Readonly<Record<string, number>>
+	readonly offline: boolean
+}
+
+/** Configures exact recorded replies and optional live continuation after a declared prefix.
+ * @remarks
+ * History must come from the strict sealed sidecar reader and be checked completely before
+ * construction, including declarations, byte digests, order, evidence joins, and completion.
+ * Url pins the executing origin. Prefix counts complete HTTP exchanges, not JSONL rows. Limit
+ * bounds replay work independently of recorded timing. Without fetch, the prefix must consume
+ * the entire history and all later requests refuse; no native sender or daemon is created.
+ * With fetch, only requests after the prefix are forwarded. A prefix mismatch never forwards.
+ */
+export interface StudyOllamaReplayOptions {
+	readonly history: StudyExchangeHistory
+	readonly url: string
+	readonly prefix: number
+	readonly limit: StudyOllamaMetadata
+	readonly signal: AbortSignal
+	readonly fetch?: StudyOllamaFetchFunction
+}
+
+/** Answers an exact recorded prefix through the role-aware transport collaborator. */
+export interface StudyOllamaReplayInterface {
+	/** Holds model steps with recorded prefix bodies projected to exact admission. */
+	readonly procedure: readonly StudyOllamaStep[]
+	/** Supplies native responses over retained bytes without settling a Study ticket. */
+	readonly fetch: StudyOllamaFetchFunction
+	/** Refuses a latched mismatch, an unread response, or an incompletely consumed prefix.
+	 * @returns Nothing after the complete declared prefix has been consumed.
+	 */
+	check(): void
+	/** Closes admission and cancels or drains owned response readers.
+	 * @returns Completion after all replay resources are released.
+	 */
+	close(): Promise<void>
+}
+
 /**
  * Holds the Ollama study transport's immutable configuration.
  * @remarks
@@ -78,7 +186,8 @@ export type StudyOllamaFetchFunction = (
  * the served identities, keyed by the label their inventory evidence carries. `roles` declares the
  * wire policy of every model role the consumer dispatches; an undeclared role is refused.
  * `signal` cancels all work. `observe`: if `true`, existing evidence rows gain passive timing and
- * correlation fields; if `false`, they carry none. `timing` extracts daemon timing; the selected Ollama runtime supplies the extractor and the transport imports none.
+ * correlation fields; if `false`, passive fields are absent. Recording always retains exchange
+ * ordinals and raw bytes independently of observation. `timing` extracts daemon timing; the selected Ollama runtime supplies the extractor and the transport imports none.
  * `fetch` optionally sends the validated request under its role. Default: native fetch. Study keeps
  * response validation and accounting; the collaborator returns a native response and settles no ticket.
  */
@@ -87,11 +196,22 @@ export interface StudyOllamaTransportOptions {
 	readonly room: Pick<StudyRoom, 'context' | 'safety'>
 	readonly limit: Pick<StudyLimit, 'duration' | 'bytes'>
 	readonly models: Readonly<Record<string, StudyOllamaModel>>
-	readonly roles: Readonly<Partial<Record<StudyOllamaRole, StudyOllamaPolicy>>>
+	readonly roles: Readonly<Partial<Record<StudyOllamaRole, StudyOllamaPolicy>>> & {
+		/** Forbids a model-generation policy for daemon maintenance. */
+		readonly maintenance?: never
+	}
 	readonly signal: AbortSignal
 	readonly observe: boolean
 	readonly timing: typeof extractTiming
 	readonly fetch?: StudyOllamaFetchFunction | undefined
+	/** Bounds both metadata passes independently; required when the transport implementation lands. */
+	readonly metadata?: StudyOllamaMetadata
+	/** Pins GET /api/version before and after model execution; required with recording. */
+	readonly version?: string
+	/** Declares every ordered model step; present together with exchanges and version. */
+	readonly procedure?: readonly StudyOllamaStep[]
+	/** Retains exact bytes regardless of observe or checkpoint; present together with procedure. */
+	readonly exchanges?: StudyExchangeSinkInterface
 }
 
 /**
