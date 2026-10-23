@@ -4,6 +4,9 @@ import { STUDY_STOP_SWITCHES } from '../../../setupStudy.js'
 import { createForeignBudgetError, createBudgetLookalike } from '../../../setupServer.js'
 import { describe, expect, it } from 'vitest'
 import { parseJSON } from '@orkestrel/contract'
+import { createScratch } from '@orkestrel/test/server'
+import { open, readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { extractTiming } from '@orkestrel/ollama'
 import {
 	captureError,
@@ -13,10 +16,12 @@ import {
 	waitForCondition,
 } from '@orkestrel/test'
 import { StudyAgentJudge } from '../../../../src/core/agents/StudyAgentJudge.js'
-import { StudyError } from '../../../../src/core/errors.js'
+import { StudyError, isStudyError } from '../../../../src/core/errors.js'
 import { readStudyFailure } from '../../../../src/core/engines/helpers.js'
 import { StudyOllamaTransport } from '../../../../src/server/ollama/StudyOllamaTransport.js'
 import { hashStudyBytes } from '../../../../src/server/helpers.js'
+import { StudyExchangeSink } from '../../../../src/server/stores/StudyExchangeSink.js'
+import { readStudyExchangeRows } from '../../../../src/server/stores/helpers.js'
 import {
 	STUDY_AGENT_MESSAGES,
 	STUDY_JUDGE_REQUEST,
@@ -39,6 +44,7 @@ import {
 } from '../../../setupStudy.js'
 import {
 	STUDY_OLLAMA_CHAT_BODY,
+	STUDY_OLLAMA_SIDECAR_CASES,
 	STUDY_OLLAMA_ROW_FAULTS,
 	STUDY_OLLAMA_STREAM_FAILURES,
 	STUDY_OLLAMA_STATUS_FAILURES,
@@ -57,6 +63,94 @@ const encoder = new TextEncoder()
 
 describe('StudyOllamaTransport', () => {
 	describe('bounded exchange recording', () => {
+		it.each(STUDY_OLLAMA_SIDECAR_CASES)(
+			'retains a terminal for $status replies under a $bytes-byte sidecar',
+			async ({ bytes, status }) => {
+				const scratch = createScratch()
+				const path = join(scratch.path, 'exchanges.jsonl')
+				const sink = new StudyExchangeSink({ file: await open(path, 'wx'), record: { bytes } })
+				const procedure = [buildOllamaStep()]
+				const options = buildOllamaTransportOptions('http://127.0.0.1:1')
+				const body = JSON.stringify({ version: 'fixture-version', padding: 'x'.repeat(12000) })
+				try {
+					await sink.append({
+						phase: 'declaration',
+						trial: 'r1-first-small',
+						version: 'fixture-version',
+						models: options.models,
+						metadata: options.metadata,
+						procedure,
+						maintenance: [],
+					})
+					const fixture = await createOllamaRecordingFixture(
+						procedure,
+						[{ path: '/api/version', body, status }],
+						{ exchanges: sink },
+					)
+					try {
+						const error = await fixture.transport.verify().then(
+							() => undefined,
+							(failure: unknown) => failure,
+						)
+						const retained = await readFile(path)
+						const rows = readStudyExchangeRows(retained, false)
+						const terminal = rows[2]
+						const completed = bytes === 65536 && status === 200
+						const failure = terminal?.phase === 'failure' ? terminal : undefined
+						const reply = terminal?.phase === 'response' ? terminal : failure?.response
+						const retainedReply = expect.objectContaining({
+							status,
+							size: Buffer.byteLength(body),
+							body: Buffer.from(body).toString('base64'),
+						})
+						const omittedReply = expect.stringContaining(
+							'reply was not retained because it exceeded the sidecar allowance',
+						)
+						expect(isStudyError(error) ? error.code : error).toBe(
+							completed ? undefined : status === 200 ? 'CAPACITY' : 'FAULT',
+						)
+						expect(terminal).toMatchObject({
+							phase: completed ? 'response' : 'failure',
+							ordinal: 1,
+							goal: 'first',
+							role: 'metadata',
+							path: '/api/version',
+						})
+						expect(reply).toEqual(bytes === 65536 ? retainedReply : undefined)
+						expect(failure?.reason).toEqual(
+							bytes === 8192
+								? omittedReply
+								: completed
+									? undefined
+									: 'Ollama HTTP response refused: 500',
+						)
+						expect(captureError(() => fixture.transport.check())).toBe(error)
+						expect(fixture.server.requests.map((request) => request.path)).toEqual(
+							completed
+								? ['/api/version', '/api/tags', '/api/show', '/api/show']
+								: ['/api/version'],
+						)
+						expect(fixture.goal.evidence).toContainEqual(
+							expect.objectContaining({
+								event: status === 200 ? 'wire' : 'failure',
+								value: expect.objectContaining({
+									path: '/api/version',
+									bytes: Buffer.byteLength(body),
+								}),
+							}),
+						)
+						expect(retained.byteLength).toBeLessThanOrEqual(bytes)
+						expect(() => readStudyExchangeRows(retained, true)).toThrow(/complet|failed|incomplete/)
+					} finally {
+						await fixture.close()
+					}
+				} finally {
+					await sink.close().catch(() => undefined)
+					scratch.destroy()
+				}
+			},
+		)
+
 		it.each(STUDY_OLLAMA_CAPTURE_LENGTHS)(
 			'refuses invalid capture length %s before sending',
 			(bytes) => {

@@ -74,8 +74,59 @@ await new GuideCommand({
 		STUDY_OLLAMA_CHAT_BODY,
 		createForeignBudgetError,
 		createBudgetLookalike,
+		ARTIFACT_CLOSURE_FILES,
+		buildArtifactClosureOptions,
 	} = await import('./setupServer.js')
 	const { realpathSync } = await import('node:fs')
+
+	it('documents refusal boundaries with an unchanged occupied destination and an incomplete mid-copy destination', async () => {
+		const text = requireValue(files['guides/study.md'])
+		expect(
+			text.includes(
+				'A refusal before copying writes nothing; an occupied destination stays unchanged.',
+			),
+		).toBe(true)
+		expect(
+			text.includes(
+				'A refusal during copying, including source drift or a link added mid-copy, can leave an incomplete destination without closure.json.',
+			),
+		).toBe(true)
+		const scratch = createScratch({ files: ARTIFACT_CLOSURE_FILES })
+		try {
+			const artifacts = new server.ArtifactLoader(buildArtifactClosureOptions(scratch))
+			artifacts.inspect()
+			scratch.write('occupied/keep.txt', 'caller-owned')
+			await expect(artifacts.materialize(join(scratch.path, 'occupied'))).rejects.toMatchObject({
+				code: 'OCCUPIED',
+			})
+			expect(scratch.read('occupied/keep.txt')).toBe('caller-owned')
+			await expect(
+				artifacts.materialize(join(scratch.path, 'subject', 'copy')),
+			).rejects.toMatchObject({ code: 'OVERLAP' })
+			expect(scratch.has('subject/copy')).toBe(false)
+			const copying = artifacts.materialize(join(scratch.path, 'copy'))
+			scratch.write('subject/studies/adapter/helper.ts', 'export const helper: number = 4\n')
+			await expect(copying).rejects.toMatchObject({ code: 'DRIFT' })
+			expect(scratch.has('copy')).toBe(true)
+			expect(scratch.has('copy/closure.json')).toBe(false)
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('states exact runtime replay identity and distinguishes absent from unretained replies', () => {
+		const text = requireValue(files['guides/study.md'])
+		expect(
+			text.includes(
+				"Replay requires the recording's exact Node runtime identity; another Node version, including a patch release, refuses before any worker starts.",
+			),
+		).toBe(true)
+		expect(
+			text.includes(
+				'A failure omits response when no reply arrived or its bytes did not fit the sidecar allowance; the reason names which.',
+			),
+		).toBe(true)
+	})
 
 	it('forwards admitted requests by role through the documented optional collaborator', async () => {
 		const peer = await createOllamaServer()

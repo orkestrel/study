@@ -722,4 +722,14 @@ it('builds an inert daemon declaration with matching provider and inventory iden
 		...provider,
 		daemon: { ...provider.daemon, executable: 'ollama' },
 	})
+	expect(buildStudyDaemonRefusals(provider)).toContainEqual({
+		...provider,
+		daemon: {
+			...provider.daemon,
+			models: [
+				...(provider.daemon?.models ?? []),
+				{ name: 'maintenance-only', digest: 'd'.repeat(64) },
+			],
+		},
+	})
 })

@@ -23,6 +23,37 @@ describe('execution-owned daemon staging', () => {
 	const library = createScratch({ parent: resolve('tmp/units') })
 	afterAll(() => library.destroy())
 
+	it('stops and joins a started daemon when occupied output refuses custody before any trial', async () => {
+		const subject = await buildStudyLibrary(
+			library,
+			resolve('src/server/ollama/StudyOllamaTransport.ts'),
+		)
+		const fixture = await createStudyDaemonFixture(subject)
+		try {
+			const entry = await buildStudyCLI(fixture.scratch)
+			const command = new StudyCommand({ root: fixture.scratch.path, entry })
+			fixture.scratch.write('occupied/keep.txt', 'caller-owned')
+			const error = await command
+				.execute(
+					['execute', 'assessment', '--out', join(fixture.scratch.path, 'occupied')],
+					new AbortController().signal,
+				)
+				.then(
+					() => undefined,
+					(failure: unknown) => failure,
+				)
+			expect(fixture.scratch.read('daemon-requests.jsonl')).toContain('/api/version')
+			expect(fixture.scratch.read('daemon-requests.jsonl')).not.toContain('/api/generate')
+			expect(fixture.scratch.has('workers.log')).toBe(false)
+			expect(fixture.scratch.read('occupied/keep.txt')).toBe('caller-owned')
+			expect(isRunning(requireValue(readStudyPid(fixture.scratch, 'daemon.pid')))).toBe(false)
+			expect(isRunning(requireValue(readStudyPid(fixture.scratch, 'runner.pid')))).toBe(false)
+			expect(error).toMatchObject({ code: 'EEXIST' })
+		} finally {
+			await fixture.close()
+		}
+	}, 60000)
+
 	it('seals each trial maintenance prefix and replays offline without starting or contacting a daemon', async () => {
 		const subject = await buildStudyLibrary(
 			library,

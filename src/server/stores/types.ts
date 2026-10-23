@@ -128,7 +128,8 @@ export interface StudyExchangeResponse extends StudyExchangeIdentity, StudyExcha
 
 /** Retains an attempted exchange's failure and any bounded response bytes already observed.
  * @remarks
- * Response is absent before an HTTP reply arrives and may contain an incomplete body. Failure
+ * Response is absent when no reply arrived or its bytes did not fit the sidecar allowance; the
+ * reason names which. A retained response may contain an incomplete body. Failure
  * preserves admitted charges and never invents completion, usage, or a successful terminal.
  */
 export interface StudyExchangeFailure extends StudyExchangeIdentity {

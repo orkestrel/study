@@ -355,6 +355,10 @@ export function buildStudyDaemonRefusals(
 			{ ...daemon, models: [{ name: 'model' }] },
 			{ ...daemon, models: [] },
 			{ ...daemon, models: [...daemon.models, ...daemon.models] },
+			{
+				...daemon,
+				models: [...daemon.models, { name: 'maintenance-only', digest: 'd'.repeat(64) }],
+			},
 			{ ...daemon, models: [{ name: 'model', digest: 'c'.repeat(64) }] },
 			{ ...daemon, environment: { NAME: 'one', name: 'two' } },
 			{ ...daemon, environment: { 'BAD=NAME': 'value' } },

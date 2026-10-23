@@ -1870,6 +1870,14 @@ export function buildOllamaTransportOptions(
 	}
 }
 
+/** Supplies disk sidecar pressure cases and fitting response controls. */
+export const STUDY_OLLAMA_SIDECAR_CASES = Object.freeze([
+	{ bytes: 8192, status: 200 },
+	{ bytes: 65536, status: 200 },
+	{ bytes: 8192, status: 500 },
+	{ bytes: 65536, status: 500 },
+])
+
 /** Supplies the exact encoded agent chat body the default transport policy admits. */
 export const STUDY_OLLAMA_CHAT_BODY = JSON.stringify({
 	model: 'model',

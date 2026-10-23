@@ -92,7 +92,8 @@ export interface StudyProvider {
  * canonical path; digest is its SHA-256 and version is the exact expected version reply. The
  * provider URL must be a dedicated loopback origin outside port 11434. Environment entries are
  * explicit non-secret overrides, merged by case-folded name; the host owns OLLAMA_HOST. Models
- * have distinct names and SHA-256 digests and include every model the provider declares. Execution
+ * have distinct names and SHA-256 digests equal to the provider's model and judge pins; shared
+ * pins require one entry. Execution
  * verifies identity before use, unloads this population before each trial, and stops and joins
  * on every ending. Offline replay never creates this daemon.
  */

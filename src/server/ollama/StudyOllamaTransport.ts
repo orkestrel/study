@@ -14,6 +14,7 @@ import type {
 import type { StudyExchangeIdentity } from '../stores/types.js'
 import {
 	StudyError,
+	isStudyError,
 	StudyControl,
 	StudyScope,
 	StudyMeter,
@@ -494,12 +495,12 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 			if (wire.terminal !== undefined) await this.#judge(wire, wire.terminal)
 			if (wire.identity !== undefined) {
 				this.check()
-				wire.record()
 				await this.#options.exchanges?.append({
 					phase: 'response',
 					...wire.identity,
 					...wire.reply,
 				})
+				wire.record()
 				if (wire.identity.step !== undefined) this.#step += 1
 			}
 			this.#requests.delete(wire.slot)
@@ -685,13 +686,23 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 	async #recordFailure(wire: StudyOllamaExchange, error: unknown): Promise<void> {
 		if (wire.identity === undefined || wire.recorded) return
 		this.#fault ??= { error }
+		const reason = readStudyFailure(error).message
+		try {
+			await this.#options.exchanges?.append({
+				phase: 'failure',
+				...wire.identity,
+				reason: reason.slice(0, 256),
+				response: wire.reply,
+			})
+		} catch (failure) {
+			if (!isStudyError(failure) || failure.code !== 'CAPACITY') throw failure
+			await this.#options.exchanges?.append({
+				phase: 'failure',
+				...wire.identity,
+				reason: `The reply was not retained because it exceeded the sidecar allowance; ${reason.slice(0, 128)}`,
+			})
+		}
 		wire.record()
-		await this.#options.exchanges?.append({
-			phase: 'failure',
-			...wire.identity,
-			reason: readStudyFailure(error).message.slice(0, 256),
-			response: wire.reply,
-		})
 	}
 
 	// Bounds the collaborator independently of its cooperation and releases a response that arrives after cancellation.

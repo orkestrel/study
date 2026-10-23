@@ -331,6 +331,13 @@ export function isStudyProvider(value: unknown): value is StudyProvider {
 			const daemon = value.daemon
 			const digest = value.digest
 			if (
+				!daemon.models.every(
+					(model) =>
+						(model.name === value.model && model.digest === digest.model) ||
+						(value.judge !== undefined &&
+							model.name === value.judge &&
+							model.digest === digest.judge),
+				) ||
 				!daemon.models.some(
 					(model) => model.name === value.model && model.digest === digest.model,
 				) ||

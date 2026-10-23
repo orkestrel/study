@@ -48,6 +48,13 @@ it('loads a declared daemon and refuses malformed executable, endpoint, environm
 	if (daemon === undefined) throw new Error('Missing daemon fixture')
 	expect(isStudyProvider(provider)).toBe(true)
 	expect(isStudyProfile({ ...buildStudyProfile(), provider })).toBe(true)
+	expect(
+		isStudyProvider({
+			...provider,
+			judge: provider.model,
+			digest: { ...provider.digest, judge: provider.digest.model },
+		}),
+	).toBe(true)
 	for (const candidate of buildStudyDaemonRefusals(provider))
 		expect(isStudyProvider(candidate)).toBe(false)
 	expect(isStudyProvider({ ...provider, daemon: undefined, url: 'http://example.com' })).toBe(true)

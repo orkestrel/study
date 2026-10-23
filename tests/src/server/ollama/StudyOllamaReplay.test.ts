@@ -5,6 +5,56 @@ import { createRecorder } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 
 describe('StudyOllamaReplay', () => {
+	it('refuses a same-route same-length changed prefix body and latches it without forwarding', async () => {
+		const history = buildStudyExchangeHistory()
+		const sent = createRecorder<readonly []>()
+		const replay = new ollama.StudyOllamaReplay({
+			history,
+			url: 'http://127.0.0.1:1',
+			prefix: history.exchanges.length,
+			limit: { calls: 20, bytes: 65536, duration: 5000 },
+			signal: new AbortController().signal,
+			fetch: async () => {
+				sent.handler()
+				return new Response('live')
+			},
+		})
+		try {
+			for (const { attempt } of history.exchanges.filter(
+				(pair) => pair.attempt.stage === 'preflight',
+			)) {
+				await (
+					await replay.fetch(attempt.role, `http://127.0.0.1:1${attempt.path}`, {
+						method: attempt.method,
+						...(attempt.size === 0 ? {} : { body: Buffer.from(attempt.body, 'base64').toString() }),
+					})
+				).text()
+			}
+			const pair = history.exchanges.find((entry) => entry.attempt.stage === 'execution')
+			if (pair === undefined) throw new Error('Missing execution exchange')
+			const body = Buffer.from(pair.attempt.body, 'base64').toString()
+			const changed = body.replace('remember', 'Remember')
+			expect(changed).not.toBe(body)
+			expect(Buffer.byteLength(changed)).toBe(pair.attempt.size)
+			await expect(
+				replay.fetch(pair.attempt.role, `http://127.0.0.1:1${pair.attempt.path}`, {
+					method: pair.attempt.method,
+					body: changed,
+				}),
+			).rejects.toThrow('Replay request differs from the next recorded exchange')
+			await expect(
+				replay.fetch(pair.attempt.role, `http://127.0.0.1:1${pair.attempt.path}`, {
+					method: pair.attempt.method,
+					body,
+				}),
+			).rejects.toThrow('Replay request differs from the next recorded exchange')
+			expect(sent.count).toBe(0)
+			expect(() => replay.check()).toThrow('Replay request differs from the next recorded exchange')
+		} finally {
+			await replay.close()
+		}
+	})
+
 	it('requires sealed completed history rather than prospective capture, and projects captured prefix bodies', async () => {
 		const history = buildStudyExchangeHistory(true)
 		const replay = new ollama.StudyOllamaReplay({

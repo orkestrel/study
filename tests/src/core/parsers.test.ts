@@ -209,6 +209,16 @@ it('owns daemon declarations at profile load and rejects missing model digests a
 	const parsed = parseStudyProfile({ ...buildStudyProfile(), provider })
 	expect(parsed.provider?.daemon).toEqual(daemon)
 	expect(parsed.provider?.daemon).not.toBe(daemon)
+	expect(
+		parseStudyProfile({
+			...buildStudyProfile(),
+			provider: {
+				...provider,
+				judge: provider.model,
+				digest: { ...provider.digest, judge: provider.digest.model },
+			},
+		}).provider?.daemon?.models,
+	).toHaveLength(1)
 	for (const candidate of buildStudyDaemonRefusals(provider))
 		expect(() => parseStudyProfile({ ...buildStudyProfile(), provider: candidate })).toThrow(
 			/Invalid.*profile/,
