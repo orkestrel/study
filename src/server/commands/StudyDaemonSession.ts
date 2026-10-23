@@ -3,7 +3,6 @@ import type { StudyTrial } from '@src/core'
 import type { StudyDaemonSessionOptions } from './types.js'
 import type { StudyExchangeDestination } from '../stores/types.js'
 import { StudyError } from '@src/core'
-import { createOllamaDaemon } from '@orkestrel/ollama/server'
 import { readStudyRecordingDeclaration } from '../processes/helpers.js'
 import { StudyDaemonTrial } from './StudyDaemonTrial.js'
 
@@ -16,10 +15,11 @@ import { StudyDaemonTrial } from './StudyDaemonTrial.js'
  */
 export class StudyDaemonSession {
 	readonly #options: StudyDaemonSessionOptions
-	readonly #daemon: OllamaDaemonInterface
+	#daemon: OllamaDaemonInterface | undefined
+	#stopped = false
 	readonly #trials = new Set<StudyDaemonTrial>()
 
-	/** Captures resolved declarations and constructs a daemon without starting a child.
+	/** Captures resolved declarations without loading the daemon runtime.
 	 * @param options - The execution profile, scenarios, workspace, and cancellation.
 	 */
 	constructor(options: StudyDaemonSessionOptions) {
@@ -37,20 +37,6 @@ export class StudyDaemonSession {
 			profile: structuredClone(options.profile),
 			scenarios: structuredClone(options.scenarios),
 		}
-		this.#daemon = createOllamaDaemon({
-			executable: { path: daemon.executable, digest: daemon.digest, version: daemon.version },
-			url: provider.url,
-			models: daemon.models,
-			workspace: options.workspace,
-			...(daemon.environment === undefined ? {} : { environment: daemon.environment }),
-			signal: options.signal,
-			readiness: options.profile.bounds.request.duration,
-			metadata: {
-				timeout: options.profile.bounds.request.duration,
-				bytes: options.profile.bounds.request.bytes,
-			},
-			fetch: (input, init) => this.#send(input, init),
-		})
 	}
 
 	/** Starts the daemon and returns its verified execution provenance.
@@ -58,6 +44,26 @@ export class StudyDaemonSession {
 	 */
 	async start(): Promise<OllamaDaemonIdentity> {
 		this.#options.signal.throwIfAborted()
+		const { createOllamaDaemon } = await import('@orkestrel/ollama/server')
+		if (this.#stopped) throw new StudyError('FAULT', 'Daemon session has stopped')
+		const provider = this.#options.profile.provider
+		const daemon = provider?.daemon
+		if (provider === undefined || daemon === undefined)
+			throw new StudyError('CONFIG', 'Execution has no declared daemon')
+		this.#daemon ??= createOllamaDaemon({
+			executable: { path: daemon.executable, digest: daemon.digest, version: daemon.version },
+			url: provider.url,
+			models: daemon.models,
+			workspace: this.#options.workspace,
+			...(daemon.environment === undefined ? {} : { environment: daemon.environment }),
+			signal: this.#options.signal,
+			readiness: this.#options.profile.bounds.request.duration,
+			metadata: {
+				timeout: this.#options.profile.bounds.request.duration,
+				bytes: this.#options.profile.bounds.request.bytes,
+			},
+			fetch: (input, init) => this.#send(input, init),
+		})
 		return this.#daemon.start()
 	}
 
@@ -73,11 +79,13 @@ export class StudyDaemonSession {
 		destination?: StudyExchangeDestination,
 	): Promise<StudyExchangeDestination | undefined> {
 		signal.throwIfAborted()
+		const daemon = this.#daemon
+		if (daemon === undefined) throw new StudyError('FAULT', 'Daemon startup is required')
 		if (this.#trials.size !== 0) throw new StudyError('FAULT', 'Daemon preparations cannot overlap')
 		if (destination === undefined) {
 			if (this.#options.profile.record !== undefined)
 				throw new StudyError('CUSTODY', 'Daemon maintenance requires its reserved sidecar')
-			await this.#daemon.unload()
+			await daemon.unload()
 			return undefined
 		}
 		const declaration = readStudyRecordingDeclaration(this.#options.profile, trial)
@@ -93,7 +101,7 @@ export class StudyDaemonSession {
 		})
 		this.#trials.add(preparation)
 		try {
-			return await preparation.execute(this.#daemon)
+			return await preparation.execute(daemon)
 		} finally {
 			this.#trials.delete(preparation)
 		}
@@ -103,8 +111,11 @@ export class StudyDaemonSession {
 	 * @returns Completion after daemon and emitter teardown.
 	 */
 	async stop(): Promise<void> {
-		const confirmed = await this.#daemon.stop()
-		await this.#daemon.destroy()
+		this.#stopped = true
+		const daemon = this.#daemon
+		if (daemon === undefined) return
+		const confirmed = await daemon.stop()
+		await daemon.destroy()
 		if (!confirmed) throw new StudyError('FAULT', 'Daemon cleanup was not confirmed')
 	}
 

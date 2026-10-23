@@ -1,7 +1,8 @@
 import { createScratch, isRunning } from '@orkestrel/test/server'
 import { isRecord, parseJSON } from '@orkestrel/contract'
 import { requireValue, waitForCondition, waitForEvent } from '@orkestrel/test'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { StudyCommand } from '../../../../src/server/commands/StudyCommand.js'
@@ -14,6 +15,8 @@ import {
 	buildStudyCLI,
 	STUDY_DAEMON_ENDINGS,
 	buildStudyLibrary,
+	collectStudyRoots,
+	createArtifactWorker,
 	createStudyDaemonFixture,
 	readStudyPid,
 	releaseStudyPid,
@@ -22,6 +25,62 @@ import {
 describe('execution-owned daemon staging', () => {
 	const library = createScratch({ parent: resolve('tmp/units') })
 	afterAll(() => library.destroy())
+
+	it('loads an adapter importing the Study server face in a captured worker with daemon staging present', async () => {
+		const scratch = createScratch({ parent: resolve('tmp/units') })
+		try {
+			await buildStudyCLI(scratch)
+			const instrument = join(scratch.path, 'runtime')
+			scratch.write(
+				'runtime/package.json',
+				JSON.stringify({
+					name: '@orkestrel/study',
+					version: '0.0.0-runtime',
+					type: 'module',
+					exports: { '.': './dist/src/core/index.js', './server': './dist/src/server/index.js' },
+				}),
+			)
+			const adapter = scratch.write(
+				'runtime/adapter/index.ts',
+				readFileSync(resolve('tests/src/server/commands/fixtures/constants.ts'), 'utf8'),
+			)
+			const options = {
+				entries: [],
+				roots: [
+					instrument,
+					...collectStudyRoots([
+						'@orkestrel/ollama',
+						'@orkestrel/abort',
+						'@orkestrel/timeout',
+						'@orkestrel/tool',
+					]),
+				],
+				instrument,
+				source: { root: join(instrument, 'adapter'), entry: adapter },
+			}
+			const worker = createArtifactWorker(
+				scratch,
+				`const options = ${JSON.stringify(options)}
+const artifacts = new ArtifactLoader(options)
+const adapter = await artifacts.load(options.source.entry)
+assert.equal(adapter.STUDY_SERVER_DIGEST, (await import('node:crypto')).createHash('sha256').update('captured-server').digest('hex'))
+artifacts.verify()
+console.log('captured-server-loaded')`,
+			)
+			const result = spawnSync(process.execPath, [worker], {
+				encoding: 'utf8',
+				timeout: 20000,
+				windowsHide: true,
+			})
+			expect({ status: result.status, error: result.status === 0 ? '' : result.stderr }).toEqual({
+				status: 0,
+				error: '',
+			})
+			expect(result.stdout).toContain('captured-server-loaded')
+		} finally {
+			scratch.destroy()
+		}
+	}, 60000)
 
 	it('stops and joins a started daemon when occupied output refuses custody before any trial', async () => {
 		const subject = await buildStudyLibrary(
