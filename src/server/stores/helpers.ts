@@ -580,15 +580,19 @@ export async function readStudyResult(directory: string): Promise<StudyResultRea
 	})
 }
 
-/** Projects the declaration onto its complete ordered HTTP identity population.
+/** Projects fixed and declared HTTP identities around the retained execution population.
  * @param declaration - The validated opening row.
- * @returns Maintenance, preflight, model and postflight identities in declaration order.
+ * @param execution - The retained execution attempt count, including the current attempt.
+ * @returns Maintenance, preflight, optional declared model steps and offset postflight identities.
  */
 export function buildStudyExchangeSequence(
 	declaration: StudyExchangeDeclaration,
+	execution: number,
 ): readonly StudyExchangeIdentity[] {
-	const first = declaration.procedure[0]
-	const last = declaration.procedure.at(-1)
+	if (!Number.isSafeInteger(execution) || execution < 0)
+		throw new StudyError('CUSTODY', 'Invalid execution exchange count')
+	const first = declaration.goals[0]
+	const last = declaration.goals.at(-1)
 	if (first === undefined || last === undefined)
 		throw new StudyError('CUSTODY', 'Exchange procedure is empty')
 	const models = Object.values(declaration.models).filter(
@@ -597,7 +601,7 @@ export function buildStudyExchangeSequence(
 	const maintenance: readonly StudyExchangeIdentity[] = declaration.maintenance.map(
 		(_model, index) => ({
 			ordinal: index + 1,
-			goal: first.goal,
+			goal: first,
 			role: 'maintenance',
 			path: '/api/generate',
 			method: 'POST',
@@ -610,29 +614,31 @@ export function buildStudyExchangeSequence(
 		...models.map(() => '/api/show'),
 	].map((path, index) => ({
 		ordinal: maintenance.length + index + 1,
-		goal: first.goal,
+		goal: first,
 		role: 'metadata',
 		path:
 			path === '/api/version' ? '/api/version' : path === '/api/tags' ? '/api/tags' : '/api/show',
 		method: path === '/api/show' ? 'POST' : 'GET',
 		stage: 'preflight',
 	}))
-	const execution: readonly StudyExchangeIdentity[] = declaration.procedure.map((step, index) => ({
-		ordinal: maintenance.length + preflight.length + index + 1,
-		goal: step.goal,
-		role: step.role,
-		path: step.path,
-		method: 'POST',
-		stage: 'execution',
-		step: step.ordinal,
-	}))
+	const steps: readonly StudyExchangeIdentity[] = (declaration.procedure ?? []).map(
+		(step, index) => ({
+			ordinal: maintenance.length + preflight.length + index + 1,
+			goal: step.goal,
+			role: step.role,
+			path: step.path,
+			method: 'POST',
+			stage: 'execution',
+			step: step.ordinal,
+		}),
+	)
 	const postflight: readonly StudyExchangeIdentity[] = preflight.map((identity, index) => ({
 		...identity,
-		ordinal: maintenance.length + preflight.length + execution.length + index + 1,
-		goal: last.goal,
+		ordinal: maintenance.length + preflight.length + execution + index + 1,
+		goal: last,
 		stage: 'postflight',
 	}))
-	return [...maintenance, ...preflight, ...execution, ...postflight]
+	return [...maintenance, ...preflight, ...steps, ...postflight]
 }
 
 /** Projects only the repeated identity fields of a retained HTTP exchange.
@@ -654,15 +660,20 @@ export function projectStudyExchangeIdentity(
 }
 
 /** Validates the exact declaration order and request bytes of an admitted exchange.
- * @param declaration - The complete opening procedure.
+ * @param declaration - The validated opening horizon and optional procedure.
  * @param request - The admitted request to join.
+ * @param execution - The retained execution attempt count.
  * @returns Nothing after identity, exact-body or capture-length validation.
  */
 export function validateStudyExchangeRequest(
 	declaration: StudyExchangeDeclaration,
 	request: StudyExchangeAttempt,
+	execution: number,
 ): void {
-	const expected = buildStudyExchangeSequence(declaration)[request.ordinal - 1]
+	if (request.stage === 'execution' && declaration.procedure === undefined) return
+	const expected = buildStudyExchangeSequence(declaration, execution).find(
+		(identity) => identity.ordinal === request.ordinal && identity.stage === request.stage,
+	)
 	if (
 		expected === undefined ||
 		canonicalStringify(expected) !== canonicalStringify(projectStudyExchangeIdentity(request))
@@ -670,7 +681,7 @@ export function validateStudyExchangeRequest(
 		throw new StudyError('CUSTODY', 'Exchange differs from its declared order')
 	const bytes = Buffer.from(request.body, 'base64')
 	if (request.stage === 'execution') {
-		const step = declaration.procedure.find((entry) => entry.ordinal === request.step)
+		const step = declaration.procedure?.find((entry) => entry.ordinal === request.step)
 		if (
 			step === undefined ||
 			(step.admission === 'exact'
@@ -699,7 +710,7 @@ export function validateStudyExchangeRequest(
 	const offset =
 		request.ordinal -
 		declaration.maintenance.length -
-		(request.stage === 'postflight' ? population + declaration.procedure.length : 0) -
+		(request.stage === 'postflight' ? population + execution : 0) -
 		1
 	const model = models[offset - 2]
 	const body =
@@ -721,6 +732,11 @@ export function validateStudyExchangeRows(
 	if (declaration?.phase !== 'declaration' || !rows.every(isStudyExchangeRow))
 		throw new StudyError('CUSTODY', 'Exchange declaration or row is invalid')
 	const attempts = rows.filter((row) => row.phase === 'attempt')
+	const execution = attempts.filter((row) => row.stage === 'execution')
+	const population = buildStudyExchangeSequence(declaration, execution.length)
+	const prefix = population.filter(
+		(row) => row.stage === 'maintenance' || row.stage === 'preflight',
+	).length
 	for (const [index, row] of rows.entries()) {
 		if (index === 0) continue
 		const previous = rows[index - 1]
@@ -732,7 +748,24 @@ export function validateStudyExchangeRows(
 				rows.slice(0, index).filter((entry) => entry.phase === 'attempt').length + 1
 			)
 				throw new StudyError('CUSTODY', 'Exchange ordinals are not contiguous')
-			validateStudyExchangeRequest(declaration, row)
+			if (row.stage === 'execution') {
+				const step = execution.findIndex((entry) => entry === row)
+				const goal = declaration.goals.indexOf(row.goal)
+				const prior = execution[step - 1]
+				if (
+					row.step !== step + 1 ||
+					row.ordinal !== prefix + step + 1 ||
+					step >= declaration.record.calls ||
+					goal < 0 ||
+					(prior !== undefined && goal < declaration.goals.indexOf(prior.goal)) ||
+					attempts.some((entry) => entry.ordinal < row.ordinal && entry.stage === 'postflight')
+				)
+					throw new StudyError(
+						'CUSTODY',
+						'Execution differs from its horizon, calls or stage order',
+					)
+			}
+			validateStudyExchangeRequest(declaration, row, execution.length)
 		} else if (row.phase === 'response' || row.phase === 'failure') {
 			if (
 				previous?.phase !== 'attempt' ||
@@ -745,7 +778,12 @@ export function validateStudyExchangeRows(
 				index !== rows.length - 1 ||
 				previous?.phase !== 'response' ||
 				row.count !== attempts.length ||
-				row.count !== buildStudyExchangeSequence(declaration).length ||
+				row.count !==
+					prefix +
+						execution.length +
+						population.filter((entry) => entry.stage === 'postflight').length ||
+				(declaration.procedure !== undefined &&
+					execution.length !== declaration.procedure.length) ||
 				rows.some((entry) => entry.phase === 'failure')
 			)
 				throw new StudyError('CUSTODY', 'Exchange completion is partial or failed')
@@ -804,7 +842,11 @@ export function validateStudyExchangeHistory(history: StudyExchangeHistory): voi
 	]
 	validateStudyExchangeRows(rows)
 	const bytes = Buffer.from(rows.map((row) => JSON.stringify(row) + '\n').join(''))
-	if (history.file.bytes !== bytes.length || history.file.digest !== hashStudyBytes(bytes))
+	if (
+		bytes.length > history.declaration.record.bytes ||
+		history.file.bytes !== bytes.length ||
+		history.file.digest !== hashStudyBytes(bytes)
+	)
 		throw new StudyError('CUSTODY', 'Replay history differs from its retained file identity')
 }
 
@@ -869,7 +911,9 @@ export async function readStudyTrialExchanges(
 		declaration?.phase !== 'declaration' ||
 		declaration.trial !== trial ||
 		scenario === undefined ||
-		!declaration.procedure.every((step) => scenario.goals.some((goal) => goal.id === step.goal))
+		canonicalStringify(declaration.goals) !==
+			canonicalStringify(scenario.goals.map((goal) => goal.id)) ||
+		canonicalStringify(declaration.record) !== canonicalStringify(manifest.record)
 	)
 		throw new StudyError('CUSTODY', 'Exchange declaration differs from its trial')
 	const evidenceBytes = await readStudyBytes(

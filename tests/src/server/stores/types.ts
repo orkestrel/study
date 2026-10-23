@@ -20,6 +20,13 @@ export type StudyExchangeMutation =
 	| 'reversed'
 	| 'altered'
 	| 'incomplete'
+	| 'failed'
+	| 'outside-goal'
+	| 'backward-goal'
+	| 'postflight-goal'
+	| 'count'
+	| 'goals'
+	| 'record'
 import type { StudyManifest } from '../../../../src/core/types.js'
 import type { StudyResultStoreInterface } from '../../../../src/server/stores/types.js'
 

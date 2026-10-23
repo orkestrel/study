@@ -5,7 +5,11 @@ import type {
 	StudyTrialPreparationFunction,
 } from './types.js'
 import { StudyError } from '@src/core'
-import { readStudyPreparedDestination, readStudyReplayHistory } from './helpers.js'
+import {
+	readStudyPreparedDestination,
+	readStudyReplayHistory,
+	validateStudyRecordingDeclaration,
+} from './helpers.js'
 import { isStudyExchangeDestination } from './validators.js'
 import { StudyProcessSession } from './StudyProcessSession.js'
 
@@ -36,16 +40,16 @@ export class StudyProcessDriver implements StudyDriverInterface {
 		signal.throwIfAborted()
 		const owned = structuredClone(trial)
 		const destination = this.#options.exchanges?.[owned.id]
-		if (
-			this.#options.profile.record !== undefined &&
-			(!isStudyExchangeDestination(destination) ||
-				destination.record.bytes !== this.#options.profile.record.bytes)
-		)
+		if (this.#options.profile.record !== undefined && !isStudyExchangeDestination(destination))
 			throw new StudyError('CONFIG', 'Recorded trial requires its reserved destination')
 		if (this.#options.profile.record === undefined && destination !== undefined)
 			throw new StudyError('CONFIG', 'Unrecorded trial cannot receive a sidecar')
-		if (this.#options.replay !== undefined)
+		if (destination !== undefined)
+			validateStudyRecordingDeclaration(destination.declaration, this.#options.profile, owned)
+		if (this.#options.replay !== undefined) {
+			if (destination === undefined) throw new StudyError('CONFIG', 'Replay requires a declaration')
 			await readStudyReplayHistory(this.#options.replay, this.#options.profile, owned)
+		}
 		const prepared =
 			this.#prepare === undefined
 				? destination

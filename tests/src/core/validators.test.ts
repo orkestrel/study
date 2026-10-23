@@ -1,4 +1,10 @@
-import { STUDY_INVALID_STOPS, STUDY_FINITE_READINGS, buildStudyStop } from '../../setupStudy.js'
+import {
+	STUDY_INVALID_STOPS,
+	STUDY_FINITE_READINGS,
+	buildStudyStop,
+	STUDY_RECORD_FIELDS,
+	STUDY_RECORD_INVALID_LIMITS,
+} from '../../setupStudy.js'
 import { STUDY_LAYERS } from '../../../src/core/constants.js'
 import { isStudyLayer, isStudyStop } from '../../../src/core/validators.js'
 import { describe, expect, it } from 'vitest'
@@ -74,19 +80,32 @@ it('accepts only portable bounded names, digest identities and valid canonical t
 })
 
 it('admits explicit recording allowances and refuses unsafe, zero and misspelled declarations', () => {
-	expect(isStudyRecord({ bytes: 4096 })).toBe(true)
-	expect(isStudyProfile({ ...buildStudyProfile(), record: { bytes: 4096 } })).toBe(true)
+	expect(isStudyRecord({ bytes: 4096, calls: 256, duration: 15000 })).toBe(true)
+	expect(
+		isStudyProfile({
+			...buildStudyProfile(),
+			record: { bytes: 4096, calls: 256, duration: 15000 },
+		}),
+	).toBe(true)
 	for (const record of [
-		{ bytes: 0 },
-		{ bytes: -1 },
-		{ bytes: 1.5 },
-		{ bytes: Number.NaN },
-		{ bytes: Number.POSITIVE_INFINITY },
-		{ bytes: Number.MAX_SAFE_INTEGER + 1 },
-		{ bytes: 4096, extra: true },
+		{ bytes: 0, calls: 256, duration: 15000 },
+		{ bytes: -1, calls: 256, duration: 15000 },
+		{ bytes: 1.5, calls: 256, duration: 15000 },
+		{ bytes: Number.NaN, calls: 256, duration: 15000 },
+		{ bytes: Number.POSITIVE_INFINITY, calls: 256, duration: 15000 },
+		{ bytes: Number.MAX_SAFE_INTEGER + 1, calls: 256, duration: 15000 },
+		{ bytes: 4096, calls: 256, duration: 15000, extra: true },
 	]) {
 		expect(isStudyRecord(record)).toBe(false)
 		expect(isStudyProfile({ ...buildStudyProfile(), record })).toBe(false)
+	}
+	for (const field of STUDY_RECORD_FIELDS) {
+		const valid = { bytes: 4096, calls: 8, duration: 15000 }
+		expect(
+			isStudyRecord(Object.fromEntries(Object.entries(valid).filter(([key]) => key !== field))),
+		).toBe(false)
+		for (const value of STUDY_RECORD_INVALID_LIMITS)
+			expect(isStudyRecord({ ...valid, [field]: value })).toBe(false)
 	}
 })
 

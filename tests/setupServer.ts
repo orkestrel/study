@@ -15,6 +15,7 @@ import type {
 	StudyObservation,
 	StudyRole,
 	StudyRubric,
+	StudyRecord,
 } from '../src/core/types.js'
 import type { StudyAdjudication, StudyGradeFunction } from '../src/server/adapters/types.js'
 import type {
@@ -112,6 +113,7 @@ import { collectStudyEvidence } from '../src/server/commands/helpers.js'
 import { StudyResultStore } from '../src/server/stores/StudyResultStore.js'
 import {
 	buildStudyPacket,
+	projectStudyExchangeIdentity,
 	buildStudyPacketLinks,
 	readStudyResult,
 } from '../src/server/stores/helpers.js'
@@ -151,11 +153,13 @@ import {
 /** Builds a declared complete exchange journal without using the production reader.
  * @param trial - The scheduled trial identity.
  * @param captured - If true, declares capture admission; if false, declares exact bytes.
+ * @param record - The trial's complete recording bounds.
  * @returns The declaration, paired exchanges and completion.
  */
 export function buildStudyExchangeRows(
 	trial = 'r1-first-small',
 	captured = false,
+	record: StudyRecord = { bytes: 32768, calls: 256, duration: 15000 },
 ): readonly StudyExchangeRow[] {
 	const policy = {
 		model: 'model',
@@ -177,6 +181,9 @@ export function buildStudyExchangeRows(
 		version: '0.40.3',
 		models: { model: { name: 'model', digest: 'a'.repeat(64) } },
 		metadata: { calls: 6, bytes: 65536, duration: 5000 },
+		record,
+		goals: ['write', 'read'],
+		configuration: 'c'.repeat(64),
 		procedure: [
 			captured
 				? {
@@ -237,7 +244,7 @@ export function buildStudyExchangeRows(
 		},
 		{
 			ordinal: 5,
-			goal: 'write',
+			goal: 'read',
 			role: 'metadata',
 			path: '/api/version',
 			method: 'GET',
@@ -245,7 +252,7 @@ export function buildStudyExchangeRows(
 		},
 		{
 			ordinal: 6,
-			goal: 'write',
+			goal: 'read',
 			role: 'metadata',
 			path: '/api/tags',
 			method: 'GET',
@@ -253,7 +260,7 @@ export function buildStudyExchangeRows(
 		},
 		{
 			ordinal: 7,
-			goal: 'write',
+			goal: 'read',
 			role: 'metadata',
 			path: '/api/show',
 			method: 'POST',
@@ -297,6 +304,80 @@ export function buildStudyExchangeRows(
 	]
 }
 
+/** Builds independent open rows with ordered goals and configurable real sidecar load.
+ * @param trial - The trial identity.
+ * @param record - The sidecar bounds.
+ * @param count - The execution population; Default: 3.
+ * @param padding - Request and reply padding bytes; Default: 0.
+ * @returns A complete open journal over the fixture's protocol bytes.
+ */
+export function buildOpenStudyExchangeRows(
+	trial = 'r1-first-small',
+	record: StudyRecord = { bytes: 32768, calls: 256, duration: 15000 },
+	count = 3,
+	padding = 0,
+): readonly StudyExchangeRow[] {
+	const rows = buildStudyExchangeRows(trial, false, record)
+	const opening = rows[0]
+	const request = rows.find((row) => row.phase === 'attempt' && row.stage === 'execution')
+	const response = rows.find((row) => row.phase === 'response' && row.stage === 'execution')
+	if (
+		opening?.phase !== 'declaration' ||
+		request?.phase !== 'attempt' ||
+		response?.phase !== 'response'
+	)
+		throw new Error('Missing independent row fixture')
+	const { procedure: _procedure, ...declaration } = opening
+	const body =
+		padding === 0
+			? Buffer.from(request.body, 'base64')
+			: Buffer.from(
+					JSON.stringify({
+						model: 'model',
+						prompt: 'x'.repeat(padding),
+						options: { num_ctx: 32, num_predict: 8 },
+						stream: true,
+						think: false,
+					}),
+				)
+	const reply =
+		padding === 0
+			? Buffer.from(response.body, 'base64')
+			: Buffer.from(buildOllamaRow({ content: 'x'.repeat(padding * 3) }))
+	return [
+		declaration,
+		...rows.filter(
+			(row) => (row.phase === 'attempt' || row.phase === 'response') && row.stage === 'preflight',
+		),
+		...Array.from({ length: count }, (_entry, index): readonly StudyExchangeRow[] => {
+			const identity: StudyExchangeIdentity = {
+				...projectStudyExchangeIdentity(request),
+				ordinal: index + 4,
+				step: index + 1,
+				goal: index === 0 ? 'write' : 'read',
+				role: index === 1 ? 'summary' : 'agent',
+			}
+			return [
+				{ ...identity, phase: 'attempt', ...buildStudyOllamaBytes(body) },
+				{
+					...identity,
+					phase: 'response',
+					...buildStudyOllamaBytes(reply),
+					status: 200,
+					headers: response.headers,
+					chunks: [reply.length],
+				},
+			]
+		}).flat(),
+		...rows.flatMap((row): readonly StudyExchangeRow[] =>
+			(row.phase === 'attempt' || row.phase === 'response') && row.stage === 'postflight'
+				? [{ ...row, ordinal: row.ordinal + count - 1 }]
+				: [],
+		),
+		{ phase: 'complete', count: count + 6 },
+	]
+}
+
 /** Produces malformed journals while preserving their otherwise valid independent control.
  * @param rows - The valid declaration and ordered population.
  * @param mutation - The precise refused condition.
@@ -311,39 +392,77 @@ export function mutateStudyExchangeRows(
 	if (attempt === undefined || response === undefined)
 		throw new Error('Missing exchange fixture pair')
 	const selected =
-		mutation === 'missing-response'
-			? rows.filter((row) => row.phase !== 'response' || row.stage !== 'execution')
-			: mutation === 'missing-metadata'
-				? rows.filter((row) => row.phase !== 'response' || row.ordinal !== 2)
-				: mutation === 'duplicate'
-					? [rows[0], attempt, ...rows.slice(1)]
-					: mutation === 'orphan'
-						? [rows[0], response, ...rows.slice(1)]
-						: mutation === 'open'
-							? rows.slice(0, -2)
-							: mutation === 'incomplete'
-								? rows.filter((row) => row.phase !== 'complete')
-								: mutation === 'reversed'
-									? [
-											rows[0],
-											...rows
-												.slice(1, -1)
-												.reduce<ReadonlyArray<readonly StudyExchangeRow[]>>(
-													(pairs, _row, index) =>
-														index % 2 === 0 ? [...pairs, rows.slice(index + 1, index + 3)] : pairs,
-													[],
+		mutation === 'goals' ||
+		mutation === 'record' ||
+		mutation === 'outside-goal' ||
+		mutation === 'backward-goal' ||
+		mutation === 'postflight-goal' ||
+		mutation === 'count' ||
+		mutation === 'failed'
+			? rows.map((row): StudyExchangeRow => {
+					if (row.phase === 'declaration')
+						return mutation === 'goals'
+							? { ...row, goals: row.goals.map((goal) => (goal === 'read' ? 'other' : goal)) }
+							: mutation === 'record'
+								? { ...row, record: { ...row.record, calls: row.record.calls + 1 } }
+								: row
+					if (row.phase === 'complete')
+						return mutation === 'count' ? { ...row, count: row.count - 1 } : row
+					if (mutation === 'failed' && row.phase === 'response' && row.stage === 'execution')
+						return {
+							...projectStudyExchangeIdentity(row),
+							phase: 'failure',
+							reason: 'Fixture refusal',
+						}
+					return {
+						...row,
+						goal:
+							mutation === 'goals' && row.goal === 'read'
+								? 'other'
+								: mutation === 'outside-goal' && row.stage === 'execution'
+									? 'outside'
+									: mutation === 'backward-goal' && row.step === 3
+										? 'write'
+										: mutation === 'postflight-goal' && row.stage === 'postflight'
+											? 'write'
+											: row.goal,
+					}
+				})
+			: mutation === 'missing-response'
+				? rows.filter((row) => row.phase !== 'response' || row.stage !== 'execution')
+				: mutation === 'missing-metadata'
+					? rows.filter((row) => row.phase !== 'response' || row.ordinal !== 2)
+					: mutation === 'duplicate'
+						? [rows[0], attempt, ...rows.slice(1)]
+						: mutation === 'orphan'
+							? [rows[0], response, ...rows.slice(1)]
+							: mutation === 'open'
+								? rows.slice(0, -2)
+								: mutation === 'incomplete'
+									? rows.filter((row) => row.phase !== 'complete')
+									: mutation === 'reversed'
+										? [
+												rows[0],
+												...rows
+													.slice(1, -1)
+													.reduce<ReadonlyArray<readonly StudyExchangeRow[]>>(
+														(pairs, _row, index) =>
+															index % 2 === 0
+																? [...pairs, rows.slice(index + 1, index + 3)]
+																: pairs,
+														[],
+													)
+													.toReversed()
+													.flat(),
+												rows.at(-1),
+											]
+										: mutation === 'altered'
+											? rows.map((row) =>
+													row.phase === 'response' && row.stage === 'execution'
+														? { ...row, body: Buffer.from('changed').toString('base64') }
+														: row,
 												)
-												.toReversed()
-												.flat(),
-											rows.at(-1),
-										]
-									: mutation === 'altered'
-										? rows.map((row) =>
-												row.phase === 'response' && row.stage === 'execution'
-													? { ...row, body: Buffer.from('changed').toString('base64') }
-													: row,
-											)
-										: rows
+											: rows
 	return Buffer.from(
 		selected.map((row) => JSON.stringify(row)).join('\n') + (mutation === 'partial' ? '' : '\n'),
 	)
@@ -422,6 +541,7 @@ process.on('message', frame => {
  * @param mutation - The sidecar mutation; Default: complete.
  * @param recording - If true, declares and reserves recording; if false, leaves the sidecar unrequested.
  * @param sidecar - If true, writes sidecars; if false, leaves them missing.
+ * @param open - If true, retains an open sequence; if false, retains the declared control.
  * @returns The real store and manifest after every trial has terminated.
  */
 export async function retainStudyExchangeFixture(
@@ -429,17 +549,22 @@ export async function retainStudyExchangeFixture(
 	mutation: StudyExchangeMutation = 'complete',
 	recording = true,
 	sidecar = true,
+	open = false,
 ): Promise<StudyExchangeCustodyFixture> {
 	const manifest = {
 		...buildCompactCustodyManifest(),
-		...(recording ? { record: { bytes: 16384 } } : {}),
+		...(recording ? { record: { bytes: 16384, calls: 256, duration: 15000 } } : {}),
 	}
 	const store = new StudyResultStore({ directory, manifest })
 	await store.create()
 	for (const trial of manifest.schedule) {
-		if (recording) await store.exchanges(trial)
+		const rows = open
+			? buildOpenStudyExchangeRows(trial.id, manifest.record)
+			: buildStudyExchangeRows(trial.id, false, manifest.record)
+		const declaration = rows[0]
+		if (declaration?.phase !== 'declaration') throw new Error('Missing fixture declaration')
+		if (recording) await store.exchanges(trial, declaration)
 		const sink = await store.start(trial)
-		const rows = buildStudyExchangeRows(trial.id)
 		for (const row of rows) {
 			if (row.phase === 'attempt' || row.phase === 'response')
 				await sink.append({
@@ -462,11 +587,13 @@ export async function retainStudyExchangeFixture(
  * @param scratch - The owned consumer fixture.
  * @param origin - The loopback Ollama peer.
  * @param library - The built real Study server library admitted as the subject.
+ * @param open - If true, declares an open role sequence; if false, keeps the capture-step control.
  */
 export function writeStudyRecordingConsumer(
 	scratch: ScratchInterface,
 	origin: string,
 	library: string,
+	open = false,
 ): void {
 	writeStudyConsumer(scratch)
 	const original = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
@@ -491,6 +618,39 @@ export function writeStudyRecordingConsumer(
 		think: false,
 		options: policy.options,
 	})
+	const summary = { ...policy, options: { ...policy.options, num_predict: 4 } }
+	const judge = {
+		...policy,
+		model: 'judge',
+		options: { ...policy.options, num_predict: 1 },
+		length: true,
+	}
+	const requests = [
+		{ goal: 'write', role: 'agent', body },
+		{
+			goal: 'recall',
+			role: 'summary',
+			body: JSON.stringify({
+				model: 'model',
+				stream: true,
+				think: false,
+				options: summary.options,
+				messages: [{ role: 'user', content: 'summarize café 🦉' }],
+			}),
+		},
+		{
+			goal: 'recall',
+			role: 'judge',
+			body: JSON.stringify({
+				model: 'judge',
+				stream: false,
+				raw: true,
+				logprobs: true,
+				options: judge.options,
+				prompt: 'A\r\n🦉',
+			}),
+		},
+	]
 	scratch.write(
 		'studies/files/profiles/local.json',
 		JSON.stringify({
@@ -507,30 +667,41 @@ export function writeStudyRecordingConsumer(
 				entry: resolveStudyEntry('@orkestrel/ollama'),
 				url: origin,
 				model: 'model',
-				digest: { model: 'a'.repeat(64) },
+				...(open ? { judge: 'judge' } : {}),
+				digest: { model: 'a'.repeat(64), ...(open ? { judge: 'b'.repeat(64) } : {}) },
 			},
-			record: { bytes: 32768 },
+			record: { bytes: 32768, calls: 256, duration: 15000 },
 			settings: {
 				version: 'fixture-version',
-				metadata: { calls: 8, bytes: 65536, duration: 5000 },
-				procedure: [
-					{
-						admission: 'capture',
-						ordinal: 1,
-						goal: 'write',
-						role: 'agent',
-						path: '/api/chat',
-						policy,
-						bytes: Buffer.byteLength(body),
-					},
-				],
+				metadata: { calls: open ? 16 : 8, bytes: 65536, duration: 5000 },
+				...(open
+					? { roles: { agent: policy, summary, judge }, requests }
+					: {
+							procedure: [
+								{
+									admission: 'capture',
+									ordinal: 1,
+									goal: 'write',
+									role: 'agent',
+									path: '/api/chat',
+									policy,
+									bytes: Buffer.byteLength(body),
+								},
+							],
+						}),
 				body,
 			},
 		}),
 	)
 	scratch.write(
 		'studies/files/scenarios/first.json',
-		JSON.stringify({ id: 'first', goals: [{ id: 'write', input: 'remember' }] }),
+		JSON.stringify({
+			id: 'first',
+			goals: [
+				{ id: 'write', input: 'remember' },
+				...(open ? [{ id: 'recall', input: 'recall' }] : []),
+			],
+		}),
 	)
 	scratch.write(
 		'studies/assessment/rubric.json',
@@ -545,6 +716,18 @@ export function writeStudyRecordingConsumer(
 					critical: true,
 					assertion: { equals: 'remember' },
 				},
+				...(open
+					? [
+							{
+								id: 'first-recall',
+								scenario: 'first',
+								goal: 'recall',
+								method: 'state',
+								critical: true,
+								assertion: { equals: 'recall' },
+							},
+						]
+					: []),
 			],
 		}),
 	)
@@ -555,17 +738,22 @@ export function createStudyAdapter() { return {
  validate() { appendFileSync(${JSON.stringify(join(scratch.path, 'validations.log'))}, String(process.pid) + '\\n') },
  driver({ subject, provider, profile, exchanges, replay }) { return { async open(trial, signal) {
   appendFileSync(${JSON.stringify(join(scratch.path, 'workers.log'))}, String(process.pid) + '\\n')
-  const transport = new subject.StudyOllamaTransport({ url: profile.provider.url, room: profile.room, limit: profile.bounds.request, models: { model: { name: profile.provider.model, digest: profile.provider.digest.model }, ...(profile.provider.judge === undefined ? {} : { judge: { name: profile.provider.judge, digest: profile.provider.digest.judge } }) }, roles: { agent: profile.settings.procedure[0].policy }, metadata: profile.settings.metadata, version: profile.settings.version, procedure: replay?.procedure ?? profile.settings.procedure, exchanges, signal, observe: false, timing: provider.extractTiming, ...(replay === undefined ? {} : { fetch: replay.fetch }) })
+  const transport = new subject.StudyOllamaTransport({ url: profile.provider.url, room: profile.room, limit: profile.bounds.request, models: { model: { name: profile.provider.model, digest: profile.provider.digest.model }, ...(profile.provider.judge === undefined ? {} : { judge: { name: profile.provider.judge, digest: profile.provider.digest.judge } }) }, roles: profile.settings.roles ?? { agent: profile.settings.procedure[0].policy }, metadata: profile.settings.metadata, exchanges, signal, observe: false, timing: provider.extractTiming, ...(replay === undefined ? {} : { fetch: replay.fetch }) })
   return {
    async execute(goal, context) {
     transport.prepare({ goal: goal.id, context })
     try {
-     await transport.verify()
-     const response = await transport.fetch('agent', profile.provider.url + '/api/chat', { method: 'POST', body: profile.settings.body })
-     const text = await response.text()
-     await transport.verify()
+     if (goal.id === exchanges.declaration.goals[0]) await transport.verify()
+     const values = []
+     for (const request of (profile.settings.requests ?? [{ goal: 'write', role: 'agent', body: profile.settings.body }]).filter(request => request.goal === goal.id)) {
+      const response = await transport.fetch(request.role, profile.provider.url + (request.role === 'judge' ? '/api/generate' : '/api/chat'), { method: 'POST', body: request.body })
+      const text = await response.text()
+      const row = JSON.parse(text.trim())
+      values.push(row.message?.content ?? row.response)
+     }
+     if (goal.id === exchanges.declaration.goals.at(-1)) await transport.verify()
      transport.check()
-     const value = JSON.parse(text.trim()).message.content
+     const value = values.join('\\n')
      return { value, partial: false }
     } finally { transport.clear() }
    },
@@ -581,11 +769,13 @@ export function createStudyAdapter() { return {
 /** Creates an execution consumer with a dedicated protocol daemon and declared process receipts.
  * @param library - The built real Study transport.
  * @param mode - The protocol outcome to exercise.
+ * @param open - If true, records agent and summary without declared steps; if false, keeps the capture control.
  * @returns The owned consumer; close releases only its recorded fixture processes.
  */
 export async function createStudyDaemonFixture(
 	library: string,
 	mode = 'normal',
+	open = false,
 ): Promise<StudyDaemonFixture> {
 	const scratch = createStudyConsumer()
 	try {
@@ -597,13 +787,23 @@ export async function createStudyDaemonFixture(
 		await new Promise<void>((fulfill, reject) =>
 			port.close((error) => (error ? reject(error) : fulfill())),
 		)
-		writeStudyRecordingConsumer(scratch, url, library)
+		writeStudyRecordingConsumer(scratch, url, library, open)
 		const original = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
 		if (!isRecord(original) || !isRecord(original.provider) || !isRecord(original.settings))
 			throw new Error('Missing daemon consumer profile')
 		const profile = parseStudyProfile({
 			...original,
-			settings: { ...original.settings, metadata: { calls: 16, bytes: 65536, duration: 20000 } },
+			settings: {
+				...original.settings,
+				...(open && isArray(original.settings.requests)
+					? {
+							requests: original.settings.requests.filter(
+								(request) => isRecord(request) && request.role !== 'judge',
+							),
+						}
+					: {}),
+				metadata: { calls: 16, bytes: 65536, duration: 20000 },
+			},
 			bounds: {
 				request: { duration: 10000, calls: 1, tokens: 8176, bytes: 4096 },
 				goal: { duration: 20000, calls: 2, tokens: 16384, bytes: 8192 },
@@ -1918,6 +2118,20 @@ export function buildOllamaStrictRoles(): OllamaStrictRolesFixture {
 /** Records every supplied exchange row without implementing production sink validation. */
 export class OllamaExchangeRecorder implements StudyExchangeSinkInterface {
 	readonly #rows: StudyExchangeRow[] = []
+	readonly #declaration: StudyExchangeDeclaration
+
+	/** Retains the supplied declaration at the recorder boundary.
+	 * @param declaration - The inert declaration, kept live for malformed-input tests.
+	 */
+	constructor(declaration: StudyExchangeDeclaration = buildOllamaDeclaration()) {
+		this.#declaration = declaration
+		this.#rows.push(declaration)
+	}
+
+	/** Holds the declaration supplied to the recorder. */
+	get declaration(): StudyExchangeDeclaration {
+		return this.#declaration
+	}
 
 	/** Holds all rows in append order. */
 	get rows(): readonly StudyExchangeRow[] {
@@ -2001,6 +2215,31 @@ export function buildOllamaRoleBodies(): ReadonlyArray<readonly [StudyOllamaRole
 	]
 }
 
+/** Builds an independent opening row for transport protocol fixtures.
+ * @param procedure - The declared execution population; undefined selects open recording.
+ * @param change - Members replacing the fixture declaration.
+ * @returns The complete opening row without transport-owned version or procedure options.
+ */
+export function buildOllamaDeclaration(
+	procedure: readonly StudyOllamaStep[] | undefined = [buildOllamaStep()],
+	change: Partial<StudyExchangeDeclaration> = {},
+): StudyExchangeDeclaration {
+	const options = buildOllamaTransportOptions('http://127.0.0.1:1')
+	return {
+		phase: 'declaration',
+		trial: 'r1-first-small',
+		version: 'fixture-version',
+		models: options.models,
+		metadata: options.metadata,
+		record: { bytes: 32768, calls: 256, duration: 15000 },
+		goals: [...new Set(['first', ...(procedure ?? []).map((step) => step.goal)])],
+		configuration: 'c'.repeat(64),
+		maintenance: [],
+		...(procedure === undefined ? {} : { procedure }),
+		...change,
+	}
+}
+
 /** Creates a recording transport whose sink retains every row for independent assertions.
  * @param procedure - The declared model-step population.
  * @param replies - The loopback server's protocol responses.
@@ -2012,13 +2251,38 @@ export async function createOllamaRecordingFixture(
 	replies: readonly OllamaWireReplyFixture[] = [],
 	change: Partial<StudyOllamaTransportOptions> = {},
 ): Promise<OllamaRecordingFixture> {
-	const sink = new OllamaExchangeRecorder()
+	const sink = new OllamaExchangeRecorder(
+		buildOllamaDeclaration(procedure, {
+			...(change.metadata === undefined ? {} : { metadata: change.metadata }),
+			...(change.models === undefined ? {} : { models: change.models }),
+		}),
+	)
 	const fixture = await createOllamaTransportFixture(replies, {
-		version: 'fixture-version',
-		procedure,
 		exchanges: sink,
 		...change,
 	})
+	return { ...fixture, sink, rows: sink.rows }
+}
+
+/** Creates an open recording over the real transport, meter and loopback protocol server.
+ * @param replies - The peer's queued response bytes and timing.
+ * @param change - Transport policies and independent metadata bounds.
+ * @param declaration - Opening-row members replacing the open defaults.
+ * @returns The prepared transport and the recorder's complete append log.
+ */
+export async function createOpenOllamaRecordingFixture(
+	replies: readonly OllamaWireReplyFixture[] = [],
+	change: Partial<StudyOllamaTransportOptions> = {},
+	declaration: Partial<StudyExchangeDeclaration> = {},
+): Promise<OllamaRecordingFixture> {
+	const { procedure: _procedure, ...opening } = buildOllamaDeclaration()
+	const sink = new OllamaExchangeRecorder({
+		...opening,
+		...(change.metadata === undefined ? {} : { metadata: change.metadata }),
+		...(change.models === undefined ? {} : { models: change.models }),
+		...declaration,
+	})
+	const fixture = await createOllamaTransportFixture(replies, { exchanges: sink, ...change })
 	return { ...fixture, sink, rows: sink.rows }
 }
 

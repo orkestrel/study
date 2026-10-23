@@ -7,8 +7,7 @@ it('refuses a maintenance send before its journal opens', async () => {
 	const declaration = buildStudyExchangeRows()[0]
 	if (declaration?.phase !== 'declaration') throw new Error('Missing fixture declaration')
 	const trial = new StudyDaemonTrial({
-		declaration,
-		destination: { path: resolve('tmp/units/absent-exchanges.jsonl'), record: { bytes: 32768 } },
+		destination: { path: resolve('tmp/units/absent-exchanges.jsonl'), declaration },
 		signal: new AbortController().signal,
 	})
 	await expect(

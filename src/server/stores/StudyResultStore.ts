@@ -2,6 +2,7 @@ import type { StudyAttempt, StudyManifest, StudySinkInterface, StudyTrial } from
 import type {
 	StudyCustodyPhase,
 	StudyExchangeDestination,
+	StudyExchangeDeclaration,
 	StudyResultStoreOptions,
 	StudyResultStoreInterface,
 	StudySeal,
@@ -24,7 +25,12 @@ import {
 	writeStudyBytes,
 } from './helpers.js'
 import { StudyEvidenceSink } from './StudyEvidenceSink.js'
-import { isStudyCustodyAttempt, isStudyCustodyManifest, isStudyCustodyTrial } from './validators.js'
+import {
+	isStudyCustodyAttempt,
+	isStudyCustodyManifest,
+	isStudyCustodyTrial,
+	isStudyExchangeDeclaration,
+} from './validators.js'
 
 /** Owns append-only execution bytes and seals only a complete terminal population. */
 export class StudyResultStore implements StudyResultStoreInterface {
@@ -78,15 +84,25 @@ export class StudyResultStore implements StudyResultStoreInterface {
 
 	/** Reserves a trial's entire exchange allowance before any worker starts.
 	 * @param trial - The exact scheduled trial whose manifest declares recording.
+	 * @param declaration - The parent's single opening row, joined to the manifest's horizon and bounds.
 	 * @returns Its exclusive sidecar destination, without creating the trial directory.
 	 */
-	async exchanges(trial: StudyTrial): Promise<StudyExchangeDestination> {
+	async exchanges(
+		trial: StudyTrial,
+		declaration: StudyExchangeDeclaration,
+	): Promise<StudyExchangeDestination> {
 		const scheduled = this.#manifest.schedule.find((entry) => entry.id === trial.id)
+		const scenario = this.#manifest.scenarios.find((entry) => entry.id === trial.scenario)
 		if (
 			this.#phase !== 'ready' ||
 			!isStudyCustodyTrial(trial) ||
 			scheduled === undefined ||
 			this.#manifest.record === undefined ||
+			!isStudyExchangeDeclaration(declaration) ||
+			declaration.trial !== trial.id ||
+			canonicalStringify(declaration.record) !== canonicalStringify(this.#manifest.record) ||
+			canonicalStringify(declaration.goals) !==
+				canonicalStringify(scenario?.goals.map((goal) => goal.id)) ||
 			canonicalStringify(scheduled) !== canonicalStringify(trial) ||
 			this.#exchanges.has(trial.id) ||
 			this.#trials.has(trial.id) ||
@@ -96,7 +112,7 @@ export class StudyResultStore implements StudyResultStoreInterface {
 		this.#reserve(this.#manifest.record.bytes)
 		const destination = Object.freeze({
 			path: join(this.#directory, 'execution', 'trials', scheduled.id, 'exchanges.jsonl'),
-			record: Object.freeze({ ...this.#manifest.record }),
+			declaration: structuredClone(declaration),
 		})
 		this.#exchanges.set(scheduled.id, destination)
 		return destination

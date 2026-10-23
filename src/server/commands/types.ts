@@ -9,7 +9,7 @@ import type {
 } from '@src/core'
 import type { StudyArtifactLoader } from '../processes/StudyArtifactLoader.js'
 import type { StudyPacketBundle } from '../stores/types.js'
-import type { StudyExchangeDeclaration, StudyExchangeDestination } from '../stores/types.js'
+import type { StudyExchangeDestination } from '../stores/types.js'
 import type { ArtifactClosure } from '../artifacts/types.js'
 import type { StudyOllamaReplaySelection } from '../ollama/types.js'
 
@@ -30,7 +30,6 @@ export interface StudyDaemonSessionOptions {
 /** Supplies one reserved sidecar and its complete maintenance declaration. */
 export interface StudyDaemonTrialOptions {
 	readonly destination: StudyExchangeDestination
-	readonly declaration: StudyExchangeDeclaration
 	readonly signal: AbortSignal
 }
 

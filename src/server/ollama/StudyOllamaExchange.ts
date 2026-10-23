@@ -6,6 +6,7 @@ import { buildStudyOllamaBytes } from './helpers.js'
 
 /** Tracks one owned HTTP response through its counted bytes, decoded rows, terminal and settlement. */
 export class StudyOllamaExchange implements StudyOllamaWire {
+	readonly deadline: StudyOllamaWire['deadline']
 	readonly slot: StudyOllamaWire['slot']
 	readonly identity: StudyOllamaWire['identity']
 	readonly headers: StudyOllamaWire['headers']
@@ -51,8 +52,10 @@ export class StudyOllamaExchange implements StudyOllamaWire {
 			| 'identity'
 			| 'headers'
 			| 'ceiling'
+			| 'deadline'
 		>,
 	) {
+		this.deadline = wire.deadline
 		this.slot = wire.slot
 		this.identity = wire.identity
 		this.headers = wire.headers
@@ -177,6 +180,7 @@ export class StudyOllamaExchange implements StudyOllamaWire {
 
 	/** Marks the request accounted, finished or failed. */
 	settle(): void {
+		this.deadline?.clear()
 		this.#settled = true
 	}
 }

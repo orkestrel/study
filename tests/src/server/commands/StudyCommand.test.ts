@@ -4,6 +4,8 @@ import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { StudyCommand } from '../../../../src/server/commands/StudyCommand.js'
 import { parseStudyProfile } from '../../../../src/core/parsers.js'
+import { hashStudyBytes } from '../../../../src/server/helpers.js'
+import { STUDY_OPEN_BOUND_CASES, STUDY_OLLAMA_PARTIAL_ROW } from '../../../setupStudy.js'
 import {
 	readStudyExchangeRows,
 	readStudyExchanges,
@@ -19,6 +21,168 @@ import {
 } from '../../../setupServer.js'
 
 describe('recording and replay command handoff', () => {
+	it.each(STUDY_OPEN_BOUND_CASES)(
+		'retains interrupted custody and charges when open record.%s stops a trial',
+		async (bound) => {
+			const scratch = createStudyConsumer()
+			const library = createScratch({ parent: resolve('tmp/units') })
+			const server = await createOllamaServer(
+				bound === 'duration'
+					? [{ path: '/api/chat', body: STUDY_OLLAMA_PARTIAL_ROW, open: true }]
+					: [],
+			)
+			try {
+				const subject = await buildStudyLibrary(
+					library,
+					resolve('src/server/ollama/StudyOllamaTransport.ts'),
+				)
+				writeStudyRecordingConsumer(scratch, server.url, subject, true)
+				const profile = parseStudyProfile(
+					parseJSON(scratch.read('studies/files/profiles/local.json') ?? ''),
+				)
+				scratch.write(
+					'studies/files/profiles/local.json',
+					JSON.stringify({
+						...profile,
+						record: {
+							bytes: 32768,
+							calls: bound === 'calls' ? 1 : 8,
+							duration: bound === 'duration' ? 100 : 15000,
+						},
+					}),
+				)
+				const entry = await buildStudyCLI(scratch)
+				const command = new StudyCommand({ root: scratch.path, entry })
+				const output = join(scratch.path, 'bounded')
+				await expect(
+					command.execute(['execute', 'assessment', '--out', output], new AbortController().signal),
+				).rejects.toMatchObject({ code: 'CUSTODY' })
+				const result = await readStudyResult(output)
+				expect(result.status).toBe('interrupted')
+				const attempt = result.attempts[0]
+				if (attempt === undefined) throw new Error('Missing bounded attempt')
+				expect(attempt.failure).toMatchObject({
+					cause: bound === 'calls' ? 'capacity' : 'deadline',
+					stop: {
+						layer: 'scope',
+						id: bound === 'calls' ? 'Recording calls' : 'Recording duration',
+					},
+				})
+				expect(
+					attempt.observations
+						.flatMap((goal) => goal.usage)
+						.reduce((sum, usage) => sum + usage.calls, 0),
+				).toBeGreaterThan(0)
+				const rows = readStudyExchangeRows(
+					Buffer.from(
+						scratch.read(`bounded/execution/trials/${attempt.trial.id}/exchanges.jsonl`) ?? '',
+					),
+					false,
+				)
+				expect(
+					rows.filter((row) => row.phase === 'attempt' && row.stage === 'execution'),
+				).toHaveLength(1)
+				expect(rows.some((row) => row.phase === 'complete')).toBe(false)
+				expect(rows.some((row) => row.phase === 'failure' && row.stage === 'execution')).toBe(
+					bound === 'duration',
+				)
+				expect(scratch.has('bounded/seal.json')).toBe(false)
+			} finally {
+				await server.close()
+				library.destroy()
+				scratch.destroy()
+			}
+		},
+		120000,
+	)
+
+	it('O1 seals unpredicted agent summary and judge bodies without a procedure and joins their ordinals', async () => {
+		const scratch = createStudyConsumer()
+		const library = createScratch({ parent: resolve('tmp/units') })
+		const server = await createOllamaServer()
+		try {
+			const subject = await buildStudyLibrary(
+				library,
+				resolve('src/server/ollama/StudyOllamaTransport.ts'),
+			)
+			writeStudyRecordingConsumer(scratch, server.url, subject, true)
+			const entry = await buildStudyCLI(scratch)
+			const command = new StudyCommand({ root: scratch.path, entry })
+			const output = join(scratch.path, 'open')
+			expect(
+				await command.execute(
+					['execute', 'assessment', '--out', output],
+					new AbortController().signal,
+				),
+			).toMatchObject({ status: 'completed' })
+			const result = await readStudyResult(output)
+			if (result.status !== 'sealed') throw new Error('Open recording did not seal')
+			const histories = await Promise.all(
+				result.manifest.schedule.map((trial) => readStudyExchanges(result, trial.id)),
+			)
+			expect(
+				histories.flatMap((history) =>
+					history.exchanges.map(({ attempt }) => ({
+						path: attempt.path,
+						body: Buffer.from(attempt.body, 'base64').toString(),
+					})),
+				),
+			).toEqual(server.requests)
+			for (const history of histories) {
+				expect(history.declaration.procedure).toBeUndefined()
+				expect(history.declaration.goals).toEqual(['write', 'recall'])
+				expect(history.declaration.record).toEqual(result.manifest.record)
+				expect(history.declaration.configuration).toMatch(/^[a-f0-9]{64}$/)
+				const executions = history.exchanges.filter(({ attempt }) => attempt.stage === 'execution')
+				expect(
+					executions.map(({ attempt }) => [
+						attempt.ordinal,
+						attempt.step,
+						attempt.role,
+						attempt.goal,
+					]),
+				).toEqual([
+					[5, 1, 'agent', 'write'],
+					[6, 2, 'summary', 'recall'],
+					[7, 3, 'judge', 'recall'],
+				])
+				expect(executions.map(({ attempt }) => attempt.digest)).toEqual(
+					executions.map(({ attempt }) => hashStudyBytes(Buffer.from(attempt.body, 'base64'))),
+				)
+				const evidence = (
+					scratch.read(`open/execution/trials/${history.declaration.trial}/evidence.jsonl`) ?? ''
+				)
+					.split(/\r\n|\n/)
+					.filter(Boolean)
+					.map((line) => parseJSON(line))
+					.filter(isRecord)
+				for (const event of ['dispatch', 'wire']) {
+					expect(
+						evidence
+							.filter(
+								(row) =>
+									row.event === event && isRecord(row.value) && row.value.ordinal !== undefined,
+							)
+							.map((row) => ({ goal: row.goal, value: row.value })),
+					).toEqual(
+						history.exchanges.map(({ attempt }) => ({
+							goal: attempt.goal,
+							value: expect.objectContaining({
+								ordinal: attempt.ordinal,
+								role: attempt.role,
+								path: attempt.path,
+							}),
+						})),
+					)
+				}
+			}
+		} finally {
+			await server.close()
+			library.destroy()
+			scratch.destroy()
+		}
+	}, 120000)
+
 	it('records, seals and replays captured bodies in a fresh offline worker with zero fixture requests', async () => {
 		const scratch = createStudyConsumer()
 		const library = createScratch({ parent: resolve('tmp/units') })

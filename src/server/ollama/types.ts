@@ -7,6 +7,7 @@ import type {
 	StudyAgentDispatch,
 } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
+import type { TimeoutInterface } from '@orkestrel/timeout'
 import type { OllamaOptions, OllamaTiming, extractTiming } from '@orkestrel/ollama'
 import type {
 	StudyExchangeHistory,
@@ -210,11 +211,7 @@ export interface StudyOllamaTransportOptions {
 	readonly fetch?: StudyOllamaFetchFunction | undefined
 	/** Bounds both metadata passes independently of every model quota. */
 	readonly metadata: StudyOllamaMetadata
-	/** Pins GET /api/version before and after model execution; required with recording. */
-	readonly version?: string
-	/** Declares every ordered model step; present together with exchanges and version. */
-	readonly procedure?: readonly StudyOllamaStep[]
-	/** Retains exact bytes regardless of observe or checkpoint; present together with procedure. */
+	/** Supplies the parent-composed declaration and retains exact bytes independently of observation. */
 	readonly exchanges?: StudyExchangeSinkInterface
 }
 
@@ -262,6 +259,8 @@ export interface StudyOllamaTerminal {
 
 /** Tracks one owned HTTP response until its end or cancellation. */
 export interface StudyOllamaWire {
+	/** Holds the recording deadline armed immediately before send, released at settlement. */
+	readonly deadline?: TimeoutInterface | undefined
 	/** Holds the admission registry key until this exchange settles. */
 	readonly slot: symbol
 	/** Holds the sidecar identity when recording is declared. */

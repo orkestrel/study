@@ -125,7 +125,7 @@ An Agent-backed consumer passes the admitted Agent namespace to the shared instr
 
 The `StudyOllamaTransport` class admits model requests through the goal's meter and metadata through an independent declared budget for calls, bytes, and duration. Metadata has no model-meter parent. Each response retains its byte and duration limits, actual usage precedes a policy refusal, and the first operational failure keeps its identity. Each model role declares its exact Ollama options, think allowance, strict truncate and shift fields, and length-finish policy. Maintenance attribution carries no generation policy. The transport refuses an undeclared role and keeps unreported usage unknown. The `prepare` method binds later requests to one goal until the `clear` or `close` method ends it, and refuses with the `FAULT` code while a goal is bound or a response is open. The `fetch` and `verify` methods refuse with the `FAULT` code when no goal is bound, and `verify` retains that refusal. A request admitted before `clear` keeps its goal, and each goal's checkpoint joins only that goal's first observed dispatch.
 
-Recording requires version, procedure, and exchange sink together. Preflight and postflight verify version, tags, and show for each distinct pinned model. Ordered exact steps compare UTF-8 bytes and verify their declared SHA-256 receipt; capture steps require their declared positive safe byte length and forbid body or input members. Goal, role, route, policy, and order are checked before sending. A second request and verification during request admission refuse. The sink supplies each HTTP ordinal, which joins dispatch and wire evidence even without passive observation. An attempt retains request bytes before sending. A validated response retains native status, selected headers, exact bytes, and chunk lengths; a failure retains bounded partial bytes and cannot produce completion. Successful postflight appends completion after every declared step has finished. The worker owns the preceding declaration and any maintenance prefix.
+Recording reads version and optional procedure from the exchange sink’s opening declaration. The transport refuses metadata or model pins that differ from that row. Preflight and postflight verify version, tags, and show for each distinct pinned model. Ordered exact steps compare UTF-8 bytes and verify their declared SHA-256 receipt; capture steps require their declared positive safe byte length and forbid body or input members. Goal, role, route, policy, and order are checked before sending. A second request and verification during request admission refuse. The sink supplies each HTTP ordinal, which joins dispatch and wire evidence even without passive observation. An attempt retains request bytes before sending. A validated response retains native status, selected headers, exact bytes, and chunk lengths; a failure retains bounded partial bytes and cannot produce completion. Successful postflight appends completion after the admitted execution sequence; a declared procedure also requires every step to finish. The parent composes the declaration, and the worker retains that row after verifying any maintenance prefix.
 
 The transport owns its configuration before validation and snapshots each outbound URL, settings, headers, and request correlation before awaiting admission. Later caller mutation cannot change the admitted request. Cancellation signals, the timing callback, and the optional fetch collaborator retain their live identity.
 
@@ -208,11 +208,15 @@ The Ollama transport appends a `stop` evidence row after its `wire` row when com
 
 ## Native command
 
-Recording declares `record.bytes` on the profile. The manifest retains the same declaration, and the parent reserves that complete allowance separately for each trial before starting workers. The allowance covers every serialized sidecar byte, including base64 expansion, opening and terminal rows, and LF framing. It consumes series custody without consuming goal evidence or model quota. Recording profiles explicitly supply `settings.version`, `settings.metadata`, and `settings.procedure`; the worker validates those declarations before constructing the adapter driver.
+Recording declares positive safe `record.bytes`, `record.calls`, and `record.duration` allowances on the profile. The manifest retains the same declaration, and the parent reserves that complete allowance separately for each trial before starting workers. The allowance covers every serialized sidecar byte, including base64 expansion, opening and terminal rows, and LF framing. It consumes series custody without consuming goal evidence or model quota. Recording profiles explicitly supply `settings.version` and `settings.metadata`. Omitting `settings.procedure` selects open recording; supplying it keeps ordered exact or capture admission. The parent calls `buildStudyExchangeDeclaration` with the profile, trial, scenario, and whether it owns a daemon session. Each destination carries that declaration, and the driver, session, and worker check its members against the profile and trial they hold before constructing the adapter driver. The transport takes version and procedure from the sink, with no duplicate options.
 
-The `StudyExchangeSink` class owns the trial's exclusive exchanges.jsonl descriptor. Its `next` property derives the next HTTP ordinal from accepted attempts, including a verified maintenance prefix. Callers await every append before sending or appending another row. The sink reserves failure-terminal space before an attempt and retains its first refusal. A failure omits response when no reply arrived or its bytes did not fit the sidecar allowance; the reason names which. Caught refusals prevent successful completion.
+The declaration retains `record`, the ordered `goals`, and a `configuration` digest alongside version, pinned models, metadata bounds, maintenance, and optional procedure. Configuration hashes canonical room, settings, and daemon configuration with the daemon executable path omitted. Profile record and elapsed bounds stay outside that digest. Maintenance lists the daemon’s declared models when the parent owns a daemon session for this execution, and is empty otherwise.
 
-The store admits exchanges.jsonl only when recording is declared. Sealing requires each scheduled trial's complete sidecar, exact declaration order, paired identities, valid raw-body receipts, and one ordered dispatch and wire evidence row per HTTP ordinal. Duplicate, orphaned, reordered, failed, partial, missing, and unrequested histories refuse with the CUSTODY code. Every other unknown file remains refused. The `readStudyExchanges` function reverifies the complete seal and this evidence join before returning a replay history.
+The `record.calls` allowance counts execution attempts retained by the sidecar, including replayed exchanges. A request past the cap refuses before append or send with CAPACITY and the scope stop Recording calls. The `record.duration` allowance sums execution send-to-settlement milliseconds; metadata retains its independent budget. When the remaining model time binds a request, its recording deadline starts immediately before send and expires with DEADLINE and the scope stop Recording duration. An exhausted allowance refuses before append or send. A refusal keeps prior charges and prevents completion; an admitted attempt retains its failure terminal, including any bounded partial reply. Such a result stays interrupted.
+
+The `StudyExchangeSink` class owns the trial's exclusive exchanges.jsonl descriptor. Its `declaration` property returns an owned frozen opening row, or undefined before that row is appended. Its `next` property derives the next HTTP ordinal from accepted attempts, including a verified maintenance prefix. Callers await every append before sending or appending another row. The sink reserves failure-terminal space before an attempt and retains its first refusal. A failure omits response when no reply arrived or its bytes did not fit the sidecar allowance; the reason names which. Caught refusals prevent successful completion.
+
+The store admits exchanges.jsonl only when recording is declared. Sealing requires each scheduled trial’s complete sidecar, contiguous HTTP and execution ordinals, paired identities, valid raw-body receipts, and one ordered dispatch and wire evidence row per HTTP ordinal. The declaration’s goals must equal the scenario’s ordered horizon, and its record must equal the manifest’s recording bounds. Maintenance and preflight join the first goal, postflight joins the last, and execution goals never move backward. A declared procedure also retains its exact step order and body or capture-length admission. Duplicate, orphaned, reordered, failed, partial, missing, and unrequested histories refuse with the CUSTODY code. Every other unknown file remains refused. The `readStudyExchanges` function reverifies the complete seal and this evidence join before returning a replay history.
 
 Replay execution requires `--replay <result> --prefix <JSON trial counts> --offline <true|false>`. Each positive prefix counts complete HTTP exchanges, including metadata and maintenance. The command verifies every selected trial before adapter validation or worker startup, and each worker rechecks its selected history. Replay requires the recording's exact Node runtime identity; another Node version, including a patch release, refuses before any worker starts. The executing profile supplies replay bounds. A supervisor fingerprint also pins changed execution bounds before dependent replay work.
 
@@ -284,428 +288,430 @@ Run read-only parity before choosing a rewrite direction. An explicit direction 
 
 The following declarations describe this concept.
 
-| Name                               | Kind      | Summary                                                                                                                        |
-| ---------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `ARTIFACT_BYTES`                   | const     | Bounds all captured input bytes to 128 MiB.                                                                                    |
-| `ARTIFACT_ERROR_BRAND`             | const     | Marks artifact errors across module formats and installations.                                                                 |
-| `ARTIFACT_ERROR_CODES`             | const     | Lists the artifact refusal codes.                                                                                              |
-| `ARTIFACT_DEPTH`                   | const     | Bounds directory nesting below each selected root.                                                                             |
-| `ARTIFACT_FILES`                   | const     | Bounds admitted files before another capture is allocated.                                                                     |
-| `ARTIFACT_FILE_BYTES`              | const     | Bounds one captured input file to 16 MiB.                                                                                      |
-| `ARTIFACT_ROOTS`                   | const     | Bounds selected package roots before traversal begins.                                                                         |
-| `ARTIFACT_VISITS`                  | const     | Bounds all visited directory entries, including ignored assets.                                                                |
-| `ArtifactError`                    | class     | Reports an invalid or drifted artifact inventory.                                                                              |
-| `ArtifactFile`                     | interface | Records the exact bytes admitted at one absolute file path.                                                                    |
-| `ArtifactHookInput`                | interface | Supplies the private namespace and separate source selection to resolution.                                                    |
-| `ArtifactInventory`                | interface | Records all admitted module bytes, selections, and native runtime identity.                                                    |
-| `ArtifactLoadHandler`              | type      | Names Node's synchronous loading continuation.                                                                                 |
-| `ArtifactLoader`                   | class     | Captures built ESM and a separate strip-only consumer adapter in a fresh worker.                                               |
-| `ArtifactLoaderOptions`            | interface | Selects built packages and an optional separate consumer source graph.                                                         |
-| `ArtifactPackage`                  | interface | Records the identity declared by an admitted package manifest.                                                                 |
-| `ArtifactResolveHandler`           | type      | Names Node's synchronous resolution continuation.                                                                              |
-| `ArtifactRuntime`                  | interface | Binds native conditions and host-sensitive builtin behavior to the inventory.                                                  |
-| `ArtifactSource`                   | interface | Retains captured bytes for the native loader.                                                                                  |
-| `ArtifactSourceOptions`            | interface | Selects a consumer-owned executable source directory and its exact adapter entry.                                              |
-| `ArtifactTally`                    | interface | Counts the directory entries visited and the file bytes admitted so far in one capture.                                        |
-| `Resolution`                       | class     | Enforces captured inventory membership at every synchronous native import edge.                                                |
-| `STUDY_CAUSES`                     | const     | Lists every operational ending in report order.                                                                                |
-| `STUDY_COMMAND_DURATION`           | const     | Caps declared execution duration at the native supervisor's host ceiling.                                                      |
-| `STUDY_COMMAND_GRADER`             | const     | Names the trusted command's independent offline predicate.                                                                     |
-| `STUDY_COMMAND_HELP`               | const     | Defines the complete public CLI reference shared by help and grammar diagnostics.                                              |
-| `STUDY_COMMAND_OPERATION`          | const     | Names the command route beneath the native supervisor.                                                                         |
-| `STUDY_CUSTODY_BYTES`              | const     | Limits untrusted metadata before JSON parsing or file allocation.                                                              |
-| `STUDY_DRAIN_DURATION`             | const     | Bounds how long inherited output handles stay open after native exit, in milliseconds.                                         |
-| `STUDY_ERROR_BRAND`                | const     | Keys the own self-identity every study error stamps on itself.                                                                 |
-| `STUDY_FRAME_BYTES`                | const     | Limits each serialized IPC envelope, including its JSON framing.                                                               |
-| `STUDY_GOALS`                      | const     | Caps a declared scenario horizon before execution.                                                                             |
-| `STUDY_LAUNCH_BYTES`               | const     | Bounds combined supervised command output to 16 MiB before terminating the tree.                                               |
-| `STUDY_LAUNCH_CLEANUP`             | const     | Extends supervised execution beyond its declared series duration for cleanup.                                                  |
-| `STUDY_LAUNCH_DURATION`            | const     | Bounds each supervised operation other than execution to 60 seconds.                                                           |
-| `STUDY_LOG_BYTES`                  | const     | Limits combined worker stdout and stderr before termination.                                                                   |
-| `STUDY_NAME`                       | const     | Restricts identifiers to portable path-safe names.                                                                             |
-| `STUDY_PACKET_DISCLOSURE`          | const     | Discloses the limits of neutral identifiers when public text remains visible.                                                  |
-| `STUDY_PENDING_LIMIT`              | const     | Limits outstanding bidirectional protocol work per process.                                                                    |
-| `STUDY_PROCESS_LABEL`              | const     | Attributes an expired process handshake or cleanup deadline.                                                                   |
-| `STUDY_RESERVED_NAME`              | const     | Rejects names that Windows reserves even on other hosts.                                                                       |
-| `STUDY_ROLES`                      | const     | Lists every measured request role in report order.                                                                             |
-| `STUDY_TASK_DURATION`              | const     | Caps pure domain work independently of its event loop.                                                                         |
-| `STUDY_TASK_OPERATION`             | const     | Names the private bounded validation and grading route.                                                                        |
-| `STUDY_TRIALS`                     | const     | Caps a declared trial population before schedule allocation.                                                                   |
-| `STUDY_WORKER_OPERATION`           | const     | Names the worker operation routed by the built application entry.                                                              |
-| `StudyAdapterInterface`            | interface | Defines the consumer's domain checks, driver construction, and retained-evidence grading.                                      |
-| `StudyAdjudication`                | interface | Holds retained observations and independent criteria for a grading operation.                                                  |
-| `StudyAdmissionInterface`          | interface | Admits requests against enclosing limits before an adapter dispatches them.                                                    |
-| `StudyAgentDispatch`               | interface | Holds the trial-local canonical dispatch identity a wire request joins to.                                                     |
-| `StudyAgentJudge`                  | class     | Latches a real judge's failure before an enclosing runtime can treat it as absent.                                             |
-| `StudyAgentObserver`               | class     | Reads each Agent request's size before delegating it unchanged to the real provider.                                           |
-| `StudyAgentObserverOptions`        | interface | Holds the observing provider's delegate, measurement seam and explicit policies.                                               |
-| `StudyAgentOriginHandler`          | type      | Joins each message of a measured request to its origin, one JSON entry per message in order.                                   |
-| `StudyAgentPlan`                   | interface | Holds one goal's scripted replies and the resources the provider charges and cancels through.                                  |
-| `StudyAgentReading`                | interface | Holds one dispatched request's explicit size reading.                                                                          |
-| `StudyAgentRecordHandler`          | type      | Receives one reading and the exact pre-encoding request it measured.                                                           |
-| `StudyAgentResponse`               | interface | Declares one scripted reply.                                                                                                   |
-| `StudyAgentRole`                   | type      | Names the model responsibilities whose requests the trace and summary measure.                                                 |
-| `StudyAgentRuntime`                | interface | Holds the admitted Agent namespace capabilities the shared instrumentation invokes.                                            |
-| `StudyAgentScript`                 | class     | Serves declared inert responses through the actual Agent provider boundary.                                                    |
-| `StudyAgentScriptOptions`          | interface | Holds the scripted provider's fixed byte bound; the admitted token count defaults to one.                                      |
-| `StudyAgentStage`                  | type      | Names where a measurement was taken.                                                                                           |
-| `StudyAgentStamp`                  | interface | Holds the ordinal and revision one measurement received.                                                                       |
-| `StudyAgentSummary`                | class     | Folds a conversation through the real provider under an explicit gauge and prompt limit.                                       |
-| `StudyAgentSummaryOptions`         | interface | Holds the gauged summary's delegate, measurement seam, explicit limits and cancellation.                                       |
-| `StudyAgentTrace`                  | class     | Correlates measured Agent requests and retains their evidence across a trial's goals.                                          |
-| `StudyAgentTraceOptions`           | interface | Holds the trace's measuring runtime, failure owner and consumer origin join.                                                   |
-| `StudyArtifactIdentity`            | interface | Holds the separately bound instrument and selected module inventory identities.                                                |
-| `StudyArtifactLoader`              | class     | Binds consumer instrumentation separately from selected executable identities.                                                 |
-| `StudyArtifactLoaderOptions`       | interface | Holds the trusted instrument and caller-selected built artifact locations.                                                     |
-| `StudyArtifactModule`              | interface | Holds actual namespaces loaded only during worker execution.                                                                   |
-| `StudyAttempt`                     | interface | Holds a terminal trial record, including goals never dispatched.                                                               |
-| `StudyBounds`                      | interface | Holds nested execution allowances; each request also has a deadline.                                                           |
-| `StudyCLI`                         | class     | Dispatches private child routes before the public native supervisor.                                                           |
-| `StudyCause`                       | type      | Names an operational ending separately from task achievement.                                                                  |
-| `StudyChannel`                     | class     | Correlates bounded IPC work and rejects every outstanding request on transport failure.                                        |
-| `StudyChannelOptions`              | interface | Holds one native IPC endpoint and its domain handlers.                                                                         |
-| `StudyCharge`                      | interface | Holds a request's pre-dispatch upper bounds.                                                                                   |
-| `StudyCommand`                     | class     | Executes validated study operations with execution and grading custody kept independent.                                       |
-| `StudyCommandArtifact`             | interface | Holds one bounded source artifact retained during offline validation.                                                          |
-| `StudyCommandOptions`              | interface | Holds the trusted application entry and repository location.                                                                   |
-| `StudyCommandRequest`              | type      | Names the independently dispatched study command operation.                                                                    |
-| `StudyContext`                     | interface | Holds the resources visible to one running goal.                                                                               |
-| `StudyControl`                     | class     | Retains the first operational failure while bounding asynchronous waits.                                                       |
-| `StudyControlInterface`            | interface | Owns the first operational failure and cancellation of enclosing work.                                                         |
-| `StudyCriterion`                   | interface | Holds a grader-owned criterion outside the driver's public input.                                                              |
-| `StudyCustodyBudget`               | interface | Holds the evidence sink's shared admission budget.                                                                             |
-| `StudyCustodyPhase`                | type      | Names the execution custody lifecycle without inferring seal completeness.                                                     |
-| `StudyCustodySinkInterface`        | interface | Closes evidence admission and drains already admitted appends.                                                                 |
-| `StudyDeadline`                    | class     | Bounds each independent operation with a fresh failure owner and deadline.                                                     |
-| `StudyDeadlineInterface`           | interface | Bounds one independent asynchronous operation under its own deadline.                                                          |
-| `StudyDeadlineOptions`             | interface | Supplies one bounded operation's finite deadline and diagnostic label.                                                         |
-| `StudyDefinition`                  | interface | Holds the frozen study question, population and explicit repetition orders.                                                    |
-| `StudyDriverInterface`             | interface | Creates isolated domain state through a concrete package consumer.                                                             |
-| `StudyDriverOptions`               | interface | Supplies admitted modules and an exclusive scratch parent without grader truth.                                                |
-| `StudyError`                       | class     | Reports a study contract or operational failure with a stable code.                                                            |
-| `StudyErrorCode`                   | type      | Names malformed configuration, evidence, custody and operational failures.                                                     |
-| `StudyEvidence`                    | interface | Holds append-only domain evidence in a JSON-compatible form.                                                                   |
-| `StudyEvidenceSink`                | class     | Retains admitted evidence in order and closes admission before terminal records.                                               |
-| `StudyEvidenceSinkOptions`         | interface | Holds the owned evidence descriptor and byte admission constraints.                                                            |
-| `StudyExecutionRequest`            | interface | Holds a checked execution selection with optional output custody.                                                              |
-| `StudyFailure`                     | interface | Holds an attributable operational fault without awarding a task verdict.                                                       |
-| `StudyFile`                        | interface | Holds the exact byte identity of one execution file.                                                                           |
-| `StudyFrame`                       | interface | Holds a correlated JSON request, reply or cancellation notification.                                                           |
-| `StudyGoal`                        | interface | Holds a declared goal's public input without its grading truth.                                                                |
-| `StudyGradeFunction`               | type      | Reads one declared target against the consumer's domain predicate.                                                             |
-| `StudyGradeReading`                | interface | Holds a consumer predicate's reading of one target, citing only retained files and rows.                                       |
-| `StudyGradeRequest`                | interface | Holds an offline predicate grading request.                                                                                    |
-| `StudyGradeTarget`                 | interface | Holds one declared trial and criterion pair with its retained observations.                                                    |
-| `StudyGrading`                     | interface | Holds a grading identity that cannot replace or mutate execution bytes.                                                        |
-| `StudyGradingContext`              | interface | Holds artifacts already verified inside a selected immutable grading directory.                                                |
-| `StudyGradingStore`                | class     | Retains immutable deterministic grading versions independently of execution bytes.                                             |
-| `StudyGradingStoreOptions`         | interface | Holds imported grading artifacts independently of execution.                                                                   |
-| `StudyIdentity`                    | interface | Holds byte identities that qualification and comparisons must agree on.                                                        |
-| `StudyInterruptedResult`           | interface | Holds inspected execution metadata that is never gradeable before sealing.                                                     |
-| `StudyJudgment`                    | interface | Holds an evidence-backed verdict; missing evidence stays unknown.                                                              |
-| `StudyLabelRequest`                | interface | Holds an imported-label grading request.                                                                                       |
-| `StudyLabeling`                    | interface | Holds imported semantic judgments and their accountable origin.                                                                |
-| `StudyLatchInterface`              | interface | Retains the first operational failure of instrumented work and refuses work after it.                                          |
-| `StudyLaunchOptions`               | interface | Selects the native command entry and the caller's consumer root.                                                               |
-| `StudyLaunchResult`                | interface | Retains the bounded command exit and captured output.                                                                          |
-| `StudyLauncher`                    | class     | Supervises finite command trees and binds offline check to execution.                                                          |
-| `StudyLimit`                       | interface | Holds finite allowances in milliseconds, calls, tokens and bytes.                                                              |
-| `StudyManifest`                    | interface | Holds the execution declaration sealed before any trial begins.                                                                |
-| `StudyMessageHandler`              | type      | Handles validated transport requests at their owning domain boundary.                                                          |
-| `StudyMeter`                       | class     | Admits request ceilings across every enclosing scope before dispatch.                                                          |
-| `StudyMeterInterface`              | interface | Owns request admission and the goal's terminal lifecycle.                                                                      |
-| `StudyMeterOptions`                | interface | Supplies the request allowance and all enclosing admission scopes.                                                             |
-| `StudyObservation`                 | interface | Holds the retained outcome of a scheduled goal.                                                                                |
-| `StudyOllamaActivity`              | interface | Holds one active goal's accounting and attribution.                                                                            |
-| `StudyOllamaFetchFunction`         | type      | Sends one validated, admitted request under its Study role and returns the native response.                                    |
-| `StudyOllamaModel`                 | interface | Pins one served model identity the inventory verifies.                                                                         |
-| `StudyOllamaOptions`               | type      | Holds the Ollama provider options one role's declared policy determines.                                                       |
-| `StudyOllamaPolicy`                | interface | Declares one model role's exact wire policy.                                                                                   |
-| `StudyOllamaRequest`               | interface | Holds validated wire dispatch facts without retaining payload text.                                                            |
-| `StudyOllamaRole`                  | type      | Names the model roles an Ollama study transport dispatches under a declared policy.                                            |
-| `StudyOllamaSnapshot`              | interface | Holds one outbound request's facts as owned at admission.                                                                      |
-| `StudyOllamaTerminal`              | interface | Holds a validated terminal's finish reason and actual usage, unknown when unreported.                                          |
-| `StudyOllamaTransport`             | class     | Admits and accounts Ollama wire requests under declared policies and latches failure.                                          |
-| `StudyOllamaTransportOptions`      | interface | Holds the Ollama study transport's immutable configuration.                                                                    |
-| `StudyOllamaWire`                  | interface | Tracks one owned HTTP response until its end or cancellation.                                                                  |
-| `StudyOperation`                   | type      | Names the bounded transport's domain operations.                                                                               |
-| `StudyPacketBundle`                | interface | Holds exact neutral public packet bytes and private mapping bytes.                                                             |
-| `StudyPacketEntry`                 | interface | Holds one neutral semantic grading input without treatment or model identifiers.                                               |
-| `StudyPacketLink`                  | interface | Holds the neutral identity mapping to a sealed semantic trial-criterion pair.                                                  |
-| `StudyParentTicket`                | interface | Holds an authoritative parent ticket and its transport listener lifetime.                                                      |
-| `StudyPreparation`                 | interface | Holds checked public declarations and reproducible executable identities.                                                      |
-| `StudyProcessDriver`               | class     | Opens one fresh native child for each scheduled trial.                                                                         |
-| `StudyProcessOptions`              | interface | Holds the parent-owned fresh trial process configuration.                                                                      |
-| `StudyProcessGoal`                 | class     | Holds one goal's parent context and the worker admission sequence it issues while the goal runs.                               |
-| `StudyProcessSession`              | class     | Keeps admission and evidence custody in the parent of one fresh trial process.                                                 |
-| `StudyProcessSessionOptions`       | interface | Holds one fresh child trial's launch parameters and cancellation.                                                              |
-| `StudyProduct`                     | interface | Holds observed output and partial completion, never self-awarded success.                                                      |
-| `StudyProfile`                     | interface | Holds execution settings independently of scenario and grading declarations.                                                   |
-| `StudyProvider`                    | interface | Holds caller-selected provider artifacts and model identities.                                                                 |
-| `StudyPurpose`                     | type      | Names the evidence a study can establish.                                                                                      |
-| `StudyReference`                   | interface | Cites a retained trial file, or one evidence row of it by its zero-based position.                                             |
-| `StudyReferenceFile`               | type      | Names a retained file of one trial that a judgment cites.                                                                      |
-| `StudyRemoteMeter`                 | class     | Waits for authoritative parent admission and drains acknowledged settlements.                                                  |
-| `StudyRemoteMeterInterface`        | interface | Owns transported admission, parent cancellation, and settlement drainage.                                                      |
-| `StudyRemoteMeterOptions`          | interface | Holds the worker meter's parent-authorized transport and failure latch.                                                        |
-| `StudyRemoteTicket`                | class     | Transmits one settlement without inventing local admission authority.                                                          |
-| `StudyRemoteTicketOptions`         | interface | Holds one transported ticket's identity and settlement owner.                                                                  |
-| `StudyReportRequest`               | interface | Holds a selected immutable report request.                                                                                     |
-| `StudyRequest`                     | class     | Settles an admitted request once and propagates operational failure to its owner.                                              |
-| `StudyRequestOptions`              | interface | Supplies one admitted request with its shared failure owner and settlement sink.                                               |
-| `StudyResponse`                    | interface | Holds an outstanding bounded IPC response.                                                                                     |
-| `StudyResultReading`               | type      | Holds an offline execution reading discriminated by custody completeness.                                                      |
-| `StudyResultStore`                 | class     | Owns append-only execution bytes and seals only a complete terminal population.                                                |
-| `StudyResultStoreInterface`        | interface | Owns execution custody from exclusive creation through complete sealing.                                                       |
-| `StudyResultStoreOptions`          | interface | Holds the inert execution store configuration.                                                                                 |
-| `StudyRole`                        | type      | Names a request's measured responsibility.                                                                                     |
-| `StudyRoom`                        | interface | Holds the model context and generation allowance as separate measurements.                                                     |
-| `StudyRubric`                      | interface | Holds a versioned grading declaration independently of execution.                                                              |
-| `StudyScenario`                    | interface | Holds ordered goals sharing state within an isolated trial.                                                                    |
-| `StudyScope`                       | class     | Reserves finite request ceilings around cumulative actual budgets and one deadline.                                            |
-| `StudyScopeInterface`              | interface | Holds cumulative admission ceilings for one timed execution scope.                                                             |
-| `StudyScopeOptions`                | interface | Supplies one deadline and its shared failure owner.                                                                            |
-| `StudyScore`                       | interface | Holds an arm's whole-horizon counts without hiding unresolved criteria.                                                        |
-| `StudySeal`                        | interface | Holds a complete execution inventory and its deterministic identity.                                                           |
-| `StudySealedResult`                | interface | Holds independently verified sealed execution bytes.                                                                           |
-| `StudySeries`                      | class     | Executes a frozen serial study schedule with finite admission and sticky failures.                                             |
-| `StudySeriesOptions`               | interface | Holds the common engine's fixed execution inputs.                                                                              |
-| `StudySessionInterface`            | interface | Owns domain state across a trial and releases it before the next trial.                                                        |
-| `StudySettlementHandler`           | type      | Records the settlement of one admitted request.                                                                                |
-| `StudySinkInterface`               | interface | Holds an evidence sink whose implementation owns byte limits and custody.                                                      |
-| `StudyStoreInterface`              | interface | Appends terminal records without overwriting a prior attempt.                                                                  |
-| `StudyTask`                        | class     | Bounds adapter evaluation by an independent native parent timer.                                                               |
-| `StudyTaskOptions`                 | interface | Holds a bounded adapter-only native operation.                                                                                 |
-| `StudyTaskRequest`                 | type      | Carries only declarations or sealed evidence to an adapter child.                                                              |
-| `StudyTaskResult`                  | interface | Returns adapter output with the exact active instrumentation digest.                                                           |
-| `StudyTaskWorker`                  | class     | Evaluates only admitted instrumentation in a disposable native child.                                                          |
-| `StudyTicket`                      | interface | Holds one admitted request until its actual charge is recorded.                                                                |
-| `StudyTrial`                       | interface | Holds a scheduled trajectory, with a fresh state for each repetition and arm.                                                  |
-| `StudyTrialCustody`                | interface | Holds the trial sink's admitted writes and terminal lifecycle.                                                                 |
-| `StudyUsage`                       | interface | Holds actual request measurements; absent token usage remains unknown.                                                         |
-| `StudyValidation`                  | interface | Holds declarations for domain validation before agent, subject or provider execution.                                          |
-| `StudyWorker`                      | class     | Executes one verified trial behind parent-authorized admission and custody.                                                    |
-| `buildStudyAgentDispatch`          | function  | Builds the evidence join of a wire request to its canonical dispatch.                                                          |
-| `buildStudyAgentParts`             | function  | Projects a request's structural components onto plain JSON without storing a total.                                            |
-| `readStudyAgentToolCall`           | function  | Reads an Agent tool call into a validated envelope from one read of each foreign field.                                        |
-| `buildStudyAgentToolResult`        | function  | Builds the JSON evidence form of an Agent tool call and its executed result.                                                   |
-| `buildStudyAgentToolDenial`        | function  | Builds the JSON evidence form of an Agent tool call the Agent denied before dispatch.                                          |
-| `buildStudyAgentReadings`          | function  | Builds the JSON evidence form of a Ledger result's logical classifier readings.                                                |
-| `buildStudyAgentRevision`          | function  | Builds a request revision by hashing its canonical rendering exactly as rendered.                                              |
-| `buildStudyOllamaModels`           | function  | Declares the pinned serving identities the Ollama transport verifies, keyed by the label their inventory evidence carries.     |
-| `buildStudyOllamaBytes`            | function  | Encodes exact application bytes with their decoded size and SHA-256 identity.                                                  |
-| `buildStudyOllamaOptions`          | function  | Builds the provider options one role's declared wire policy determines.                                                        |
-| `buildStudyOllamaRaw`              | function  | Builds a reading of the raw prompt text an encoded request body carries, as sent.                                              |
-| `buildStudyOllamaSnapshot`         | function  | Builds an owned snapshot of one outbound request before anything is awaited.                                                   |
-| `buildStudyOllamaTiming`           | function  | Builds the JSON evidence form of a timing observation with raw nanoseconds and counts.                                         |
-| `buildStudyOllamaTransportOptions` | function  | Builds a frozen owned copy of transport configuration that later caller mutation cannot reach.                                 |
-| `buildStudyPacket`                 | function  | Builds deterministic public semantic inputs and a separately retained private map.                                             |
-| `buildStudyPacketLinks`            | function  | Builds neutral semantic identities for the complete eligible sealed horizon.                                                   |
-| `buildStudyReference`              | function  | Renders a citation of one retained trial file or evidence row.                                                                 |
-| `buildStudySchedule`               | function  | Builds a bounded schedule from explicit repetition rows and declared scenarios.                                                |
-| `checkStudyDirectory`              | function  | Refuses symbolic links and non-directory ancestors before custody operations.                                                  |
-| `collectStudyAncestors`            | function  | Collects a directory and each of its ancestors up to the filesystem root, nearest first.                                       |
-| `collectStudyEntries`              | function  | Collects the executable entries a profile selects, each canonical path once.                                                   |
-| `collectStudyEvidence`             | function  | Reads sealed evidence bytes through custody checks without loading executable code.                                            |
-| `computeStudyCommandFingerprint`   | function  | Computes the native supervisor's exact validated execution fingerprint.                                                        |
-| `computeStudyFixtureDigest`        | function  | Computes public fixture identity from execution policy and exact scenario bytes.                                               |
-| `computeStudyInstrumentDigest`     | function  | Computes the instrument identity binding trusted runtime bytes to the adapter inventory.                                       |
-| `computeStudyPacketDigest`         | function  | Computes a bundle identity binding exact public packet and private map bytes.                                                  |
-| `computeStudyPartition`            | function  | Partitions records by their explicit execution fact without inferring any.                                                     |
-| `computeStudyProfileDigest`        | function  | Binds the canonical fully resolved execution profile carried over IPC.                                                         |
-| `computeStudyReport`               | function  | Computes whole-horizon results with operational costs and repetitions kept distinct.                                           |
-| `computeStudyScores`               | function  | Computes arm intervals over the complete declared criterion horizon.                                                           |
-| `computeStudySealId`               | function  | Computes an execution seal identity from its exact sorted inventory.                                                           |
-| `containsArtifact`                 | function  | Checks strict lexical containment under a selected directory.                                                                  |
-| `createStudyProcessFailure`        | function  | Creates attributable protocol infrastructure failure.                                                                          |
-| `decodeStudyJSON`                  | function  | Decodes strict UTF-8 custody bytes and parses their JSON text.                                                                 |
-| `drainStudyChild`                  | function  | Releases inherited output handles a bounded time after native exit.                                                            |
-| `encodeStudyJSON`                  | function  | Encodes deterministic JSON bytes without synthesizing execution metadata.                                                      |
-| `failStudyTicket`                  | function  | Records an error thrown by admitted work as the failure of its ticket.                                                         |
-| `failureToStudyError`              | function  | Converts an operational reading to its throwable boundary.                                                                     |
-| `gradeStudyEvidence`               | function  | Grades every declared trial and criterion pair through the consumer's predicate.                                               |
-| `hashStudyBytes`                   | function  | Computes the lowercase SHA-256 identity of exact bytes or UTF-8 text.                                                          |
-| `isArtifactError`                  | function  | Narrows a caught value to an artifact refusal.                                                                                 |
-| `isStudyAdapter`                   | function  | Checks whether a factory returned the complete consumer adapter contract.                                                      |
-| `isStudyAgentResponse`             | function  | Checks whether a scripted response has JSON calls and workload controls.                                                       |
-| `isStudyAgentGauge`                | function  | Checks whether a value is a gauge with a finite positive scale and a finite nonnegative overhead.                              |
-| `isStudyAgentRuntime`              | function  | Checks whether a namespace exposes the Agent capabilities the instrumentation invokes.                                         |
-| `isStudyBounds`                    | function  | Checks whether nested scopes admit no larger allowance than their parent.                                                      |
-| `isStudyCause`                     | const     | Checks whether a value names an operational ending.                                                                            |
-| `isStudyCharge`                    | function  | Checks a request's declared role and finite cost ceilings.                                                                     |
-| `isStudyCriterion`                 | function  | Checks whether a criterion declares exact grading inputs and references.                                                       |
-| `isStudyCustodyAttempt`            | function  | Checks whether an attempt terminally accounts for the exact scheduled goal horizon.                                            |
-| `isStudyCustodyEvidence`           | function  | Checks whether evidence is exact JSON with a declared event and goal name.                                                     |
-| `isStudyCustodyFailure`            | function  | Checks whether a failure carries exact attributable operational fields.                                                        |
-| `isStudyCustodyFile`               | function  | Checks whether an execution file inventory entry is path-safe and bounded.                                                     |
-| `isStudyCustodyManifest`           | function  | Checks whether a manifest exactly binds its declared population and identities.                                                |
-| `isStudyCustodyName`               | function  | Checks whether a trial name is portable on all supported hosts.                                                                |
-| `isStudyCustodyObservation`        | function  | Checks whether an observation preserves output or an explicit unexecuted failure.                                              |
-| `isStudyCustodySeal`               | function  | Checks whether a seal has an exact unique execution inventory.                                                                 |
-| `isStudyCustodyTrial`              | function  | Checks whether a scheduled trial has exact valid identity fields.                                                              |
-| `isStudyDefinition`                | function  | Checks whether a study freezes a complete arm order for every repetition.                                                      |
-| `isStudyDigest`                    | function  | Checks whether a byte identity is a lowercase SHA-256 digest.                                                                  |
-| `isStudyError`                     | function  | Narrows a caught value to a branded study error with valid failure attribution.                                                |
-| `isStudyErrorCode`                 | function  | Checks whether a value names a supported study error code.                                                                     |
-| `isStudyEvidence`                  | function  | Checks append-only public evidence.                                                                                            |
-| `isStudyFrame`                     | function  | Checks the complete transport envelope before domain handling.                                                                 |
-| `isStudyGoal`                      | function  | Checks whether a goal has a bounded identifier and exact JSON input.                                                           |
-| `isStudyGrading`                   | function  | Checks whether grading binds accountable judgments to unique attempt identities.                                               |
-| `isStudyIdentity`                  | function  | Checks the exact digest fields carried by the execution declaration.                                                           |
-| `isStudyJudgment`                  | function  | Checks whether a judgment carries a supported verdict and evidence references.                                                 |
-| `isStudyLabeling`                  | function  | Checks whether imported semantic labels have accountable packet provenance.                                                    |
-| `isStudyLimit`                     | function  | Checks whether all allowances are positive safe integers within timer bounds.                                                  |
-| `isStudyName`                      | function  | Checks whether an identifier is portable and bounded.                                                                          |
-| `isStudyProcessFailure`            | function  | Checks operational failure attribution arriving over IPC.                                                                      |
-| `isStudyProduct`                   | function  | Checks a retained public product without awarding task achievement.                                                            |
-| `isStudyProfile`                   | function  | Checks whether a profile carries finite bounds and an optional explicit provider.                                              |
-| `isStudyProvider`                  | function  | Checks whether a provider declaration names artifacts, an HTTP origin and models.                                              |
-| `isStudyRole`                      | const     | Checks whether a value names a measured request role.                                                                          |
-| `isStudyRoom`                      | function  | Checks whether generation room leaves positive context for input.                                                              |
-| `isStudyRubric`                    | function  | Checks whether a rubric declares nonempty criteria with unique identities.                                                     |
-| `isStudyScenario`                  | function  | Checks whether a scenario declares a nonempty horizon with unique goal ids.                                                    |
-| `isStudyTimestamp`                 | function  | Checks whether a timestamp is a canonical UTC millisecond instant.                                                             |
-| `isStudyTrial`                     | function  | Checks a fresh trial's declared identifiers.                                                                                   |
-| `isStudyUsage`                     | function  | Checks whether request usage contains nonnegative safe measurements.                                                           |
-| `iterateArtifactEntries`           | function  | Iterates the remaining entries of an open directory handle lazily, in read order.                                              |
-| `matchesStudyKeys`                 | function  | Matches exact own enumerable data keys without evaluating accessors.                                                           |
-| `normalizeStudyProfile`            | function  | Omits every undefined optional declaration so the profile has one JSON form.                                                   |
-| `omitStudyAbsent`                  | function  | Copies the own entries of a record that hold a value, in their original order.                                                 |
-| `parseStudyArguments`              | function  | Parses public command tokens with operation-specific grammar diagnostics.                                                      |
-| `parseStudyDefinition`             | function  | Parses a definition into an independent frozen validated snapshot.                                                             |
-| `parseStudyGrading`                | function  | Parses grading into an independent frozen validated evidence snapshot.                                                         |
-| `parseStudyLabeling`               | function  | Parses semantic labels into an independent frozen validated evidence snapshot.                                                 |
-| `parseStudyProfile`                | function  | Parses a profile into an independent frozen validated snapshot.                                                                |
-| `parseStudyRubric`                 | function  | Parses a rubric into an independent frozen validated snapshot.                                                                 |
-| `parseStudyScenario`               | function  | Parses a scenario into an independent frozen validated snapshot.                                                               |
-| `projectStudyAgentRequest`         | function  | Prices a runtime estimate through an explicit gauge.                                                                           |
-| `readArtifact`                     | function  | Reads a bounded regular file only through its canonical absolute path.                                                         |
-| `readArtifactBytes`                | function  | Fills a buffer from an open descriptor, one positioned read at a time.                                                         |
-| `readStudyAdapter`                 | function  | Reads a complete adapter from an admitted module namespace.                                                                    |
-| `readStudyAgentMessages`           | function  | Projects foreign provider messages onto the exact fields the workload reads.                                                   |
-| `readStudyAgentResult`             | function  | Drains a scripted provider stream into its assembled result.                                                                   |
-| `readStudyBytes`                   | function  | Reads bounded regular-file bytes without following a symbolic link.                                                            |
-| `readStudyFailure`                 | function  | Reads an operational error without inventing a task verdict.                                                                   |
-| `readStudyHandle`                  | function  | Reads from an open file handle into a buffer until the buffer is full or the file ends.                                        |
-| `readStudyOllamaDigest`            | function  | Reads the pinned serving digest of an admitted request's model.                                                                |
-| `readStudyOllamaFailure`           | function  | Reads a native Ollama error member as the attributable failure it names, without usage.                                        |
-| `readStudyOllamaRequest`           | function  | Reads exact outbound Ollama facts and refuses a request outside its declared policy.                                           |
-| `readStudyOllamaSupport`           | function  | Reads the declared model context ceiling without claiming daemon allocation.                                                   |
-| `readStudyOllamaTerminal`          | function  | Reads one Ollama response row without inventing absent usage.                                                                  |
-| `readStudyOllamaTiming`            | function  | Reads daemon timing from a terminal row without letting an observation fail the request.                                       |
-| `readStudyResult`                  | function  | Inspects custody bytes offline and verifies complete execution before grading.                                                 |
-| `resolveStudyAgentContent`         | function  | Resolves the content a scripted response serves, from its declaration or from a prior tool message.                            |
-| `resolveStudyInstrument`           | function  | Resolves the actual host package from its trusted executable entry.                                                            |
-| `resolveStudyPath`                 | function  | Resolves a portable relative artifact path strictly inside its selected directory.                                             |
-| `resolveStudyProfile`              | function  | Resolves the execution profile's caller-selected built artifact paths.                                                         |
-| `scanStudyExecution`               | function  | Scans regular execution files while refusing unknown directories and linked paths.                                             |
-| `scanStudyTree`                    | function  | Scans one execution directory and the subdirectories it admits, reading each admitted file under the series bytes that remain. |
-| `terminateStudyChild`              | function  | Terminates the recorded native process tree under a finite cleanup allowance.                                                  |
-| `translateStudyAgentError`         | function  | Translates only a nominal Agent window refusal into the attributable capacity failure.                                         |
-| `translateStudyPacketLabeling`     | function  | Translates bound neutral imported labels through the sealed semantic horizon.                                                  |
-| `validateStudyAgentUsage`          | function  | Checks that a successful provider call reported a usable actual prompt count.                                                  |
-| `validateStudyEvidenceBytes`       | function  | Validates complete evidence lines and per-goal encoded evidence bounds.                                                        |
-| `validateStudyInputs`              | function  | Validates grading coverage and request room against the declared study inputs.                                                 |
-| `validateStudyOllamaCompletion`    | function  | Checks terminal policy after the actual wire cost has been retained.                                                           |
-| `validateStudyOllamaInventory`     | function  | Verifies that each pinned name resolves to one inventory entry with its pinned digest.                                         |
-| `validateStudyOllamaRoles`         | function  | Validates declared role policies against the pinned inventory before any dispatch.                                             |
-| `validateStudyOllamaRecording`     | function  | Validates independent metadata bounds and the complete optional recording group.                                               |
-| `validateStudyOllamaStep`          | function  | Admits one model request against its next exact or capture declaration.                                                        |
-| `isStudyOllamaMetadata`            | function  | Checks whether a value declares independent positive metadata allowances.                                                      |
-| `isStudyOllamaModel`               | function  | Checks whether a value pins a served model name and SHA-256 digest.                                                            |
-| `isStudyOllamaPolicy`              | function  | Checks whether a value declares a complete finite model-generation policy.                                                     |
-| `isStudyOllamaStep`                | function  | Checks whether a value declares exclusive exact or capture admission with a valid receipt.                                     |
-| `validateStudyRuntime`             | function  | Refuses a profile that omits the actual host runtime's declared dependency bytes.                                              |
-| `valueToWire`                      | function  | Projects optional domain fields into the JSON wire representation.                                                             |
-| `writeStudyBytes`                  | function  | Writes an exclusive regular record and synchronizes it before reporting success.                                               |
-| `STUDY_LAYERS`                     | const     | Lists every ceiling a run can stop at in report order.                                                                         |
-| `StudyLayer`                       | type      | Names the ceiling that stopped a run.                                                                                          |
-| `StudyStop`                        | interface | Holds the ceiling that stopped a run and the readings it crossed.                                                              |
-| `StudyAttributionSource`           | interface | Holds one failed record the report groups by cause, role, and layer.                                                           |
-| `isStudyLayer`                     | const     | Checks whether a value names a ceiling a run can stop at.                                                                      |
-| `isStudyStop`                      | function  | Checks whether a value is the exact record of a ceiling that stopped a run.                                                    |
-| `studyStopToJSON`                  | function  | Projects a stop onto JSON with every unreported reading as null.                                                               |
-| `translateStudyAgentStop`          | function  | Translates an Agent run's stop record into the attributable capacity failure of the layer that stopped it.                     |
-| `computeStudyAttributions`         | function  | Groups failed records by cause, role, and layer, each group carrying its source readings.                                      |
-| `parseStudyReading`                | function  | Parses a foreign reading into a number a stop can retain.                                                                      |
-| `computeStudyAdmittedStop`         | function  | Computes the stop of a request whose actual usage crossed the ceiling it was admitted under.                                   |
-| `computeStudyOutputStop`           | function  | Computes the stop of a product the output allowances cannot hold.                                                              |
-| `StudyDeclaration`                 | interface | Holds a parsed study declaration with its driver bundle, scenarios, scenario fixtures, and rubric.                             |
-| `readStudyDeclaration`             | function  | Reads a study declaration, its driver's scenarios, and its rubric as the command resolves them.                                |
-| `readStudyDeclarationBytes`        | function  | Reads one declaration file and refuses a missing or linked path with its root-relative path.                                   |
-| `readStudyVersion`                 | function  | Reads the version of the study package that owns an executable entry.                                                          |
-| `matchesSystemError`               | function  | Reports whether a caught value is a Node error carrying the given system code.                                                 |
-| `StudyDaemon`                      | interface | Pins an executable and the model population an execution owns until cleanup.                                                   |
-| `StudyDaemonModel`                 | interface | Pins one model the declared daemon verifies and unloads before each trial.                                                     |
-| `StudyRecord`                      | interface | Bounds the serialized exchange sidecar retained for each scheduled trial.                                                      |
-| `ArtifactErrorCode`                | type      | Names the refused boundary of a captured or materialized artifact graph.                                                       |
-| `ArtifactMember`                   | interface | Maps one admitted physical file to its exact bytes inside a materialized forest.                                               |
-| `ArtifactClosure`                  | interface | Binds a verified physical forest to its relocated selections and complete membership.                                          |
-| `ArtifactLoaderInterface`          | interface | Captures, verifies, loads, and materializes one admitted physical artifact graph.                                              |
-| `computeArtifactClosureDigest`     | function  | Computes a destination-independent digest of members and relative package identities.                                          |
-| `isArtifactClosure`                | function  | Checks a bounded materialization record before any path is used.                                                               |
-| `isArtifactKey`                    | function  | Checks whether a key names portable, non-credential members within a closure.                                                  |
-| `isArtifactLoaderOptions`          | function  | Checks the bounded loader selections retained in a publication.                                                                |
-| `isArtifactMember`                 | function  | Checks the exact file identity and provenance of a closure member.                                                             |
-| `isStudyClosure`                   | function  | Checks a closure publication before using its command inputs.                                                                  |
-| `matchesArtifactCredential`        | function  | Checks whether a portable segment identifies credentials.                                                                      |
-| `readArtifactPhysical`             | function  | Checks every existing physical ancestor before using a canonical absolute path.                                                |
-| `readStudyClosure`                 | function  | Reads and independently verifies an exclusively published closure.                                                             |
-| `relocateArtifactPath`             | function  | Relocates an original path through a closure's retained physical forest.                                                       |
-| `resolveArtifactBase`              | function  | Finds the common physical parent that preserves every selected path's relative resolution.                                     |
-| `resolveArtifactMember`            | function  | Resolves a portable member key without traversing outside its destination.                                                     |
-| `resolveStudyClosurePath`          | function  | Resolves a profile path through a retained physical relocation when selected.                                                  |
-| `verifyArtifactClosure`            | function  | Verifies complete copied membership, path safety, exact bytes, and portable identity.                                          |
-| `StudyOllamaMetadata`              | interface | Bounds metadata calls, encoded bytes, and elapsed milliseconds outside model quotas.                                           |
-| `StudyOllamaStage`                 | type      | Names the ordered verification, model work, and daemon maintenance stages.                                                     |
-| `StudyOllamaStepIdentity`          | interface | Declares an ordered model request's goal, responsibility, route, and wire policy.                                              |
-| `StudyOllamaExactStep`             | interface | Declares an exact UTF-8 request body and its SHA-256 input receipt.                                                            |
-| `StudyOllamaCaptureStep`           | interface | Declares a captured request's positive safe byte length without predicting its content.                                        |
-| `StudyOllamaStep`                  | type      | Separates exact request admission from length-declared capture admission.                                                      |
-| `StudyOllamaReplaySelection`       | interface | Selects a sealed recording and an explicit replay prefix for every scheduled trial.                                            |
-| `StudyOllamaReplayOptions`         | interface | Configures exact recorded replies and optional live continuation after a declared prefix.                                      |
-| `StudyOllamaReplayInterface`       | interface | Answers an exact recorded prefix through the role-aware transport collaborator.                                                |
-| `StudyExchangeDestination`         | interface | Holds the parent-reserved destination of one trial's exchange sidecar.                                                         |
-| `StudyExchangeBytes`               | interface | Retains an application HTTP body's exact bytes independently of text decoding.                                                 |
-| `StudyExchangeIdentity`            | interface | Binds one HTTP exchange to its trial-local position and declared execution stage.                                              |
-| `StudyExchangeDeclaration`         | interface | Declares the complete trial procedure before any exchange attempt is appended.                                                 |
-| `StudyExchangeAttempt`             | interface | Retains admitted request bytes durably before the corresponding send begins.                                                   |
-| `StudyExchangeReply`               | interface | Retains response status, headers, and original application-body chunk lengths.                                                 |
-| `StudyExchangeResponse`            | interface | Retains a fully consumed response only after status and terminal validation succeed.                                           |
-| `StudyExchangeFailure`             | interface | Retains an attempted exchange's failure and any bounded response bytes already observed.                                       |
-| `StudyExchangeCompletion`          | interface | Closes a sidecar after the declared procedure and postflight have fully completed.                                             |
-| `StudyExchangeRow`                 | type      | Names every admitted row of the bounded per-trial exchange sidecar.                                                            |
-| `StudyRecordedExchange`            | interface | Holds a strictly verified successful request and response pair.                                                                |
-| `StudyExchangeHistory`             | interface | Binds complete ordered exchanges to a verified sealed sidecar and its declaration.                                             |
-| `StudyExchangeSinkInterface`       | interface | Owns serialized exchange appends under a reserved trial byte allowance.                                                        |
-| `StudyExchangeSinkOptions`         | interface | Supplies an exclusive sidecar descriptor and its parent-reserved byte allowance.                                               |
-| `StudyFreezeRequest`               | interface | Requests exclusive materialization and captured validation before publishing closure.json.                                     |
-| `StudyClosure`                     | interface | Publishes a validated closure with relocated command inputs and execution provenance.                                          |
-| `StudyTrialPreparationFunction`    | type      | Prepares one trial's external resources before its worker starts.                                                              |
-| `StudyProcessDriverOptions`        | interface | Supplies parent-only trial preparation separately from serializable worker options.                                            |
-| `StudyExchangeSink`                | class     | Retains ordered exchange rows under a parent-reserved serialized byte allowance.                                               |
-| `StudyOllamaReplay`                | class     | Answers declared HTTP prefixes from complete ordered recorded application bytes.                                               |
-| `isStudyRecord`                    | function  | Checks whether a recording declaration bounds every serialized sidecar byte.                                                   |
-| `isStudyExchangeBytes`             | function  | Checks whether encoded body bytes have their exact canonical base64 and SHA-256 identity.                                      |
-| `isStudyExchangeIdentity`          | function  | Checks whether an exchange carries an admissible ordered HTTP identity.                                                        |
-| `isStudyExchangeReply`             | function  | Checks whether a retained reply describes bounded successful application bytes and chunks.                                     |
-| `isStudyExchangeDeclaration`       | function  | Checks whether the opening row declares a finite ordered procedure and serving identities.                                     |
-| `isStudyExchangeRow`               | function  | Checks whether a sidecar row has exactly its declared fields and verified byte identities.                                     |
-| `isStudyExchangeHistory`           | function  | Checks whether a history has verified row shapes before its complete relational validation.                                    |
-| `buildStudyExchangeSequence`       | function  | Projects the declaration onto its complete ordered HTTP identity population.                                                   |
-| `projectStudyExchangeIdentity`     | function  | Projects only the repeated identity fields of a retained HTTP exchange.                                                        |
-| `validateStudyExchangeRequest`     | function  | Validates the exact declaration order and request bytes of an admitted exchange.                                               |
-| `validateStudyExchangeRows`        | function  | Validates a serialized journal prefix or its complete successful population.                                                   |
-| `readStudyExchangeRows`            | function  | Reads strict complete LF-framed exchange rows with verified bodies and declaration joins.                                      |
-| `validateStudyExchangeHistory`     | function  | Validates complete history envelopes again before a replay may perform dependent work.                                         |
-| `validateStudyExchangeEvidence`    | function  | Joins recorded exchanges to exactly one dispatch and wire evidence identity per ordinal.                                       |
-| `readStudyTrialExchanges`          | function  | Reads and joins a complete trial sidecar before or after sealing.                                                              |
-| `readStudyExchanges`               | function  | Reads a sealed trial's exact complete exchange history after reverifying its entire result.                                    |
-| `isStudyExchangeDestination`       | function  | Checks whether a worker destination has an absolute sidecar path and finite reservation.                                       |
-| `isStudyReplaySelection`           | function  | Checks whether replay explicitly selects a sealed directory and per-trial prefix counts.                                       |
-| `readStudyRecordingDeclaration`    | function  | Reads the executing profile's explicit recording declarations before a worker starts.                                          |
-| `readStudyPreparedDestination`     | function  | Validates parent preparation output without permitting a destination or allowance substitution.                                |
-| `readStudyReplayHistory`           | function  | Rechecks the sealed source and this trial's prefix under the executing profile declaration.                                    |
+| Name                                | Kind      | Summary                                                                                                                        |
+| ----------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `ARTIFACT_BYTES`                    | const     | Bounds all captured input bytes to 128 MiB.                                                                                    |
+| `ARTIFACT_ERROR_BRAND`              | const     | Marks artifact errors across module formats and installations.                                                                 |
+| `ARTIFACT_ERROR_CODES`              | const     | Lists the artifact refusal codes.                                                                                              |
+| `ARTIFACT_DEPTH`                    | const     | Bounds directory nesting below each selected root.                                                                             |
+| `ARTIFACT_FILES`                    | const     | Bounds admitted files before another capture is allocated.                                                                     |
+| `ARTIFACT_FILE_BYTES`               | const     | Bounds one captured input file to 16 MiB.                                                                                      |
+| `ARTIFACT_ROOTS`                    | const     | Bounds selected package roots before traversal begins.                                                                         |
+| `ARTIFACT_VISITS`                   | const     | Bounds all visited directory entries, including ignored assets.                                                                |
+| `ArtifactError`                     | class     | Reports an invalid or drifted artifact inventory.                                                                              |
+| `ArtifactFile`                      | interface | Records the exact bytes admitted at one absolute file path.                                                                    |
+| `ArtifactHookInput`                 | interface | Supplies the private namespace and separate source selection to resolution.                                                    |
+| `ArtifactInventory`                 | interface | Records all admitted module bytes, selections, and native runtime identity.                                                    |
+| `ArtifactLoadHandler`               | type      | Names Node's synchronous loading continuation.                                                                                 |
+| `ArtifactLoader`                    | class     | Captures built ESM and a separate strip-only consumer adapter in a fresh worker.                                               |
+| `ArtifactLoaderOptions`             | interface | Selects built packages and an optional separate consumer source graph.                                                         |
+| `ArtifactPackage`                   | interface | Records the identity declared by an admitted package manifest.                                                                 |
+| `ArtifactResolveHandler`            | type      | Names Node's synchronous resolution continuation.                                                                              |
+| `ArtifactRuntime`                   | interface | Binds native conditions and host-sensitive builtin behavior to the inventory.                                                  |
+| `ArtifactSource`                    | interface | Retains captured bytes for the native loader.                                                                                  |
+| `ArtifactSourceOptions`             | interface | Selects a consumer-owned executable source directory and its exact adapter entry.                                              |
+| `ArtifactTally`                     | interface | Counts the directory entries visited and the file bytes admitted so far in one capture.                                        |
+| `Resolution`                        | class     | Enforces captured inventory membership at every synchronous native import edge.                                                |
+| `STUDY_CAUSES`                      | const     | Lists every operational ending in report order.                                                                                |
+| `STUDY_COMMAND_DURATION`            | const     | Caps declared execution duration at the native supervisor's host ceiling.                                                      |
+| `STUDY_COMMAND_GRADER`              | const     | Names the trusted command's independent offline predicate.                                                                     |
+| `STUDY_COMMAND_HELP`                | const     | Defines the complete public CLI reference shared by help and grammar diagnostics.                                              |
+| `STUDY_COMMAND_OPERATION`           | const     | Names the command route beneath the native supervisor.                                                                         |
+| `STUDY_CUSTODY_BYTES`               | const     | Limits untrusted metadata before JSON parsing or file allocation.                                                              |
+| `STUDY_DRAIN_DURATION`              | const     | Bounds how long inherited output handles stay open after native exit, in milliseconds.                                         |
+| `STUDY_ERROR_BRAND`                 | const     | Keys the own self-identity every study error stamps on itself.                                                                 |
+| `STUDY_FRAME_BYTES`                 | const     | Limits each serialized IPC envelope, including its JSON framing.                                                               |
+| `STUDY_GOALS`                       | const     | Caps a declared scenario horizon before execution.                                                                             |
+| `STUDY_LAUNCH_BYTES`                | const     | Bounds combined supervised command output to 16 MiB before terminating the tree.                                               |
+| `STUDY_LAUNCH_CLEANUP`              | const     | Extends supervised execution beyond its declared series duration for cleanup.                                                  |
+| `STUDY_LAUNCH_DURATION`             | const     | Bounds each supervised operation other than execution to 60 seconds.                                                           |
+| `STUDY_LOG_BYTES`                   | const     | Limits combined worker stdout and stderr before termination.                                                                   |
+| `STUDY_NAME`                        | const     | Restricts identifiers to portable path-safe names.                                                                             |
+| `STUDY_PACKET_DISCLOSURE`           | const     | Discloses the limits of neutral identifiers when public text remains visible.                                                  |
+| `STUDY_PENDING_LIMIT`               | const     | Limits outstanding bidirectional protocol work per process.                                                                    |
+| `STUDY_PROCESS_LABEL`               | const     | Attributes an expired process handshake or cleanup deadline.                                                                   |
+| `STUDY_RESERVED_NAME`               | const     | Rejects names that Windows reserves even on other hosts.                                                                       |
+| `STUDY_ROLES`                       | const     | Lists every measured request role in report order.                                                                             |
+| `STUDY_TASK_DURATION`               | const     | Caps pure domain work independently of its event loop.                                                                         |
+| `STUDY_TASK_OPERATION`              | const     | Names the private bounded validation and grading route.                                                                        |
+| `STUDY_TRIALS`                      | const     | Caps a declared trial population before schedule allocation.                                                                   |
+| `STUDY_WORKER_OPERATION`            | const     | Names the worker operation routed by the built application entry.                                                              |
+| `StudyAdapterInterface`             | interface | Defines the consumer's domain checks, driver construction, and retained-evidence grading.                                      |
+| `StudyAdjudication`                 | interface | Holds retained observations and independent criteria for a grading operation.                                                  |
+| `StudyAdmissionInterface`           | interface | Admits requests against enclosing limits before an adapter dispatches them.                                                    |
+| `StudyAgentDispatch`                | interface | Holds the trial-local canonical dispatch identity a wire request joins to.                                                     |
+| `StudyAgentJudge`                   | class     | Latches a real judge's failure before an enclosing runtime can treat it as absent.                                             |
+| `StudyAgentObserver`                | class     | Reads each Agent request's size before delegating it unchanged to the real provider.                                           |
+| `StudyAgentObserverOptions`         | interface | Holds the observing provider's delegate, measurement seam and explicit policies.                                               |
+| `StudyAgentOriginHandler`           | type      | Joins each message of a measured request to its origin, one JSON entry per message in order.                                   |
+| `StudyAgentPlan`                    | interface | Holds one goal's scripted replies and the resources the provider charges and cancels through.                                  |
+| `StudyAgentReading`                 | interface | Holds one dispatched request's explicit size reading.                                                                          |
+| `StudyAgentRecordHandler`           | type      | Receives one reading and the exact pre-encoding request it measured.                                                           |
+| `StudyAgentResponse`                | interface | Declares one scripted reply.                                                                                                   |
+| `StudyAgentRole`                    | type      | Names the model responsibilities whose requests the trace and summary measure.                                                 |
+| `StudyAgentRuntime`                 | interface | Holds the admitted Agent namespace capabilities the shared instrumentation invokes.                                            |
+| `StudyAgentScript`                  | class     | Serves declared inert responses through the actual Agent provider boundary.                                                    |
+| `StudyAgentScriptOptions`           | interface | Holds the scripted provider's fixed byte bound; the admitted token count defaults to one.                                      |
+| `StudyAgentStage`                   | type      | Names where a measurement was taken.                                                                                           |
+| `StudyAgentStamp`                   | interface | Holds the ordinal and revision one measurement received.                                                                       |
+| `StudyAgentSummary`                 | class     | Folds a conversation through the real provider under an explicit gauge and prompt limit.                                       |
+| `StudyAgentSummaryOptions`          | interface | Holds the gauged summary's delegate, measurement seam, explicit limits and cancellation.                                       |
+| `StudyAgentTrace`                   | class     | Correlates measured Agent requests and retains their evidence across a trial's goals.                                          |
+| `StudyAgentTraceOptions`            | interface | Holds the trace's measuring runtime, failure owner and consumer origin join.                                                   |
+| `StudyArtifactIdentity`             | interface | Holds the separately bound instrument and selected module inventory identities.                                                |
+| `StudyArtifactLoader`               | class     | Binds consumer instrumentation separately from selected executable identities.                                                 |
+| `StudyArtifactLoaderOptions`        | interface | Holds the trusted instrument and caller-selected built artifact locations.                                                     |
+| `StudyArtifactModule`               | interface | Holds actual namespaces loaded only during worker execution.                                                                   |
+| `StudyAttempt`                      | interface | Holds a terminal trial record, including goals never dispatched.                                                               |
+| `StudyBounds`                       | interface | Holds nested execution allowances; each request also has a deadline.                                                           |
+| `StudyCLI`                          | class     | Dispatches private child routes before the public native supervisor.                                                           |
+| `StudyCause`                        | type      | Names an operational ending separately from task achievement.                                                                  |
+| `StudyChannel`                      | class     | Correlates bounded IPC work and rejects every outstanding request on transport failure.                                        |
+| `StudyChannelOptions`               | interface | Holds one native IPC endpoint and its domain handlers.                                                                         |
+| `StudyCharge`                       | interface | Holds a request's pre-dispatch upper bounds.                                                                                   |
+| `StudyCommand`                      | class     | Executes validated study operations with execution and grading custody kept independent.                                       |
+| `StudyCommandArtifact`              | interface | Holds one bounded source artifact retained during offline validation.                                                          |
+| `StudyCommandOptions`               | interface | Holds the trusted application entry and repository location.                                                                   |
+| `StudyCommandRequest`               | type      | Names the independently dispatched study command operation.                                                                    |
+| `StudyContext`                      | interface | Holds the resources visible to one running goal.                                                                               |
+| `StudyControl`                      | class     | Retains the first operational failure while bounding asynchronous waits.                                                       |
+| `StudyControlInterface`             | interface | Owns the first operational failure and cancellation of enclosing work.                                                         |
+| `StudyCriterion`                    | interface | Holds a grader-owned criterion outside the driver's public input.                                                              |
+| `StudyCustodyBudget`                | interface | Holds the evidence sink's shared admission budget.                                                                             |
+| `StudyCustodyPhase`                 | type      | Names the execution custody lifecycle without inferring seal completeness.                                                     |
+| `StudyCustodySinkInterface`         | interface | Closes evidence admission and drains already admitted appends.                                                                 |
+| `StudyDeadline`                     | class     | Bounds each independent operation with a fresh failure owner and deadline.                                                     |
+| `StudyDeadlineInterface`            | interface | Bounds one independent asynchronous operation under its own deadline.                                                          |
+| `StudyDeadlineOptions`              | interface | Supplies one bounded operation's finite deadline and diagnostic label.                                                         |
+| `StudyDefinition`                   | interface | Holds the frozen study question, population and explicit repetition orders.                                                    |
+| `StudyDriverInterface`              | interface | Creates isolated domain state through a concrete package consumer.                                                             |
+| `StudyDriverOptions`                | interface | Supplies admitted modules and an exclusive scratch parent without grader truth.                                                |
+| `StudyError`                        | class     | Reports a study contract or operational failure with a stable code.                                                            |
+| `StudyErrorCode`                    | type      | Names malformed configuration, evidence, custody and operational failures.                                                     |
+| `StudyEvidence`                     | interface | Holds append-only domain evidence in a JSON-compatible form.                                                                   |
+| `StudyEvidenceSink`                 | class     | Retains admitted evidence in order and closes admission before terminal records.                                               |
+| `StudyEvidenceSinkOptions`          | interface | Holds the owned evidence descriptor and byte admission constraints.                                                            |
+| `StudyExecutionRequest`             | interface | Holds a checked execution selection with optional output custody.                                                              |
+| `StudyFailure`                      | interface | Holds an attributable operational fault without awarding a task verdict.                                                       |
+| `StudyFile`                         | interface | Holds the exact byte identity of one execution file.                                                                           |
+| `StudyFrame`                        | interface | Holds a correlated JSON request, reply or cancellation notification.                                                           |
+| `StudyGoal`                         | interface | Holds a declared goal's public input without its grading truth.                                                                |
+| `StudyGradeFunction`                | type      | Reads one declared target against the consumer's domain predicate.                                                             |
+| `StudyGradeReading`                 | interface | Holds a consumer predicate's reading of one target, citing only retained files and rows.                                       |
+| `StudyGradeRequest`                 | interface | Holds an offline predicate grading request.                                                                                    |
+| `StudyGradeTarget`                  | interface | Holds one declared trial and criterion pair with its retained observations.                                                    |
+| `StudyGrading`                      | interface | Holds a grading identity that cannot replace or mutate execution bytes.                                                        |
+| `StudyGradingContext`               | interface | Holds artifacts already verified inside a selected immutable grading directory.                                                |
+| `StudyGradingStore`                 | class     | Retains immutable deterministic grading versions independently of execution bytes.                                             |
+| `StudyGradingStoreOptions`          | interface | Holds imported grading artifacts independently of execution.                                                                   |
+| `StudyIdentity`                     | interface | Holds byte identities that qualification and comparisons must agree on.                                                        |
+| `StudyInterruptedResult`            | interface | Holds inspected execution metadata that is never gradeable before sealing.                                                     |
+| `StudyJudgment`                     | interface | Holds an evidence-backed verdict; missing evidence stays unknown.                                                              |
+| `StudyLabelRequest`                 | interface | Holds an imported-label grading request.                                                                                       |
+| `StudyLabeling`                     | interface | Holds imported semantic judgments and their accountable origin.                                                                |
+| `StudyLatchInterface`               | interface | Retains the first operational failure of instrumented work and refuses work after it.                                          |
+| `StudyLaunchOptions`                | interface | Selects the native command entry and the caller's consumer root.                                                               |
+| `StudyLaunchResult`                 | interface | Retains the bounded command exit and captured output.                                                                          |
+| `StudyLauncher`                     | class     | Supervises finite command trees and binds offline check to execution.                                                          |
+| `StudyLimit`                        | interface | Holds finite allowances in milliseconds, calls, tokens and bytes.                                                              |
+| `StudyManifest`                     | interface | Holds the execution declaration sealed before any trial begins.                                                                |
+| `StudyMessageHandler`               | type      | Handles validated transport requests at their owning domain boundary.                                                          |
+| `StudyMeter`                        | class     | Admits request ceilings across every enclosing scope before dispatch.                                                          |
+| `StudyMeterInterface`               | interface | Owns request admission and the goal's terminal lifecycle.                                                                      |
+| `StudyMeterOptions`                 | interface | Supplies the request allowance and all enclosing admission scopes.                                                             |
+| `StudyObservation`                  | interface | Holds the retained outcome of a scheduled goal.                                                                                |
+| `StudyOllamaActivity`               | interface | Holds one active goal's accounting and attribution.                                                                            |
+| `StudyOllamaFetchFunction`          | type      | Sends one validated, admitted request under its Study role and returns the native response.                                    |
+| `StudyOllamaModel`                  | interface | Pins one served model identity the inventory verifies.                                                                         |
+| `StudyOllamaOptions`                | type      | Holds the Ollama provider options one role's declared policy determines.                                                       |
+| `StudyOllamaPolicy`                 | interface | Declares one model role's exact wire policy.                                                                                   |
+| `StudyOllamaRequest`                | interface | Holds validated wire dispatch facts without retaining payload text.                                                            |
+| `StudyOllamaRole`                   | type      | Names the model roles an Ollama study transport dispatches under a declared policy.                                            |
+| `StudyOllamaSnapshot`               | interface | Holds one outbound request's facts as owned at admission.                                                                      |
+| `StudyOllamaTerminal`               | interface | Holds a validated terminal's finish reason and actual usage, unknown when unreported.                                          |
+| `StudyOllamaTransport`              | class     | Admits and accounts Ollama wire requests under declared policies and latches failure.                                          |
+| `StudyOllamaTransportOptions`       | interface | Holds the Ollama study transport's immutable configuration.                                                                    |
+| `StudyOllamaWire`                   | interface | Tracks one owned HTTP response until its end or cancellation.                                                                  |
+| `StudyOperation`                    | type      | Names the bounded transport's domain operations.                                                                               |
+| `StudyPacketBundle`                 | interface | Holds exact neutral public packet bytes and private mapping bytes.                                                             |
+| `StudyPacketEntry`                  | interface | Holds one neutral semantic grading input without treatment or model identifiers.                                               |
+| `StudyPacketLink`                   | interface | Holds the neutral identity mapping to a sealed semantic trial-criterion pair.                                                  |
+| `StudyParentTicket`                 | interface | Holds an authoritative parent ticket and its transport listener lifetime.                                                      |
+| `StudyPreparation`                  | interface | Holds checked public declarations and reproducible executable identities.                                                      |
+| `StudyProcessDriver`                | class     | Opens one fresh native child for each scheduled trial.                                                                         |
+| `StudyProcessOptions`               | interface | Holds the parent-owned fresh trial process configuration.                                                                      |
+| `StudyProcessGoal`                  | class     | Holds one goal's parent context and the worker admission sequence it issues while the goal runs.                               |
+| `StudyProcessSession`               | class     | Keeps admission and evidence custody in the parent of one fresh trial process.                                                 |
+| `StudyProcessSessionOptions`        | interface | Holds one fresh child trial's launch parameters and cancellation.                                                              |
+| `StudyProduct`                      | interface | Holds observed output and partial completion, never self-awarded success.                                                      |
+| `StudyProfile`                      | interface | Holds execution settings independently of scenario and grading declarations.                                                   |
+| `StudyProvider`                     | interface | Holds caller-selected provider artifacts and model identities.                                                                 |
+| `StudyPurpose`                      | type      | Names the evidence a study can establish.                                                                                      |
+| `StudyReference`                    | interface | Cites a retained trial file, or one evidence row of it by its zero-based position.                                             |
+| `StudyReferenceFile`                | type      | Names a retained file of one trial that a judgment cites.                                                                      |
+| `StudyRemoteMeter`                  | class     | Waits for authoritative parent admission and drains acknowledged settlements.                                                  |
+| `StudyRemoteMeterInterface`         | interface | Owns transported admission, parent cancellation, and settlement drainage.                                                      |
+| `StudyRemoteMeterOptions`           | interface | Holds the worker meter's parent-authorized transport and failure latch.                                                        |
+| `StudyRemoteTicket`                 | class     | Transmits one settlement without inventing local admission authority.                                                          |
+| `StudyRemoteTicketOptions`          | interface | Holds one transported ticket's identity and settlement owner.                                                                  |
+| `StudyReportRequest`                | interface | Holds a selected immutable report request.                                                                                     |
+| `StudyRequest`                      | class     | Settles an admitted request once and propagates operational failure to its owner.                                              |
+| `StudyRequestOptions`               | interface | Supplies one admitted request with its shared failure owner and settlement sink.                                               |
+| `StudyResponse`                     | interface | Holds an outstanding bounded IPC response.                                                                                     |
+| `StudyResultReading`                | type      | Holds an offline execution reading discriminated by custody completeness.                                                      |
+| `StudyResultStore`                  | class     | Owns append-only execution bytes and seals only a complete terminal population.                                                |
+| `StudyResultStoreInterface`         | interface | Owns execution custody from exclusive creation through complete sealing.                                                       |
+| `StudyResultStoreOptions`           | interface | Holds the inert execution store configuration.                                                                                 |
+| `StudyRole`                         | type      | Names a request's measured responsibility.                                                                                     |
+| `StudyRoom`                         | interface | Holds the model context and generation allowance as separate measurements.                                                     |
+| `StudyRubric`                       | interface | Holds a versioned grading declaration independently of execution.                                                              |
+| `StudyScenario`                     | interface | Holds ordered goals sharing state within an isolated trial.                                                                    |
+| `StudyScope`                        | class     | Reserves finite request ceilings around cumulative actual budgets and one deadline.                                            |
+| `StudyScopeInterface`               | interface | Holds cumulative admission ceilings for one timed execution scope.                                                             |
+| `StudyScopeOptions`                 | interface | Supplies one deadline and its shared failure owner.                                                                            |
+| `StudyScore`                        | interface | Holds an arm's whole-horizon counts without hiding unresolved criteria.                                                        |
+| `StudySeal`                         | interface | Holds a complete execution inventory and its deterministic identity.                                                           |
+| `StudySealedResult`                 | interface | Holds independently verified sealed execution bytes.                                                                           |
+| `StudySeries`                       | class     | Executes a frozen serial study schedule with finite admission and sticky failures.                                             |
+| `StudySeriesOptions`                | interface | Holds the common engine's fixed execution inputs.                                                                              |
+| `StudySessionInterface`             | interface | Owns domain state across a trial and releases it before the next trial.                                                        |
+| `StudySettlementHandler`            | type      | Records the settlement of one admitted request.                                                                                |
+| `StudySinkInterface`                | interface | Holds an evidence sink whose implementation owns byte limits and custody.                                                      |
+| `StudyStoreInterface`               | interface | Appends terminal records without overwriting a prior attempt.                                                                  |
+| `StudyTask`                         | class     | Bounds adapter evaluation by an independent native parent timer.                                                               |
+| `StudyTaskOptions`                  | interface | Holds a bounded adapter-only native operation.                                                                                 |
+| `StudyTaskRequest`                  | type      | Carries only declarations or sealed evidence to an adapter child.                                                              |
+| `StudyTaskResult`                   | interface | Returns adapter output with the exact active instrumentation digest.                                                           |
+| `StudyTaskWorker`                   | class     | Evaluates only admitted instrumentation in a disposable native child.                                                          |
+| `StudyTicket`                       | interface | Holds one admitted request until its actual charge is recorded.                                                                |
+| `StudyTrial`                        | interface | Holds a scheduled trajectory, with a fresh state for each repetition and arm.                                                  |
+| `StudyTrialCustody`                 | interface | Holds the trial sink's admitted writes and terminal lifecycle.                                                                 |
+| `StudyUsage`                        | interface | Holds actual request measurements; absent token usage remains unknown.                                                         |
+| `StudyValidation`                   | interface | Holds declarations for domain validation before agent, subject or provider execution.                                          |
+| `StudyWorker`                       | class     | Executes one verified trial behind parent-authorized admission and custody.                                                    |
+| `buildStudyAgentDispatch`           | function  | Builds the evidence join of a wire request to its canonical dispatch.                                                          |
+| `buildStudyAgentParts`              | function  | Projects a request's structural components onto plain JSON without storing a total.                                            |
+| `readStudyAgentToolCall`            | function  | Reads an Agent tool call into a validated envelope from one read of each foreign field.                                        |
+| `buildStudyAgentToolResult`         | function  | Builds the JSON evidence form of an Agent tool call and its executed result.                                                   |
+| `buildStudyAgentToolDenial`         | function  | Builds the JSON evidence form of an Agent tool call the Agent denied before dispatch.                                          |
+| `buildStudyAgentReadings`           | function  | Builds the JSON evidence form of a Ledger result's logical classifier readings.                                                |
+| `buildStudyAgentRevision`           | function  | Builds a request revision by hashing its canonical rendering exactly as rendered.                                              |
+| `buildStudyOllamaModels`            | function  | Declares the pinned serving identities the Ollama transport verifies, keyed by the label their inventory evidence carries.     |
+| `buildStudyOllamaBytes`             | function  | Encodes exact application bytes with their decoded size and SHA-256 identity.                                                  |
+| `buildStudyOllamaOptions`           | function  | Builds the provider options one role's declared wire policy determines.                                                        |
+| `buildStudyOllamaRaw`               | function  | Builds a reading of the raw prompt text an encoded request body carries, as sent.                                              |
+| `buildStudyOllamaSnapshot`          | function  | Builds an owned snapshot of one outbound request before anything is awaited.                                                   |
+| `buildStudyOllamaTiming`            | function  | Builds the JSON evidence form of a timing observation with raw nanoseconds and counts.                                         |
+| `buildStudyOllamaTransportOptions`  | function  | Builds a frozen owned copy of transport configuration that later caller mutation cannot reach.                                 |
+| `buildStudyPacket`                  | function  | Builds deterministic public semantic inputs and a separately retained private map.                                             |
+| `buildStudyPacketLinks`             | function  | Builds neutral semantic identities for the complete eligible sealed horizon.                                                   |
+| `buildStudyReference`               | function  | Renders a citation of one retained trial file or evidence row.                                                                 |
+| `buildStudySchedule`                | function  | Builds a bounded schedule from explicit repetition rows and declared scenarios.                                                |
+| `checkStudyDirectory`               | function  | Refuses symbolic links and non-directory ancestors before custody operations.                                                  |
+| `collectStudyAncestors`             | function  | Collects a directory and each of its ancestors up to the filesystem root, nearest first.                                       |
+| `collectStudyEntries`               | function  | Collects the executable entries a profile selects, each canonical path once.                                                   |
+| `collectStudyEvidence`              | function  | Reads sealed evidence bytes through custody checks without loading executable code.                                            |
+| `computeStudyCommandFingerprint`    | function  | Computes the native supervisor's exact validated execution fingerprint.                                                        |
+| `computeStudyFixtureDigest`         | function  | Computes public fixture identity from execution policy and exact scenario bytes.                                               |
+| `computeStudyInstrumentDigest`      | function  | Computes the instrument identity binding trusted runtime bytes to the adapter inventory.                                       |
+| `computeStudyPacketDigest`          | function  | Computes a bundle identity binding exact public packet and private map bytes.                                                  |
+| `computeStudyPartition`             | function  | Partitions records by their explicit execution fact without inferring any.                                                     |
+| `computeStudyProfileDigest`         | function  | Binds the canonical fully resolved execution profile carried over IPC.                                                         |
+| `computeStudyReport`                | function  | Computes whole-horizon results with operational costs and repetitions kept distinct.                                           |
+| `computeStudyScores`                | function  | Computes arm intervals over the complete declared criterion horizon.                                                           |
+| `computeStudySealId`                | function  | Computes an execution seal identity from its exact sorted inventory.                                                           |
+| `containsArtifact`                  | function  | Checks strict lexical containment under a selected directory.                                                                  |
+| `createStudyProcessFailure`         | function  | Creates attributable protocol infrastructure failure.                                                                          |
+| `decodeStudyJSON`                   | function  | Decodes strict UTF-8 custody bytes and parses their JSON text.                                                                 |
+| `drainStudyChild`                   | function  | Releases inherited output handles a bounded time after native exit.                                                            |
+| `encodeStudyJSON`                   | function  | Encodes deterministic JSON bytes without synthesizing execution metadata.                                                      |
+| `failStudyTicket`                   | function  | Records an error thrown by admitted work as the failure of its ticket.                                                         |
+| `failureToStudyError`               | function  | Converts an operational reading to its throwable boundary.                                                                     |
+| `gradeStudyEvidence`                | function  | Grades every declared trial and criterion pair through the consumer's predicate.                                               |
+| `hashStudyBytes`                    | function  | Computes the lowercase SHA-256 identity of exact bytes or UTF-8 text.                                                          |
+| `isArtifactError`                   | function  | Narrows a caught value to an artifact refusal.                                                                                 |
+| `isStudyAdapter`                    | function  | Checks whether a factory returned the complete consumer adapter contract.                                                      |
+| `isStudyAgentResponse`              | function  | Checks whether a scripted response has JSON calls and workload controls.                                                       |
+| `isStudyAgentGauge`                 | function  | Checks whether a value is a gauge with a finite positive scale and a finite nonnegative overhead.                              |
+| `isStudyAgentRuntime`               | function  | Checks whether a namespace exposes the Agent capabilities the instrumentation invokes.                                         |
+| `isStudyBounds`                     | function  | Checks whether nested scopes admit no larger allowance than their parent.                                                      |
+| `isStudyCause`                      | const     | Checks whether a value names an operational ending.                                                                            |
+| `isStudyCharge`                     | function  | Checks a request's declared role and finite cost ceilings.                                                                     |
+| `isStudyCriterion`                  | function  | Checks whether a criterion declares exact grading inputs and references.                                                       |
+| `isStudyCustodyAttempt`             | function  | Checks whether an attempt terminally accounts for the exact scheduled goal horizon.                                            |
+| `isStudyCustodyEvidence`            | function  | Checks whether evidence is exact JSON with a declared event and goal name.                                                     |
+| `isStudyCustodyFailure`             | function  | Checks whether a failure carries exact attributable operational fields.                                                        |
+| `isStudyCustodyFile`                | function  | Checks whether an execution file inventory entry is path-safe and bounded.                                                     |
+| `isStudyCustodyManifest`            | function  | Checks whether a manifest exactly binds its declared population and identities.                                                |
+| `isStudyCustodyName`                | function  | Checks whether a trial name is portable on all supported hosts.                                                                |
+| `isStudyCustodyObservation`         | function  | Checks whether an observation preserves output or an explicit unexecuted failure.                                              |
+| `isStudyCustodySeal`                | function  | Checks whether a seal has an exact unique execution inventory.                                                                 |
+| `isStudyCustodyTrial`               | function  | Checks whether a scheduled trial has exact valid identity fields.                                                              |
+| `isStudyDefinition`                 | function  | Checks whether a study freezes a complete arm order for every repetition.                                                      |
+| `isStudyDigest`                     | function  | Checks whether a byte identity is a lowercase SHA-256 digest.                                                                  |
+| `isStudyError`                      | function  | Narrows a caught value to a branded study error with valid failure attribution.                                                |
+| `isStudyErrorCode`                  | function  | Checks whether a value names a supported study error code.                                                                     |
+| `isStudyEvidence`                   | function  | Checks append-only public evidence.                                                                                            |
+| `isStudyFrame`                      | function  | Checks the complete transport envelope before domain handling.                                                                 |
+| `isStudyGoal`                       | function  | Checks whether a goal has a bounded identifier and exact JSON input.                                                           |
+| `isStudyGrading`                    | function  | Checks whether grading binds accountable judgments to unique attempt identities.                                               |
+| `isStudyIdentity`                   | function  | Checks the exact digest fields carried by the execution declaration.                                                           |
+| `isStudyJudgment`                   | function  | Checks whether a judgment carries a supported verdict and evidence references.                                                 |
+| `isStudyLabeling`                   | function  | Checks whether imported semantic labels have accountable packet provenance.                                                    |
+| `isStudyLimit`                      | function  | Checks whether all allowances are positive safe integers within timer bounds.                                                  |
+| `isStudyName`                       | function  | Checks whether an identifier is portable and bounded.                                                                          |
+| `isStudyProcessFailure`             | function  | Checks operational failure attribution arriving over IPC.                                                                      |
+| `isStudyProduct`                    | function  | Checks a retained public product without awarding task achievement.                                                            |
+| `isStudyProfile`                    | function  | Checks whether a profile carries finite bounds and an optional explicit provider.                                              |
+| `isStudyProvider`                   | function  | Checks whether a provider declaration names artifacts, an HTTP origin and models.                                              |
+| `isStudyRole`                       | const     | Checks whether a value names a measured request role.                                                                          |
+| `isStudyRoom`                       | function  | Checks whether generation room leaves positive context for input.                                                              |
+| `isStudyRubric`                     | function  | Checks whether a rubric declares nonempty criteria with unique identities.                                                     |
+| `isStudyScenario`                   | function  | Checks whether a scenario declares a nonempty horizon with unique goal ids.                                                    |
+| `isStudyTimestamp`                  | function  | Checks whether a timestamp is a canonical UTC millisecond instant.                                                             |
+| `isStudyTrial`                      | function  | Checks a fresh trial's declared identifiers.                                                                                   |
+| `isStudyUsage`                      | function  | Checks whether request usage contains nonnegative safe measurements.                                                           |
+| `iterateArtifactEntries`            | function  | Iterates the remaining entries of an open directory handle lazily, in read order.                                              |
+| `matchesStudyKeys`                  | function  | Matches exact own enumerable data keys without evaluating accessors.                                                           |
+| `normalizeStudyProfile`             | function  | Omits every undefined optional declaration so the profile has one JSON form.                                                   |
+| `omitStudyAbsent`                   | function  | Copies the own entries of a record that hold a value, in their original order.                                                 |
+| `parseStudyArguments`               | function  | Parses public command tokens with operation-specific grammar diagnostics.                                                      |
+| `parseStudyDefinition`              | function  | Parses a definition into an independent frozen validated snapshot.                                                             |
+| `parseStudyGrading`                 | function  | Parses grading into an independent frozen validated evidence snapshot.                                                         |
+| `parseStudyLabeling`                | function  | Parses semantic labels into an independent frozen validated evidence snapshot.                                                 |
+| `parseStudyProfile`                 | function  | Parses a profile into an independent frozen validated snapshot.                                                                |
+| `parseStudyRubric`                  | function  | Parses a rubric into an independent frozen validated snapshot.                                                                 |
+| `parseStudyScenario`                | function  | Parses a scenario into an independent frozen validated snapshot.                                                               |
+| `projectStudyAgentRequest`          | function  | Prices a runtime estimate through an explicit gauge.                                                                           |
+| `readArtifact`                      | function  | Reads a bounded regular file only through its canonical absolute path.                                                         |
+| `readArtifactBytes`                 | function  | Fills a buffer from an open descriptor, one positioned read at a time.                                                         |
+| `readStudyAdapter`                  | function  | Reads a complete adapter from an admitted module namespace.                                                                    |
+| `readStudyAgentMessages`            | function  | Projects foreign provider messages onto the exact fields the workload reads.                                                   |
+| `readStudyAgentResult`              | function  | Drains a scripted provider stream into its assembled result.                                                                   |
+| `readStudyBytes`                    | function  | Reads bounded regular-file bytes without following a symbolic link.                                                            |
+| `readStudyFailure`                  | function  | Reads an operational error without inventing a task verdict.                                                                   |
+| `readStudyHandle`                   | function  | Reads from an open file handle into a buffer until the buffer is full or the file ends.                                        |
+| `readStudyOllamaDigest`             | function  | Reads the pinned serving digest of an admitted request's model.                                                                |
+| `readStudyOllamaFailure`            | function  | Reads a native Ollama error member as the attributable failure it names, without usage.                                        |
+| `readStudyOllamaRequest`            | function  | Reads exact outbound Ollama facts and refuses a request outside its declared policy.                                           |
+| `readStudyOllamaSupport`            | function  | Reads the declared model context ceiling without claiming daemon allocation.                                                   |
+| `readStudyOllamaTerminal`           | function  | Reads one Ollama response row without inventing absent usage.                                                                  |
+| `readStudyOllamaTiming`             | function  | Reads daemon timing from a terminal row without letting an observation fail the request.                                       |
+| `readStudyResult`                   | function  | Inspects custody bytes offline and verifies complete execution before grading.                                                 |
+| `resolveStudyAgentContent`          | function  | Resolves the content a scripted response serves, from its declaration or from a prior tool message.                            |
+| `resolveStudyInstrument`            | function  | Resolves the actual host package from its trusted executable entry.                                                            |
+| `resolveStudyPath`                  | function  | Resolves a portable relative artifact path strictly inside its selected directory.                                             |
+| `resolveStudyProfile`               | function  | Resolves the execution profile's caller-selected built artifact paths.                                                         |
+| `scanStudyExecution`                | function  | Scans regular execution files while refusing unknown directories and linked paths.                                             |
+| `scanStudyTree`                     | function  | Scans one execution directory and the subdirectories it admits, reading each admitted file under the series bytes that remain. |
+| `terminateStudyChild`               | function  | Terminates the recorded native process tree under a finite cleanup allowance.                                                  |
+| `translateStudyAgentError`          | function  | Translates only a nominal Agent window refusal into the attributable capacity failure.                                         |
+| `translateStudyPacketLabeling`      | function  | Translates bound neutral imported labels through the sealed semantic horizon.                                                  |
+| `validateStudyAgentUsage`           | function  | Checks that a successful provider call reported a usable actual prompt count.                                                  |
+| `validateStudyEvidenceBytes`        | function  | Validates complete evidence lines and per-goal encoded evidence bounds.                                                        |
+| `validateStudyInputs`               | function  | Validates grading coverage and request room against the declared study inputs.                                                 |
+| `validateStudyOllamaCompletion`     | function  | Checks terminal policy after the actual wire cost has been retained.                                                           |
+| `validateStudyOllamaInventory`      | function  | Verifies that each pinned name resolves to one inventory entry with its pinned digest.                                         |
+| `validateStudyOllamaRoles`          | function  | Validates declared role policies against the pinned inventory before any dispatch.                                             |
+| `validateStudyOllamaRecording`      | function  | Validates independent metadata bounds and the sink's optional recording declaration.                                           |
+| `validateStudyOllamaStep`           | function  | Admits one model request against its next exact or capture declaration.                                                        |
+| `isStudyOllamaMetadata`             | function  | Checks whether a value declares independent positive metadata allowances.                                                      |
+| `isStudyOllamaModel`                | function  | Checks whether a value pins a served model name and SHA-256 digest.                                                            |
+| `isStudyOllamaPolicy`               | function  | Checks whether a value declares a complete finite model-generation policy.                                                     |
+| `isStudyOllamaStep`                 | function  | Checks whether a value declares exclusive exact or capture admission with a valid receipt.                                     |
+| `validateStudyRuntime`              | function  | Refuses a profile that omits the actual host runtime's declared dependency bytes.                                              |
+| `valueToWire`                       | function  | Projects optional domain fields into the JSON wire representation.                                                             |
+| `writeStudyBytes`                   | function  | Writes an exclusive regular record and synchronizes it before reporting success.                                               |
+| `STUDY_LAYERS`                      | const     | Lists every ceiling a run can stop at in report order.                                                                         |
+| `StudyLayer`                        | type      | Names the ceiling that stopped a run.                                                                                          |
+| `StudyStop`                         | interface | Holds the ceiling that stopped a run and the readings it crossed.                                                              |
+| `StudyAttributionSource`            | interface | Holds one failed record the report groups by cause, role, and layer.                                                           |
+| `isStudyLayer`                      | const     | Checks whether a value names a ceiling a run can stop at.                                                                      |
+| `isStudyStop`                       | function  | Checks whether a value is the exact record of a ceiling that stopped a run.                                                    |
+| `studyStopToJSON`                   | function  | Projects a stop onto JSON with every unreported reading as null.                                                               |
+| `translateStudyAgentStop`           | function  | Translates an Agent run's stop record into the attributable capacity failure of the layer that stopped it.                     |
+| `computeStudyAttributions`          | function  | Groups failed records by cause, role, and layer, each group carrying its source readings.                                      |
+| `parseStudyReading`                 | function  | Parses a foreign reading into a number a stop can retain.                                                                      |
+| `computeStudyAdmittedStop`          | function  | Computes the stop of a request whose actual usage crossed the ceiling it was admitted under.                                   |
+| `computeStudyOutputStop`            | function  | Computes the stop of a product the output allowances cannot hold.                                                              |
+| `StudyDeclaration`                  | interface | Holds a parsed study declaration with its driver bundle, scenarios, scenario fixtures, and rubric.                             |
+| `readStudyDeclaration`              | function  | Reads a study declaration, its driver's scenarios, and its rubric as the command resolves them.                                |
+| `readStudyDeclarationBytes`         | function  | Reads one declaration file and refuses a missing or linked path with its root-relative path.                                   |
+| `readStudyVersion`                  | function  | Reads the version of the study package that owns an executable entry.                                                          |
+| `matchesSystemError`                | function  | Reports whether a caught value is a Node error carrying the given system code.                                                 |
+| `StudyDaemon`                       | interface | Pins an executable and the model population an execution owns until cleanup.                                                   |
+| `StudyDaemonModel`                  | interface | Pins one model the declared daemon verifies and unloads before each trial.                                                     |
+| `StudyRecord`                       | interface | Bounds serialized exchange bytes, execution calls and summed model time for each trial.                                        |
+| `ArtifactErrorCode`                 | type      | Names the refused boundary of a captured or materialized artifact graph.                                                       |
+| `ArtifactMember`                    | interface | Maps one admitted physical file to its exact bytes inside a materialized forest.                                               |
+| `ArtifactClosure`                   | interface | Binds a verified physical forest to its relocated selections and complete membership.                                          |
+| `ArtifactLoaderInterface`           | interface | Captures, verifies, loads, and materializes one admitted physical artifact graph.                                              |
+| `computeArtifactClosureDigest`      | function  | Computes a destination-independent digest of members and relative package identities.                                          |
+| `isArtifactClosure`                 | function  | Checks a bounded materialization record before any path is used.                                                               |
+| `isArtifactKey`                     | function  | Checks whether a key names portable, non-credential members within a closure.                                                  |
+| `isArtifactLoaderOptions`           | function  | Checks the bounded loader selections retained in a publication.                                                                |
+| `isArtifactMember`                  | function  | Checks the exact file identity and provenance of a closure member.                                                             |
+| `isStudyClosure`                    | function  | Checks a closure publication before using its command inputs.                                                                  |
+| `matchesArtifactCredential`         | function  | Checks whether a portable segment identifies credentials.                                                                      |
+| `readArtifactPhysical`              | function  | Checks every existing physical ancestor before using a canonical absolute path.                                                |
+| `readStudyClosure`                  | function  | Reads and independently verifies an exclusively published closure.                                                             |
+| `relocateArtifactPath`              | function  | Relocates an original path through a closure's retained physical forest.                                                       |
+| `resolveArtifactBase`               | function  | Finds the common physical parent that preserves every selected path's relative resolution.                                     |
+| `resolveArtifactMember`             | function  | Resolves a portable member key without traversing outside its destination.                                                     |
+| `resolveStudyClosurePath`           | function  | Resolves a profile path through a retained physical relocation when selected.                                                  |
+| `verifyArtifactClosure`             | function  | Verifies complete copied membership, path safety, exact bytes, and portable identity.                                          |
+| `StudyOllamaMetadata`               | interface | Bounds metadata calls, encoded bytes, and elapsed milliseconds outside model quotas.                                           |
+| `StudyOllamaStage`                  | type      | Names the ordered verification, model work, and daemon maintenance stages.                                                     |
+| `StudyOllamaStepIdentity`           | interface | Declares an ordered model request's goal, responsibility, route, and wire policy.                                              |
+| `StudyOllamaExactStep`              | interface | Declares an exact UTF-8 request body and its SHA-256 input receipt.                                                            |
+| `StudyOllamaCaptureStep`            | interface | Declares a captured request's positive safe byte length without predicting its content.                                        |
+| `StudyOllamaStep`                   | type      | Separates exact request admission from length-declared capture admission.                                                      |
+| `StudyOllamaReplaySelection`        | interface | Selects a sealed recording and an explicit replay prefix for every scheduled trial.                                            |
+| `StudyOllamaReplayOptions`          | interface | Configures exact recorded replies and optional live continuation after a declared prefix.                                      |
+| `StudyOllamaReplayInterface`        | interface | Answers an exact recorded prefix through the role-aware transport collaborator.                                                |
+| `StudyExchangeDestination`          | interface | Holds the parent-reserved destination of one trial's exchange sidecar.                                                         |
+| `StudyExchangeBytes`                | interface | Retains an application HTTP body's exact bytes independently of text decoding.                                                 |
+| `StudyExchangeIdentity`             | interface | Binds one HTTP exchange to its trial-local position and declared execution stage.                                              |
+| `StudyExchangeDeclaration`          | interface | Declares a bounded trial horizon and serving identities before any exchange attempt.                                           |
+| `StudyExchangeAttempt`              | interface | Retains admitted request bytes durably before the corresponding send begins.                                                   |
+| `StudyExchangeReply`                | interface | Retains response status, headers, and original application-body chunk lengths.                                                 |
+| `StudyExchangeResponse`             | interface | Retains a fully consumed response only after status and terminal validation succeed.                                           |
+| `StudyExchangeFailure`              | interface | Retains an attempted exchange's failure and any bounded response bytes already observed.                                       |
+| `StudyExchangeCompletion`           | interface | Closes a sidecar after execution and postflight have fully completed.                                                          |
+| `StudyExchangeRow`                  | type      | Names every admitted row of the bounded per-trial exchange sidecar.                                                            |
+| `StudyRecordedExchange`             | interface | Holds a strictly verified successful request and response pair.                                                                |
+| `StudyExchangeHistory`              | interface | Binds complete ordered exchanges to a verified sealed sidecar and its declaration.                                             |
+| `StudyExchangeSinkInterface`        | interface | Owns serialized exchange appends under a reserved trial byte allowance.                                                        |
+| `StudyExchangeSinkOptions`          | interface | Supplies an exclusive sidecar descriptor and its parent-reserved byte allowance.                                               |
+| `StudyFreezeRequest`                | interface | Requests exclusive materialization and captured validation before publishing closure.json.                                     |
+| `StudyClosure`                      | interface | Publishes a validated closure with relocated command inputs and execution provenance.                                          |
+| `StudyTrialPreparationFunction`     | type      | Prepares one trial's external resources before its worker starts.                                                              |
+| `StudyProcessDriverOptions`         | interface | Supplies parent-only trial preparation separately from serializable worker options.                                            |
+| `StudyExchangeSink`                 | class     | Retains ordered exchange rows under a parent-reserved serialized byte allowance.                                               |
+| `StudyOllamaReplay`                 | class     | Answers declared HTTP prefixes from complete ordered recorded application bytes.                                               |
+| `isStudyRecord`                     | function  | Checks whether recording bytes, calls and model milliseconds have positive safe bounds.                                        |
+| `isStudyExchangeBytes`              | function  | Checks whether encoded body bytes have their exact canonical base64 and SHA-256 identity.                                      |
+| `isStudyExchangeIdentity`           | function  | Checks whether an exchange carries an admissible ordered HTTP identity.                                                        |
+| `isStudyExchangeReply`              | function  | Checks whether a retained reply describes bounded successful application bytes and chunks.                                     |
+| `isStudyExchangeDeclaration`        | function  | Checks whether the opening row declares bounded execution, ordered goals and serving identities.                               |
+| `isStudyExchangeRow`                | function  | Checks whether a sidecar row has exactly its declared fields and verified byte identities.                                     |
+| `isStudyExchangeHistory`            | function  | Checks whether a history has verified row shapes before its complete relational validation.                                    |
+| `buildStudyExchangeSequence`        | function  | Projects fixed and declared HTTP identities around the retained execution population.                                          |
+| `projectStudyExchangeIdentity`      | function  | Projects only the repeated identity fields of a retained HTTP exchange.                                                        |
+| `validateStudyExchangeRequest`      | function  | Validates the exact declaration order and request bytes of an admitted exchange.                                               |
+| `validateStudyExchangeRows`         | function  | Validates a serialized journal prefix or its complete successful population.                                                   |
+| `readStudyExchangeRows`             | function  | Reads strict complete LF-framed exchange rows with verified bodies and declaration joins.                                      |
+| `validateStudyExchangeHistory`      | function  | Validates complete history envelopes again before a replay may perform dependent work.                                         |
+| `validateStudyExchangeEvidence`     | function  | Joins recorded exchanges to exactly one dispatch and wire evidence identity per ordinal.                                       |
+| `readStudyTrialExchanges`           | function  | Reads and joins a complete trial sidecar before or after sealing.                                                              |
+| `readStudyExchanges`                | function  | Reads a sealed trial's exact complete exchange history after reverifying its entire result.                                    |
+| `isStudyExchangeDestination`        | function  | Checks whether a worker destination has an absolute sidecar path and finite reservation.                                       |
+| `isStudyReplaySelection`            | function  | Checks whether replay explicitly selects a sealed directory and per-trial prefix counts.                                       |
+| `computeStudyConfigurationDigest`   | function  | Binds room, driver settings and daemon configuration independently of paths and resource ceilings.                             |
+| `validateStudyRecordingDeclaration` | function  | Checks the parent's declaration against the profile, trial and optional scenario held by a reader.                             |
+| `buildStudyExchangeDeclaration`     | function  | Builds the parent's single recording declaration from its profile, trial and scenario.                                         |
+| `readStudyPreparedDestination`      | function  | Validates parent preparation output without permitting a destination or allowance substitution.                                |
+| `readStudyReplayHistory`            | function  | Rechecks the sealed source and this trial's prefix under the executing profile declaration.                                    |
 
 | API                         | Kind      | Summary                                                                                     |
 | --------------------------- | --------- | ------------------------------------------------------------------------------------------- |
@@ -3076,6 +3082,9 @@ Supply validated declarations, retained bytes, or a selected sealed result as ea
 ```ts
 import { isStudyRecord } from '@orkestrel/study'
 import {
+	buildStudyExchangeDeclaration,
+	computeStudyConfigurationDigest,
+	validateStudyRecordingDeclaration,
 	buildStudyExchangeSequence,
 	isStudyExchangeBytes,
 	isStudyExchangeDeclaration,
@@ -3089,7 +3098,6 @@ import {
 	readStudyExchangeRows,
 	readStudyExchanges,
 	readStudyPreparedDestination,
-	readStudyRecordingDeclaration,
 	readStudyReplayHistory,
 	readStudyTrialExchanges,
 	validateStudyExchangeEvidence,
@@ -3100,6 +3108,14 @@ import {
 
 declare const isStudyRecordArguments: Parameters<typeof isStudyRecord>
 isStudyRecord(...isStudyRecordArguments)
+declare const computeStudyConfigurationDigestArguments: Parameters<
+	typeof computeStudyConfigurationDigest
+>
+computeStudyConfigurationDigest(...computeStudyConfigurationDigestArguments)
+declare const validateStudyRecordingDeclarationArguments: Parameters<
+	typeof validateStudyRecordingDeclaration
+>
+validateStudyRecordingDeclaration(...validateStudyRecordingDeclarationArguments)
 declare const buildStudyExchangeSequenceArguments: Parameters<typeof buildStudyExchangeSequence>
 buildStudyExchangeSequence(...buildStudyExchangeSequenceArguments)
 declare const isStudyExchangeBytesArguments: Parameters<typeof isStudyExchangeBytes>
@@ -3126,10 +3142,10 @@ declare const readStudyExchangesArguments: Parameters<typeof readStudyExchanges>
 readStudyExchanges(...readStudyExchangesArguments)
 declare const readStudyPreparedDestinationArguments: Parameters<typeof readStudyPreparedDestination>
 readStudyPreparedDestination(...readStudyPreparedDestinationArguments)
-declare const readStudyRecordingDeclarationArguments: Parameters<
-	typeof readStudyRecordingDeclaration
+declare const buildStudyExchangeDeclarationArguments: Parameters<
+	typeof buildStudyExchangeDeclaration
 >
-readStudyRecordingDeclaration(...readStudyRecordingDeclarationArguments)
+buildStudyExchangeDeclaration(...buildStudyExchangeDeclarationArguments)
 declare const readStudyReplayHistoryArguments: Parameters<typeof readStudyReplayHistory>
 readStudyReplayHistory(...readStudyReplayHistoryArguments)
 declare const readStudyTrialExchangesArguments: Parameters<typeof readStudyTrialExchanges>

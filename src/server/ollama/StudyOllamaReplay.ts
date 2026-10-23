@@ -53,7 +53,7 @@ export class StudyOllamaReplay implements StudyOllamaReplayInterface {
 		signal.throwIfAborted()
 		this.#options = { ...owned, signal, ...(fetch === undefined ? {} : { fetch }) }
 		this.#cursor = owned.history.declaration.maintenance.length
-		this.#procedure = owned.history.declaration.procedure.map((step) => {
+		this.#procedure = (owned.history.declaration.procedure ?? []).map((step) => {
 			const pair = owned.history.exchanges.find(
 				(entry) => entry.attempt.step === step.ordinal && entry.attempt.ordinal <= owned.prefix,
 			)

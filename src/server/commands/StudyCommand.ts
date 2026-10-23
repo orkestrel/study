@@ -32,6 +32,7 @@ import { StudyArtifactLoader } from '../processes/StudyArtifactLoader.js'
 import { StudyProcessDriver } from '../processes/StudyProcessDriver.js'
 import { StudyDaemonSession } from './StudyDaemonSession.js'
 import {
+	buildStudyExchangeDeclaration,
 	computeStudyInstrumentDigest,
 	computeStudyProfileDigest,
 	resolveStudyInstrument,
@@ -374,9 +375,20 @@ export class StudyCommand {
 						? undefined
 						: Object.fromEntries(
 								await Promise.all(
-									manifest.schedule.map(
-										async (trial) => [trial.id, await store.exchanges(trial)] as const,
-									),
+									manifest.schedule.map(async (trial) => {
+										const scenario = preparation.scenarios.find(
+											(entry) => entry.id === trial.scenario,
+										)
+										if (scenario === undefined)
+											throw new StudyError('CONFIG', 'Recording scenario is absent')
+										const declaration = buildStudyExchangeDeclaration(
+											preparation.profile,
+											trial,
+											scenario,
+											daemon !== undefined,
+										)
+										return [trial.id, await store.exchanges(trial, declaration)] as const
+									}),
 								),
 							)
 				const driver = new StudyProcessDriver({

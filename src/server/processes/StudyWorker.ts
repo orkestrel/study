@@ -19,7 +19,7 @@ import { STUDY_PROCESS_LABEL } from './constants.js'
 import {
 	computeStudyProfileDigest,
 	createStudyProcessFailure,
-	readStudyRecordingDeclaration,
+	validateStudyRecordingDeclaration,
 	readStudyReplayHistory,
 	valueToWire,
 } from './helpers.js'
@@ -141,9 +141,17 @@ export class StudyWorker {
 		this.#duration = value.profile.bounds.request.duration
 		if (value.closure !== undefined && !isStudyClosure(value.closure))
 			throw new StudyError('CONFIG', 'Worker closure selection is malformed')
+		const destination = isRecord(value.exchanges) ? value.exchanges[value.trial.id] : undefined
+		if (destination !== undefined) {
+			if (!isStudyExchangeDestination(destination))
+				throw new StudyError('CONFIG', 'Invalid worker exchange destination')
+			validateStudyRecordingDeclaration(destination.declaration, value.profile, value.trial)
+		}
 		if (value.replay !== undefined) {
 			if (!isStudyReplaySelection(value.replay) || value.profile.provider === undefined)
 				throw new StudyError('CONFIG', 'Worker replay selection is invalid')
+			if (!isStudyExchangeDestination(destination))
+				throw new StudyError('CONFIG', 'Replay requires a declaration')
 			const history = await readStudyReplayHistory(value.replay, value.profile, value.trial)
 			const prefix = value.replay.prefix[value.trial.id]
 			if (prefix === undefined) throw new StudyError('CONFIG', 'Worker replay prefix is absent')
@@ -151,25 +159,21 @@ export class StudyWorker {
 				history,
 				prefix,
 				url: value.profile.provider.url,
-				limit: readStudyRecordingDeclaration(value.profile, value.trial).metadata,
+				limit: destination.declaration.metadata,
 				signal: this.#control.signal,
 				...(value.replay.offline ? {} : { fetch: this.#forward.bind(this) }),
 			})
 		}
-		const destination = isRecord(value.exchanges) ? value.exchanges[value.trial.id] : undefined
 		if (value.profile.record === undefined && destination !== undefined)
 			throw new StudyError('CONFIG', 'Unrecorded worker received a sidecar')
 		if (value.profile.record !== undefined) {
-			if (
-				!isStudyExchangeDestination(destination) ||
-				destination.record.bytes !== value.profile.record.bytes
-			)
+			if (!isStudyExchangeDestination(destination))
 				throw new StudyError('CONFIG', 'Recorded worker has no matching reserved sidecar')
-			const declaration = readStudyRecordingDeclaration(value.profile, value.trial)
+			const declaration = destination.declaration
 			const retained =
 				destination.retained === undefined
 					? undefined
-					: await readStudyBytes(destination.path, destination.record.bytes)
+					: await readStudyBytes(destination.path, declaration.record.bytes)
 			if (
 				retained !== undefined &&
 				(hashStudyBytes(retained) !== destination.retained?.digest ||
@@ -192,10 +196,8 @@ export class StudyWorker {
 			)
 				throw new StudyError('CUSTODY', 'Retained prefix is not completed maintenance')
 			if (rows !== undefined && rows[0]?.phase === 'declaration') {
-				const { maintenance: _retainedMaintenance, ...opening } = rows[0]
-				const { maintenance: _maintenance, ...expected } = declaration
 				if (
-					canonicalStringify(opening) !== canonicalStringify(expected) ||
+					canonicalStringify(rows[0]) !== canonicalStringify(declaration) ||
 					rows.filter((row) => row.phase === 'response').length !== rows[0].maintenance.length
 				)
 					throw new StudyError(
@@ -207,18 +209,14 @@ export class StudyWorker {
 			try {
 				this.#exchanges = new StudyExchangeSink({
 					file,
-					record: destination.record,
+					record: declaration.record,
 					...(rows === undefined ? {} : { retained: rows }),
 				})
 			} catch (error) {
 				await file.close()
 				throw error
 			}
-			if (rows === undefined)
-				await this.#exchanges.append({
-					...declaration,
-					procedure: this.#replay?.procedure ?? declaration.procedure,
-				})
+			if (rows === undefined) await this.#exchanges.append(declaration)
 			else this.#maintenance = rows
 		}
 		this.#artifacts = new StudyArtifactLoader({

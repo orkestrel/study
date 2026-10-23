@@ -26,6 +26,54 @@ describe('execution-owned daemon staging', () => {
 	const library = createScratch({ parent: resolve('tmp/units') })
 	afterAll(() => library.destroy())
 
+	it('O1 joins open agent and summary maintenance to goals[0] and postflight to the last goal', async () => {
+		const subject = await buildStudyLibrary(
+			library,
+			resolve('src/server/ollama/StudyOllamaTransport.ts'),
+		)
+		const fixture = await createStudyDaemonFixture(subject, 'normal', true)
+		try {
+			const entry = await buildStudyCLI(fixture.scratch)
+			const command = new StudyCommand({ root: fixture.scratch.path, entry })
+			const output = join(fixture.scratch.path, 'open')
+			expect(
+				await command.execute(
+					['execute', 'assessment', '--out', output],
+					new AbortController().signal,
+				),
+			).toMatchObject({ status: 'completed' })
+			const result = await readStudyResult(output)
+			if (result.status !== 'sealed') throw new Error('Open daemon recording did not seal')
+			for (const trial of result.manifest.schedule) {
+				const history = await readStudyExchanges(result, trial.id)
+				expect(history.declaration.procedure).toBeUndefined()
+				expect(history.declaration.goals).toEqual(['write', 'recall'])
+				expect(
+					history.exchanges
+						.filter(({ attempt }) => attempt.stage === 'maintenance')
+						.map(({ attempt }) => attempt.goal),
+				).toEqual(['write', 'write'])
+				expect(
+					history.exchanges
+						.filter(({ attempt }) => attempt.stage === 'execution')
+						.map(({ attempt }) => [attempt.role, attempt.goal]),
+				).toEqual([
+					['agent', 'write'],
+					['summary', 'recall'],
+				])
+				expect(
+					history.exchanges
+						.filter(({ attempt }) => attempt.stage === 'postflight')
+						.map(({ attempt }) => attempt.goal),
+				).toEqual(['recall', 'recall', 'recall', 'recall'])
+			}
+			expect(isRunning(requireValue(readStudyPid(fixture.scratch, 'daemon.pid')))).toBe(false)
+			expect(isRunning(requireValue(readStudyPid(fixture.scratch, 'runner.pid')))).toBe(false)
+		} finally {
+			await fixture.close()
+		}
+	}, 60000)
+
 	it('loads an adapter importing the Study server face in a captured worker with daemon staging present', async () => {
 		const scratch = createScratch({ parent: resolve('tmp/units') })
 		try {

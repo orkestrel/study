@@ -457,18 +457,24 @@ export function isStudyProfile(value: unknown): value is StudyProfile {
 	})
 }
 
-/** Checks whether a recording declaration bounds every serialized sidecar byte.
+/** Checks whether recording bytes, calls and model milliseconds have positive safe bounds.
  * @param value - The candidate declaration.
- * @returns True if its byte allowance is a positive safe integer; false otherwise.
+ * @returns True if every allowance is a positive safe integer; false otherwise.
  */
 export function isStudyRecord(value: unknown): value is StudyRecord {
 	return holds(
 		() =>
 			isRecord(value) &&
-			matchesStudyKeys(value, ['bytes']) &&
+			matchesStudyKeys(value, ['bytes', 'calls', 'duration']) &&
 			typeof value.bytes === 'number' &&
 			Number.isSafeInteger(value.bytes) &&
-			value.bytes > 0,
+			value.bytes > 0 &&
+			typeof value.calls === 'number' &&
+			Number.isSafeInteger(value.calls) &&
+			value.calls > 0 &&
+			typeof value.duration === 'number' &&
+			Number.isSafeInteger(value.duration) &&
+			value.duration > 0,
 	)
 }
 

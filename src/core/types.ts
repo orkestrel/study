@@ -112,15 +112,21 @@ export interface StudyDaemonModel {
 	readonly digest: string
 }
 
-/** Bounds the serialized exchange sidecar retained for each scheduled trial.
+/** Bounds serialized exchange bytes, execution calls and summed model time for each trial.
  * @remarks
  * Bytes is a positive safe integer counting all UTF-8 JSONL bytes, including declarations,
  * base64 expansion, terminal records, and LF separators. Recording is independent of passive
  * observation. Sidecars have their own trial allowance and also consume series custody capacity;
  * they do not consume the goal evidence allowance or the model's request quota.
+ * Calls and duration are positive safe integers. Calls counts retained execution attempts;
+ * duration sums their send-to-settlement milliseconds, independently of elapsed scope limits.
  */
 export interface StudyRecord {
 	readonly bytes: number
+	/** Bounds every execution exchange retained, including a replayed prefix. */
+	readonly calls: number
+	/** Bounds summed execution send-to-settlement milliseconds independently of elapsed bounds. */
+	readonly duration: number
 }
 
 /** Holds execution settings independently of scenario and grading declarations. */

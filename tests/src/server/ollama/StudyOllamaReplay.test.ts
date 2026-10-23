@@ -69,7 +69,7 @@ describe('StudyOllamaReplay', () => {
 				admission: 'exact',
 				input: history.exchanges[3]?.attempt.digest,
 			})
-			expect(history.declaration.procedure[0]?.admission).toBe('capture')
+			expect(history.declaration.procedure?.[0]?.admission).toBe('capture')
 		} finally {
 			await replay.close()
 		}

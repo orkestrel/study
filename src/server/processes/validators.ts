@@ -7,12 +7,15 @@ import {
 	isStudyDigest,
 	isStudyName,
 	isStudyRole,
-	isStudyRecord,
 	isStudyStop,
 	matchesStudyKeys,
 } from '@src/core'
 import { isAbsolute, basename } from 'node:path'
-import { isStudyCustodyFile, isStudyCustodyName } from '../stores/validators.js'
+import {
+	isStudyCustodyFile,
+	isStudyCustodyName,
+	isStudyExchangeDeclaration,
+} from '../stores/validators.js'
 import { holds, isJSONValue, isRecord } from '@orkestrel/contract'
 
 /** Checks whether a worker destination has an absolute sidecar path and finite reservation.
@@ -23,11 +26,11 @@ export function isStudyExchangeDestination(value: unknown): value is StudyExchan
 	return holds(
 		() =>
 			isRecord(value) &&
-			matchesStudyKeys(value, ['path', 'record'], ['retained']) &&
+			matchesStudyKeys(value, ['path', 'declaration'], ['retained']) &&
 			typeof value.path === 'string' &&
 			isAbsolute(value.path) &&
 			basename(value.path) === 'exchanges.jsonl' &&
-			isStudyRecord(value.record) &&
+			isStudyExchangeDeclaration(value.declaration) &&
 			(value.retained === undefined || isStudyCustodyFile(value.retained)),
 	)
 }

@@ -33,6 +33,7 @@ import {
 	buildOllamaTransportOptions,
 	STUDY_OLLAMA_NATIVE_ERROR,
 	buildOllamaStep,
+	buildOllamaDeclaration,
 	OllamaExchangeRecorder,
 } from '../../../setupServer.js'
 
@@ -78,20 +79,23 @@ describe('recording declaration and byte helpers', () => {
 
 	it('requires a complete recording group and contiguous policies', () => {
 		expect(() => validateStudyOllamaRecording(options)).not.toThrow()
-		expect(() => validateStudyOllamaRecording({ ...options, version: 'fixture-version' })).toThrow(
-			expect.objectContaining({ code: 'CONFIG' }),
-		)
+		expect(() =>
+			validateStudyOllamaRecording({
+				...options,
+				exchanges: new OllamaExchangeRecorder({ ...buildOllamaDeclaration(), version: '' }),
+			}),
+		).toThrow(expect.objectContaining({ code: 'CONFIG' }))
 		const recorded = {
 			...options,
-			version: 'fixture-version',
-			procedure: [buildOllamaStep()],
 			exchanges: new OllamaExchangeRecorder(),
 		}
 		expect(() => validateStudyOllamaRecording(recorded)).not.toThrow()
 		expect(() =>
 			validateStudyOllamaRecording({
 				...recorded,
-				procedure: [buildOllamaStep('capture', undefined, 'agent', 2)],
+				exchanges: new OllamaExchangeRecorder(
+					buildOllamaDeclaration([buildOllamaStep('capture', undefined, 'agent', 2)]),
+				),
 			}),
 		).toThrow(expect.objectContaining({ code: 'CONFIG' }))
 	})

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { captureError, createRecorder, requireValue } from '@orkestrel/test'
+import { createScratch } from '@orkestrel/test/server'
+import { open } from 'node:fs/promises'
+import { join } from 'node:path'
+import { StudyExchangeSink } from '../../../../src/server/stores/StudyExchangeSink.js'
 import {
 	buildStudyOllamaTransportOptions,
 	buildStudyOllamaSnapshot,
@@ -7,8 +11,8 @@ import {
 import { STUDY_OLLAMA_ORIGIN } from '../../../setupStudy.js'
 import {
 	buildOllamaStep,
+	buildOllamaDeclaration,
 	buildOllamaTransportOptions,
-	OllamaExchangeRecorder,
 } from '../../../setupServer.js'
 
 const options = buildOllamaTransportOptions(STUDY_OLLAMA_ORIGIN)
@@ -16,36 +20,48 @@ const agentPolicy = requireValue(options.roles.agent)
 const chat = `${STUDY_OLLAMA_ORIGIN}/api/chat`
 
 describe('buildStudyOllamaTransportOptions', () => {
-	it('owns every recording declaration once and retains only the sink live identity', () => {
-		const reads = createRecorder<[]>()
-		const step = buildOllamaStep('exact')
-		const policy = step.policy
-		Object.defineProperty(step, 'policy', {
-			enumerable: true,
-			get: () => {
-				reads.handler()
-				return policy
-			},
+	it('owns every recording declaration once and retains only the sink live identity', async () => {
+		const scratch = createScratch()
+		const declaration = buildOllamaDeclaration()
+		const sink = new StudyExchangeSink({
+			file: await open(join(scratch.path, 'exchanges.jsonl'), 'wx'),
+			record: declaration.record,
 		})
-		const caller = buildOllamaTransportOptions(STUDY_OLLAMA_ORIGIN, {
-			version: 'fixture-version',
-			procedure: [step],
-			exchanges: new OllamaExchangeRecorder(),
-		})
-		const owned = buildStudyOllamaTransportOptions(caller)
-		expect(reads.calls).toEqual([[]])
-		Reflect.set(step, 'body', 'changed')
-		Reflect.set(policy.options, 'seed', 2)
-		Reflect.set(caller.metadata, 'calls', 1)
-		expect(owned.metadata.calls).toBe(32)
-		expect(owned.procedure?.[0]?.policy.options.seed).toBe(0)
-		expect(owned.procedure?.[0]).toMatchObject({
-			admission: 'exact',
-			body: expect.stringContaining('model'),
-		})
-		expect(owned.exchanges).toBe(caller.exchanges)
-		expect(Object.isFrozen(owned.procedure)).toBe(true)
-		expect(Object.isFrozen(owned.procedure?.[0]?.policy.options)).toBe(true)
+		try {
+			const reads = createRecorder<[]>()
+			const step = buildOllamaStep('exact')
+			const policy = step.policy
+			Object.defineProperty(step, 'policy', {
+				enumerable: true,
+				get: () => {
+					reads.handler()
+					return policy
+				},
+			})
+			const caller = buildOllamaTransportOptions(STUDY_OLLAMA_ORIGIN, {
+				exchanges: sink,
+			})
+			await sink.append({ ...declaration, procedure: [step] })
+			const owned = buildStudyOllamaTransportOptions(caller)
+			expect(reads.calls).toEqual([[]])
+			Reflect.set(step, 'body', 'changed')
+			Reflect.set(policy.options, 'seed', 2)
+			Reflect.set(caller.metadata, 'calls', 1)
+			expect(owned.metadata.calls).toBe(32)
+			expect(owned.exchanges?.declaration?.procedure?.[0]?.policy.options.seed).toBe(0)
+			expect(owned.exchanges?.declaration?.procedure?.[0]).toMatchObject({
+				admission: 'exact',
+				body: expect.stringContaining('model'),
+			})
+			expect(owned.exchanges).toBe(caller.exchanges)
+			expect(Object.isFrozen(owned.exchanges?.declaration?.procedure)).toBe(true)
+			expect(Object.isFrozen(owned.exchanges?.declaration?.procedure?.[0]?.policy.options)).toBe(
+				true,
+			)
+		} finally {
+			await sink.close()
+			scratch.destroy()
+		}
 	})
 	it('reads the collaborator once and retains its callable identity without freezing it', () => {
 		const reads = createRecorder<[]>()

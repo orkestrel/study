@@ -35,22 +35,26 @@ export interface StudyResultStoreInterface extends StudyStoreInterface {
 	seal(): Promise<StudySeal>
 	/** Reserves a declared trial's sidecar allowance and returns its exclusive write destination.
 	 * @param trial - A scheduled trial whose recording declaration is present.
+	 * @param declaration - The parent's single opening row for this scenario and execution.
 	 * @returns The destination after reserving its complete allowance from series custody.
 	 */
-	exchanges(trial: StudyTrial): Promise<StudyExchangeDestination>
+	exchanges(
+		trial: StudyTrial,
+		declaration: StudyExchangeDeclaration,
+	): Promise<StudyExchangeDestination>
 }
 
 /** Holds the parent-reserved destination of one trial's exchange sidecar.
  * @remarks
  * Path is absolute and ends in execution/trials/<trial>/exchanges.jsonl. The parent reserves
- * record.bytes against series custody before the worker starts. Without retained, the worker
+ * declaration.record.bytes against series custody before the worker starts. Without retained, the worker
  * opens the absent file exclusively. With retained, staging has closed a declaration and
  * maintenance prefix; the worker verifies that file identity and resumes appending after it.
  * Only file identities and declarations cross IPC, never a sidecar's recorded bodies.
  */
 export interface StudyExchangeDestination {
 	readonly path: string
-	readonly record: StudyRecord
+	readonly declaration: StudyExchangeDeclaration
 	readonly retained?: StudyFile
 }
 
@@ -85,10 +89,10 @@ export interface StudyExchangeIdentity {
 	readonly step?: number
 }
 
-/** Declares the complete trial procedure before any exchange attempt is appended.
+/** Declares a bounded trial horizon and serving identities before any exchange attempt.
  * @remarks
  * This is the first sidecar row. Version and models pin both verification passes. Procedure
- * contains every model step in order. Metadata declares an independent budget. Maintenance
+ * optionally contains every model step in order; absence selects open recording. Metadata declares an independent budget. Maintenance
  * declares each model to unload before preflight; it is empty when no daemon is owned.
  * Preflight and postflight each require version, tags, and one show per distinct model, in
  * that order. No model attempt precedes preflight or follows postflight.
@@ -99,7 +103,14 @@ export interface StudyExchangeDeclaration {
 	readonly version: string
 	readonly models: Readonly<Record<string, StudyOllamaModel>>
 	readonly metadata: StudyOllamaMetadata
-	readonly procedure: readonly StudyOllamaStep[]
+	/** Bounds the sidecar bytes, execution calls, and summed model time. */
+	readonly record: StudyRecord
+	/** Lists the scenario's complete ordered goal horizon. */
+	readonly goals: readonly string[]
+	/** Binds canonical room, settings, and daemon configuration apart from its executable path. */
+	readonly configuration: string
+	/** Declares exact or capture steps; absence admits an open execution sequence. */
+	readonly procedure?: readonly StudyOllamaStep[]
 	readonly maintenance: readonly StudyOllamaModel[]
 }
 
@@ -138,7 +149,7 @@ export interface StudyExchangeFailure extends StudyExchangeIdentity {
 	readonly response?: StudyExchangeReply
 }
 
-/** Closes a sidecar after the declared procedure and postflight have fully completed.
+/** Closes a sidecar after execution and postflight have fully completed.
  * @remarks
  * Count equals the complete HTTP exchange population. This final row is forbidden after a
  * failed attempt, while a request or append is pending, or before all declared steps and both
@@ -187,6 +198,8 @@ export interface StudyExchangeHistory {
  * The first custody refusal remains latched and prevents completion even if the caller catches it.
  */
 export interface StudyExchangeSinkInterface {
+	/** Holds the accepted opening row; undefined before the declaration is appended. */
+	readonly declaration: StudyExchangeDeclaration | undefined
 	/** Holds the next contiguous one-based HTTP ordinal, derived from every accepted row, including a retained prefix. */
 	readonly next: number
 	/** Appends one validated row after reserving its complete serialized size.

@@ -3,7 +3,7 @@ import type { StudyOllamaFetchFunction } from '../../../../src/server/ollama/typ
 import { STUDY_STOP_SWITCHES } from '../../../setupStudy.js'
 import { createForeignBudgetError, createBudgetLookalike } from '../../../setupServer.js'
 import { describe, expect, it } from 'vitest'
-import { parseJSON } from '@orkestrel/contract'
+import { parseJSON, isRecord } from '@orkestrel/contract'
 import { createScratch } from '@orkestrel/test/server'
 import { open, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -36,6 +36,8 @@ import {
 	STUDY_OLLAMA_BYTE_FAILURES,
 	STUDY_OLLAMA_METADATA_REQUESTS,
 	STUDY_OLLAMA_CHARGED_FAILURES,
+	STUDY_OPEN_ADMISSION_CASES,
+	STUDY_OPEN_OVERLAPS,
 	buildOllamaRow,
 	buildOllamaStream,
 	createOllamaJudgeFixture,
@@ -54,7 +56,9 @@ import {
 	createOllamaTransportFixture,
 	createOllamaTransportProvider,
 	buildOllamaStep,
+	buildOllamaDeclaration,
 	createOllamaRecordingFixture,
+	createOpenOllamaRecordingFixture,
 	OllamaExchangeRecorder,
 	buildOllamaRoleBodies,
 } from '../../../setupServer.js'
@@ -62,13 +66,393 @@ import {
 const encoder = new TextEncoder()
 
 describe('StudyOllamaTransport', () => {
+	describe('open recording admission', () => {
+		it('reads the sink declaration once before retaining its independent configuration', async () => {
+			const sink = new OllamaExchangeRecorder()
+			const reads = createRecorder<[]>()
+			const declaration = sink.declaration
+			Object.defineProperty(sink, 'declaration', {
+				get: () => {
+					reads.handler()
+					return declaration
+				},
+			})
+			const transport = new StudyOllamaTransport(
+				buildOllamaTransportOptions('http://127.0.0.1:1', { exchanges: sink }),
+			)
+			try {
+				expect(reads.calls).toEqual([[]])
+			} finally {
+				await transport.close()
+			}
+		})
+
+		it.each(STUDY_OPEN_OVERLAPS)(
+			'O2 refuses overlapping %s before any model POST',
+			async (overlap) => {
+				const fixture = await createOpenOllamaRecordingFixture()
+				const entered = createRecorder<[]>()
+				const release = new AbortController()
+				try {
+					await fixture.transport.verify()
+					fixture.transport.clear()
+					fixture.transport.prepare({
+						goal: 'first',
+						checkpoint: undefined,
+						context: {
+							...fixture.goal.context,
+							meter: {
+								signal: fixture.goal.context.meter.signal,
+								get usage() {
+									return fixture.goal.context.meter.usage
+								},
+								admit: async (charge) => {
+									entered.handler()
+									await waitForAbort(release.signal)
+									return fixture.goal.context.meter.admit(charge)
+								},
+							},
+						},
+					})
+					const first = fixture.transport
+						.fetch('agent', `${fixture.server.url}/api/chat`, {
+							method: 'POST',
+							body: STUDY_OLLAMA_CHAT_BODY,
+						})
+						.then(
+							() => undefined,
+							(error: unknown) => error,
+						)
+					await waitForCondition('open admission entered', () => entered.count === 1)
+					await expect(
+						overlap === 'request'
+							? fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+									method: 'POST',
+									body: STUDY_OLLAMA_CHAT_BODY,
+								})
+							: fixture.transport.verify(),
+					).rejects.toMatchObject({ code: 'FAULT' })
+					release.abort()
+					expect(await first).toMatchObject({ code: 'FAULT' })
+					expect(fixture.server.requests.some((row) => row.path === '/api/chat')).toBe(false)
+					expect(
+						fixture.rows.some((row) => row.phase === 'attempt' && row.stage === 'execution'),
+					).toBe(false)
+				} finally {
+					release.abort()
+					await fixture.close()
+				}
+			},
+		)
+
+		it.each(STUDY_OLLAMA_METADATA_FAILURES)(
+			'O2 refuses $name under open metadata bounds with no model POST',
+			async ({ reply, metadata }) => {
+				const fixture = await createOpenOllamaRecordingFixture(
+					[reply],
+					metadata === undefined ? {} : { metadata },
+				)
+				try {
+					await expect(fixture.transport.verify()).rejects.toBeDefined()
+					expect(captureError(() => fixture.transport.check())).toBeDefined()
+					expect(fixture.goal.usage()).toEqual([])
+					expect(
+						fixture.server.requests.some(
+							(row) => row.path === '/api/chat' || row.path === '/api/generate',
+						),
+					).toBe(false)
+					expect(fixture.rows.some((row) => row.phase === 'complete')).toBe(false)
+				} finally {
+					await fixture.close()
+				}
+			},
+		)
+
+		it('O2 reserves open attempt and failure bytes before append or model POST', async () => {
+			const scratch = createScratch()
+			const path = join(scratch.path, 'exchanges.jsonl')
+			const record = { bytes: 8192, calls: 8, duration: 15000 }
+			const sink = new StudyExchangeSink({ file: await open(path, 'wx'), record })
+			const { procedure: _procedure, ...declaration } = buildOllamaDeclaration()
+			try {
+				await sink.append({ ...declaration, record })
+				const fixture = await createOpenOllamaRecordingFixture([], { exchanges: sink })
+				try {
+					await fixture.transport.verify()
+					const before = await readFile(path)
+					await expect(
+						fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+							method: 'POST',
+							body: `${STUDY_OLLAMA_CHAT_BODY.slice(0, -1)},"prompt":"${'x'.repeat(12000)}"}`,
+						}),
+					).rejects.toMatchObject({ code: 'CAPACITY' })
+					expect(await readFile(path)).toEqual(before)
+					expect(fixture.server.requests.some((row) => row.path === '/api/chat')).toBe(false)
+					expect(fixture.goal.usage()).toEqual([
+						expect.objectContaining({ calls: 1, tokens: undefined }),
+					])
+					expect(readStudyExchangeRows(before, false).some((row) => row.phase === 'complete')).toBe(
+						false,
+					)
+				} finally {
+					await fixture.close()
+				}
+			} finally {
+				await sink.close().catch(() => undefined)
+				scratch.destroy()
+			}
+		})
+
+		it.each(STUDY_OPEN_ADMISSION_CASES)(
+			'O2 refuses %s with no model POST for the refused request',
+			async (scenario) => {
+				const strict = scenario === 'truncate' || scenario === 'shift'
+				const fixture = await createOpenOllamaRecordingFixture(
+					[],
+					strict ? { roles: buildOllamaStrictRoles() } : {},
+					{
+						goals:
+							scenario === 'preflight-goal'
+								? ['earlier', 'first']
+								: scenario === 'backward-goal' || scenario === 'postflight-goal'
+									? ['first', 'second']
+									: ['first'],
+					},
+				)
+				try {
+					if (scenario !== 'before-preflight' && scenario !== 'preflight-goal')
+						await fixture.transport.verify()
+					if (scenario === 'after-postflight') await fixture.transport.verify()
+					if (scenario === 'outside-goal' || scenario === 'backward-goal') {
+						fixture.transport.clear()
+						fixture.transport.prepare({
+							goal: scenario === 'outside-goal' ? 'absent' : 'second',
+							context: fixture.goal.context,
+							checkpoint: undefined,
+						})
+					}
+					if (scenario === 'backward-goal') {
+						await (
+							await fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+								method: 'POST',
+								body: STUDY_OLLAMA_CHAT_BODY,
+							})
+						).text()
+						fixture.transport.clear()
+						fixture.transport.prepare({
+							goal: 'first',
+							context: fixture.goal.context,
+							checkpoint: undefined,
+						})
+					}
+					const baseline = fixture.server.requests.filter(
+						(row) => row.path === '/api/chat' || row.path === '/api/generate',
+					).length
+					const attempts = fixture.rows.filter((row) => row.phase === 'attempt').length
+					const judge = scenario === 'raw' || scenario === 'logprobs'
+					const original = requireStudyRecord(
+						parseJSON(
+							judge
+								? requireValue(buildOllamaRoleBodies().find(([role]) => role === 'judge'))[1]
+								: STUDY_OLLAMA_CHAT_BODY,
+						),
+					)
+					const body = JSON.stringify({
+						...original,
+						...(strict
+							? {
+									truncate: scenario === 'truncate',
+									shift: scenario === 'shift',
+								}
+							: {}),
+						...(scenario === 'model' ? { model: 'other' } : {}),
+						...(scenario === 'options' ? { options: { ...STUDY_OLLAMA_OPTIONS, seed: 1 } } : {}),
+						...(scenario === 'stream' ? { stream: false } : {}),
+						...(scenario === 'think' ? { think: true } : {}),
+						...(scenario === 'raw' ? { raw: false } : {}),
+						...(scenario === 'logprobs' ? { logprobs: false } : {}),
+					})
+					const role =
+						scenario === 'role'
+							? 'tool'
+							: scenario === 'metadata-pass'
+								? 'metadata'
+								: judge
+									? 'judge'
+									: 'agent'
+					const path =
+						scenario === 'path' || judge
+							? '/api/generate'
+							: scenario === 'metadata-pass'
+								? '/api/tags'
+								: '/api/chat'
+					const url = `${scenario === 'origin' ? 'http://127.0.0.1:1' : fixture.server.url}${path}${scenario === 'query' ? '?extra=1' : ''}`
+					const error = await (
+						scenario === 'postflight-goal' || scenario === 'preflight-goal'
+							? fixture.transport.verify()
+							: fixture.transport.fetch(
+									role,
+									url,
+									scenario === 'metadata-pass'
+										? { method: 'GET' }
+										: { method: scenario === 'method' ? 'GET' : 'POST', body },
+								)
+					).then(
+						() => undefined,
+						(failure: unknown) => failure,
+					)
+					expect(error).toBeDefined()
+					expect(captureError(() => fixture.transport.check())).toBe(error)
+					expect(
+						fixture.server.requests.filter(
+							(row) => row.path === '/api/chat' || row.path === '/api/generate',
+						),
+					).toHaveLength(baseline)
+					expect(fixture.rows.filter((row) => row.phase === 'attempt')).toHaveLength(attempts)
+					expect(fixture.rows.some((row) => row.phase === 'complete')).toBe(
+						scenario === 'after-postflight',
+					)
+				} finally {
+					await fixture.close()
+				}
+			},
+		)
+
+		it('O2 refuses exhausted model time before another append or model POST after settlement stalls', async () => {
+			const fixture = await createOpenOllamaRecordingFixture(
+				[],
+				{},
+				{ record: { bytes: 32768, calls: 8, duration: 20 } },
+			)
+			try {
+				fixture.transport.clear()
+				fixture.transport.prepare({
+					goal: 'first',
+					checkpoint: undefined,
+					context: {
+						...fixture.goal.context,
+						evidence: {
+							append: async (row) => {
+								if (row.event === 'wire' && isRecord(row.value) && row.value.role === 'agent')
+									Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 40)
+								await fixture.goal.context.evidence.append(row)
+							},
+						},
+					},
+				})
+				await fixture.transport.verify()
+				await (
+					await fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+						method: 'POST',
+						body: STUDY_OLLAMA_CHAT_BODY,
+					})
+				).text()
+				const before = fixture.rows.length
+				await expect(
+					fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+						method: 'POST',
+						body: STUDY_OLLAMA_CHAT_BODY,
+					}),
+				).rejects.toMatchObject({
+					code: 'DEADLINE',
+					failure: { stop: { layer: 'scope', id: 'Recording duration' } },
+				})
+				expect(fixture.rows).toHaveLength(before)
+				expect(fixture.server.requests.filter((row) => row.path === '/api/chat')).toHaveLength(1)
+				expect(fixture.goal.usage()).toHaveLength(1)
+				expect(fixture.rows.some((row) => row.phase === 'complete')).toBe(false)
+			} finally {
+				await fixture.close()
+			}
+		})
+
+		it('O3 refuses the execution past record.calls before append while retaining prior charges', async () => {
+			const fixture = await createOpenOllamaRecordingFixture(
+				[],
+				{},
+				{ record: { bytes: 32768, calls: 1, duration: 15000 } },
+			)
+			try {
+				await fixture.transport.verify()
+				await (
+					await fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+						method: 'POST',
+						body: STUDY_OLLAMA_CHAT_BODY,
+					})
+				).text()
+				const before = fixture.rows.length
+				const error = await fixture.transport
+					.fetch('agent', `${fixture.server.url}/api/chat`, {
+						method: 'POST',
+						body: STUDY_OLLAMA_CHAT_BODY,
+					})
+					.then(
+						() => undefined,
+						(failure: unknown) => failure,
+					)
+				expect(error).toMatchObject({
+					code: 'CAPACITY',
+					failure: { stop: { layer: 'scope', id: 'Recording calls', max: 1, consumed: 2 } },
+				})
+				expect(captureError(() => fixture.transport.check())).toBe(error)
+				expect(fixture.rows).toHaveLength(before)
+				expect(fixture.server.requests.filter((row) => row.path === '/api/chat')).toHaveLength(1)
+				expect(fixture.goal.usage()).toEqual([expect.objectContaining({ role: 'agent', calls: 1 })])
+				expect(fixture.rows.some((row) => row.phase === 'complete')).toBe(false)
+			} finally {
+				await fixture.close()
+			}
+		})
+
+		it('O4 aborts a partial slow reply at record.duration with an attributed failure and retained charges', async () => {
+			const fixture = await createOpenOllamaRecordingFixture(
+				[{ path: '/api/chat', body: STUDY_OLLAMA_PARTIAL_ROW, open: true }],
+				{},
+				{ record: { bytes: 32768, calls: 8, duration: 80 } },
+			)
+			try {
+				await fixture.transport.verify()
+				const response = await fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+					method: 'POST',
+					body: STUDY_OLLAMA_CHAT_BODY,
+				})
+				const error = await response.text().then(
+					() => undefined,
+					(failure: unknown) => failure,
+				)
+				expect(error).toMatchObject({
+					code: 'DEADLINE',
+					failure: {
+						cause: 'deadline',
+						stop: { layer: 'scope', id: 'Recording duration', max: 80 },
+					},
+				})
+				expect(captureError(() => fixture.transport.check())).toBe(error)
+				expect(fixture.rows.at(-1)).toMatchObject({
+					phase: 'failure',
+					role: 'agent',
+					step: 1,
+					reason: 'Recording duration allowance exhausted',
+					response: { body: Buffer.from(STUDY_OLLAMA_PARTIAL_ROW).toString('base64') },
+				})
+				expect(fixture.goal.usage()).toEqual([
+					expect.objectContaining({ role: 'agent', calls: 1, tokens: undefined }),
+				])
+				expect(fixture.rows.some((row) => row.phase === 'complete')).toBe(false)
+			} finally {
+				await fixture.close()
+			}
+		})
+	})
+
 	describe('bounded exchange recording', () => {
 		it.each(STUDY_OLLAMA_SIDECAR_CASES)(
 			'retains a terminal for $status replies under a $bytes-byte sidecar',
 			async ({ bytes, status }) => {
 				const scratch = createScratch()
 				const path = join(scratch.path, 'exchanges.jsonl')
-				const sink = new StudyExchangeSink({ file: await open(path, 'wx'), record: { bytes } })
+				const record = { bytes, calls: 256, duration: 15000 }
+				const sink = new StudyExchangeSink({ file: await open(path, 'wx'), record })
 				const procedure = [buildOllamaStep()]
 				const options = buildOllamaTransportOptions('http://127.0.0.1:1')
 				const body = JSON.stringify({ version: 'fixture-version', padding: 'x'.repeat(12000) })
@@ -81,6 +465,9 @@ describe('StudyOllamaTransport', () => {
 						metadata: options.metadata,
 						procedure,
 						maintenance: [],
+						record,
+						goals: ['first'],
+						configuration: 'c'.repeat(64),
 					})
 					const fixture = await createOllamaRecordingFixture(
 						procedure,
@@ -161,9 +548,7 @@ describe('StudyOllamaTransport', () => {
 						() =>
 							new StudyOllamaTransport(
 								buildOllamaTransportOptions('http://127.0.0.1:1', {
-									version: 'fixture-version',
-									procedure: [step],
-									exchanges: new OllamaExchangeRecorder(),
+									exchanges: new OllamaExchangeRecorder(buildOllamaDeclaration([step])),
 								}),
 							),
 					),
@@ -181,9 +566,7 @@ describe('StudyOllamaTransport', () => {
 						() =>
 							new StudyOllamaTransport(
 								buildOllamaTransportOptions('http://127.0.0.1:1', {
-									version: 'fixture-version',
-									procedure: [step],
-									exchanges: new OllamaExchangeRecorder(),
+									exchanges: new OllamaExchangeRecorder(buildOllamaDeclaration([step])),
 								}),
 							),
 					),
@@ -201,9 +584,7 @@ describe('StudyOllamaTransport', () => {
 						() =>
 							new StudyOllamaTransport(
 								buildOllamaTransportOptions('http://127.0.0.1:1', {
-									version: 'fixture-version',
-									procedure: [step],
-									exchanges: new OllamaExchangeRecorder(),
+									exchanges: new OllamaExchangeRecorder(buildOllamaDeclaration([step])),
 								}),
 							),
 					),

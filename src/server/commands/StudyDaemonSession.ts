@@ -3,7 +3,8 @@ import type { StudyTrial } from '@src/core'
 import type { StudyDaemonSessionOptions } from './types.js'
 import type { StudyExchangeDestination } from '../stores/types.js'
 import { StudyError } from '@src/core'
-import { readStudyRecordingDeclaration } from '../processes/helpers.js'
+import { canonicalStringify } from '@orkestrel/contract'
+import { validateStudyRecordingDeclaration } from '../processes/helpers.js'
 import { StudyDaemonTrial } from './StudyDaemonTrial.js'
 
 /** Owns the declared daemon and its serial trial preparation through permanent cleanup.
@@ -88,15 +89,24 @@ export class StudyDaemonSession {
 			await daemon.unload()
 			return undefined
 		}
-		const declaration = readStudyRecordingDeclaration(this.#options.profile, trial)
+		const declaration = destination.declaration
 		const models = this.#options.profile.provider?.daemon?.models
 		const first = this.#options.scenarios.find((scenario) => scenario.id === trial.scenario)
 			?.goals[0]
-		if (models === undefined || first?.id !== declaration.procedure[0]?.goal)
+		validateStudyRecordingDeclaration(
+			declaration,
+			this.#options.profile,
+			trial,
+			this.#options.scenarios.find((scenario) => scenario.id === trial.scenario),
+		)
+		if (
+			models === undefined ||
+			first?.id !== declaration.goals[0] ||
+			canonicalStringify(models) !== canonicalStringify(declaration.maintenance)
+		)
 			throw new StudyError('CONFIG', 'Maintenance must join the first declared goal')
 		const preparation = new StudyDaemonTrial({
 			destination,
-			declaration: { ...declaration, maintenance: models },
 			signal,
 		})
 		this.#trials.add(preparation)

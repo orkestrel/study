@@ -1,4 +1,4 @@
-import type { StudyFailure, StudyProfile, StudyTrial } from '@src/core'
+import type { StudyFailure, StudyProfile, StudyTrial, StudyScenario } from '@src/core'
 import type {
 	StudyExchangeDeclaration,
 	StudyExchangeDestination,
@@ -17,21 +17,28 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { hashStudyBytes, matchesSystemError } from '../helpers.js'
 import { STUDY_DRAIN_DURATION } from './constants.js'
 import { buildStudyOllamaModels } from '../ollama/helpers.js'
+import { isStudyOllamaMetadata } from '../ollama/validators.js'
 import { readStudyExchanges, readStudyResult } from '../stores/helpers.js'
 import { isStudyExchangeDeclaration } from '../stores/validators.js'
 import { isStudyExchangeDestination, isStudyReplaySelection } from './validators.js'
 
-/** Reads the executing profile's explicit recording declarations before a worker starts.
+/** Builds the parent's single recording declaration from its profile, trial and scenario.
  * @param profile - The validated executing profile.
  * @param trial - The scheduled trial identity.
+ * @param scenario - The trial's complete ordered goal horizon.
+ * @param maintenance - If true, declares the execution-owned daemon's models; if false, declares no maintenance.
  * @returns A validated opening row, with no inferred metadata or replay allowance.
  */
-export function readStudyRecordingDeclaration(
+export function buildStudyExchangeDeclaration(
 	profile: StudyProfile,
 	trial: StudyTrial,
+	scenario: StudyScenario,
+	maintenance: boolean,
 ): StudyExchangeDeclaration {
 	if (profile.provider === undefined || profile.settings === undefined)
 		throw new StudyError('CONFIG', 'Recording requires provider and explicit wire declarations')
+	if (scenario.id !== trial.scenario)
+		throw new StudyError('CONFIG', 'Recording scenario differs from its trial')
 	const declaration = {
 		phase: 'declaration',
 		trial: trial.id,
@@ -39,14 +46,72 @@ export function readStudyRecordingDeclaration(
 		metadata: profile.settings.metadata,
 		procedure: profile.settings.procedure,
 		models: buildStudyOllamaModels(profile.provider),
-		maintenance: [],
+		record: profile.record,
+		goals: scenario.goals.map((goal) => goal.id),
+		configuration: computeStudyConfigurationDigest(profile),
+		maintenance: maintenance ? (profile.provider.daemon?.models ?? []) : [],
 	}
 	if (!isStudyExchangeDeclaration(declaration))
 		throw new StudyError(
 			'CONFIG',
-			'Recording requires valid version, metadata and ordered procedure settings',
+			'Recording requires valid bounds, goals, version, metadata and optional procedure settings',
 		)
 	return declaration
+}
+
+/** Binds room, driver settings and daemon configuration independently of paths and resource ceilings.
+ * @param profile - The executing profile.
+ * @returns The canonical configuration's SHA-256 digest.
+ */
+export function computeStudyConfigurationDigest(profile: StudyProfile): string {
+	const { executable: _executable, ...daemon } = profile.provider?.daemon ?? {}
+	return hashStudyBytes(
+		canonicalStringify(
+			valueToWire({
+				room: profile.room,
+				settings: profile.settings,
+				daemon: profile.provider?.daemon === undefined ? undefined : daemon,
+			}),
+		) ?? '',
+	)
+}
+
+/** Checks the parent's declaration against the profile, trial and optional scenario held by a reader.
+ * @param declaration - The parent's single opening row.
+ * @param profile - The reader's executing profile.
+ * @param trial - The reader's scheduled trial.
+ * @param scenario - The complete horizon when the reader holds it.
+ * @returns Nothing after checking every member the reader can independently verify.
+ */
+export function validateStudyRecordingDeclaration(
+	declaration: StudyExchangeDeclaration,
+	profile: StudyProfile,
+	trial: StudyTrial,
+	scenario?: StudyScenario,
+): void {
+	if (
+		!isStudyExchangeDeclaration(declaration) ||
+		profile.provider === undefined ||
+		declaration.trial !== trial.id ||
+		declaration.version !== profile.settings?.version ||
+		canonicalStringify(declaration.metadata) !== canonicalStringify(profile.settings?.metadata) ||
+		canonicalStringify(declaration.procedure) !== canonicalStringify(profile.settings?.procedure) ||
+		canonicalStringify(declaration.models) !==
+			canonicalStringify(buildStudyOllamaModels(profile.provider)) ||
+		canonicalStringify(declaration.record) !== canonicalStringify(profile.record) ||
+		declaration.configuration !== computeStudyConfigurationDigest(profile) ||
+		(scenario !== undefined &&
+			(scenario.id !== trial.scenario ||
+				canonicalStringify(declaration.goals) !==
+					canonicalStringify(scenario.goals.map((goal) => goal.id)))) ||
+		(declaration.maintenance.length !== 0 &&
+			canonicalStringify(declaration.maintenance) !==
+				canonicalStringify(profile.provider.daemon?.models))
+	)
+		throw new StudyError(
+			'CONFIG',
+			'Recording declaration differs from the executing profile or trial',
+		)
 }
 
 /** Validates parent preparation output without permitting a destination or allowance substitution.
@@ -63,7 +128,7 @@ export function readStudyPreparedDestination(
 			? prepared !== undefined
 			: !isStudyExchangeDestination(prepared) ||
 				prepared.path !== original.path ||
-				canonicalStringify(prepared.record) !== canonicalStringify(original.record)
+				canonicalStringify(prepared.declaration) !== canonicalStringify(original.declaration)
 	)
 		throw new StudyError('CUSTODY', 'Trial preparation changed its reserved destination')
 	return prepared
@@ -81,6 +146,13 @@ export async function readStudyReplayHistory(
 	trial: StudyTrial,
 ): Promise<StudyExchangeHistory> {
 	if (!isStudyReplaySelection(selection)) throw new StudyError('CONFIG', 'Invalid replay selection')
+	if (
+		profile.provider === undefined ||
+		typeof profile.settings?.version !== 'string' ||
+		profile.settings.version.length === 0 ||
+		!isStudyOllamaMetadata(profile.settings.metadata)
+	)
+		throw new StudyError('CONFIG', 'Recording requires valid version and metadata settings')
 	const result = await readStudyResult(selection.result)
 	if (result.status !== 'sealed') throw new StudyError('CUSTODY', 'Replay requires a sealed result')
 	const history = await readStudyExchanges(result, trial.id)
@@ -91,14 +163,14 @@ export async function readStudyReplayHistory(
 		(selection.offline && prefix !== history.exchanges.length)
 	)
 		throw new StudyError('CONFIG', 'Replay prefix does not cover its declared trial')
-	const declaration = readStudyRecordingDeclaration(profile, trial)
-	const { metadata: _metadata, maintenance: _maintenance, ...current } = declaration
-	const {
-		metadata: _recordedMetadata,
-		maintenance: _recordedMaintenance,
-		...recorded
-	} = history.declaration
-	if (canonicalStringify(current) !== canonicalStringify(recorded))
+	if (
+		profile.provider === undefined ||
+		history.declaration.version !== profile.settings?.version ||
+		canonicalStringify(history.declaration.procedure) !==
+			canonicalStringify(profile.settings?.procedure) ||
+		canonicalStringify(history.declaration.models) !==
+			canonicalStringify(buildStudyOllamaModels(profile.provider))
+	)
 		throw new StudyError('CONFIG', 'Replay declaration differs from recorded execution')
 	return history
 }

@@ -1,12 +1,13 @@
 import type {
+	StudyExchangeDeclaration,
 	StudyExchangeRow,
 	StudyExchangeSinkInterface,
 	StudyExchangeSinkOptions,
 } from './types.js'
-import { StudyError } from '@src/core'
-import { parseJSON } from '@orkestrel/contract'
+import { StudyError, isStudyRecord } from '@src/core'
+import { parseJSON, cloneJSONValue, canonicalStringify } from '@orkestrel/contract'
 import { validateStudyExchangeRows } from './helpers.js'
-import { isStudyExchangeRow } from './validators.js'
+import { isStudyExchangeRow, isStudyExchangeDeclaration } from './validators.js'
 
 /** Retains ordered exchange rows under a parent-reserved serialized byte allowance. */
 export class StudyExchangeSink implements StudyExchangeSinkInterface {
@@ -21,12 +22,17 @@ export class StudyExchangeSink implements StudyExchangeSinkInterface {
 	 * @param options - The exclusive descriptor, byte bound and optional retained rows.
 	 */
 	constructor(options: StudyExchangeSinkOptions) {
-		if (!Number.isSafeInteger(options.record.bytes) || options.record.bytes <= 0)
+		if (!isStudyRecord(options.record))
 			throw new StudyError('CONFIG', 'Invalid exchange byte allowance')
 		this.#options = { ...options, record: { ...options.record } }
 		if (options.retained !== undefined) {
 			const rows = structuredClone(options.retained)
 			validateStudyExchangeRows(rows, false)
+			if (
+				rows[0]?.phase !== 'declaration' ||
+				canonicalStringify(rows[0].record) !== canonicalStringify(this.#options.record)
+			)
+				throw new StudyError('CUSTODY', 'Retained exchange bounds differ from the reservation')
 			this.#rows = rows
 			this.#bytes = rows.reduce(
 				(total, row) => total + Buffer.byteLength(JSON.stringify(row) + '\n'),
@@ -42,6 +48,16 @@ export class StudyExchangeSink implements StudyExchangeSinkInterface {
 		return this.#rows.filter((row) => row.phase === 'attempt').length + 1
 	}
 
+	/** Holds the accepted opening declaration, including a retained prefix. */
+	get declaration(): StudyExchangeDeclaration | undefined {
+		const first = this.#rows[0]
+		if (first?.phase !== 'declaration') return undefined
+		const snapshot = cloneJSONValue(first)
+		if (!isStudyExchangeDeclaration(snapshot))
+			throw new StudyError('CUSTODY', 'Invalid accepted declaration')
+		return snapshot
+	}
+
 	/** Appends one owned row after validating order and reserving its complete serialized size.
 	 * @param row - The next declaration, attempt, terminal or completion.
 	 * @returns Completion after synchronized retention; callers await each append before proceeding.
@@ -53,6 +69,11 @@ export class StudyExchangeSink implements StudyExchangeSinkInterface {
 			const text = JSON.stringify(row) + '\n'
 			const owned = parseJSON(text)
 			if (!isStudyExchangeRow(owned)) throw new StudyError('CUSTODY', 'Invalid exchange row')
+			if (
+				owned.phase === 'declaration' &&
+				canonicalStringify(owned.record) !== canonicalStringify(this.#options.record)
+			)
+				throw new StudyError('CUSTODY', 'Exchange declaration differs from its reserved bounds')
 			if (this.#fault !== undefined && owned.phase !== 'failure') throw this.#fault.error
 			const rows = [...this.#rows, owned]
 			validateStudyExchangeRows(rows, false)

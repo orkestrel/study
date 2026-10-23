@@ -9,8 +9,9 @@ import type {
 	StudyOllamaTransportOptions,
 	StudyOllamaStep,
 } from './types.js'
-import type { StudyExchangeBytes } from '../stores/types.js'
+import type { StudyExchangeBytes, StudyExchangeDeclaration } from '../stores/types.js'
 import { hashStudyBytes } from '../helpers.js'
+import { isStudyExchangeDeclaration } from '../stores/validators.js'
 import { isStudyOllamaMetadata, isStudyOllamaModel, isStudyOllamaStep } from './validators.js'
 import { StudyError, parseStudyReading } from '@src/core'
 import {
@@ -96,31 +97,29 @@ export function buildStudyOllamaBytes(bytes: Uint8Array): StudyExchangeBytes {
 	}
 }
 
-/** Validates independent metadata bounds and the complete optional recording group.
+/** Validates independent metadata bounds and the sink's optional recording declaration.
  * @param options - The owned transport configuration.
- * @returns Nothing when declarations are executable.
+ * @returns The validated sink declaration, or undefined without recording.
  * @throws StudyError - Thrown with CONFIG for invalid bounds, groups, identities or ordered policies.
  */
-export function validateStudyOllamaRecording(options: StudyOllamaTransportOptions): void {
+export function validateStudyOllamaRecording(
+	options: StudyOllamaTransportOptions,
+): StudyExchangeDeclaration | undefined {
 	if (!isStudyOllamaMetadata(options.metadata))
 		throw new StudyError('CONFIG', 'Invalid independent metadata budget')
 	if (!Object.values(options.models).every(isStudyOllamaModel))
 		throw new StudyError('CONFIG', 'Invalid pinned model identity')
-	const declared = [options.version, options.procedure, options.exchanges].filter(
-		(value) => value !== undefined,
-	).length
-	if (declared === 0) return
+	if (options.exchanges === undefined) return
+	const declaration = options.exchanges.declaration
 	if (
-		declared !== 3 ||
-		typeof options.version !== 'string' ||
-		options.version.length === 0 ||
-		!Array.isArray(options.procedure) ||
-		options.exchanges === undefined ||
+		!isStudyExchangeDeclaration(declaration) ||
+		canonicalStringify(declaration.metadata) !== canonicalStringify(options.metadata) ||
+		canonicalStringify(declaration.models) !== canonicalStringify(options.models) ||
 		!Number.isSafeInteger(options.exchanges.next) ||
 		options.exchanges.next < 1
 	)
-		throw new StudyError('CONFIG', 'Recording requires version, procedure and an exchange sink')
-	for (const [index, step] of options.procedure.entries()) {
+		throw new StudyError('CONFIG', 'Recording requires a matching sink declaration')
+	for (const [index, step] of (declaration.procedure ?? []).entries()) {
 		if (
 			!isStudyOllamaStep(step) ||
 			step.ordinal !== index + 1 ||
@@ -133,6 +132,7 @@ export function validateStudyOllamaRecording(options: StudyOllamaTransportOption
 				body: step.body,
 			})
 	}
+	return declaration
 }
 
 /** Admits one model request against its next exact or capture declaration.

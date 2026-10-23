@@ -1,10 +1,13 @@
 import {
 	buildStudyProfile,
+	buildStudyScenario,
+	buildStudyDaemonProvider,
 	buildStudySettingsProfile,
 	STUDY_PROFILE_SETTINGS,
 } from '../../../setupStudy.js'
 import {
 	createStudyScratch,
+	buildOllamaDeclaration,
 	createStudyPeer,
 	readStudyOrphan,
 	releaseStudyPid,
@@ -18,6 +21,9 @@ import { realpathSync } from 'node:fs'
 import { parse, resolve } from 'node:path'
 import { STUDY_DRAIN_DURATION } from '../../../../src/server/processes/constants.js'
 import {
+	buildStudyExchangeDeclaration,
+	computeStudyConfigurationDigest,
+	validateStudyRecordingDeclaration,
 	collectStudyAncestors,
 	collectStudyEntries,
 	drainStudyChild,
@@ -33,12 +39,84 @@ import {
 } from '../../../../src/server/processes/helpers.js'
 
 describe('process helpers', () => {
+	it('composes open horizons once and validates the parent declaration against every held member', () => {
+		const opening = buildOllamaDeclaration()
+		const profile = {
+			...buildStudyProfile(),
+			provider: buildStudyDaemonProvider(),
+			record: opening.record,
+			settings: { version: opening.version, metadata: { ...opening.metadata } },
+		}
+		const scenario = buildStudyScenario()
+		const trial = { id: 'r1-first-small', scenario: scenario.id, arm: 'small', repetition: 0 }
+		const declaration = buildStudyExchangeDeclaration(profile, trial, scenario, false)
+		expect(declaration).toMatchObject({
+			trial: trial.id,
+			goals: ['write', 'read'],
+			record: opening.record,
+			maintenance: [],
+		})
+		expect(declaration.procedure).toBeUndefined()
+		expect(() =>
+			validateStudyRecordingDeclaration(declaration, profile, trial, scenario),
+		).not.toThrow()
+		expect(buildStudyExchangeDeclaration(profile, trial, scenario, true).maintenance).toEqual(
+			profile.provider.daemon?.models,
+		)
+		expect(() =>
+			buildStudyExchangeDeclaration(profile, trial, { ...scenario, id: 'other' }, false),
+		).toThrow(/scenario differs/)
+		for (const changed of [
+			{ ...declaration, trial: 'other' },
+			{ ...declaration, goals: ['write'] },
+			{ ...declaration, version: 'other' },
+			{ ...declaration, configuration: 'd'.repeat(64) },
+			{ ...declaration, record: { ...declaration.record, calls: 1 } },
+			{ ...declaration, metadata: { ...declaration.metadata, calls: 1 } },
+			{ ...declaration, models: { model: { name: 'other', digest: 'a'.repeat(64) } } },
+		])
+			expect(() => validateStudyRecordingDeclaration(changed, profile, trial, scenario)).toThrow(
+				/differs/,
+			)
+	})
+
+	it('binds configuration to room settings and daemon identity apart from executable paths and ceilings', () => {
+		const provider = buildStudyDaemonProvider()
+		const daemon = requireValue(provider.daemon)
+		const profile = { ...buildStudyProfile(), provider, settings: { version: 'fixture-version' } }
+		const digest = computeStudyConfigurationDigest(profile)
+		expect(digest).toMatch(/^[a-f0-9]{64}$/)
+		expect(
+			computeStudyConfigurationDigest({
+				...profile,
+				record: { bytes: 1, calls: 1, duration: 1 },
+				bounds: { ...profile.bounds, series: { ...profile.bounds.series, duration: 1 } },
+				provider: { ...provider, daemon: { ...daemon, executable: 'different-location' } },
+			}),
+		).toBe(digest)
+		expect(
+			computeStudyConfigurationDigest({
+				...profile,
+				room: { ...profile.room, output: profile.room.output + 1 },
+			}),
+		).not.toBe(digest)
+		expect(
+			computeStudyConfigurationDigest({ ...profile, settings: { version: 'different' } }),
+		).not.toBe(digest)
+		expect(
+			computeStudyConfigurationDigest({
+				...profile,
+				provider: { ...provider, daemon: { ...daemon, version: 'different' } },
+			}),
+		).not.toBe(digest)
+	})
+
 	it('keeps the reserved preparation destination and rejects path, allowance and recording substitutions', () => {
 		const scratch = createScratch()
 		try {
 			const destination = {
 				path: resolve(scratch.path, 'exchanges.jsonl'),
-				record: { bytes: 4096 },
+				declaration: buildOllamaDeclaration(),
 			}
 			expect(readStudyPreparedDestination(destination, { ...destination })).toEqual(destination)
 			expect(readStudyPreparedDestination(undefined, undefined)).toBeUndefined()
@@ -49,7 +127,13 @@ describe('process helpers', () => {
 				}),
 			).toThrow(/changed its reserved destination/)
 			expect(() =>
-				readStudyPreparedDestination(destination, { ...destination, record: { bytes: 8192 } }),
+				readStudyPreparedDestination(destination, {
+					...destination,
+					declaration: {
+						...destination.declaration,
+						record: { bytes: 8192, calls: 256, duration: 15000 },
+					},
+				}),
 			).toThrow(/changed its reserved destination/)
 			expect(() => readStudyPreparedDestination(undefined, destination)).toThrow(
 				/changed its reserved destination/,

@@ -440,7 +440,7 @@ export function isStudyExchangeReply(value: unknown): value is StudyExchangeRepl
 	)
 }
 
-/** Checks whether the opening row declares a finite ordered procedure and serving identities.
+/** Checks whether the opening row declares bounded execution, ordered goals and serving identities.
  * @param value - The candidate declaration.
  * @returns True if all declared populations are valid; false otherwise.
  */
@@ -448,15 +448,21 @@ export function isStudyExchangeDeclaration(value: unknown): value is StudyExchan
 	return holds(() => {
 		if (
 			!isRecord(value) ||
-			!matchesStudyKeys(value, [
-				'phase',
-				'trial',
-				'version',
-				'models',
-				'metadata',
-				'procedure',
-				'maintenance',
-			]) ||
+			!matchesStudyKeys(
+				value,
+				[
+					'phase',
+					'trial',
+					'version',
+					'models',
+					'metadata',
+					'maintenance',
+					'record',
+					'goals',
+					'configuration',
+				],
+				['procedure'],
+			) ||
 			value.phase !== 'declaration' ||
 			!isStudyCustodyName(value.trial) ||
 			!isNonEmptyString(value.version) ||
@@ -464,19 +470,30 @@ export function isStudyExchangeDeclaration(value: unknown): value is StudyExchan
 			Object.keys(value.models).length === 0 ||
 			!Object.values(value.models).every(isStudyOllamaModel) ||
 			!isStudyOllamaMetadata(value.metadata) ||
-			!isArray(value.procedure) ||
-			value.procedure.length === 0 ||
-			!value.procedure.every(isStudyOllamaStep) ||
+			!isStudyRecord(value.record) ||
+			!isStudyDigest(value.configuration) ||
+			!isArray(value.goals) ||
+			value.goals.length === 0 ||
+			!value.goals.every(isStudyName) ||
+			new Set(value.goals).size !== value.goals.length ||
+			(value.procedure !== undefined &&
+				(!isArray(value.procedure) ||
+					value.procedure.length === 0 ||
+					!value.procedure.every(isStudyOllamaStep))) ||
 			!isArray(value.maintenance) ||
 			!value.maintenance.every(isStudyOllamaModel)
 		)
 			return false
 		const models = Object.values(value.models).filter(isStudyOllamaModel)
+		const goals = value.goals
 		return (
-			value.procedure.every(
-				(step, index) =>
-					step.ordinal === index + 1 && models.some((model) => model.name === step.policy.model),
-			) &&
+			(value.procedure === undefined ||
+				value.procedure.every(
+					(step, index) =>
+						step.ordinal === index + 1 &&
+						goals.includes(step.goal) &&
+						models.some((model) => model.name === step.policy.model),
+				)) &&
 			value.maintenance.every(
 				(model, index, entries) =>
 					entries.findIndex((entry) => entry.name === model.name) === index &&

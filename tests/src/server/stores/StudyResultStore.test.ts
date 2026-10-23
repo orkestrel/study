@@ -9,7 +9,7 @@ import { StudyResultStore } from '../../../../src/server/stores/StudyResultStore
 import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
 import { readStudyResult } from '../../../../src/server/stores/helpers.js'
 import { readStudyExchanges } from '../../../../src/server/stores/helpers.js'
-import { STUDY_EXCHANGE_MUTATIONS } from '../../../setupStudy.js'
+import { STUDY_EXCHANGE_MUTATIONS, STUDY_OPEN_EXCHANGE_MUTATIONS } from '../../../setupStudy.js'
 import { StudyEvidenceSink } from '../../../../src/server/stores/StudyEvidenceSink.js'
 import {
 	buildCompactCustodyManifest,
@@ -24,6 +24,42 @@ import {
 } from '../../../setupStudy.js'
 
 describe('StudyResultStore', () => {
+	it.each(STUDY_OPEN_EXCHANGE_MUTATIONS)(
+		'O5 refuses sealing %s open sidecars under the manifest and evidence join',
+		async (mutation) => {
+			const scratch = createScratch()
+			try {
+				const fixture = await retainStudyExchangeFixture(
+					join(scratch.path, 'open'),
+					mutation,
+					true,
+					true,
+					true,
+				)
+				await expect(fixture.store.seal()).rejects.toMatchObject({ code: 'CUSTODY' })
+				expect(scratch.has('open/seal.json')).toBe(false)
+			} finally {
+				scratch.destroy()
+			}
+		},
+	)
+	it('O5 seals the complete independent open sidecar control', async () => {
+		const scratch = createScratch()
+		try {
+			const fixture = await retainStudyExchangeFixture(
+				join(scratch.path, 'open'),
+				'complete',
+				true,
+				true,
+				true,
+			)
+			await fixture.store.seal()
+			expect((await readStudyResult(fixture.directory)).status).toBe('sealed')
+		} finally {
+			scratch.destroy()
+		}
+	})
+
 	it('seals only complete joined exchange sidecars and reads them under their exact seal', async () => {
 		const scratch = createScratch()
 		try {

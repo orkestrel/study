@@ -31,7 +31,6 @@ export class StudyDaemonTrial {
 	constructor(options: StudyDaemonTrialOptions) {
 		this.#options = {
 			...options,
-			declaration: structuredClone(options.declaration),
 			destination: structuredClone(options.destination),
 		}
 	}
@@ -44,9 +43,12 @@ export class StudyDaemonTrial {
 	async execute(daemon: OllamaDaemonInterface): Promise<StudyExchangeDestination> {
 		if (this.#sink !== undefined) throw new StudyError('FAULT', 'Daemon preparation cannot repeat')
 		const file = await open(this.#options.destination.path, 'wx')
-		this.#sink = new StudyExchangeSink({ file, record: this.#options.destination.record })
+		this.#sink = new StudyExchangeSink({
+			file,
+			record: this.#options.destination.declaration.record,
+		})
 		try {
-			await this.#sink.append(this.#options.declaration)
+			await this.#sink.append(this.#options.destination.declaration)
 			await daemon.unload()
 			await this.#finish()
 		} catch (error) {
@@ -57,12 +59,12 @@ export class StudyDaemonTrial {
 		}
 		const bytes = await readStudyBytes(
 			this.#options.destination.path,
-			this.#options.destination.record.bytes,
+			this.#options.destination.declaration.record.bytes,
 		)
 		return {
 			...this.#options.destination,
 			retained: {
-				path: `trials/${this.#options.declaration.trial}/exchanges.jsonl`,
+				path: `trials/${this.#options.destination.declaration.trial}/exchanges.jsonl`,
 				bytes: bytes.length,
 				digest: hashStudyBytes(bytes),
 			},
@@ -88,7 +90,7 @@ export class StudyDaemonTrial {
 				...(init?.signal === undefined || init.signal === null ? [] : [init.signal]),
 			]),
 		})
-		const first = this.#options.declaration.procedure[0]
+		const first = this.#options.destination.declaration.goals[0]
 		if (
 			first === undefined ||
 			new URL(request.url).pathname !== '/api/generate' ||
@@ -97,7 +99,7 @@ export class StudyDaemonTrial {
 			throw new StudyError('FAULT', 'Unexpected maintenance request')
 		const identity: StudyExchangeIdentity = {
 			ordinal: sink.next,
-			goal: first.goal,
+			goal: first,
 			role: 'maintenance',
 			path: '/api/generate',
 			method: 'POST',
@@ -121,7 +123,7 @@ export class StudyDaemonTrial {
 						const step = await reader.read()
 						if (step.done) break
 						const size = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0)
-						if (size + step.value.byteLength > this.#options.declaration.metadata.bytes)
+						if (size + step.value.byteLength > this.#options.destination.declaration.metadata.bytes)
 							throw new StudyError(
 								'CAPACITY',
 								'Maintenance reply exceeds its declared byte allowance',

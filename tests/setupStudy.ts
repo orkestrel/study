@@ -677,6 +677,62 @@ export const STUDY_EXCHANGE_MUTATIONS = Object.freeze([
 	'incomplete',
 ] as const)
 
+/** Names open recording admission refusals exercised against the loopback peer. */
+export const STUDY_OPEN_ADMISSION_CASES = Object.freeze([
+	'role',
+	'origin',
+	'path',
+	'query',
+	'method',
+	'model',
+	'options',
+	'stream',
+	'think',
+	'raw',
+	'logprobs',
+	'truncate',
+	'shift',
+	'before-preflight',
+	'after-postflight',
+	'outside-goal',
+	'backward-goal',
+	'preflight-goal',
+	'postflight-goal',
+	'metadata-pass',
+] as const)
+
+/** Names serial-slot refusals while an open model admission is awaiting its real meter. */
+export const STUDY_OPEN_OVERLAPS = Object.freeze(['request', 'verification'] as const)
+
+/** Names the recording stops that must retain interrupted execution custody. */
+export const STUDY_OPEN_BOUND_CASES = Object.freeze(['calls', 'duration'] as const)
+
+/** Supplies values outside every positive safe recording allowance. */
+export const STUDY_RECORD_INVALID_LIMITS = Object.freeze([
+	0,
+	-0,
+	-1,
+	1.5,
+	NaN,
+	Infinity,
+	Number.MAX_SAFE_INTEGER + 1,
+])
+
+/** Names independently required recording ceilings. */
+export const STUDY_RECORD_FIELDS = Object.freeze(['bytes', 'calls', 'duration'] as const)
+
+/** Names malformed open histories and the manifest joins the strict reader must refuse. */
+export const STUDY_OPEN_EXCHANGE_MUTATIONS = Object.freeze([
+	...STUDY_EXCHANGE_MUTATIONS,
+	'failed',
+	'outside-goal',
+	'backward-goal',
+	'postflight-goal',
+	'count',
+	'goals',
+	'record',
+] as const)
+
 /** Builds a model ceiling with independently selectable readings.
  * @param change - Members replacing the default cap reading.
  * @returns The inert stop.

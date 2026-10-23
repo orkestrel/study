@@ -35,6 +35,9 @@ import {
 	createOllamaServer,
 	OllamaExchangeRecorder,
 	buildOllamaStep,
+	buildOllamaDeclaration,
+	buildOpenStudyExchangeRows,
+	createOpenOllamaRecordingFixture,
 	buildOllamaRoleBodies,
 	createOllamaRecordingFixture,
 	resolveStudyEntry,
@@ -84,7 +87,7 @@ describe('sealed exchange fixtures', () => {
 		expect(rows[0]).toMatchObject({ phase: 'declaration', trial: 'selected-trial' })
 		expect(rows.at(-1)).toEqual({ phase: 'complete', count: 7 })
 		const history = buildStudyExchangeHistory(true)
-		expect(history.declaration.procedure[0]?.admission).toBe('capture')
+		expect(history.declaration.procedure?.[0]?.admission).toBe('capture')
 		expect(history.exchanges.map((pair) => pair.attempt.ordinal)).toEqual([1, 2, 3, 4, 5, 6, 7])
 		expect(buildReversedStudyHistory().exchanges[0]?.attempt).toMatchObject({
 			ordinal: 1,
@@ -111,13 +114,14 @@ describe('sealed exchange fixtures', () => {
 			)
 			const profile = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
 			expect(profile).toMatchObject({
-				record: { bytes: 32768 },
+				record: { bytes: 32768, calls: 256, duration: 15000 },
 				settings: { version: 'fixture-version' },
 			})
-			expect(scratch.read('studies/files/index.ts')).toContain('replay?.procedure')
+			expect(scratch.read('studies/files/index.ts')).toContain('fetch: replay.fetch')
+			expect(scratch.read('studies/files/index.ts')).toContain('exchanges.declaration.goals')
 			expect(writeStudyPreparationPeer(scratch)).toBe(join(scratch.path, 'preparation-peer.cjs'))
 			const fixture = await retainStudyExchangeFixture(join(scratch.path, 'recorded'))
-			expect(fixture.manifest.record).toEqual({ bytes: 16384 })
+			expect(fixture.manifest.record).toEqual({ bytes: 16384, calls: 256, duration: 15000 })
 			for (const trial of fixture.manifest.schedule)
 				expect(scratch.has(`recorded/execution/trials/${trial.id}/exchanges.jsonl`)).toBe(true)
 		} finally {
@@ -850,7 +854,7 @@ describe('Ollama recording fixtures', () => {
 		const row = { phase: 'complete' as const, count: 0 }
 		await recorder.append(row)
 		Reflect.set(row, 'count', 9)
-		expect(recorder.rows).toEqual([{ phase: 'complete', count: 0 }])
+		expect(recorder.rows).toEqual([recorder.declaration, { phase: 'complete', count: 0 }])
 		expect(recorder.next).toBe(1)
 		await recorder.close()
 	})
@@ -862,10 +866,30 @@ describe('Ollama recording fixtures', () => {
 		expect('bytes' in exact).toBe(false)
 		expect(capture.admission).toBe('capture')
 		expect('body' in capture).toBe(false)
-		const fixture = await createOllamaRecordingFixture([])
+		const fixture = await createOllamaRecordingFixture()
 		try {
 			await fixture.transport.verify()
 			expect(fixture.rows.filter((row) => row.phase === 'attempt')).toHaveLength(4)
+			expect(fixture.sink.next).toBe(5)
+		} finally {
+			await fixture.close()
+		}
+	})
+	it('builds open declarations and independent row fixtures without a procedure', async () => {
+		const declared = buildOllamaDeclaration()
+		expect(declared.procedure?.[0]?.ordinal).toBe(1)
+		const rows = buildOpenStudyExchangeRows()
+		expect(rows[0]).toMatchObject({ phase: 'declaration', goals: ['write', 'read'] })
+		expect(rows[0]).not.toHaveProperty('procedure')
+		expect(
+			rows.flatMap((row) =>
+				row.phase === 'attempt' && row.stage === 'execution' ? [row.role] : [],
+			),
+		).toEqual(['agent', 'summary', 'agent'])
+		const fixture = await createOpenOllamaRecordingFixture()
+		try {
+			expect(fixture.sink.declaration?.procedure).toBeUndefined()
+			await fixture.transport.verify()
 			expect(fixture.sink.next).toBe(5)
 		} finally {
 			await fixture.close()

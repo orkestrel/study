@@ -382,9 +382,31 @@ describe('readStudyHandle', () => {
 	})
 })
 import * as exchangeStores from '../../../../src/server/stores/index.js'
-import { buildStudyExchangeRows, mutateStudyExchangeRows } from '../../../setupServer.js'
-import { STUDY_EXCHANGE_MUTATIONS } from '../../../setupStudy.js'
+import {
+	buildStudyExchangeRows,
+	buildOpenStudyExchangeRows,
+	mutateStudyExchangeRows,
+} from '../../../setupServer.js'
+import { STUDY_EXCHANGE_MUTATIONS, STUDY_OPEN_EXCHANGE_MUTATIONS } from '../../../setupStudy.js'
 describe('strict exchange rows', () => {
+	it('O5 reads the independent complete open journal control', () => {
+		const rows = buildOpenStudyExchangeRows()
+		expect(exchangeStores.readStudyExchangeRows(mutateStudyExchangeRows(rows, 'complete'))).toEqual(
+			rows,
+		)
+	})
+	it.each(
+		STUDY_OPEN_EXCHANGE_MUTATIONS.filter(
+			(mutation) => mutation !== 'goals' && mutation !== 'record',
+		),
+	)('O5 refuses %s open rows', (mutation) => {
+		expect(() =>
+			exchangeStores.readStudyExchangeRows(
+				mutateStudyExchangeRows(buildOpenStudyExchangeRows(), mutation),
+			),
+		).toThrow(/\S/)
+	})
+
 	it('reads the complete independent journal control', () => {
 		const rows = buildStudyExchangeRows()
 		expect(exchangeStores.readStudyExchangeRows(mutateStudyExchangeRows(rows, 'complete'))).toEqual(

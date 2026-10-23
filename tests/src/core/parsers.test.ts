@@ -64,10 +64,10 @@ it('owns frozen declaration snapshots that satisfy each paired guard', () => {
 })
 
 it('owns the recording allowance and omits an explicit absent recording declaration', () => {
-	const record = { bytes: 4096 }
+	const record = { bytes: 4096, calls: 256, duration: 15000 }
 	const parsed = parseStudyProfile({ ...buildStudyProfile(), record })
 	record.bytes = 8192
-	expect(parsed.record).toEqual({ bytes: 4096 })
+	expect(parsed.record).toEqual({ bytes: 4096, calls: 256, duration: 15000 })
 	expect(Object.isFrozen(parsed.record)).toBe(true)
 	expect(parseStudyProfile({ ...buildStudyProfile(), record: undefined })).not.toHaveProperty(
 		'record',

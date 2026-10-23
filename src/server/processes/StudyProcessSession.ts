@@ -16,7 +16,12 @@ import { execFile, fork } from 'node:child_process'
 import { mkdtemp } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { STUDY_LOG_BYTES, STUDY_PROCESS_LABEL, STUDY_WORKER_OPERATION } from './constants.js'
-import { createStudyProcessFailure, drainStudyChild, valueToWire } from './helpers.js'
+import {
+	createStudyProcessFailure,
+	drainStudyChild,
+	valueToWire,
+	validateStudyRecordingDeclaration,
+} from './helpers.js'
 import { StudyChannel } from './StudyChannel.js'
 import { StudyProcessGoal } from './StudyProcessGoal.js'
 import {
@@ -63,10 +68,15 @@ export class StudyProcessSession implements StudySessionInterface {
 		if (
 			this.#options.profile.record === undefined
 				? destination !== undefined
-				: !isStudyExchangeDestination(destination) ||
-					destination.record.bytes !== this.#options.profile.record.bytes
+				: !isStudyExchangeDestination(destination)
 		)
 			throw new StudyError('CONFIG', 'Session recording differs from its reserved allowance')
+		if (destination !== undefined)
+			validateStudyRecordingDeclaration(
+				destination.declaration,
+				this.#options.profile,
+				this.#options.trial,
+			)
 		const directory = await mkdtemp(join(this.#options.directory, 'trial-'))
 		if (this.#control.failure !== undefined) throw failureToStudyError(this.#control.failure)
 		const child = fork(this.#options.entry, [STUDY_WORKER_OPERATION], {
