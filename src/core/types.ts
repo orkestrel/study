@@ -100,7 +100,8 @@ export interface StudyDaemon {
 	readonly executable: string
 	readonly digest: string
 	readonly version: string
-	readonly environment?: Readonly<Record<string, string>>
+	/** Holds explicit overrides with distinct case-folded names and no NUL characters. */
+	readonly environment?: Readonly<Record<string, string>> | undefined
 	readonly models: readonly StudyDaemonModel[]
 }
 

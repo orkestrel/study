@@ -218,6 +218,10 @@ The `StudyOllamaReplay` class validates the complete retained history before con
 
 The process driver accepts `StudyProcessDriverOptions`. Its optional `prepare` callback runs in the parent before session construction, preserves the reserved destination and allowance, and never crosses structured cloning or IPC. Offline replay refuses a preparation callback. A worker verifies any retained maintenance prefix before resuming the sidecar and projects those ordinals into its first goal's evidence.
 
+A provider's optional `daemon` declaration makes live execution own a dedicated Ollama session at the provider URL. The declaration pins a canonical absolute executable, its SHA-256 digest, the exact version, explicit environment overrides, and distinct model names and inventory digests matching the provider. A relative executable, port 11434, a missing model digest, or conflicting environment-name casing refuses at profile load. The daemon owns the effective OLLAMA_HOST value. Without this declaration, the provider URL selects an external daemon.
+
+The `StudyDaemonSession` class starts and verifies the daemon before trial execution. The manifest's `host.daemon` string retains the verified startup identity; startup version and inventory probes belong to no trial sidecar. Before each trial worker opens, preparation unloads the declared models in order. The `StudyDaemonTrial` class synchronizes each maintenance attempt before sending, retains status, allowed headers, original sender chunk lengths, and exact body bytes, and closes the prefix after daemon validation. A failed exchange retains a failure row. The worker joins the maintenance ordinals to the scenario's first declared goal. Every execution ending awaits daemon stop and process-tree join; an unconfirmed cleanup refuses completion. Offline replay constructs no daemon or preparation callback and sends no maintenance request.
+
 Install the package in the consumer workspace, then run the study executable from that workspace. The selected declaration lives at studies/<name>/study.json, and its declared rubric path resolves inside that same directory. Its driver field selects a bundle at studies/<driver>/ containing scenarios/<scenario>.json, profiles/<profile>.json, and the adapter module index.ts. Several declarations can share one driver bundle while each keeps its own rubric. The profile defaults to local. JSON declarations use the public definition, scenario, profile, and rubric contracts.
 
 The `readStudyDeclaration` function reads the selected definition, scenarios in declared order, and the rubric the definition names. It returns a `StudyDeclaration` record with the driver bundle and each scenario's bundle-relative fixture path and exact byte digest. It refuses a definition name or scenario identity that differs from its selection. The command uses this reader before reading the selected profile, so the refusal order is definition, scenarios, rubric, profile. The `StudyPreparation` record carries the driver's directory as `bundle`.
@@ -699,7 +703,34 @@ The following declarations describe this concept.
 | `readStudyPreparedDestination`     | function  | Validates parent preparation output without permitting a destination or allowance substitution.                                |
 | `readStudyReplayHistory`           | function  | Rechecks the sealed source and this trial's prefix under the executing profile declaration.                                    |
 
+| API                         | Kind      | Summary                                                                                     |
+| --------------------------- | --------- | ------------------------------------------------------------------------------------------- |
+| `StudyDaemonSession`        | class     | Owns the declared daemon and its serial trial preparation through permanent cleanup.        |
+| `StudyDaemonTrial`          | class     | Records one trial's daemon maintenance before handing its verified prefix to a worker.      |
+| `StudyDaemonSessionOptions` | interface | Supplies the resolved provider, trial population, workspace, and execution cancellation.    |
+| `StudyDaemonTrialOptions`   | interface | Supplies one reserved sidecar and its complete maintenance declaration.                     |
+| `isStudyDaemon`             | function  | Checks whether an owned daemon declaration pins an absolute executable and distinct models. |
+
 ## Methods
+
+#### `StudyDaemonSession`
+
+The execution host composes these methods.
+
+| Method    | Summary                                                            |
+| --------- | ------------------------------------------------------------------ |
+| `start`   | Starts the daemon and returns its verified execution provenance.   |
+| `prepare` | Unloads the declared population before opening one trial worker.   |
+| `stop`    | Stops and joins the owned tree and refuses an unconfirmed cleanup. |
+
+#### `StudyDaemonTrial`
+
+The preparation sender composes these methods.
+
+| Method    | Summary                                                                                |
+| --------- | -------------------------------------------------------------------------------------- |
+| `execute` | Unloads declared models, drains the journal, and returns its exact retained identity.  |
+| `fetch`   | Retains each request before sending and preserves the sender's native response chunks. |
 
 The following tables name the callable members.
 
@@ -2991,7 +3022,48 @@ declare const execute: Parameters<StudyWorker['execute']>
 instance.execute(...execute)
 ```
 
+### Declare and compose daemon staging
+
+The command owns staging for ordinary execution. A custom execution host can compose the same session and preparation contracts.
+
+```ts
+import { isStudyDaemon } from '@orkestrel/study'
+import { StudyDaemonSession, StudyDaemonTrial } from '@orkestrel/study/server'
+import { createOllamaDaemon } from '@orkestrel/ollama/server'
+import type { StudyDaemonSessionOptions, StudyDaemonTrialOptions } from '@orkestrel/study/server'
+
+isStudyDaemon({ executable: 'ollama' }) // false
+declare const options: StudyDaemonSessionOptions
+const session = new StudyDaemonSession(options)
+declare const prepare: Parameters<StudyDaemonSession['prepare']>
+try {
+	await session.start()
+	await session.prepare(...prepare)
+} finally {
+	await session.stop()
+}
+
+declare const trialOptions: StudyDaemonTrialOptions
+const trial = new StudyDaemonTrial(trialOptions)
+declare const declaration: Parameters<typeof createOllamaDaemon>[0]
+const daemon = createOllamaDaemon({
+	...declaration,
+	fetch: (input, init) =>
+		new URL(new Request(input, init).url).pathname === '/api/generate'
+			? trial.fetch(input, init)
+			: globalThis.fetch(input, init),
+})
+try {
+	await daemon.start()
+	await trial.execute(daemon)
+} finally {
+	await daemon.destroy()
+}
+```
+
 ## Tests
+
+The staging proofs drive the real command and worker over a Node protocol daemon on an ephemeral loopback port. The daemon records whether each unload's attempt was already readable on disk. The source suite proves repeated maintenance prefixes, exact ordinal joins, offline replay without a daemon or request, and startup, trial, unload, and cancellation cleanup while an unrelated sentinel survives. Setup proofs validate fixture declarations without starting a child.
 
 ### Call exchange and replay helpers
 

@@ -1,5 +1,6 @@
 import type {
 	StudyBounds,
+	StudyDaemon,
 	StudyCause,
 	StudyDefinition,
 	StudyCriterion,
@@ -307,7 +308,7 @@ export function isStudyProvider(value: unknown): value is StudyProvider {
 	return holds(() => {
 		if (
 			!isRecord(value) ||
-			!matchesStudyKeys(value, ['entry', 'url', 'model', 'digest'], ['judge']) ||
+			!matchesStudyKeys(value, ['entry', 'url', 'model', 'digest'], ['judge', 'daemon']) ||
 			!['entry', 'url', 'model'].every((key) => isNonEmptyString(value[key])) ||
 			typeof value.url !== 'string' ||
 			!isRecord(value.digest) ||
@@ -319,6 +320,27 @@ export function isStudyProvider(value: unknown): value is StudyProvider {
 		)
 			return false
 		const url = new URL(value.url)
+		if (value.daemon !== undefined) {
+			if (
+				!isStudyDaemon(value.daemon) ||
+				!/^http:\/\/127\.0\.0\.1:[0-9]+\/?$/.test(value.url) ||
+				Number(url.port) <= 0 ||
+				Number(url.port) === 11434
+			)
+				return false
+			const daemon = value.daemon
+			const digest = value.digest
+			if (
+				!daemon.models.some(
+					(model) => model.name === value.model && model.digest === digest.model,
+				) ||
+				(value.judge !== undefined &&
+					!daemon.models.some(
+						(model) => model.name === value.judge && model.digest === digest.judge,
+					))
+			)
+				return false
+		}
 		return (
 			['http:', 'https:'].includes(url.protocol) &&
 			url.username === '' &&
@@ -327,6 +349,68 @@ export function isStudyProvider(value: unknown): value is StudyProvider {
 			url.hash === '' &&
 			url.pathname === '/'
 		)
+	})
+}
+
+/** Checks whether an owned daemon declaration pins an absolute executable and distinct models.
+ * @param value - The candidate declaration.
+ * @returns True if executable, version, environment, and model identities are valid; false otherwise.
+ * @example
+ * ```ts
+ * isStudyDaemon({ executable: 'ollama' }) // false
+ * ```
+ */
+export function isStudyDaemon(value: unknown): value is StudyDaemon {
+	return holds(() => {
+		if (
+			!isRecord(value) ||
+			!matchesStudyKeys(value, ['executable', 'digest', 'version', 'models'], ['environment']) ||
+			typeof value.executable !== 'string' ||
+			!/^(?:[A-Za-z]:[\\/]|\/(?!\/)|\\\\[^\\]+\\[^\\]+\\)/.test(value.executable) ||
+			value.executable.includes('\0') ||
+			value.executable.split(/[\\/]/).some((part) => part === '.' || part === '..') ||
+			!isStudyDigest(value.digest) ||
+			!isNonEmptyString(value.version) ||
+			value.version.trim().length === 0 ||
+			value.version.includes('\0') ||
+			!isArray(value.models) ||
+			value.models.length === 0 ||
+			!value.models.every(
+				(model) =>
+					isRecord(model) &&
+					matchesStudyKeys(model, ['name', 'digest']) &&
+					isNonEmptyString(model.name) &&
+					model.name.trim().length > 0 &&
+					!model.name.includes('\0') &&
+					isStudyDigest(model.digest),
+			)
+		)
+			return false
+		if (
+			new Set(value.models.map((model) => (isRecord(model) ? model.name : undefined))).size !==
+			value.models.length
+		)
+			return false
+		if (value.environment !== undefined) {
+			if (
+				!isRecord(value.environment) ||
+				!matchesStudyKeys(value.environment, [], Object.keys(value.environment))
+			)
+				return false
+			const entries = Object.entries(value.environment)
+			if (
+				new Set(entries.map(([name]) => name.toLowerCase())).size !== entries.length ||
+				entries.some(
+					([name, entry]) =>
+						name.length === 0 ||
+						/[=\0]/.test(name) ||
+						typeof entry !== 'string' ||
+						entry.includes('\0'),
+				)
+			)
+				return false
+		}
+		return true
 	})
 }
 

@@ -1,4 +1,5 @@
 import { parseJSON } from '@orkestrel/contract'
+import { buildStudyDaemonProvider, buildStudyDaemonRefusals } from './setupStudy.js'
 import { describe, expect, it } from 'vitest'
 import {
 	buildCompactCustodyManifest,
@@ -706,5 +707,19 @@ describe('Ollama admission witness tables', () => {
 			'slow reply',
 		])
 		expect(STUDY_OLLAMA_BYTE_FAILURES[0]?.chunks?.[0]).toEqual(new Uint8Array([0xff, 10]))
+	})
+})
+
+it('builds an inert daemon declaration with matching provider and inventory identities', () => {
+	const provider = buildStudyDaemonProvider()
+	expect(provider.daemon?.models).toEqual([{ name: provider.model, digest: provider.digest.model }])
+	expect(provider.daemon?.version).toBe('fixture-version')
+	expect(buildStudyDaemonRefusals(provider)).toContainEqual({
+		...provider,
+		url: 'http://127.0.0.1:11434',
+	})
+	expect(buildStudyDaemonRefusals(provider)).toContainEqual({
+		...provider,
+		daemon: { ...provider.daemon, executable: 'ollama' },
 	})
 })

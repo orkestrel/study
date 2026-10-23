@@ -13,6 +13,7 @@ import { StudyError } from '../../../src/core/errors.js'
 import {
 	STUDY_UNQUALIFIED_PURPOSES,
 	buildStudyDefinition,
+	buildStudyDaemonProvider,
 	buildStudyGrading,
 	buildStudyJudgment,
 	buildStudyManifest,
@@ -68,6 +69,27 @@ it('normalizes a profile so every undeclared optional role is absent and the dec
 	expect(JSON.stringify(declared)).toContain('"judge":"judge"')
 	expect(JSON.stringify(declared)).toContain(`"judge":"${'b'.repeat(64)}"`)
 	expect(JSON.stringify(declared)).toContain('"recap":32')
+})
+
+it('normalizes an absent daemon environment while retaining declared daemon identities', () => {
+	const provider = buildStudyDaemonProvider()
+	const daemon = provider.daemon
+	if (daemon === undefined) throw new Error('Missing daemon fixture')
+	expect(
+		normalizeStudyProfile({
+			...buildStudyProfile(),
+			provider: { ...provider, daemon: { ...daemon, environment: undefined } },
+		}),
+	).toHaveProperty('provider.daemon', {
+		executable: daemon.executable,
+		digest: daemon.digest,
+		version: daemon.version,
+		models: daemon.models,
+	})
+	expect(normalizeStudyProfile({ ...buildStudyProfile(), provider })).toHaveProperty(
+		'provider.daemon.environment',
+		{ OLLAMA_MODELS: '/models' },
+	)
 })
 
 it('requires own exact enumerable data fields without invoking accessors', () => {

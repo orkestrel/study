@@ -29,6 +29,8 @@ import {
 } from '../../../src/core/validators.js'
 import {
 	buildStudyDefinition,
+	buildStudyDaemonProvider,
+	buildStudyDaemonRefusals,
 	buildStudyGrading,
 	buildStudyJudgment,
 	buildStudyManifest,
@@ -39,6 +41,17 @@ import {
 	STUDY_PROFILE_INVALID_SETTINGS,
 	STUDY_PROFILE_SETTINGS,
 } from '../../setupStudy.js'
+
+it('loads a declared daemon and refuses malformed executable, endpoint, environment and model declarations', () => {
+	const provider = buildStudyDaemonProvider()
+	const daemon = provider.daemon
+	if (daemon === undefined) throw new Error('Missing daemon fixture')
+	expect(isStudyProvider(provider)).toBe(true)
+	expect(isStudyProfile({ ...buildStudyProfile(), provider })).toBe(true)
+	for (const candidate of buildStudyDaemonRefusals(provider))
+		expect(isStudyProvider(candidate)).toBe(false)
+	expect(isStudyProvider({ ...provider, daemon: undefined, url: 'http://example.com' })).toBe(true)
+})
 
 it('accepts only portable bounded names, digest identities and valid canonical timestamps', () => {
 	expect(isStudyName('read-memory')).toBe(true)

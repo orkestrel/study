@@ -3,6 +3,7 @@ import type { StudyLaunchResult } from '../src/server/launchers/types.js'
 import type { ScratchInterface } from '@orkestrel/test/server'
 import type { ArtifactLoaderOptions } from '../src/server/artifacts/types.js'
 import type { ChildProcess } from 'node:child_process'
+import type { StudyDaemonFixture } from './src/server/commands/types.js'
 import { isArray, isInteger, isRecord, parseJSON } from '@orkestrel/contract'
 import { createScratch, isRunning } from '@orkestrel/test/server'
 import type {
@@ -52,6 +53,7 @@ import { mergeOverride, peers, srcCore, srcServer } from '../vite.config.js'
 import binConfig from '../configs/src/vite.bin.config.js'
 import { outputBoundary, resolveExternal } from '../configs/helpers.js'
 import { encodeStudyJSON, hashStudyBytes } from '../src/server/helpers.js'
+import { parseStudyProfile } from '../src/core/parsers.js'
 import {
 	isStudyCharge,
 	isStudyEvidence,
@@ -111,6 +113,7 @@ import { StudyOllamaExchange } from '../src/server/ollama/StudyOllamaExchange.js
 import { StudyOllamaTransport } from '../src/server/ollama/StudyOllamaTransport.js'
 import { buildStudyOllamaBytes } from '../src/server/ollama/helpers.js'
 import { createServer } from 'node:http'
+import { createServer as createPortServer } from 'node:net'
 import {
 	buildCompactCustodyManifest,
 	buildCustodyAttempt,
@@ -538,7 +541,7 @@ export function createStudyAdapter() { return {
  validate() { appendFileSync(${JSON.stringify(join(scratch.path, 'validations.log'))}, String(process.pid) + '\\n') },
  driver({ subject, provider, profile, exchanges, replay }) { return { async open(trial, signal) {
   appendFileSync(${JSON.stringify(join(scratch.path, 'workers.log'))}, String(process.pid) + '\\n')
-  const transport = new subject.StudyOllamaTransport({ url: profile.provider.url, room: profile.room, limit: profile.bounds.request, models: { model: { name: profile.provider.model, digest: profile.provider.digest.model } }, roles: { agent: profile.settings.procedure[0].policy }, metadata: profile.settings.metadata, version: profile.settings.version, procedure: replay?.procedure ?? profile.settings.procedure, exchanges, signal, observe: false, timing: provider.extractTiming, ...(replay === undefined ? {} : { fetch: replay.fetch }) })
+  const transport = new subject.StudyOllamaTransport({ url: profile.provider.url, room: profile.room, limit: profile.bounds.request, models: { model: { name: profile.provider.model, digest: profile.provider.digest.model }, ...(profile.provider.judge === undefined ? {} : { judge: { name: profile.provider.judge, digest: profile.provider.digest.judge } }) }, roles: { agent: profile.settings.procedure[0].policy }, metadata: profile.settings.metadata, version: profile.settings.version, procedure: replay?.procedure ?? profile.settings.procedure, exchanges, signal, observe: false, timing: provider.extractTiming, ...(replay === undefined ? {} : { fetch: replay.fetch }) })
   return {
    async execute(goal, context) {
     transport.prepare({ goal: goal.id, context })
@@ -560,6 +563,98 @@ export function createStudyAdapter() { return {
 `,
 	)
 }
+
+/** Creates an execution consumer with a dedicated protocol daemon and declared process receipts.
+ * @param library - The built real Study transport.
+ * @param mode - The protocol outcome to exercise.
+ * @returns The owned consumer; close releases only its recorded fixture processes.
+ */
+export async function createStudyDaemonFixture(
+	library: string,
+	mode = 'normal',
+): Promise<StudyDaemonFixture> {
+	const scratch = createStudyConsumer()
+	try {
+		const port = createPortServer()
+		await new Promise<void>((fulfill) => port.listen(0, '127.0.0.1', fulfill))
+		const address = port.address()
+		if (address === null || typeof address === 'string') throw new Error('Missing dedicated port')
+		const url = `http://127.0.0.1:${address.port}`
+		await new Promise<void>((fulfill, reject) =>
+			port.close((error) => (error ? reject(error) : fulfill())),
+		)
+		writeStudyRecordingConsumer(scratch, url, library)
+		const original = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
+		if (!isRecord(original) || !isRecord(original.provider) || !isRecord(original.settings))
+			throw new Error('Missing daemon consumer profile')
+		const profile = parseStudyProfile({
+			...original,
+			settings: { ...original.settings, metadata: { calls: 16, bytes: 65536, duration: 20000 } },
+			bounds: {
+				request: { duration: 10000, calls: 1, tokens: 8176, bytes: 4096 },
+				goal: { duration: 20000, calls: 2, tokens: 16384, bytes: 8192 },
+				trial: { duration: 40000, calls: 4, tokens: 32768, bytes: 32768 },
+				series: { duration: 80000, calls: 16, tokens: 131072, bytes: 262144 },
+			},
+			provider: {
+				...original.provider,
+				judge: 'judge',
+				digest: { model: 'a'.repeat(64), judge: 'b'.repeat(64) },
+				daemon: {
+					executable: realpathSync(process.execPath),
+					digest: hashStudyBytes(readFileSync(process.execPath)),
+					version: 'fixture-version',
+					environment: {
+						NODE_OPTIONS: `--import=${pathToFileURL(resolve('tests/src/server/commands/fixtures/daemon.mjs')).href}`,
+						ollama_host: '127.0.0.1:1',
+						STUDY_DAEMON_MODE: mode,
+						STUDY_DAEMON_PID: join(scratch.path, 'daemon.pid'),
+						STUDY_DAEMON_RUNNER: join(scratch.path, 'runner.pid'),
+						STUDY_DAEMON_REQUESTS: join(scratch.path, 'daemon-requests.jsonl'),
+						STUDY_DAEMON_EVIDENCE: join(
+							scratch.path,
+							mode === 'normal' ? 'live' : 'result',
+							'execution',
+							'trials',
+						),
+					},
+					models: [
+						{ name: 'model', digest: 'a'.repeat(64) },
+						{ name: 'judge', digest: 'b'.repeat(64) },
+					],
+				},
+			},
+		})
+		scratch.write('studies/files/profiles/local.json', JSON.stringify(profile))
+		const definition = parseJSON(scratch.read('studies/assessment/study.json') ?? '')
+		if (!isRecord(definition)) throw new Error('Missing daemon study')
+		scratch.write(
+			'studies/assessment/study.json',
+			JSON.stringify({ ...definition, order: [['small'], ['small']] }),
+		)
+		return {
+			scratch,
+			profile,
+			url,
+			async close() {
+				await releaseStudyPid(readStudyPid(scratch, 'runner.pid'))
+				await releaseStudyPid(readStudyPid(scratch, 'daemon.pid'))
+				scratch.destroy()
+			},
+		}
+	} catch (error) {
+		scratch.destroy()
+		throw error
+	}
+}
+
+/** Names daemon endings whose real process-tree cleanup the staging proof observes. */
+export const STUDY_DAEMON_ENDINGS: readonly string[] = Object.freeze([
+	'start-failure',
+	'trial-failure',
+	'cancel',
+	'unload-failure',
+])
 
 /** Supplies the validation request a task sends to its adapter child. */
 export function buildStudyTaskRequest(): StudyTaskRequest {

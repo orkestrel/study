@@ -28,6 +28,7 @@ import {
 } from '@src/core'
 import { parseJSON } from '@orkestrel/contract'
 import { lstat } from 'node:fs/promises'
+import { realpathSync } from 'node:fs'
 import { isAbsolute, join, parse, relative, resolve, sep } from 'node:path'
 import {
 	containsArtifact,
@@ -231,6 +232,12 @@ export function resolveStudyProfile(
 	profile: StudyProfile,
 	closure?: ArtifactClosure,
 ): StudyProfile {
+	const daemon = profile.provider?.daemon
+	if (
+		daemon !== undefined &&
+		(!isAbsolute(daemon.executable) || realpathSync(daemon.executable) !== daemon.executable)
+	)
+		throw new StudyError('CONFIG', 'Daemon executable must name its canonical absolute path')
 	return {
 		...profile,
 		qualification:

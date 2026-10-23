@@ -49,7 +49,13 @@ export function normalizeStudyProfile(profile: StudyProfile): Readonly<Record<st
 		room: omitStudyAbsent(room),
 		...(provider === undefined
 			? {}
-			: { provider: { ...omitStudyAbsent(provider), digest: omitStudyAbsent(provider.digest) } }),
+			: {
+					provider: {
+						...omitStudyAbsent(provider),
+						digest: omitStudyAbsent(provider.digest),
+						...(provider.daemon === undefined ? {} : { daemon: omitStudyAbsent(provider.daemon) }),
+					},
+				}),
 		...(qualification === undefined ? {} : { qualification }),
 		...(settings === undefined ? {} : { settings }),
 		...(record === undefined ? {} : { record }),

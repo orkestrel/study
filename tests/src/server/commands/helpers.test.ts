@@ -21,6 +21,7 @@ import { parseStudyProfile } from '../../../../src/core/parsers.js'
 import { computeStudyProfileDigest } from '../../../../src/server/processes/helpers.js'
 import {
 	buildCustodyGrading,
+	createStudyDaemonFixture,
 	createStudyConsumer,
 	buildStudyReportResult,
 	retainStudyFixture,
@@ -48,6 +49,27 @@ import { isStudyCustodyAttempt } from '../../../../src/server/stores/validators.
 import { readStudyBytes } from '../../../../src/server/stores/helpers.js'
 import { STUDY_CAUSES, STUDY_ROLES, STUDY_LAYERS } from '../../../../src/core/constants.js'
 import { ArtifactLoader } from '../../../../src/server/artifacts/ArtifactLoader.js'
+
+it('resolves a canonical daemon executable and refuses a relative executable before launch', async () => {
+	const fixture = await createStudyDaemonFixture(resolve('tmp/units/fixture-library/dist/index.js'))
+	try {
+		const provider = fixture.profile.provider
+		const daemon = provider?.daemon
+		if (provider === undefined || daemon === undefined) throw new Error('Missing daemon fixture')
+		expect(resolveStudyProfile(fixture.scratch.path, fixture.profile).provider?.daemon).toEqual(
+			daemon,
+		)
+		expect(() =>
+			resolveStudyProfile(fixture.scratch.path, {
+				...fixture.profile,
+				provider: { ...provider, daemon: { ...daemon, executable: 'ollama' } },
+			}),
+		).toThrow('Daemon executable must name its canonical absolute path')
+		expect(fixture.scratch.has('daemon.pid')).toBe(false)
+	} finally {
+		await fixture.close()
+	}
+})
 
 it('reads an exact published forest and relocates original and active profile paths', async () => {
 	const scratch = createScratch({ files: ARTIFACT_CLOSURE_FILES })

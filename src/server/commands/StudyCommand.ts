@@ -30,6 +30,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, resolve } from 'node:path'
 import { StudyArtifactLoader } from '../processes/StudyArtifactLoader.js'
 import { StudyProcessDriver } from '../processes/StudyProcessDriver.js'
+import { StudyDaemonSession } from './StudyDaemonSession.js'
 import {
 	computeStudyInstrumentDigest,
 	computeStudyProfileDigest,
@@ -332,72 +333,91 @@ export class StudyCommand {
 		const parent = await this.#temporary()
 		signal.throwIfAborted()
 		const directory = request.out === undefined ? join(parent, id) : this.#file(request.out)
-		const manifest: StudyManifest = {
-			id,
-			created: new Date().toISOString(),
-			definition: preparation.definition,
-			scenarios: preparation.scenarios,
-			identity: preparation.identity,
-			schedule: buildStudySchedule(preparation.definition, preparation.scenarios),
-			bounds: preparation.profile.bounds,
-			...(preparation.profile.record === undefined ? {} : { record: preparation.profile.record }),
-			qualification,
-			host: {
-				node: process.version,
-				platform: process.platform,
-				architecture: process.arch,
-				profile: preparation.source,
-				roots: JSON.stringify(preparation.profile.roots),
-			},
-		}
-		const store = new StudyResultStore({ directory, manifest })
-		await store.create()
-		const destinations =
-			preparation.profile.record === undefined
-				? undefined
-				: Object.fromEntries(
-						await Promise.all(
-							manifest.schedule.map(
-								async (trial) => [trial.id, await store.exchanges(trial)] as const,
-							),
-						),
-					)
 		const scratch = await mkdtemp(join(parent, 'scratch-'))
 		try {
-			const driver = new StudyProcessDriver({
-				root: preparation.closure?.root ?? this.#root,
-				entry: preparation.closure?.entry ?? this.#entry,
-				profile: preparation.profile,
-				identity: preparation.identity,
-				driver: preparation.definition.driver,
-				adapter: join(preparation.bundle, 'index.ts'),
-				directory: scratch,
-				...(preparation.closure === undefined ? {} : { closure: preparation.closure }),
-				...(destinations === undefined ? {} : { exchanges: destinations }),
-				...(replay === undefined ? {} : { replay }),
-			})
-			const attempts = await new StudySeries({ manifest, driver, store, signal }).execute()
-			preparation.artifacts.verify()
-			const seal = await store.seal()
-			return valueToWire({
-				command: 'execute',
-				status: attempts.some((attempt) => attempt.failure !== undefined)
-					? 'operational-failure'
-					: 'completed',
-				result: id,
-				path: directory,
-				seal: seal.id,
-				fingerprint,
-				next: [
-					'grade',
-					directory,
-					'--rubric',
-					resolveStudyPath(
-						resolveStudyPath(join(this.#root, 'studies'), preparation.definition.name),
-						preparation.definition.rubric,
-					),
-				],
-			})
+			const daemon =
+				preparation.profile.provider?.daemon === undefined || replay?.offline === true
+					? undefined
+					: new StudyDaemonSession({
+							profile: preparation.profile,
+							scenarios: preparation.scenarios,
+							workspace: scratch,
+							signal,
+						})
+			try {
+				const startup = await daemon?.start()
+				const manifest: StudyManifest = {
+					id,
+					created: new Date().toISOString(),
+					definition: preparation.definition,
+					scenarios: preparation.scenarios,
+					identity: preparation.identity,
+					schedule: buildStudySchedule(preparation.definition, preparation.scenarios),
+					bounds: preparation.profile.bounds,
+					...(preparation.profile.record === undefined
+						? {}
+						: { record: preparation.profile.record }),
+					qualification,
+					host: {
+						node: process.version,
+						platform: process.platform,
+						architecture: process.arch,
+						profile: preparation.source,
+						roots: JSON.stringify(preparation.profile.roots),
+						...(startup === undefined ? {} : { daemon: JSON.stringify(startup) }),
+					},
+				}
+				const store = new StudyResultStore({ directory, manifest })
+				await store.create()
+				const destinations =
+					preparation.profile.record === undefined
+						? undefined
+						: Object.fromEntries(
+								await Promise.all(
+									manifest.schedule.map(
+										async (trial) => [trial.id, await store.exchanges(trial)] as const,
+									),
+								),
+							)
+				const driver = new StudyProcessDriver({
+					root: preparation.closure?.root ?? this.#root,
+					entry: preparation.closure?.entry ?? this.#entry,
+					profile: preparation.profile,
+					identity: preparation.identity,
+					driver: preparation.definition.driver,
+					adapter: join(preparation.bundle, 'index.ts'),
+					directory: scratch,
+					...(preparation.closure === undefined ? {} : { closure: preparation.closure }),
+					...(destinations === undefined ? {} : { exchanges: destinations }),
+					...(replay === undefined ? {} : { replay }),
+					...(daemon === undefined ? {} : { prepare: daemon.prepare.bind(daemon) }),
+				})
+				const attempts = await new StudySeries({ manifest, driver, store, signal }).execute()
+				await daemon?.stop()
+				preparation.artifacts.verify()
+				const seal = await store.seal()
+				return valueToWire({
+					command: 'execute',
+					status: attempts.some((attempt) => attempt.failure !== undefined)
+						? 'operational-failure'
+						: 'completed',
+					result: id,
+					path: directory,
+					seal: seal.id,
+					fingerprint,
+					next: [
+						'grade',
+						directory,
+						'--rubric',
+						resolveStudyPath(
+							resolveStudyPath(join(this.#root, 'studies'), preparation.definition.name),
+							preparation.definition.rubric,
+						),
+					],
+				})
+			} finally {
+				await daemon?.stop()
+			}
 		} finally {
 			await rm(scratch, { recursive: true, force: true, maxRetries: 3 })
 		}

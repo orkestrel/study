@@ -20,6 +20,8 @@ import {
 import { StudyError } from '../../../src/core/errors.js'
 import {
 	buildStudyDefinition,
+	buildStudyDaemonProvider,
+	buildStudyDaemonRefusals,
 	buildStudyGrading,
 	buildStudyJudgment,
 	buildStudyManifest,
@@ -198,4 +200,17 @@ it('rejects unknown keys, unsafe limits, malformed JSON shapes and hostile reads
 it('keeps finite foreign readings and leaves absent or non-finite readings unknown', () => {
 	for (const value of STUDY_FINITE_READINGS) expect(parseStudyReading(value)).toBe(value)
 	for (const value of STUDY_UNKNOWN_READINGS) expect(parseStudyReading(value)).toBeUndefined()
+})
+
+it('owns daemon declarations at profile load and rejects missing model digests and relative executables', () => {
+	const provider = buildStudyDaemonProvider()
+	const daemon = provider.daemon
+	if (daemon === undefined) throw new Error('Missing daemon fixture')
+	const parsed = parseStudyProfile({ ...buildStudyProfile(), provider })
+	expect(parsed.provider?.daemon).toEqual(daemon)
+	expect(parsed.provider?.daemon).not.toBe(daemon)
+	for (const candidate of buildStudyDaemonRefusals(provider))
+		expect(() => parseStudyProfile({ ...buildStudyProfile(), provider: candidate })).toThrow(
+			/Invalid.*profile/,
+		)
 })

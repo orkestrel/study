@@ -320,6 +320,52 @@ export function buildStudyProfile(): StudyProfile {
 	}
 }
 
+/** Builds an inert daemon provider declaration without accessing a host or service. */
+export function buildStudyDaemonProvider(): NonNullable<StudyProfile['provider']> {
+	return {
+		entry: 'provider.js',
+		url: 'http://127.0.0.1:32123',
+		model: 'model',
+		judge: undefined,
+		digest: { model: 'a'.repeat(64), judge: undefined },
+		daemon: {
+			executable: '/opt/runtime/ollama',
+			digest: 'b'.repeat(64),
+			version: 'fixture-version',
+			environment: { OLLAMA_MODELS: '/models' },
+			models: [{ name: 'model', digest: 'a'.repeat(64) }],
+		},
+	}
+}
+
+/** Builds malformed daemon providers for guard and profile-load controls.
+ * @param provider - The valid declaration whose individual boundaries are varied.
+ * @returns Providers with invalid executable, environment, endpoint, or model declarations.
+ */
+export function buildStudyDaemonRefusals(
+	provider = buildStudyDaemonProvider(),
+): readonly unknown[] {
+	const daemon = provider.daemon
+	if (daemon === undefined) throw new Error('Missing daemon fixture')
+	return [
+		...[
+			{ ...daemon, executable: 'ollama' },
+			{ ...daemon, digest: 'wrong' },
+			{ ...daemon, version: '' },
+			{ ...daemon, models: [{ name: 'model' }] },
+			{ ...daemon, models: [] },
+			{ ...daemon, models: [...daemon.models, ...daemon.models] },
+			{ ...daemon, models: [{ name: 'model', digest: 'c'.repeat(64) }] },
+			{ ...daemon, environment: { NAME: 'one', name: 'two' } },
+			{ ...daemon, environment: { 'BAD=NAME': 'value' } },
+			{ ...daemon, environment: { NAME: 'bad\0value' } },
+		].map((declaration) => ({ ...provider, daemon: declaration })),
+		...['http://127.0.0.1:11434', 'https://127.0.0.1:31234', 'http://example.com:31234'].map(
+			(url) => ({ ...provider, url }),
+		),
+	]
+}
+
 /** Supplies driver settings that Study must own and bind without interpreting. */
 export const STUDY_PROFILE_SETTINGS: ReadonlyArray<Readonly<Record<string, JSONValue>>> =
 	Object.freeze([

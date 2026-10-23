@@ -10,8 +10,10 @@ import type { StudyObservation } from '../src/core/types.js'
 import { createMCPClient, HTTPClientTransport } from '@orkestrel/mcp'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { isStudyBounds } from '../src/core/validators.js'
+import { parseStudyProfile } from '../src/core/parsers.js'
 import { STUDY_LAUNCH_BYTES } from '../src/server/launchers/constants.js'
 import { buildStudyRubric } from './setupStudy.js'
+import { buildStudyDaemonRefusals } from './setupStudy.js'
 import {
 	STUDY_BURST_ARGUMENTS,
 	STUDY_CHECK_FINGERPRINT,
@@ -19,6 +21,7 @@ import {
 	STUDY_LAUNCHER_PID,
 	STUDY_TASK_INSTRUMENT,
 	buildStudyEvidenceRow,
+	createStudyDaemonFixture,
 	buildStudySparseEvidence,
 	admitStudyLibrary,
 	answerStudyMCP,
@@ -867,4 +870,28 @@ describe('Ollama recording fixtures', () => {
 			await fixture.close()
 		}
 	})
+})
+
+it('builds a daemon consumer without starting a process and rejects malformed declarations at load', async () => {
+	const fixture = await createStudyDaemonFixture(resolve('tmp/units/fixture-library/dist/index.js'))
+	try {
+		expect(fixture.scratch.has('daemon.pid')).toBe(false)
+		expect(fixture.scratch.has('daemon-requests.jsonl')).toBe(false)
+		expect(fixture.profile.provider?.url).toBe(fixture.url)
+		expect(fixture.profile.provider?.daemon?.models.map((model) => model.name)).toEqual([
+			'model',
+			'judge',
+		])
+		const profile = parseJSON(fixture.scratch.read('studies/files/profiles/local.json') ?? '')
+		if (!isRecord(profile) || !isRecord(profile.provider) || !isRecord(profile.provider.daemon))
+			throw new Error('Missing fixture declaration')
+		const provider = fixture.profile.provider
+		if (provider === undefined) throw new Error('Missing daemon provider')
+		for (const candidate of buildStudyDaemonRefusals(provider))
+			expect(() => parseStudyProfile({ ...profile, provider: candidate })).toThrow(
+				/Invalid.*profile/,
+			)
+	} finally {
+		await fixture.close()
+	}
 })

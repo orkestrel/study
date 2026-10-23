@@ -9,6 +9,7 @@ import type {
 } from '@src/core'
 import type { StudyArtifactLoader } from '../processes/StudyArtifactLoader.js'
 import type { StudyPacketBundle } from '../stores/types.js'
+import type { StudyExchangeDeclaration, StudyExchangeDestination } from '../stores/types.js'
 import type { ArtifactClosure } from '../artifacts/types.js'
 import type { StudyOllamaReplaySelection } from '../ollama/types.js'
 
@@ -16,6 +17,21 @@ import type { StudyOllamaReplaySelection } from '../ollama/types.js'
 export interface StudyCommandOptions {
 	readonly root: string
 	readonly entry: string
+}
+
+/** Supplies the resolved provider, trial population, workspace, and execution cancellation. */
+export interface StudyDaemonSessionOptions {
+	readonly profile: StudyProfile
+	readonly scenarios: readonly StudyScenario[]
+	readonly workspace: string
+	readonly signal: AbortSignal
+}
+
+/** Supplies one reserved sidecar and its complete maintenance declaration. */
+export interface StudyDaemonTrialOptions {
+	readonly destination: StudyExchangeDestination
+	readonly declaration: StudyExchangeDeclaration
+	readonly signal: AbortSignal
 }
 
 /** Holds a checked execution selection with optional output custody. */
