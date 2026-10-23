@@ -6,6 +6,7 @@ import type {
 	StudyProfile,
 	StudyRubric,
 	StudyScenario,
+	StudyAncestor,
 } from '@src/core'
 import type { StudyArtifactLoader } from '../processes/StudyArtifactLoader.js'
 import type { StudyPacketBundle } from '../stores/types.js'
@@ -45,6 +46,14 @@ export interface StudyExecutionRequest {
 	readonly closure?: string
 	/** Selects sealed exchanges and explicit trial prefixes before any dependent worker or daemon. */
 	readonly replay?: StudyOllamaReplaySelection
+	/** Extends a sealed open recording with a strict continuation of every scenario's goals. */
+	readonly extend?: string
+}
+
+/** Holds an admitted continuation's derived replay selection and immediate sealed ancestor. */
+export interface StudyContinuation {
+	readonly replay: StudyOllamaReplaySelection
+	readonly ancestor: StudyAncestor
 }
 
 /** Requests exclusive materialization and captured validation before publishing closure.json. */

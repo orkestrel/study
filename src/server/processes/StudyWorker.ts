@@ -1,6 +1,10 @@
 import type { StudyRole, StudySessionInterface } from '@src/core'
 import type { StudyOperation } from './types.js'
-import type { StudyExchangeSinkInterface, StudyExchangeRow } from '../stores/types.js'
+import type {
+	StudyExchangeSinkInterface,
+	StudyExchangeRow,
+	StudyExchangeAttempt,
+} from '../stores/types.js'
 import type { StudyOllamaReplayInterface } from '../ollama/types.js'
 import type { JSONValue } from '@orkestrel/contract'
 import {
@@ -27,6 +31,7 @@ import { readStudyBytes, readStudyExchangeRows } from '../stores/helpers.js'
 import { hashStudyBytes } from '../helpers.js'
 import { StudyExchangeSink } from '../stores/StudyExchangeSink.js'
 import { StudyOllamaReplay } from '../ollama/StudyOllamaReplay.js'
+import { describeStudyReplayDifference } from '../ollama/helpers.js'
 import { isStudyClosure } from '../commands/validators.js'
 import { StudyArtifactLoader } from './StudyArtifactLoader.js'
 import { StudyChannel } from './StudyChannel.js'
@@ -52,6 +57,8 @@ export class StudyWorker {
 	#executed = false
 	#exchanges: StudyExchangeSinkInterface | undefined
 	#replay: StudyOllamaReplayInterface | undefined
+	#boundary: StudyExchangeAttempt | undefined
+	#continued = false
 	#maintenance: readonly StudyExchangeRow[] = []
 	readonly #evidence = new Set<Promise<void>>()
 
@@ -162,6 +169,15 @@ export class StudyWorker {
 			if (prefix === undefined) throw new StudyError('CONFIG', 'Worker replay prefix is absent')
 			if (destination.declaration.ancestor?.identity.runtime !== value.identity.runtime)
 				throw new StudyError('CONFIG', 'Worker replay runtime differs from its ancestor')
+			if (destination.declaration.goals.length > history.declaration.goals.length) {
+				if (
+					value.replay.offline ||
+					destination.declaration.ancestor?.identity.content !== value.identity.content ||
+					history.exchanges[prefix]?.attempt.stage !== 'postflight'
+				)
+					throw new StudyError('CONFIG', 'Worker continuation identity or boundary changed')
+				this.#boundary = history.exchanges[prefix]?.attempt
+			}
 			this.#replay = new StudyOllamaReplay({
 				history,
 				prefix,
@@ -298,6 +314,10 @@ export class StudyWorker {
 			if (this.#control.failure !== undefined) throw failureToStudyError(this.#control.failure)
 			if (!isStudyProduct(product))
 				throw new StudyError('FAULT', 'Worker driver returned an invalid product')
+			if (this.#boundary?.goal === value.id) {
+				this.#replay?.check()
+				this.#continued = true
+			}
 			return valueToWire(product)
 		} finally {
 			this.#meters.delete(meter)
@@ -341,7 +361,20 @@ export class StudyWorker {
 		}
 	}
 
-	#forward(_role: StudyRole, input: string | URL, init: RequestInit): Promise<Response> {
+	async #forward(role: StudyRole, input: string | URL, init: RequestInit): Promise<Response> {
+		if (this.#boundary !== undefined && !this.#continued) {
+			const request = new Request(input, init)
+			throw new StudyError(
+				'FAULT',
+				describeStudyReplayDifference(this.#boundary, {
+					ordinal: this.#boundary.ordinal,
+					role,
+					path: new URL(input).pathname,
+					method: request.method,
+					body: new Uint8Array(await request.arrayBuffer()),
+				}) ?? 'Continuation request precedes the end of the recorded goals',
+			)
+		}
 		return globalThis.fetch(input, {
 			...init,
 			signal: AbortSignal.any([

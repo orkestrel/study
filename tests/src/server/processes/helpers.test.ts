@@ -76,6 +76,19 @@ describe('process helpers', () => {
 			}
 			const declaration = { ...history.declaration, ancestor }
 			expect(await readStudyReplayHistory(selection, profile, trial, declaration)).toEqual(history)
+			const prefix = history.exchanges.findIndex(({ attempt }) => attempt.stage === 'postflight')
+			expect(
+				await readStudyReplayHistory(
+					{ ...selection, offline: false, prefix: { [trial.id]: prefix } },
+					profile,
+					trial,
+					{
+						...declaration,
+						goals: [...declaration.goals, 'later'],
+						ancestor: { ...ancestor, prefix },
+					},
+				),
+			).toEqual(history)
 			await expect(
 				readStudyReplayHistory(selection, profile, trial, history.declaration),
 			).rejects.toThrow(/ancestor differs/)
@@ -117,7 +130,7 @@ describe('process helpers', () => {
 		} finally {
 			scratch.destroy()
 		}
-	})
+	}, 30000)
 	it('composes open horizons once and validates the parent declaration against every held member', () => {
 		const opening = buildOllamaDeclaration()
 		const profile = {

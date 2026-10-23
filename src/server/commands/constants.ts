@@ -5,9 +5,9 @@ export const STUDY_COMMAND_DURATION = 86400000
 export const STUDY_COMMAND_GRADER = 'consumer-adapter'
 
 /** Defines the complete public CLI reference shared by help and grammar diagnostics. */
-export const STUDY_COMMAND_HELP = `study check <study> [--profile <name>] [--closure <directory>]
+export const STUDY_COMMAND_HELP = `study check <study> [--profile <name>] [--closure <directory>] [--extend <result>]
 study freeze <study> --profile <name> --to <directory>
-study execute <study> [--profile <name>] [--out <path>] [--expected <sha256>] [--closure <directory>] [--replay <result> --prefix <JSON trial counts> --offline <true|false>]
+study execute <study> [--profile <name>] [--out <path>] [--expected <sha256>] [--closure <directory>] [--extend <result> | --replay <result> --prefix <JSON trial counts> --offline <true|false>]
 study grade <result> --rubric <path>
 study label <result> --grading <sha256> --labels <path>
 study report <result> --grading <sha256>
@@ -22,6 +22,8 @@ Output directories must be new; existing results are never overwritten.
 --expected pins the fingerprint returned by check. --grading selects an exact grading.
 --rubric selects independent criteria. --labels imports caller-supplied semantic labels.
 --closure selects retained artifacts. Replay requires explicit prefix counts and offline behavior.
+--extend continues a sealed open recording with further goals and requires a declared daemon.
+check carries --extend into next and binds the ancestor seal into its fingerprint.
 Success writes one JSON document; next contains suggested argv, never executed automatically.
 check, freeze, grade, label and report have a fixed allowance of 60 seconds.
 execute checks first, then uses the declared series duration plus 15 seconds for cleanup.

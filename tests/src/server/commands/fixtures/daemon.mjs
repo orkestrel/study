@@ -42,9 +42,22 @@ if (process.argv[2] === 'sentinel' || process.argv[2] === 'runner') {
 					Buffer.from(row.body, 'base64').toString() === body
 				)
 			})
+		const positions = sidecars.flatMap((path) => {
+			const rows = readFileSync(path, 'utf8')
+				.split(/\r\n|\n/)
+				.filter(Boolean)
+				.map((line) => JSON.parse(line))
+			const row = rows.at(-1)
+			return row?.phase === 'attempt' &&
+				row.path === request.url &&
+				Buffer.from(row.body, 'base64').toString() === body
+				? [{ trial: rows[0].trial, ordinal: row.ordinal, goal: row.goal, stage: row.stage }]
+				: []
+		})
 		appendFileSync(
 			process.env.STUDY_DAEMON_REQUESTS,
-			JSON.stringify({ method: request.method, path: request.url, body, retained }) + '\n',
+			JSON.stringify({ method: request.method, path: request.url, body, retained, positions }) +
+				'\n',
 		)
 		response.setHeader('content-type', 'application/json')
 		if (request.url === '/api/version')

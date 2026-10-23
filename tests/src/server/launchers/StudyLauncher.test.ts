@@ -27,6 +27,26 @@ import {
 } from '../../../setupServer.js'
 
 describe('StudyLauncher', () => {
+	it('forwards extend to both check and execution with the checked fingerprint', async () => {
+		const scratch = createScratch()
+		try {
+			const entry = writeStudyCheckEntry(scratch, 60000)
+			expect(
+				await new StudyLauncher({ root: scratch.path, entry }).execute([
+					'execute',
+					'files',
+					'--extend',
+					'baseline',
+				]),
+			).toBe(0)
+			expect(readStudyCommands(scratch)).toEqual([
+				'check files --profile local --extend baseline',
+				`execute files --profile local --extend baseline --expected ${STUDY_CHECK_FINGERPRINT}`,
+			])
+		} finally {
+			scratch.destroy()
+		}
+	})
 	it('forwards closure to the check and forwards the full explicit replay selection to execution', async () => {
 		const scratch = createScratch()
 		try {

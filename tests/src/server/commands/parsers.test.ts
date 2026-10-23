@@ -3,6 +3,39 @@ import { STUDY_COMMAND_INVALID_ARGUMENTS } from '../../../setupStudy.js'
 import { parseStudyArguments } from '../../../../src/server/commands/parsers.js'
 
 describe('study command arguments', () => {
+	it('admits extend for check and execution and refuses replay or manual prefix combinations', () => {
+		expect(parseStudyArguments(['check', 'files', '--extend', 'baseline'])).toMatchObject({
+			command: 'check',
+			extend: 'baseline',
+		})
+		expect(parseStudyArguments(['execute', 'files', '--extend', 'baseline'])).toMatchObject({
+			command: 'execute',
+			extend: 'baseline',
+		})
+		expect(() =>
+			parseStudyArguments([
+				'execute',
+				'files',
+				'--extend',
+				'baseline',
+				'--replay',
+				'baseline',
+				'--prefix',
+				'{"trial":7}',
+				'--offline',
+				'false',
+			]),
+		).toThrow(/mutually exclusive/)
+		expect(() =>
+			parseStudyArguments(['execute', 'files', '--extend', 'baseline', '--prefix', '{"trial":7}']),
+		).toThrow(/require --replay/)
+		expect(() => parseStudyArguments(['execute', 'files', '--extend'])).toThrow(
+			/--extend requires a value/,
+		)
+		expect(() => parseStudyArguments(['execute', 'files', '--extend', '../outside'])).toThrow(
+			/path/i,
+		)
+	})
 	it('accepts contained relative output and gives actionable flag diagnostics', () => {
 		expect(parseStudyArguments(['execute', 'files', '--out', 'tmp/studies/chosen'])).toMatchObject({
 			out: 'tmp/studies/chosen',

@@ -260,6 +260,7 @@ export function resolveStudyProfile(
  * @param identity - The reproducible executable identities
  * @param bounds - The validated nested execution limits
  * @param definition - The optional full declaration binding supervisor check to execute
+ * @param ancestor - The immediate ancestor seal when checking a continuation
  * @returns The fingerprint that execute must compare before any writes or child work
  * @example
  * ```ts
@@ -270,9 +271,15 @@ export function computeStudyCommandFingerprint(
 	identity: StudyIdentity,
 	bounds: StudyBounds,
 	definition?: StudyDefinition,
+	ancestor?: string,
 ): string {
 	return hashStudyBytes(
-		encodeStudyJSON({ identity, bounds, ...(definition === undefined ? {} : { definition }) }),
+		encodeStudyJSON({
+			identity,
+			bounds,
+			...(definition === undefined ? {} : { definition }),
+			...(ancestor === undefined ? {} : { ancestor }),
+		}),
 	)
 }
 

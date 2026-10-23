@@ -22,9 +22,220 @@ import {
 	writeStudyRecordingConsumer,
 	createStudyReplayFixture,
 	STUDY_REPLAY_DIVERGENCE_CASES,
+	createStudyContinuationFixture,
+	buildStudyContinuationRefusals,
+	retainStudyContinuationSource,
+	readStudyPid,
+	STUDY_CONTINUATION_DIVERGENCES,
+	STUDY_CONTINUATION_SOURCES,
 } from '../../../setupServer.js'
 
 describe('recording and replay command handoff', () => {
+	it('CT2 refuses changed continuation declarations before daemon startup or worker opening and binds the ancestor seal', async () => {
+		const library = createScratch({ parent: resolve('tmp/units') })
+		const subject = await buildStudyLibrary(
+			library,
+			resolve('src/server/ollama/StudyOllamaTransport.ts'),
+		)
+		const fixture = await createStudyContinuationFixture(subject)
+		try {
+			const { scratch, command, recorded } = fixture
+			const traffic = scratch.read('daemon-requests.jsonl')
+			const workers = scratch.read('workers.log')
+			const daemon = readStudyPid(scratch, 'daemon.pid')
+			for (const row of buildStudyContinuationRefusals(fixture)) {
+				scratch.write(row.path, row.changed)
+				try {
+					await expect(
+						command.execute(
+							['check', 'assessment', '--extend', recorded],
+							new AbortController().signal,
+						),
+					).rejects.toMatchObject({ code: 'CONFIG' })
+					await expect(
+						command.execute(
+							[
+								'execute',
+								'assessment',
+								'--extend',
+								recorded,
+								'--out',
+								join(scratch.path, 'refused'),
+							],
+							new AbortController().signal,
+						),
+					).rejects.toMatchObject({ code: 'CONFIG' })
+					expect(scratch.read('daemon-requests.jsonl')).toBe(traffic)
+					expect(scratch.read('workers.log')).toBe(workers)
+					expect(readStudyPid(scratch, 'daemon.pid')).toBe(daemon)
+					expect(scratch.has('refused')).toBe(false)
+				} finally {
+					scratch.write(row.path, row.original)
+				}
+			}
+			await expect(
+				command.execute(
+					['execute', 'assessment', '--extend', join(scratch.path, 'missing')],
+					new AbortController().signal,
+				),
+			).rejects.toMatchObject({ code: 'CUSTODY' })
+			for (const row of STUDY_CONTINUATION_SOURCES) {
+				const ancestor = await retainStudyContinuationSource(
+					fixture,
+					row.name,
+					row.recording,
+					row.declared,
+					row.sealed,
+				)
+				await expect(
+					command.execute(
+						['execute', 'assessment', '--extend', ancestor, '--out', join(scratch.path, 'refused')],
+						new AbortController().signal,
+					),
+				).rejects.toMatchObject({ code: row.code })
+				expect(scratch.read('daemon-requests.jsonl')).toBe(traffic)
+				expect(scratch.read('workers.log')).toBe(workers)
+				expect(scratch.has('refused')).toBe(false)
+			}
+			const argumentsCount = process.execArgv.length
+			process.execArgv.push('--no-warnings')
+			try {
+				await expect(
+					command.execute(
+						['execute', 'assessment', '--extend', recorded, '--out', join(scratch.path, 'refused')],
+						new AbortController().signal,
+					),
+				).rejects.toMatchObject({
+					code: 'CONFIG',
+					message: 'Continuation runtime or content changed',
+				})
+			} finally {
+				process.execArgv.splice(argumentsCount)
+			}
+			const ordinary = await command.execute(['check', 'assessment'], new AbortController().signal)
+			const checked = await command.execute(
+				['check', 'assessment', '--extend', recorded],
+				new AbortController().signal,
+			)
+			const alternate = await retainStudyContinuationSource(fixture, 'alternate', true, false)
+			const second = await command.execute(
+				['check', 'assessment', '--extend', alternate],
+				new AbortController().signal,
+			)
+			if (
+				!isRecord(ordinary) ||
+				!isRecord(checked) ||
+				!isRecord(second) ||
+				typeof ordinary.fingerprint !== 'string' ||
+				typeof checked.fingerprint !== 'string'
+			)
+				throw new Error('Missing checked fingerprints')
+			expect(checked.fingerprint).not.toBe(ordinary.fingerprint)
+			expect(checked.fingerprint).not.toBe(second.fingerprint)
+			await expect(
+				command.execute(
+					[
+						'execute',
+						'assessment',
+						'--extend',
+						recorded,
+						'--expected',
+						ordinary.fingerprint,
+						'--out',
+						join(scratch.path, 'refused'),
+					],
+					new AbortController().signal,
+				),
+			).rejects.toMatchObject({ code: 'CONFIG' })
+			await expect(
+				command.execute(
+					[
+						'execute',
+						'assessment',
+						'--extend',
+						alternate,
+						'--expected',
+						checked.fingerprint,
+						'--out',
+						join(scratch.path, 'refused'),
+					],
+					new AbortController().signal,
+				),
+			).rejects.toMatchObject({ code: 'CONFIG' })
+			expect(scratch.read('daemon-requests.jsonl')).toBe(traffic)
+			expect(scratch.read('workers.log')).toBe(workers)
+			expect(readStudyPid(scratch, 'daemon.pid')).toBe(daemon)
+			expect(scratch.has('refused')).toBe(false)
+		} finally {
+			await fixture.close()
+			library.destroy()
+		}
+	}, 240000)
+
+	it.each(STUDY_CONTINUATION_DIVERGENCES)(
+		'CT2 retains an environment-driven %s prefix divergence with zero live model requests',
+		async (change) => {
+			const library = createScratch({ parent: resolve('tmp/units') })
+			const subject = await buildStudyLibrary(
+				library,
+				resolve('src/server/ollama/StudyOllamaTransport.ts'),
+			)
+			const fixture = await createStudyContinuationFixture(subject)
+			const previous = process.env.STUDY_EXTENSION_CHANGE
+			try {
+				const { scratch, command, recorded, history } = fixture
+				const before = requireValue(scratch.read('daemon-requests.jsonl'))
+					.split(/\r\n|\n/)
+					.filter(Boolean).length
+				process.env.STUDY_EXTENSION_CHANGE = change
+				await expect(
+					command.execute(
+						['execute', 'assessment', '--extend', recorded, '--out', join(scratch.path, 'live')],
+						new AbortController().signal,
+					),
+				).rejects.toMatchObject({ code: 'CUSTODY' })
+				const traffic = requireValue(scratch.read('daemon-requests.jsonl'))
+					.split(/\r\n|\n/)
+					.filter(Boolean)
+					.slice(before)
+					.map((line) => parseJSON(line))
+					.filter(isRecord)
+				expect(traffic.map((row) => row.path)).toEqual([
+					'/api/version',
+					'/api/tags',
+					'/api/generate',
+					'/api/generate',
+				])
+				const rows = readStudyExchangeRows(
+					Buffer.from(requireValue(scratch.read(`live/execution/${history.file.path}`))),
+					false,
+				)
+				const failure = rows.find((row) => row.phase === 'failure')
+				if (failure?.phase !== 'failure') throw new Error('Missing prefix failure terminal')
+				expect(failure.ordinal).toBe(change === 'body' ? 7 : 8)
+				expect(failure.reason).toContain(change === 'body' ? 'member=body' : 'member=path')
+				expect(failure.reason).toContain(
+					change === 'body'
+						? 'ordinal=7 step=1 role=agent path=/api/chat'
+						: 'ordinal=8 step=absent role=metadata path=/api/version',
+				)
+				expect(failure.reason).toContain('goal=write')
+				expect(rows.some((row) => row.phase === 'complete')).toBe(false)
+				const divergence = requireValue(scanStudyDivergence(history, rows))
+				expect(divergence.ordinal).toBe(failure.ordinal)
+				expect(divergence.actual?.goal).toBe('write')
+				expect(divergence.actual?.role).toBe('agent')
+				expect(divergence.expected?.stage).toBe(change === 'body' ? 'execution' : 'postflight')
+				expect((await readStudyResult(join(scratch.path, 'live'))).status).toBe('interrupted')
+			} finally {
+				if (previous === undefined) delete process.env.STUDY_EXTENSION_CHANGE
+				else process.env.STUDY_EXTENSION_CHANGE = previous
+				await fixture.close()
+				library.destroy()
+			}
+		},
+		120000,
+	)
 	it('RP1 replays a complete open recording offline with equal products and zero sends', async () => {
 		const fixture = await createStudyReplayFixture()
 		try {

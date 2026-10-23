@@ -77,11 +77,65 @@ import {
 	createStudyConsumer,
 	nestStudyConsumer,
 	createStudyReplayFixture,
+	createStudyContinuationFixture,
+	buildStudyContinuationRefusals,
+	retainStudyContinuationSource,
 	createStudyScratch,
 	writeStudyConsumer,
 	writeStudyLauncherEntry,
 	writeStudyOrphan,
 } from './setupServer.js'
+import { readStudyResult, readStudyExchanges } from '../src/server/stores/helpers.js'
+
+it('owns a grown continuation fixture and retains independent ancestor admission controls', async () => {
+	const library = createScratch({ parent: resolve('tmp/units') })
+	const subject = await buildStudyLibrary(
+		library,
+		resolve('src/server/ollama/StudyOllamaTransport.ts'),
+	)
+	const fixture = await createStudyContinuationFixture(subject)
+	try {
+		expect(fixture.history.declaration.goals).toEqual(['write'])
+		expect(
+			parseJSON(requireValue(fixture.scratch.read('studies/files/scenarios/first.json'))),
+		).toMatchObject({ goals: [{ id: 'write' }, { id: 'recall' }] })
+		const refusals = buildStudyContinuationRefusals(fixture)
+		expect(refusals.map((row) => row.name)).toContain('content')
+		expect(refusals.map((row) => row.name)).toContain('configuration')
+		expect(
+			refusals.every(
+				(row) => row.original !== row.changed && fixture.scratch.read(row.path) === row.original,
+			),
+		).toBe(true)
+		const declared = await readStudyResult(
+			await retainStudyContinuationSource(fixture, 'declared', true, true),
+		)
+		if (declared.status !== 'sealed') throw new Error('Declared ancestor fixture did not seal')
+		expect(
+			(await readStudyExchanges(declared, fixture.history.declaration.trial)).declaration.procedure,
+		).toHaveLength(1)
+		expect(
+			(
+				await readStudyResult(
+					await retainStudyContinuationSource(fixture, 'interrupted', true, false, false),
+				)
+			).status,
+		).toBe('interrupted')
+		expect(
+			requireValue(
+				(
+					await readStudyResult(
+						await retainStudyContinuationSource(fixture, 'unrecorded', false, false),
+					)
+				).manifest,
+			).record,
+		).toBeUndefined()
+	} finally {
+		await fixture.close()
+		library.destroy()
+	}
+	expect(fixture.scratch.has('baseline')).toBe(false)
+}, 120000)
 
 it('nests fixture packages beneath the consumer root and rewrites every selected entry', () => {
 	const scratch = createStudyConsumer()

@@ -460,6 +460,31 @@ describe('study command helpers', () => {
 	it('changes the execution fingerprint when a deadline or bound artifact identity changes', () => {
 		const manifest = buildCustodyManifest()
 		const first = computeStudyCommandFingerprint(manifest.identity, manifest.bounds)
+		expect(
+			computeStudyCommandFingerprint(
+				manifest.identity,
+				manifest.bounds,
+				manifest.definition,
+				'a'.repeat(64),
+			),
+		).not.toBe(
+			computeStudyCommandFingerprint(manifest.identity, manifest.bounds, manifest.definition),
+		)
+		expect(
+			computeStudyCommandFingerprint(
+				manifest.identity,
+				manifest.bounds,
+				manifest.definition,
+				'a'.repeat(64),
+			),
+		).not.toBe(
+			computeStudyCommandFingerprint(
+				manifest.identity,
+				manifest.bounds,
+				manifest.definition,
+				'b'.repeat(64),
+			),
+		)
 		expect(first).toMatch(/^[a-f0-9]{64}$/)
 		expect(
 			computeStudyCommandFingerprint(

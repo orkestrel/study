@@ -42,9 +42,18 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 		)
 	const allowed =
 		command === 'check'
-			? ['--profile', '--closure']
+			? ['--profile', '--closure', '--extend']
 			: command === 'execute'
-				? ['--profile', '--out', '--expected', '--closure', '--replay', '--prefix', '--offline']
+				? [
+						'--profile',
+						'--out',
+						'--expected',
+						'--closure',
+						'--replay',
+						'--prefix',
+						'--offline',
+						'--extend',
+					]
 				: command === 'freeze'
 					? ['--profile', '--to']
 					: command === 'grade'
@@ -125,6 +134,10 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 		const closure = flags.get('--closure')
 		if (closure !== undefined && !isAbsolute(closure)) resolveStudyPath(resolve('.'), closure)
 		const result = flags.get('--replay')
+		const extend = flags.get('--extend')
+		if (extend !== undefined && result !== undefined)
+			throw new StudyError('CONFIG', '--extend and --replay are mutually exclusive. ' + usage)
+		if (extend !== undefined && !isAbsolute(extend)) resolveStudyPath(resolve('.'), extend)
 		const prefix = flags.get('--prefix')
 		const offline = flags.get('--offline')
 		if (result === undefined && (prefix !== undefined || offline !== undefined))
@@ -154,6 +167,7 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 			out,
 			expected,
 			...(closure === undefined ? {} : { closure }),
+			...(extend === undefined ? {} : { extend }),
 			...(result === undefined || !isRecord(replay)
 				? {}
 				: {

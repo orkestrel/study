@@ -15,6 +15,32 @@ export interface StudyDaemonFixture {
 	close(): Promise<void>
 }
 
+/** Holds a one-goal daemon recording with the executing scenario grown to its next goal. */
+export interface StudyContinuationFixture extends StudyDaemonFixture {
+	readonly entry: string
+	readonly command: StudyCommand
+	readonly recorded: string
+	readonly result: StudySealedResult
+	readonly history: StudyExchangeHistory
+}
+
+/** Names one independently altered declaration and its exact original bytes. */
+export interface StudyContinuationRefusal {
+	readonly name: string
+	readonly path: string
+	readonly original: string
+	readonly changed: string
+}
+
+/** Describes an ancestor custody state that continuation must refuse. */
+export interface StudyContinuationSource {
+	readonly name: string
+	readonly recording: boolean
+	readonly declared: boolean
+	readonly sealed: boolean
+	readonly code: 'CONFIG' | 'CUSTODY'
+}
+
 /** Holds a sealed open recording and its real command, worker, and protocol resources. */
 export interface StudyReplayFixture {
 	readonly scratch: ScratchInterface

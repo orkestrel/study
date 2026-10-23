@@ -44,6 +44,7 @@ export class StudyLauncher {
 				'--profile',
 				request.profile,
 				...(request.closure === undefined ? [] : ['--closure', request.closure]),
+				...(request.extend === undefined ? [] : ['--extend', request.extend]),
 			]
 			const reading = await this.#launch(entry, check, STUDY_LAUNCH_DURATION, false)
 			if (reading.code !== 0) {
@@ -70,6 +71,7 @@ export class StudyLauncher {
 				'--profile',
 				request.profile,
 				...(request.out === undefined ? [] : ['--out', request.out]),
+				...(request.extend === undefined ? [] : ['--extend', request.extend]),
 				...(request.closure === undefined ? [] : ['--closure', request.closure]),
 				...(request.replay === undefined
 					? []

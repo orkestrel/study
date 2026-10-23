@@ -12,6 +12,7 @@ import type {
 	StudyReportRequest,
 	StudyFreezeRequest,
 	StudyClosure,
+	StudyContinuation,
 } from './types.js'
 import {
 	StudyError,
@@ -49,6 +50,7 @@ import {
 	computeStudyPacketDigest,
 	readStudyBytes,
 	readStudyResult,
+	readStudyExchanges,
 	translateStudyPacketLabeling,
 } from '../stores/helpers.js'
 import { StudyGradingStore } from '../stores/StudyGradingStore.js'
@@ -93,7 +95,11 @@ export class StudyCommand {
 	async execute(arguments_: readonly string[], signal: AbortSignal): Promise<JSONValue> {
 		const request = parseStudyArguments(arguments_)
 		signal.throwIfAborted()
-		if (request.command === 'check') return this.#check(await this.#prepare(request, signal))
+		if (request.command === 'check') {
+			const continuation =
+				request.extend === undefined ? undefined : await this.#extend(request, signal)
+			return this.#check(await this.#prepare(request, signal), continuation)
+		}
 		if (request.command === 'execute') return this.#execution(request, signal)
 		if (request.command === 'freeze') return this.#freeze(request, signal)
 		if (request.command === 'grade') return this.#grade(request, signal)
@@ -278,11 +284,12 @@ export class StudyCommand {
 		return preparation
 	}
 
-	#check(preparation: StudyPreparation): JSONValue {
+	#check(preparation: StudyPreparation, continuation?: StudyContinuation): JSONValue {
 		const fingerprint = computeStudyCommandFingerprint(
 			preparation.identity,
 			preparation.profile.bounds,
 			preparation.definition,
+			continuation?.ancestor.seal,
 		)
 		return valueToWire({
 			command: 'check',
@@ -312,25 +319,32 @@ export class StudyCommand {
 				...(preparation.closure === undefined
 					? []
 					: ['--closure', preparation.closure.closure.destination]),
+				...(continuation === undefined ? [] : ['--extend', continuation.replay.result]),
 			],
 			schedule: buildStudySchedule(preparation.definition, preparation.scenarios),
 		})
 	}
 
 	async #execution(request: StudyExecutionRequest, signal: AbortSignal): Promise<JSONValue> {
-		const replay = request.replay === undefined ? undefined : await this.#replay(request, signal)
+		const continuation =
+			request.extend === undefined ? undefined : await this.#extend(request, signal)
+		const replay =
+			continuation?.replay ??
+			(request.replay === undefined ? undefined : await this.#replay(request, signal))
 		const source = replay === undefined ? undefined : await readStudyResult(replay.result)
 		if (source !== undefined && source.status !== 'sealed')
 			throw new StudyError('CUSTODY', 'Replay source is not sealed')
 		const ancestor =
-			source === undefined
+			continuation?.ancestor ??
+			(source === undefined
 				? undefined
-				: { result: source.manifest.id, seal: source.seal.id, identity: source.manifest.identity }
+				: { result: source.manifest.id, seal: source.seal.id, identity: source.manifest.identity })
 		const preparation = await this.#prepare(request, signal)
 		const fingerprint = computeStudyCommandFingerprint(
 			preparation.identity,
 			preparation.profile.bounds,
 			preparation.definition,
+			continuation?.ancestor.seal,
 		)
 		if (request.expected !== undefined && request.expected !== fingerprint)
 			throw new StudyError('CONFIG', 'Validated execution changed after the supervisor check')
@@ -451,6 +465,115 @@ export class StudyCommand {
 			}
 		} finally {
 			await rm(scratch, { recursive: true, force: true, maxRetries: 3 })
+		}
+	}
+
+	async #extend(request: StudyExecutionRequest, signal: AbortSignal): Promise<StudyContinuation> {
+		if (request.extend === undefined || request.replay !== undefined)
+			throw new StudyError('CONFIG', 'Continuation requires an exclusive ancestor selection')
+		const source = await this.#result(request.extend)
+		if (
+			source.manifest.record === undefined ||
+			source.attempts.some(
+				(attempt) =>
+					attempt.failure !== undefined ||
+					attempt.observations.some(
+						(observation) =>
+							observation.failure !== undefined ||
+							observation.product === undefined ||
+							observation.product.partial,
+					),
+			)
+		)
+			throw new StudyError('CONFIG', 'Continuation requires a complete recorded ancestor')
+		const closure = request.closure === undefined ? undefined : this.#closure(request)
+		const root = closure?.root ?? this.#root
+		const entry = closure?.entry ?? this.#entry
+		const { bundle, definition, scenarios } = await readStudyDeclaration(
+			root,
+			request.target,
+			signal,
+		)
+		const bytes = await readStudyDeclarationBytes(
+			root,
+			resolveStudyPath(bundle, `profiles/${request.profile}.json`),
+		)
+		const profile = resolveStudyProfile(
+			root,
+			parseStudyProfile(decodeStudyJSON(bytes)),
+			closure?.closure,
+		)
+		if (
+			profile.provider?.daemon === undefined ||
+			profile.record === undefined ||
+			profile.settings?.procedure !== undefined
+		)
+			throw new StudyError('CONFIG', 'Continuation requires open recording and provider.daemon')
+		const schedule = buildStudySchedule(definition, scenarios)
+		if (
+			canonicalStringify(definition) !== canonicalStringify(source.manifest.definition) ||
+			canonicalStringify(schedule) !== canonicalStringify(source.manifest.schedule) ||
+			scenarios.length !== source.manifest.scenarios.length ||
+			!scenarios.every((scenario, index) => {
+				const ancestor = source.manifest.scenarios[index]
+				return (
+					ancestor !== undefined &&
+					scenario.id === ancestor.id &&
+					scenario.goals.length > ancestor.goals.length &&
+					canonicalStringify(scenario.goals.slice(0, ancestor.goals.length)) ===
+						canonicalStringify(ancestor.goals)
+				)
+			})
+		)
+			throw new StudyError(
+				'CONFIG',
+				'Continuation definition, schedule or strict goal prefix changed',
+			)
+		const prefixes: ReadonlyArray<readonly [string, number]> = await Promise.all(
+			schedule.map(async (trial) => {
+				signal.throwIfAborted()
+				const history = await readStudyExchanges(source, trial.id)
+				const scenario = scenarios.find((candidate) => candidate.id === trial.scenario)
+				if (scenario === undefined)
+					throw new StudyError('CONFIG', 'Continuation scenario is absent')
+				const declaration = buildStudyExchangeDeclaration(profile, trial, scenario, true)
+				if (
+					history.declaration.procedure !== undefined ||
+					history.declaration.version !== declaration.version ||
+					canonicalStringify(history.declaration.models) !==
+						canonicalStringify(declaration.models) ||
+					history.declaration.configuration !== declaration.configuration ||
+					canonicalStringify(history.declaration.maintenance) !==
+						canonicalStringify(declaration.maintenance)
+				)
+					throw new StudyError('CONFIG', 'Continuation recording configuration changed')
+				const prefix = history.exchanges.findIndex(({ attempt }) => attempt.stage === 'postflight')
+				if (prefix < 0)
+					throw new StudyError('CONFIG', 'Continuation ancestor has no complete postflight')
+				return [trial.id, prefix] as const
+			}),
+		)
+		const artifacts = new StudyArtifactLoader({
+			root,
+			entry,
+			profile,
+			adapter: join(bundle, 'index.ts'),
+			...(closure === undefined ? {} : { closure }),
+		})
+		const identity = await artifacts.inspect()
+		if (
+			identity.runtime !== source.manifest.identity.runtime ||
+			identity.content !== source.manifest.identity.content
+		)
+			throw new StudyError('CONFIG', 'Continuation runtime or content changed')
+		artifacts.verify()
+		return {
+			replay: { result: source.directory, prefix: Object.fromEntries(prefixes), offline: false },
+			ancestor: {
+				result: source.manifest.id,
+				seal: source.seal.id,
+				identity: source.manifest.identity,
+			},
 		}
 	}
 

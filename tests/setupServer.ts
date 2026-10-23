@@ -4,7 +4,13 @@ import type { StudyLaunchResult } from '../src/server/launchers/types.js'
 import type { ScratchInterface } from '@orkestrel/test/server'
 import type { ArtifactLoaderOptions } from '../src/server/artifacts/types.js'
 import type { ChildProcess } from 'node:child_process'
-import type { StudyDaemonFixture, StudyReplayFixture } from './src/server/commands/types.js'
+import type {
+	StudyDaemonFixture,
+	StudyReplayFixture,
+	StudyContinuationFixture,
+	StudyContinuationRefusal,
+	StudyContinuationSource,
+} from './src/server/commands/types.js'
 import type {
 	StudyAttempt,
 	StudyCriterion,
@@ -118,6 +124,7 @@ import {
 	buildStudyPacketLinks,
 	readStudyResult,
 	readStudyExchanges,
+	readStudyExchangeRows,
 } from '../src/server/stores/helpers.js'
 
 /** Moves fixture package manifests and built bytes beneath a consumer's node_modules.
@@ -246,6 +253,300 @@ export async function createStudyReplayFixture(nested = false): Promise<StudyRep
 		scratch.destroy()
 		throw error
 	}
+}
+
+/** Records one goal on the dedicated fixture and grows only JSON declarations for continuation.
+ * @param library - The built real Study transport.
+ * @returns A sealed ancestor, the grown consumer, and ownership of its fixture resources.
+ */
+export async function createStudyContinuationFixture(
+	library: string,
+): Promise<StudyContinuationFixture> {
+	const fixture = await createStudyDaemonFixture(library, 'normal', true)
+	const { scratch } = fixture
+	try {
+		const scenario = requireValue(scratch.read('studies/files/scenarios/first.json'))
+		const rubric = requireValue(scratch.read('studies/assessment/rubric.json'))
+		const definition = parseJSON(requireValue(scratch.read('studies/assessment/study.json')))
+		if (!isRecord(definition)) throw new Error('Missing continuation definition')
+		scratch.write(
+			'studies/assessment/study.json',
+			JSON.stringify({ ...definition, order: [['small']] }),
+		)
+		scratch.write(
+			'studies/files/scenarios/first.json',
+			JSON.stringify({ id: 'first', goals: [{ id: 'write', input: 'remember' }] }),
+		)
+		const criteria = parseJSON(rubric)
+		if (!isRecord(criteria) || !isArray(criteria.criteria))
+			throw new Error('Missing continuation rubric')
+		scratch.write(
+			'studies/assessment/rubric.json',
+			JSON.stringify({
+				...criteria,
+				criteria: criteria.criteria.filter(
+					(criterion) => isRecord(criterion) && criterion.goal === 'write',
+				),
+			}),
+		)
+		const adapter = requireValue(scratch.read('studies/files/index.ts'))
+		scratch.write(
+			'studies/files/index.ts',
+			adapter
+				.replace(
+					'body: request.body',
+					"body: goal.id === 'write' && process.env.STUDY_EXTENSION_CHANGE === 'body' ? request.body.replace('remember', 'Remember') : request.body",
+				)
+				.replace(
+					'if (goal.id === exchanges.declaration.goals.at(-1))',
+					"if (goal.id === 'write' && process.env.STUDY_EXTENSION_CHANGE === 'extra') await transport.fetch('agent', profile.provider.url + '/api/chat', { method: 'POST', body: profile.settings.requests[0].body })\n     if (goal.id === exchanges.declaration.goals.at(-1))",
+				),
+		)
+		const profile = { ...fixture.profile, record: { bytes: 65536, calls: 1, duration: 15000 } }
+		scratch.write('studies/files/profiles/local.json', JSON.stringify(profile))
+		const entry = await buildStudyCLI(scratch)
+		const command = new StudyCommand({ root: scratch.path, entry })
+		const recorded = join(scratch.path, 'baseline')
+		await command.execute(
+			['execute', 'assessment', '--out', recorded],
+			new AbortController().signal,
+		)
+		const result = await readStudyResult(recorded)
+		if (result.status !== 'sealed') throw new Error('Continuation ancestor did not seal')
+		const history = await readStudyExchanges(result, requireValue(result.manifest.schedule[0]).id)
+		scratch.write('studies/files/scenarios/first.json', scenario)
+		scratch.write('studies/assessment/rubric.json', rubric)
+		const executing = {
+			...profile,
+			record: { bytes: 131072, calls: 4, duration: 30000 },
+			bounds: { ...profile.bounds, series: { ...profile.bounds.series, duration: 120000 } },
+		}
+		scratch.write('studies/files/profiles/local.json', JSON.stringify(executing))
+		return { ...fixture, profile: executing, entry, command, recorded, result, history }
+	} catch (error) {
+		await fixture.close()
+		throw error
+	}
+}
+
+/** Builds continuation admission controls from independently changed public declarations.
+ * @param fixture - The grown consumer and its sealed ancestor.
+ * @returns Each changed file paired with the bytes restored after its refusal.
+ */
+export function buildStudyContinuationRefusals(
+	fixture: StudyContinuationFixture,
+): readonly StudyContinuationRefusal[] {
+	const { scratch, profile } = fixture
+	const definition = parseJSON(requireValue(scratch.read('studies/assessment/study.json')))
+	if (!isRecord(definition) || !isRecord(profile.settings))
+		throw new Error('Missing continuation declarations')
+	const { daemon: _daemon, ...provider } = requireValue(profile.provider)
+	const { record: _record, ...unrecorded } = profile
+	const rows = [
+		{
+			name: 'definition',
+			path: 'studies/assessment/study.json',
+			value: { ...definition, question: 'Changed question' },
+		},
+		{
+			name: 'trial order',
+			path: 'studies/assessment/study.json',
+			value: { ...definition, order: [['small'], ['small']] },
+		},
+		{
+			name: 'driver',
+			path: 'studies/assessment/study.json',
+			value: { ...definition, driver: 'absent' },
+		},
+		{
+			name: 'equal horizon',
+			path: 'studies/files/scenarios/first.json',
+			value: { id: 'first', goals: [{ id: 'write', input: 'remember' }] },
+		},
+		{
+			name: 'changed prior input',
+			path: 'studies/files/scenarios/first.json',
+			value: {
+				id: 'first',
+				goals: [
+					{ id: 'write', input: 'Remember' },
+					{ id: 'recall', input: 'recall' },
+				],
+			},
+		},
+		{
+			name: 'changed prior goal',
+			path: 'studies/files/scenarios/first.json',
+			value: {
+				id: 'first',
+				goals: [
+					{ id: 'different', input: 'remember' },
+					{ id: 'recall', input: 'recall' },
+				],
+			},
+		},
+		{
+			name: 'scenario identity',
+			path: 'studies/files/scenarios/first.json',
+			value: {
+				id: 'different',
+				goals: [
+					{ id: 'write', input: 'remember' },
+					{ id: 'recall', input: 'recall' },
+				],
+			},
+		},
+		{
+			name: 'absent daemon',
+			path: 'studies/files/profiles/local.json',
+			value: { ...profile, provider },
+		},
+		{ name: 'absent recording', path: 'studies/files/profiles/local.json', value: unrecorded },
+		{
+			name: 'declared procedure',
+			path: 'studies/files/profiles/local.json',
+			value: { ...profile, settings: { ...profile.settings, procedure: [buildOllamaStep()] } },
+		},
+		{
+			name: 'version',
+			path: 'studies/files/profiles/local.json',
+			value: { ...profile, settings: { ...profile.settings, version: 'different' } },
+		},
+		{
+			name: 'models',
+			path: 'studies/files/profiles/local.json',
+			value: {
+				...profile,
+				provider: {
+					...profile.provider,
+					digest: { model: 'c'.repeat(64), judge: 'b'.repeat(64) },
+					daemon: {
+						...profile.provider?.daemon,
+						models: [
+							{ name: 'model', digest: 'c'.repeat(64) },
+							{ name: 'judge', digest: 'b'.repeat(64) },
+						],
+					},
+				},
+			},
+		},
+		{
+			name: 'configuration',
+			path: 'studies/files/profiles/local.json',
+			value: { ...profile, settings: { ...profile.settings, observe: true } },
+		},
+		{
+			name: 'daemon environment',
+			path: 'studies/files/profiles/local.json',
+			value: {
+				...profile,
+				provider: {
+					...profile.provider,
+					daemon: {
+						...profile.provider?.daemon,
+						environment: { ...profile.provider?.daemon?.environment, OLLAMA_NUM_PARALLEL: '2' },
+					},
+				},
+			},
+		},
+	]
+	return [
+		...rows.map((row) => ({
+			name: row.name,
+			path: row.path,
+			original: requireValue(scratch.read(row.path)),
+			changed: JSON.stringify(row.value),
+		})),
+		{
+			name: 'content',
+			path: 'studies/files/index.ts',
+			original: requireValue(scratch.read('studies/files/index.ts')),
+			changed: requireValue(scratch.read('studies/files/index.ts')) + ' ',
+		},
+	]
+}
+
+/** Retains an ancestor control through real result custody, with optional recording and completion.
+ * @param fixture - The successful recording whose public evidence is copied.
+ * @param name - The absent result directory beneath the fixture.
+ * @param recording - If true, retains a complete sidecar; if false, declares no recording.
+ * @param declared - If true, declares the recorded execution as an exact procedure; if false, keeps it open.
+ * @param sealed - If true, seals the result; if false, leaves interrupted custody.
+ * @returns The independently readable result directory.
+ */
+export async function retainStudyContinuationSource(
+	fixture: StudyContinuationFixture,
+	name: string,
+	recording: boolean,
+	declared: boolean,
+	sealed = true,
+): Promise<string> {
+	const directory = join(fixture.scratch.path, name)
+	const { record: _record, ...original } = fixture.result.manifest
+	const manifest = {
+		...original,
+		id: `${original.id}-${name}`,
+		...(recording ? { record: fixture.history.declaration.record } : {}),
+	}
+	const store = new StudyResultStore({ directory, manifest })
+	await store.create()
+	for (const trial of manifest.schedule) {
+		const rows = readStudyExchangeRows(
+			Buffer.from(
+				requireValue(fixture.scratch.read(`baseline/execution/trials/${trial.id}/exchanges.jsonl`)),
+			),
+		)
+		const attempt = requireValue(
+			fixture.history.exchanges.find((pair) => pair.attempt.stage === 'execution'),
+		).attempt
+		const declaration = {
+			...fixture.history.declaration,
+			...(declared
+				? {
+						procedure: [
+							{
+								admission: 'exact' as const,
+								ordinal: 1,
+								goal: 'write',
+								role: 'agent' as const,
+								path: '/api/chat' as const,
+								body: Buffer.from(attempt.body, 'base64').toString(),
+								input: attempt.digest,
+								policy: {
+									model: 'model',
+									options: { num_ctx: 8192, num_predict: 8 },
+									think: false,
+									strict: false,
+									length: false,
+								},
+							},
+						],
+					}
+				: {}),
+		}
+		if (recording) await store.exchanges(trial, declaration)
+		const sink = await store.start(trial)
+		const evidence = requireValue(
+			fixture.scratch.read(`baseline/execution/trials/${trial.id}/evidence.jsonl`),
+		)
+			.split(/\r\n|\n/)
+			.filter(Boolean)
+			.map((line) => parseJSON(line))
+		for (const row of evidence) {
+			if (!isStudyEvidence(row)) throw new Error('Invalid continuation source evidence')
+			await sink.append(row)
+		}
+		if (recording)
+			await writeFile(
+				join(directory, 'execution', 'trials', trial.id, 'exchanges.jsonl'),
+				[declaration, ...rows.slice(1)].map((row) => JSON.stringify(row) + '\n').join(''),
+			)
+		await store.finish(
+			requireValue(fixture.result.attempts.find((candidate) => candidate.trial.id === trial.id)),
+		)
+	}
+	if (sealed) await store.seal()
+	return directory
 }
 
 /** Names replay request changes with independently known cursor outcomes. */
@@ -1006,6 +1307,16 @@ export const STUDY_DAEMON_ENDINGS: readonly string[] = Object.freeze([
 	'trial-failure',
 	'cancel',
 	'unload-failure',
+])
+
+/** Names the adapter environment changes that must stop a continuation inside its ancestor. */
+export const STUDY_CONTINUATION_DIVERGENCES: readonly string[] = Object.freeze(['body', 'extra'])
+
+/** Names complete and interrupted ancestor controls with their admission outcomes. */
+export const STUDY_CONTINUATION_SOURCES: readonly StudyContinuationSource[] = Object.freeze([
+	{ name: 'unrecorded', recording: false, declared: false, sealed: true, code: 'CONFIG' },
+	{ name: 'declared', recording: true, declared: true, sealed: true, code: 'CONFIG' },
+	{ name: 'interrupted', recording: true, declared: false, sealed: false, code: 'CUSTODY' },
 ])
 
 /** Supplies the validation request a task sends to its adapter child. */
