@@ -331,7 +331,7 @@ export async function readStudyBytes(path: string, limit: number): Promise<Uint8
 
 /**
  * Writes an exclusive regular record and synchronizes it before reporting success.
- * @param path - The new custody path
+ * @param path - The destination custody path
  * @param bytes - The exact encoded record
  * @returns Nothing after the record is synchronized
  * @example

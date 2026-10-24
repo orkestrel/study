@@ -44,7 +44,7 @@ export class StudyResultStore implements StudyResultStoreInterface {
 
 	/**
 	 * Owns a validated manifest snapshot without creating any files.
-	 * @param options - The new result directory and execution declaration
+	 * @param options - The result directory and execution declaration
 	 * @throws StudyError - Thrown when the manifest is invalid
 	 */
 	constructor(options: StudyResultStoreOptions) {

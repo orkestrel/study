@@ -44,17 +44,17 @@ export class StudyTrialLease {
 		this.#deadline = deadline
 	}
 
-	/** Reports the trial scope once opened; undefined when the trial inherited a failure. */
+	/** Reports the trial scope after opening; undefined when the trial inherited a failure. */
 	get scope(): StudyScope | undefined {
 		return this.#scope
 	}
 
-	/** Reports the trial's evidence sink once custody started. */
+	/** Reports the trial's evidence sink after custody starts. */
 	get evidence(): StudySinkInterface | undefined {
 		return this.#evidence
 	}
 
-	/** Reports the driver session once it opened. */
+	/** Reports the driver session after it opens. */
 	get session(): StudySessionInterface | undefined {
 		return this.#session
 	}

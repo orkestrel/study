@@ -84,12 +84,12 @@ export class StudyOllamaExchange implements StudyOllamaWire {
 		return this.#text
 	}
 
-	/** Holds the validated terminal row once observed. */
+	/** Holds the validated terminal row after observation. */
 	get terminal(): StudyOllamaTerminal | undefined {
 		return this.#terminal
 	}
 
-	/** Holds the daemon timing of the terminal row once observed. */
+	/** Holds the daemon timing of the terminal row after observation. */
 	get timing(): OllamaTiming | undefined {
 		return this.#timing
 	}

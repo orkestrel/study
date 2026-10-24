@@ -23,7 +23,7 @@ import {
 /**
  * Copies the own entries of a record that hold a value, in their original order.
  * @param value - The record whose undefined entries are absent declarations
- * @returns A new record without the undefined entries
+ * @returns A fresh record without the undefined entries
  * @example
  * ```ts
  * omitStudyAbsent({ context: 512, recap: undefined }) // { context: 512 }

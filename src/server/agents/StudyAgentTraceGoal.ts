@@ -2,7 +2,7 @@ import type { StudyEvidence } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
 import type { StudyAgentStamp } from './types.js'
 
-/** Holds one goal's retained trace rows, its latest admission and its last refused identity. */
+/** Holds one goal's retained trace rows, its last admission and its last refused identity. */
 export class StudyAgentTraceGoal {
 	readonly #goal: string
 	readonly #rows: StudyEvidence[] = []
@@ -26,7 +26,7 @@ export class StudyAgentTraceGoal {
 		return this.#rows
 	}
 
-	/** Reports the goal's latest admission stamp; undefined before one, or when the latest was not observed. */
+	/** Reports the goal's last admission stamp; undefined before one, or when the last was not observed. */
 	get admission(): StudyAgentStamp | undefined {
 		return this.#admission
 	}
@@ -39,7 +39,7 @@ export class StudyAgentTraceGoal {
 		this.#rows.push({ event, goal: this.#goal, value })
 	}
 
-	/** Retains the goal's latest admission stamp.
+	/** Retains the goal's last admission stamp.
 	 * @param stamp - The admission measurement's stamp; undefined when it was not observed.
 	 */
 	admit(stamp: StudyAgentStamp | undefined): void {

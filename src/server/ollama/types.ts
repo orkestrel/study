@@ -296,7 +296,7 @@ export interface StudyOllamaWire {
 	/** Holds the decoded response text not yet consumed as complete rows. */
 	readonly text: string
 	readonly terminal: StudyOllamaTerminal | undefined
-	/** Holds the daemon timing of the terminal row once observed. */
+	/** Holds the daemon timing of the terminal row after observation. */
 	readonly timing: OllamaTiming | undefined
 	/** Reports whether the request was accounted, finished or failed. */
 	readonly settled: boolean
