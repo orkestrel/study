@@ -50,6 +50,8 @@ import {
 	buildStudyCLI,
 	buildStudyLibrary,
 	buildStudySessionOptions,
+	buildStudyRecordedSessionOptions,
+	createStudyWorker,
 	buildStudyExchangeRows,
 	buildStudyExchangeHistory,
 	buildReversedStudyHistory,
@@ -86,6 +88,32 @@ import {
 	writeStudyOrphan,
 } from './setupServer.js'
 import { readStudyResult, readStudyExchanges } from '../src/server/stores/helpers.js'
+import { validateStudyRecordingDeclaration, valueToWire } from '../src/server/processes/helpers.js'
+
+it('builds a profile-matched recorded opening and owns a direct worker through cleanup', async () => {
+	const scratch = createScratch({ parent: resolve('tmp/units') })
+	try {
+		const entry = await buildStudyCLI(scratch)
+		const options = buildStudyRecordedSessionOptions(scratch, entry, new AbortController().signal)
+		const destination = requireValue(options.exchanges?.[options.trial.id])
+		expect(() =>
+			validateStudyRecordingDeclaration(destination.declaration, options.profile, options.trial),
+		).not.toThrow()
+		expect(destination.path).toBe(join(scratch.path, 'exchanges.jsonl'))
+		const worker = createStudyWorker(entry)
+		try {
+			await expect(worker.channel.request('open', valueToWire({}))).rejects.toMatchObject({
+				code: 'FAULT',
+				message: 'Worker opening declaration is invalid or driver is unsupported',
+			})
+		} finally {
+			await worker.close()
+		}
+		expect(isRunning(requireValue(worker.child.pid))).toBe(false)
+	} finally {
+		scratch.destroy()
+	}
+}, 60000)
 
 it('owns a grown continuation fixture and retains independent ancestor admission controls', async () => {
 	const library = createScratch({ parent: resolve('tmp/units') })

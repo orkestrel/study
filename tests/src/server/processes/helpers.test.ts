@@ -8,6 +8,7 @@ import {
 import {
 	createStudyScratch,
 	buildOllamaDeclaration,
+	buildOllamaStep,
 	createStudyPeer,
 	readStudyOrphan,
 	releaseStudyPid,
@@ -23,6 +24,7 @@ import { fork } from 'node:child_process'
 import { realpathSync } from 'node:fs'
 import { parse, resolve } from 'node:path'
 import { STUDY_DRAIN_DURATION } from '../../../../src/server/processes/constants.js'
+import { isStudyExchangeDeclaration } from '../../../../src/server/stores/validators.js'
 import {
 	buildStudyExchangeDeclaration,
 	computeStudyConfigurationDigest,
@@ -133,9 +135,19 @@ describe('process helpers', () => {
 	}, 30000)
 	it('composes open horizons once and validates the parent declaration against every held member', () => {
 		const opening = buildOllamaDeclaration()
+		const provider = buildStudyDaemonProvider()
+		const daemon = requireValue(provider.daemon)
 		const profile = {
 			...buildStudyProfile(),
-			provider: buildStudyDaemonProvider(),
+			provider: {
+				...provider,
+				judge: 'judge',
+				digest: { ...provider.digest, judge: 'b'.repeat(64) },
+				daemon: {
+					...daemon,
+					models: [...daemon.models, { name: 'judge', digest: 'b'.repeat(64) }],
+				},
+			},
 			record: opening.record,
 			settings: { version: opening.version, metadata: { ...opening.metadata } },
 		}
@@ -166,10 +178,14 @@ describe('process helpers', () => {
 			{ ...declaration, record: { ...declaration.record, calls: 1 } },
 			{ ...declaration, metadata: { ...declaration.metadata, calls: 1 } },
 			{ ...declaration, models: { model: { name: 'other', digest: 'a'.repeat(64) } } },
-		])
+			{ ...declaration, procedure: [buildOllamaStep('capture', undefined, 'agent', 1, 'write')] },
+			{ ...declaration, maintenance: [requireValue(profile.provider.daemon.models[0])] },
+		]) {
+			expect(isStudyExchangeDeclaration(changed)).toBe(true)
 			expect(() => validateStudyRecordingDeclaration(changed, profile, trial, scenario)).toThrow(
 				/differs/,
 			)
+		}
 	})
 
 	it('binds configuration to room settings and daemon identity apart from executable paths and ceilings', () => {

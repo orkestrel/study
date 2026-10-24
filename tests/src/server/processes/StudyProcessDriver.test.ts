@@ -11,10 +11,49 @@ import {
 } from '../../../setupStudy.js'
 import { StudyResultStore } from '../../../../src/server/stores/StudyResultStore.js'
 import { join } from 'node:path'
-import { buildStudySessionOptions, writeStudyPreparationPeer } from '../../../setupServer.js'
+import {
+	buildStudyRecordedSessionOptions,
+	buildStudySessionOptions,
+	writeStudyPreparationPeer,
+} from '../../../setupServer.js'
 import { createRecorder } from '@orkestrel/test'
 
 describe('StudyProcessDriver', () => {
+	it('F2 refuses a profile-mismatched declaration before parent preparation', async () => {
+		const scratch = createScratch()
+		const prepared = createRecorder<readonly []>()
+		try {
+			const { trial, signal, ...options } = buildStudyRecordedSessionOptions(
+				scratch,
+				writeStudyPreparationPeer(scratch),
+				new AbortController().signal,
+			)
+			const destination = options.exchanges?.[trial.id]
+			if (destination === undefined) throw new Error('Missing recorded destination')
+			const driver = new StudyProcessDriver({
+				...options,
+				exchanges: {
+					[trial.id]: {
+						...destination,
+						declaration: { ...destination.declaration, version: 'other-version' },
+					},
+				},
+				prepare: async () => {
+					prepared.handler()
+					return undefined
+				},
+			})
+			await expect(driver.open(trial, signal)).rejects.toMatchObject({
+				code: 'CONFIG',
+				message: 'Recording declaration differs from the executing profile or trial',
+			})
+			expect(prepared.calls).toEqual([])
+			expect(scratch.has('worker-opening.json')).toBe(false)
+			expect(scratch.has('exchanges.jsonl')).toBe(false)
+		} finally {
+			scratch.destroy()
+		}
+	})
 	it('awaits parent preparation before starting a worker and strips the callback from transported options', async () => {
 		const scratch = createScratch()
 		const prepared = createRecorder<readonly [string]>()

@@ -44,6 +44,7 @@ import type {
 	StudyCheckReading,
 	StudyOrphanReceipt,
 	StudyPeerFixture,
+	StudyWorkerFixture,
 	StudyTaskFixture,
 	StudyTaskMode,
 } from './src/server/processes/types.js'
@@ -113,8 +114,14 @@ import {
 	isStudyTrial,
 } from '../src/server/processes/validators.js'
 import { StudyTask } from '../src/server/processes/StudyTask.js'
+import {
+	buildStudyExchangeDeclaration,
+	drainStudyChild,
+	terminateStudyChild,
+} from '../src/server/processes/helpers.js'
+import { StudyChannel } from '../src/server/processes/StudyChannel.js'
 import { StudyCommand } from '../src/server/commands/StudyCommand.js'
-import { STUDY_TASK_DURATION } from '../src/server/processes/constants.js'
+import { STUDY_TASK_DURATION, STUDY_WORKER_OPERATION } from '../src/server/processes/constants.js'
 import { STUDY_LAUNCH_BYTES } from '../src/server/launchers/constants.js'
 import { collectStudyEvidence } from '../src/server/commands/helpers.js'
 import { StudyResultStore } from '../src/server/stores/StudyResultStore.js'
@@ -576,6 +583,7 @@ import {
 	buildStudyRubric,
 	buildStudyDefinition,
 	buildStudyProfile,
+	buildStudyDaemonProvider,
 	buildStudyScenario,
 	buildOllamaCall,
 	buildOllamaRow,
@@ -1312,6 +1320,12 @@ export const STUDY_DAEMON_ENDINGS: readonly string[] = Object.freeze([
 /** Names the adapter environment changes that must stop a continuation inside its ancestor. */
 export const STUDY_CONTINUATION_DIVERGENCES: readonly string[] = Object.freeze(['body', 'extra'])
 
+/** Names continuation operations that independently prepare executing declarations. */
+export const STUDY_CONTINUATION_COMMANDS: readonly string[] = Object.freeze(['check', 'execute'])
+
+/** Names worker identities checked before opening replay and continuation resources. */
+export const STUDY_WORKER_IDENTITIES = Object.freeze(['runtime', 'content'] as const)
+
 /** Names complete and interrupted ancestor controls with their admission outcomes. */
 export const STUDY_CONTINUATION_SOURCES: readonly StudyContinuationSource[] = Object.freeze([
 	{ name: 'unrecorded', recording: false, declared: false, sealed: true, code: 'CONFIG' },
@@ -1363,6 +1377,42 @@ export function buildStudySessionOptions(
 		identity: { ...manifest.identity },
 		trial: requireValue(manifest.schedule[0]),
 		signal,
+	}
+}
+
+/** Builds a shape-valid recorded opening for independent reader admission tests.
+ * @param scratch - The owned worker and sidecar directory.
+ * @param entry - The real worker or protocol peer entry.
+ * @param signal - The parent cancellation.
+ * @returns Session options whose declaration matches every held profile member.
+ */
+export function buildStudyRecordedSessionOptions(
+	scratch: ScratchInterface,
+	entry: string,
+	signal: AbortSignal,
+): StudyProcessSessionOptions {
+	const options = buildStudySessionOptions(scratch, entry, signal)
+	const opening = buildOllamaDeclaration()
+	const profile = {
+		...options.profile,
+		provider: buildStudyDaemonProvider(),
+		record: opening.record,
+		settings: { version: opening.version, metadata: { ...opening.metadata } },
+	}
+	return {
+		...options,
+		profile,
+		exchanges: {
+			[options.trial.id]: {
+				path: join(scratch.path, 'exchanges.jsonl'),
+				declaration: buildStudyExchangeDeclaration(
+					profile,
+					options.trial,
+					buildStudyScenario(),
+					false,
+				),
+			},
+		},
 	}
 }
 
@@ -1546,6 +1596,50 @@ export function createStudyPeer(scratch: ScratchInterface, source: string): Stud
 			await exited
 		},
 	})
+}
+
+/** Opens a direct parent channel to the built worker without driver or session admission.
+ * @param entry - The built real Study executable.
+ * @returns The worker, its protocol channel, and release of its recorded tree.
+ */
+export function createStudyWorker(entry: string): StudyWorkerFixture {
+	const child = fork(entry, [STUDY_WORKER_OPERATION], {
+		execArgv: [],
+		silent: true,
+		windowsHide: true,
+	})
+	drainStudyChild(child)
+	child.stdout?.resume()
+	child.stderr?.resume()
+	const channel = new StudyChannel({
+		endpoint: child,
+		handle: () => {
+			throw new Error('Worker requested parent work before readiness')
+		},
+		abort: () => {
+			throw new Error('Worker requested parent cancellation')
+		},
+	})
+	return {
+		child,
+		channel,
+		async close() {
+			channel.close()
+			if (child.exitCode !== null || child.signalCode !== null) return
+			const exited = waitForEvent(
+				(listener: () => void) => {
+					child.once('close', listener)
+					return () => {
+						child.off('close', listener)
+					}
+				},
+				'direct Study worker exit',
+				{ budget: 5000 },
+			)
+			terminateStudyChild(child)
+			await exited
+		},
+	}
 }
 
 /** Spawns a finite Node child that runs one inline program with piped output.

@@ -1,10 +1,16 @@
 import type { ChildProcess } from 'node:child_process'
 import type { StudyTask } from '../../../../src/server/processes/StudyTask.js'
+import type { StudyChannel } from '../../../../src/server/processes/StudyChannel.js'
 
 /** Holds one forked protocol peer and its bounded release. */
 export interface StudyPeerFixture {
 	readonly child: ChildProcess
 	close(): Promise<void>
+}
+
+/** Holds a real worker with a direct parent channel and bounded tree cleanup. */
+export interface StudyWorkerFixture extends StudyPeerFixture {
+	readonly channel: StudyChannel
 }
 
 /** Names how a fixture adapter answers its one request. */

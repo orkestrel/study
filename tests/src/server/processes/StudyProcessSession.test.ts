@@ -12,6 +12,8 @@ import { valueToWire } from '../../../../src/server/processes/helpers.js'
 import { isStudyFrame } from '../../../../src/server/processes/validators.js'
 import {
 	buildStudySessionOptions,
+	buildStudyRecordedSessionOptions,
+	writeStudyPreparationPeer,
 	readStudyOrphan,
 	releaseStudyPid,
 	writeStudyOrphan,
@@ -19,6 +21,35 @@ import {
 import { buildCustodyManifest, buildStudyManifest, buildStudyProfile } from '../../../setupStudy.js'
 
 describe('StudyProcessSession', () => {
+	it('F2 refuses a profile-mismatched declaration before opening a worker', async () => {
+		const scratch = createScratch()
+		const options = buildStudyRecordedSessionOptions(
+			scratch,
+			writeStudyPreparationPeer(scratch),
+			new AbortController().signal,
+		)
+		const destination = requireValue(options.exchanges?.[options.trial.id])
+		const session = new StudyProcessSession({
+			...options,
+			exchanges: {
+				[options.trial.id]: {
+					...destination,
+					declaration: { ...destination.declaration, version: 'other-version' },
+				},
+			},
+		})
+		try {
+			await expect(session.start()).rejects.toMatchObject({
+				code: 'CONFIG',
+				message: 'Recording declaration differs from the executing profile or trial',
+			})
+			expect(scratch.has('worker-opening.json')).toBe(false)
+			expect(scratch.has('exchanges.jsonl')).toBe(false)
+		} finally {
+			await session.close()
+			scratch.destroy()
+		}
+	})
 	it('reports the native trial deadline with its declared duration and unknown elapsed reading', async () => {
 		const scratch = createScratch()
 		const options = buildStudySessionOptions(

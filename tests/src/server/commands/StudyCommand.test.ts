@@ -1,6 +1,6 @@
-import { createScratch } from '@orkestrel/test/server'
+import { createScratch, isRunning } from '@orkestrel/test/server'
 import { isArray, isRecord, parseJSON } from '@orkestrel/contract'
-import { requireValue } from '@orkestrel/test'
+import { createRecorder, requireValue } from '@orkestrel/test'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { StudyCommand } from '../../../../src/server/commands/StudyCommand.js'
@@ -28,9 +28,78 @@ import {
 	readStudyPid,
 	STUDY_CONTINUATION_DIVERGENCES,
 	STUDY_CONTINUATION_SOURCES,
+	STUDY_CONTINUATION_COMMANDS,
 } from '../../../setupServer.js'
 
 describe('recording and replay command handoff', () => {
+	it.each(STUDY_CONTINUATION_COMMANDS)(
+		'F1 %s refuses a continuation profile changed between its early comparison and executing preparation',
+		async (operation) => {
+			const library = createScratch({ parent: resolve('tmp/units') })
+			const subject = await buildStudyLibrary(
+				library,
+				resolve('src/server/ollama/StudyOllamaTransport.ts'),
+			)
+			const fixture = await createStudyContinuationFixture(subject)
+			try {
+				const { scratch, command, recorded, profile } = fixture
+				const path = 'studies/files/profiles/local.json'
+				const original = requireValue(scratch.read(path))
+				const provider = requireValue(profile.provider)
+				const daemon = requireValue(provider.daemon)
+				const changed = JSON.stringify({
+					...profile,
+					provider: {
+						...provider,
+						daemon: { ...daemon, environment: { ...daemon.environment, OLLAMA_NUM_PARALLEL: '2' } },
+					},
+				})
+				const traffic = scratch.read('daemon-requests.jsonl')
+				const pid = readStudyPid(scratch, 'daemon.pid')
+				const workers = scratch.read('workers.log')
+				const signal = new AbortController().signal
+				const checkpoints = createRecorder<readonly []>()
+				Object.defineProperty(signal, 'throwIfAborted', {
+					value: () => {
+						AbortSignal.prototype.throwIfAborted.call(signal)
+						checkpoints.handler()
+						// The caller check and scenario read precede the per-trial continuation checkpoint.
+						if (checkpoints.count === 3) scratch.write(path, changed)
+					},
+				})
+				try {
+					await expect(
+						command.execute(
+							[
+								operation,
+								'assessment',
+								'--extend',
+								recorded,
+								...(operation === 'execute' ? ['--out', join(scratch.path, 'refused')] : []),
+							],
+							signal,
+						),
+					).rejects.toMatchObject({
+						code: 'CONFIG',
+						message: 'Continuation recording configuration changed',
+					})
+					expect(checkpoints.count).toBeGreaterThanOrEqual(3)
+					expect(scratch.read(path)).toBe(changed)
+					expect(scratch.read('daemon-requests.jsonl')).toBe(traffic)
+					expect(readStudyPid(scratch, 'daemon.pid')).toBe(pid)
+					expect(scratch.read('workers.log')).toBe(workers)
+					expect(scratch.has('refused')).toBe(false)
+				} finally {
+					scratch.write(path, original)
+				}
+			} finally {
+				await fixture.close()
+				library.destroy()
+			}
+		},
+		120000,
+	)
+
 	it('CT2 refuses changed continuation declarations before daemon startup or worker opening and binds the ancestor seal', async () => {
 		const library = createScratch({ parent: resolve('tmp/units') })
 		const subject = await buildStudyLibrary(
@@ -188,12 +257,18 @@ describe('recording and replay command handoff', () => {
 					.split(/\r\n|\n/)
 					.filter(Boolean).length
 				process.env.STUDY_EXTENSION_CHANGE = change
-				await expect(
-					command.execute(
+				const error = await command
+					.execute(
 						['execute', 'assessment', '--extend', recorded, '--out', join(scratch.path, 'live')],
 						new AbortController().signal,
-					),
-				).rejects.toMatchObject({ code: 'CUSTODY' })
+					)
+					.then(
+						() => undefined,
+						(failure: unknown) => failure,
+					)
+				expect(isRunning(requireValue(readStudyPid(scratch, 'daemon.pid')))).toBe(false)
+				expect(isRunning(requireValue(readStudyPid(scratch, 'runner.pid')))).toBe(false)
+				expect(error).toMatchObject({ code: 'CUSTODY' })
 				const traffic = requireValue(scratch.read('daemon-requests.jsonl'))
 					.split(/\r\n|\n/)
 					.filter(Boolean)

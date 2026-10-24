@@ -6,6 +6,9 @@ import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { StudyCommand } from '../../../../src/server/commands/StudyCommand.js'
+import { StudyDaemonSession } from '../../../../src/server/commands/StudyDaemonSession.js'
+import { buildStudyExchangeDeclaration } from '../../../../src/server/processes/helpers.js'
+import { buildStudyScenario } from '../../../setupStudy.js'
 import {
 	readStudyExchangeRows,
 	readStudyExchanges,
@@ -25,6 +28,41 @@ import {
 describe('execution-owned daemon staging', () => {
 	const library = createScratch({ parent: resolve('tmp/units') })
 	afterAll(() => library.destroy())
+	it('F2 refuses a profile-mismatched declaration before daemon unload', async () => {
+		const subject = await buildStudyLibrary(
+			library,
+			resolve('src/server/ollama/StudyOllamaTransport.ts'),
+		)
+		const fixture = await createStudyDaemonFixture(subject, 'normal', true)
+		const scenario = buildStudyScenario()
+		const trial = { id: 'r1-first-small', scenario: scenario.id, arm: 'small', repetition: 0 }
+		const signal = new AbortController().signal
+		const session = new StudyDaemonSession({
+			profile: fixture.profile,
+			scenarios: [scenario],
+			workspace: fixture.scratch.path,
+			signal,
+		})
+		try {
+			await session.start()
+			const traffic = fixture.scratch.read('daemon-requests.jsonl')
+			const declaration = buildStudyExchangeDeclaration(fixture.profile, trial, scenario, true)
+			await expect(
+				session.prepare(trial, signal, {
+					path: join(fixture.scratch.path, 'exchanges.jsonl'),
+					declaration: { ...declaration, version: 'other-version' },
+				}),
+			).rejects.toMatchObject({
+				code: 'CONFIG',
+				message: 'Recording declaration differs from the executing profile or trial',
+			})
+			expect(fixture.scratch.read('daemon-requests.jsonl')).toBe(traffic)
+			expect(fixture.scratch.has('exchanges.jsonl')).toBe(false)
+		} finally {
+			await session.stop()
+			await fixture.close()
+		}
+	}, 60000)
 
 	it('O1 joins open agent and summary maintenance to goals[0] and postflight to the last goal', async () => {
 		const subject = await buildStudyLibrary(

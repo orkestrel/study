@@ -25,6 +25,8 @@ describe('StudyArtifactLoader', () => {
 				'subject/dist/index.js',
 				'throw new Error("subject must not execute")',
 			)
+			const member = 'export const value = 11\n'
+			scratch.write('subject/dist/member.js', member)
 			const adapter = scratch.write('adapter/index.ts', 'export const adapter = true')
 			const options = {
 				entry,
@@ -41,6 +43,14 @@ describe('StudyArtifactLoader', () => {
 			expect((await new StudyArtifactLoader(options).inspect()).instrument).toBe(
 				original.instrument,
 			)
+			const substituted = member.replace('11', '12')
+			expect(Buffer.byteLength(substituted)).toBe(Buffer.byteLength(member))
+			scratch.write('subject/dist/member.js', substituted)
+			expect(scratch.read('subject/dist/index.js')).toBe(
+				'throw new Error("subject must not execute")',
+			)
+			expect(scratch.read('adapter/index.ts')).toBe('export const adapter = true')
+			expect((await new StudyArtifactLoader(options).inspect()).content).not.toBe(original.content)
 			scratch.write('runtime/dist/src/server/index.js', `${server} `)
 			expect(scratch.read('runtime/dist/bin/main.js')).toBe(bin)
 			expect((await new StudyArtifactLoader(options).inspect()).instrument).not.toBe(

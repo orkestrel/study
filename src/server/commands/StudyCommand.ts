@@ -98,7 +98,9 @@ export class StudyCommand {
 		if (request.command === 'check') {
 			const continuation =
 				request.extend === undefined ? undefined : await this.#extend(request, signal)
-			return this.#check(await this.#prepare(request, signal), continuation)
+			const preparation = await this.#prepare(request, signal)
+			if (continuation !== undefined) await this.#extend(request, signal, preparation)
+			return this.#check(preparation, continuation)
 		}
 		if (request.command === 'execute') return this.#execution(request, signal)
 		if (request.command === 'freeze') return this.#freeze(request, signal)
@@ -340,6 +342,7 @@ export class StudyCommand {
 				? undefined
 				: { result: source.manifest.id, seal: source.seal.id, identity: source.manifest.identity })
 		const preparation = await this.#prepare(request, signal)
+		if (continuation !== undefined) await this.#extend(request, signal, preparation)
 		const fingerprint = computeStudyCommandFingerprint(
 			preparation.identity,
 			preparation.profile.bounds,
@@ -468,7 +471,11 @@ export class StudyCommand {
 		}
 	}
 
-	async #extend(request: StudyExecutionRequest, signal: AbortSignal): Promise<StudyContinuation> {
+	async #extend(
+		request: StudyExecutionRequest,
+		signal: AbortSignal,
+		preparation?: StudyPreparation,
+	): Promise<StudyContinuation> {
 		if (request.extend === undefined || request.replay !== undefined)
 			throw new StudyError('CONFIG', 'Continuation requires an exclusive ancestor selection')
 		const source = await this.#result(request.extend)
@@ -489,20 +496,22 @@ export class StudyCommand {
 		const closure = request.closure === undefined ? undefined : this.#closure(request)
 		const root = closure?.root ?? this.#root
 		const entry = closure?.entry ?? this.#entry
-		const { bundle, definition, scenarios } = await readStudyDeclaration(
-			root,
-			request.target,
-			signal,
-		)
-		const bytes = await readStudyDeclarationBytes(
-			root,
-			resolveStudyPath(bundle, `profiles/${request.profile}.json`),
-		)
-		const profile = resolveStudyProfile(
-			root,
-			parseStudyProfile(decodeStudyJSON(bytes)),
-			closure?.closure,
-		)
+		const { bundle, definition, scenarios } =
+			preparation ?? (await readStudyDeclaration(root, request.target, signal))
+		const profile =
+			preparation?.profile ??
+			resolveStudyProfile(
+				root,
+				parseStudyProfile(
+					decodeStudyJSON(
+						await readStudyDeclarationBytes(
+							root,
+							resolveStudyPath(bundle, `profiles/${request.profile}.json`),
+						),
+					),
+				),
+				closure?.closure,
+			)
 		if (
 			profile.provider?.daemon === undefined ||
 			profile.record === undefined ||
@@ -553,13 +562,15 @@ export class StudyCommand {
 				return [trial.id, prefix] as const
 			}),
 		)
-		const artifacts = new StudyArtifactLoader({
-			root,
-			entry,
-			profile,
-			adapter: join(bundle, 'index.ts'),
-			...(closure === undefined ? {} : { closure }),
-		})
+		const artifacts =
+			preparation?.artifacts ??
+			new StudyArtifactLoader({
+				root,
+				entry,
+				profile,
+				adapter: join(bundle, 'index.ts'),
+				...(closure === undefined ? {} : { closure }),
+			})
 		const identity = await artifacts.inspect()
 		if (
 			identity.runtime !== source.manifest.identity.runtime ||
