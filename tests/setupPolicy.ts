@@ -348,7 +348,7 @@ export function createPolicyLazyCase<T>(
  *
  * @remarks
  * An index in `entries` produces a value the reader accepts, an index in `refusals` produces a
- * value the reader fails on once it has the value, and an index in `failures` fails when the
+ * value the reader fails on after it has the value, and an index in `failures` fails when the
  * getter runs. Every other index is a hole. A list with `iterable` set to `false` has no iterator,
  * which a loop refuses and `Array.from` and `values()` do not; it is an iterator list otherwise.
  */
