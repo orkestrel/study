@@ -47,6 +47,7 @@ import {
 import {
 	STUDY_OLLAMA_CHAT_BODY,
 	STUDY_OLLAMA_ABANDONMENT_CASES,
+	STUDY_OLLAMA_EOF_CANCELLATION_CASES,
 	STUDY_OLLAMA_SIDECAR_CASES,
 	STUDY_OLLAMA_ROW_FAULTS,
 	STUDY_OLLAMA_STREAM_FAILURES,
@@ -301,6 +302,148 @@ describe('StudyOllamaTransport', () => {
 		} finally {
 			release.resolve()
 			await fixture.close()
+		}
+	}, 5000)
+
+	it.each(STUDY_OLLAMA_EOF_CANCELLATION_CASES)(
+		'preserves EOF consumer cancellation recording=$recording budget=$budget',
+		async ({ recording, budget }) => {
+			const entered = Promise.withResolvers<void>()
+			const release = Promise.withResolvers<void>()
+			const body = buildOllamaRow({ prompt: 7, completion: 2 })
+			const fixture = await createOllamaDiskFixture(recording, [{ path: '/api/chat', body }])
+			const reason = budget
+				? createForeignBudgetError()
+				: new Error('Consumer cancelled during EOF evidence')
+			fixture.transport.clear()
+			fixture.transport.prepare({
+				goal: 'first',
+				checkpoint: undefined,
+				context: {
+					...fixture.goal.context,
+					evidence: {
+						append: async (row) => {
+							await fixture.goal.context.evidence.append(row)
+							if (row.event === 'wire' && isRecord(row.value) && row.value.role === 'agent') {
+								entered.resolve()
+								await release.promise
+							}
+						},
+					},
+				},
+			})
+			try {
+				await fixture.transport.verify()
+				const response = await fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+					method: 'POST',
+					body: STUDY_OLLAMA_CHAT_BODY,
+				})
+				const reader = requireValue(response.body).getReader()
+				expect(await reader.read()).toMatchObject({ done: false })
+				const reading = reader.read()
+				await entered.promise
+				const cancelling = reader.cancel(reason)
+				release.resolve()
+				await expect(reading).resolves.toEqual({ done: true, value: undefined })
+				await expect(cancelling).resolves.toBeUndefined()
+				// Close must not supply the cancellation this owner was required to observe.
+				expect(captureError(() => fixture.transport.check())).toBe(
+					!recording && budget ? undefined : reason,
+				)
+				expect(fixture.goal.usage()).toEqual([{ role: 'agent', calls: 1, tokens: 9, bytes: 265 }])
+				const rows = recording ? readStudyExchangeRows(await readFile(fixture.path), false) : []
+				expect(
+					rows.filter((row) => row.phase === 'attempt' && row.stage === 'execution'),
+				).toHaveLength(recording ? 1 : 0)
+				expect(
+					rows.filter((row) => row.phase === 'failure' && row.stage === 'execution'),
+				).toMatchObject(
+					recording
+						? [
+								{
+									ordinal: 5,
+									reason: reason.message,
+									response: {
+										status: 200,
+										body: Buffer.from(body).toString('base64'),
+										digest: hashStudyBytes(body),
+										size: Buffer.byteLength(body),
+									},
+								},
+							]
+						: [],
+				)
+				expect(
+					rows.some(
+						(row) =>
+							(row.phase === 'response' && row.stage === 'execution') || row.phase === 'complete',
+					),
+				).toBe(false)
+			} finally {
+				release.resolve()
+				await fixture.close()
+			}
+		},
+		5000,
+	)
+
+	it('joins cancellation after response admission without rolling back the terminal', async () => {
+		const entered = Promise.withResolvers<void>()
+		const release = Promise.withResolvers<void>()
+		const body = buildOllamaRow({ prompt: 7, completion: 2 })
+		const fixture = await createOllamaDiskFixture(true, [{ path: '/api/chat', body }])
+		const sink = requireValue(fixture.sink)
+		const transport = new StudyOllamaTransport(
+			buildOllamaTransportOptions(fixture.server.url, {
+				exchanges: {
+					get declaration() {
+						return sink.declaration
+					},
+					get next() {
+						return sink.next
+					},
+					append: async (row) => {
+						await sink.append(row)
+						if (row.phase === 'response' && row.stage === 'execution') {
+							entered.resolve()
+							await release.promise
+						}
+					},
+					close: () => sink.close(),
+				},
+			}),
+		)
+		transport.prepare({ goal: 'first', checkpoint: undefined, context: fixture.goal.context })
+		try {
+			await transport.verify()
+			const response = await transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+				method: 'POST',
+				body: STUDY_OLLAMA_CHAT_BODY,
+			})
+			const reader = requireValue(response.body).getReader()
+			expect(await reader.read()).toMatchObject({ done: false })
+			const reading = reader.read()
+			await entered.promise
+			const cancelling = reader.cancel(new Error('Cleanup after successful terminal admission'))
+			await readFile(fixture.path)
+			expect(await readSettled(cancelling)).toBe(false)
+			release.resolve()
+			await reading
+			await cancelling
+			expect(() => transport.check()).not.toThrow()
+			expect(fixture.goal.usage()).toEqual([{ role: 'agent', calls: 1, tokens: 9, bytes: 265 }])
+			const rows = readStudyExchangeRows(await readFile(fixture.path), false)
+			expect(
+				rows.filter((row) => row.phase === 'response' && row.stage === 'execution'),
+			).toMatchObject([{ ordinal: 5, body: Buffer.from(body).toString('base64') }])
+			expect(rows.some((row) => row.phase === 'failure' || row.phase === 'complete')).toBe(false)
+		} finally {
+			release.resolve()
+			try {
+				await transport.close()
+			} finally {
+				await fixture.close()
+			}
 		}
 	}, 5000)
 

@@ -445,16 +445,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		return new Response(
 			new ReadableStream<Uint8Array>({
 				pull: (controller) => this.#pull(wire, controller),
-				// A consumer cancel without a reason is the only absence; any thrown value keeps its identity.
-				cancel: (reason: unknown) =>
-					isBudgetError(reason)
-						? this.#cut(wire, reason)
-						: this.#failWire(
-								wire,
-								reason === undefined
-									? new StudyError('FAULT', 'Ollama response cancelled before its end')
-									: reason,
-							),
+				cancel: (reason: unknown) => this.#cancelResponse(wire, reason),
 			}),
 			{
 				status: wire.status,
@@ -546,6 +537,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		try {
 			wire.signal.throwIfAborted()
 			const chunk = await this.#read(wire)
+			wire.cancellation.throwIfAborted()
 			wire.signal.throwIfAborted()
 			if (!chunk.done) {
 				wire.count(chunk.value.byteLength, wire.ceiling)
@@ -589,6 +581,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 			if (wire.request.role !== 'metadata' && wire.terminal === undefined)
 				throw new StudyError('FAULT', 'Ollama response has no terminal row')
 			await this.#finish(wire)
+			wire.cancellation.throwIfAborted()
 			wire.signal.throwIfAborted()
 			if (wire.request.role === 'metadata' && this.#remaining < 0) {
 				const message = 'Metadata duration allowance exhausted'
@@ -605,6 +598,8 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				})
 			}
 			if (wire.terminal !== undefined) await this.#judge(wire, wire.terminal)
+			// Admission below commits the terminal synchronously; cancellation after it only joins retention.
+			wire.cancellation.throwIfAborted()
 			if (wire.identity !== undefined) {
 				this.check()
 				await this.#options.exchanges?.append({
@@ -615,7 +610,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				wire.record()
 			}
 			this.#requests.delete(wire.slot)
-			controller.close()
+			if (!wire.cancellation.aborted) controller.close()
 		} catch (error) {
 			this.fail(error)
 			try {
@@ -627,6 +622,16 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				controller.error(error)
 			}
 		}
+	}
+
+	#cancelResponse(wire: StudyOllamaExchange, reason: unknown): Promise<void> {
+		// Only undefined denotes absence; null and every other thrown value keep their identity.
+		const error =
+			reason === undefined
+				? new StudyError('FAULT', 'Ollama response cancelled before its end')
+				: reason
+		wire.cancel(error)
+		return isBudgetError(error) ? this.#cut(wire, error) : this.#failWire(wire, error)
 	}
 
 	// Checks the terminal against the wire's declared policy; a refusal that names a stop is retained as one `stop` row before it propagates.

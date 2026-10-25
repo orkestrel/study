@@ -135,6 +135,8 @@ The collaborator returns a native `Response` and never settles a Study ticket. S
 
 The transport's `close` method shares completion across repeated calls and waits for response finalization and native reader cleanup, including work whose accounting already settled. A rejected finalization remains observable from close after the pending work drains.
 
+Consumer cancellation joins the existing response finalizer and preserves its reason. Before successful response admission, cancellation retains a failure terminal when recording is enabled; usage already reported at EOF stays known. With recording disabled, a branded Agent budget cancellation leaves the transport's failure latch clear. Successful response admission is the terminal commitment boundary: later consumer cancellation waits for retention without replacing that terminal or closing the cancelled stream. A retention failure still propagates through finalization.
+
 ### Forward admitted requests by role
 
 Supply the forwarding function inside the process that constructs the transport. This example retains the roles and delegates the supplied request settings to native fetch.

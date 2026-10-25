@@ -2704,6 +2704,14 @@ export const STUDY_OLLAMA_ABANDONMENT_CASES = Object.freeze([
 	{ recording: true },
 ])
 
+/** Crosses real recording with branded budget and operational EOF cancellation. */
+export const STUDY_OLLAMA_EOF_CANCELLATION_CASES = Object.freeze([
+	{ recording: false, budget: true },
+	{ recording: false, budget: false },
+	{ recording: true, budget: true },
+	{ recording: true, budget: false },
+])
+
 /** Supplies disk sidecar pressure cases and fitting response controls. */
 export const STUDY_OLLAMA_SIDECAR_CASES = Object.freeze([
 	{ bytes: 8192, status: 200 },

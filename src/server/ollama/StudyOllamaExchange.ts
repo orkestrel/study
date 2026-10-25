@@ -29,6 +29,7 @@ export class StudyOllamaExchange implements StudyOllamaWire {
 	#settled = false
 	#chunks: readonly Uint8Array[] = []
 	#recorded = false
+	readonly #cancellation = new AbortController()
 
 	/** Binds the facts of one dispatched request and its open response.
 	 * @param wire - The request, accounting boundary, reader and identities; its byte count starts the tally.
@@ -104,6 +105,11 @@ export class StudyOllamaExchange implements StudyOllamaWire {
 		return this.#recorded
 	}
 
+	/** Holds consumer cancellation independently of native accounting and its first reason. */
+	get cancellation(): AbortSignal {
+		return this.#cancellation.signal
+	}
+
 	/** Holds the exact bounded bytes and native chunk lengths observed so far. */
 	get reply(): StudyExchangeReply {
 		return {
@@ -112,6 +118,13 @@ export class StudyOllamaExchange implements StudyOllamaWire {
 			...buildStudyOllamaBytes(Buffer.concat(this.#chunks)),
 			chunks: this.#chunks.map((chunk) => chunk.byteLength),
 		}
+	}
+
+	/** Communicates consumer cancellation to the finalizer without aborting known EOF accounting.
+	 * @param reason - The normalized consumer reason; the first cancellation keeps its identity.
+	 */
+	cancel(reason: unknown): void {
+		this.#cancellation.abort(reason)
 	}
 
 	/** Retains one bounded chunk before decoding changes its representation.
