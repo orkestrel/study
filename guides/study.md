@@ -133,6 +133,8 @@ The `StudyOllamaTransportOptions` interface accepts an optional `fetch` collabor
 
 The collaborator returns a native `Response` and never settles a Study ticket. Study keeps request validation, admission, dispatch evidence, response status and byte bounds, terminal and timing checks, cancellation, accounting, and the failure latch. A synchronous throw, HTTP refusal, incomplete stream, abort, or cap follows the existing accounting path. Caller abort, the request deadline, and the `close` method settle a pending collaborator wait with the signal's reason even if the collaborator ignores cancellation; Study accounts the request once, retains the failure, and cancels a response that arrives later.
 
+The transport's `close` method shares completion across repeated calls and waits for response finalization and native reader cleanup, including work whose accounting already settled. A rejected finalization remains observable from close after the pending work drains.
+
 ### Forward admitted requests by role
 
 Supply the forwarding function inside the process that constructs the transport. This example retains the roles and delegates the supplied request settings to native fetch.

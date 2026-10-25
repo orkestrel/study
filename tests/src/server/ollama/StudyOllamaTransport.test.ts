@@ -1,6 +1,6 @@
 import type { JudgeInterface } from '@orkestrel/agent'
 import type { StudyOllamaFetchFunction } from '../../../../src/server/ollama/types.js'
-import { STUDY_STOP_SWITCHES } from '../../../setupStudy.js'
+import { STUDY_STOP_SWITCHES, readSettled } from '../../../setupStudy.js'
 import { createForeignBudgetError, createBudgetLookalike } from '../../../setupServer.js'
 import { describe, expect, it } from 'vitest'
 import { parseJSON, isRecord } from '@orkestrel/contract'
@@ -55,6 +55,7 @@ import {
 	buildOllamaTransportOptions,
 	createOllamaContext,
 	createOllamaTransportFixture,
+	createOllamaDiskFixture,
 	createOllamaTransportProvider,
 	buildOllamaStep,
 	buildOllamaDeclaration,
@@ -67,153 +68,272 @@ import {
 const encoder = new TextEncoder()
 
 describe('StudyOllamaTransport', () => {
-	describe.each(STUDY_OLLAMA_ABANDONMENT_CASES)('native abandonment recording=$recording', ({ recording }) => {
-		it('retains one terminal when a native stream is abandoned', async () => {
-			const scratch = createScratch()
-			const path = join(scratch.path, 'exchanges.jsonl')
-			const failures: unknown[] = []
-			try {
-				const { procedure: _procedure, ...declaration } = buildOllamaDeclaration()
-				const sink = recording
-					? new StudyExchangeSink({ file: await open(path, 'wx'), record: declaration.record })
-					: undefined
+	describe.each(STUDY_OLLAMA_ABANDONMENT_CASES)(
+		'native abandonment recording=$recording',
+		({ recording }) => {
+			it('retains one terminal when a native stream is abandoned', async () => {
+				const fixture = await createOllamaDiskFixture(recording, [
+					{ path: '/api/chat', body: STUDY_OLLAMA_PARTIAL_ROW, open: true },
+				])
 				try {
-					if (sink !== undefined) {
-						expect(declaration).not.toHaveProperty('procedure')
-						await sink.append(declaration)
-						expect(sink.declaration).toMatchObject({ phase: 'declaration' })
-						expect(sink.declaration).not.toHaveProperty('procedure')
-						console.info('Native abandonment declaration', { recording, path })
+					expect(fixture.sink?.declaration?.phase).toBe(recording ? 'declaration' : undefined)
+					expect(fixture.sink?.declaration ?? {}).not.toHaveProperty('procedure')
+					await fixture.transport.verify()
+					const provider = createOllamaTransportProvider(fixture.transport, fixture.server.url)
+					const stream = provider.stream(STUDY_AGENT_MESSAGES, new AbortController().signal)
+					expect(await stream.next()).toEqual({
+						done: false,
+						value: { channel: 'content', text: 'par' },
+					})
+					await expect(stream.return({ content: '' })).resolves.toEqual({
+						done: true,
+						value: { content: '' },
+					})
+					expect(fixture.goal.usage()).toEqual([
+						{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
+					])
+					const failure = captureError(() => fixture.transport.check())
+					expect(failure).toMatchObject({
+						code: 'FAULT',
+						message: 'Ollama response cancelled before its end',
+					})
+					await expect(
+						provider.generate(STUDY_AGENT_MESSAGES, new AbortController().signal),
+					).rejects.toBe(failure)
+					expect(captureError(() => fixture.transport.check())).toBe(failure)
+					expect(
+						fixture.server.requests.filter((request) => request.path === '/api/chat'),
+					).toHaveLength(1)
+					await fixture.transport.close()
+					await expect(Promise.resolve(fixture.sink?.close())).resolves.toBeUndefined()
+					const rows = recording ? readStudyExchangeRows(await readFile(fixture.path), false) : []
+					const identity = {
+						ordinal: 5,
+						goal: 'first',
+						role: 'agent',
+						path: '/api/chat',
+						method: 'POST',
+						step: 1,
 					}
-					const fixture = await createOllamaTransportFixture(
-						[{ path: '/api/chat', body: STUDY_OLLAMA_PARTIAL_ROW, open: true }],
-						sink === undefined ? {} : { exchanges: sink },
+					expect(
+						rows.filter((row) => row.phase === 'attempt' && row.stage === 'execution'),
+					).toMatchObject(recording ? [identity] : [])
+					expect(
+						rows.filter((row) => row.phase === 'failure' && row.stage === 'execution'),
+					).toMatchObject(
+						recording
+							? [
+									{
+										...identity,
+										reason: 'Ollama response cancelled before its end',
+										response: {
+											status: 200,
+											body: Buffer.from(STUDY_OLLAMA_PARTIAL_ROW).toString('base64'),
+											digest: hashStudyBytes(STUDY_OLLAMA_PARTIAL_ROW),
+											size: Buffer.byteLength(STUDY_OLLAMA_PARTIAL_ROW),
+										},
+									},
+								]
+							: [],
 					)
-					try {
-						await fixture.transport.verify()
-						const provider = createOllamaTransportProvider(fixture.transport, fixture.server.url)
-						const stream = provider.stream(STUDY_AGENT_MESSAGES, new AbortController().signal)
-						const delta = await stream.next()
-						expect(delta).toEqual({ done: false, value: { channel: 'content', text: 'par' } })
-						console.info('Native abandonment delta', { recording, delta })
-						await expect(stream.return({ content: '' })).resolves.toEqual({
-							done: true,
-							value: { content: '' },
-						})
-						expect(fixture.goal.usage()).toEqual([
-							{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
-						])
-						const failure = captureError(() => fixture.transport.check())
-						expect(failure).toMatchObject({
-							code: 'FAULT',
-							message: 'Ollama response cancelled before its end',
-						})
-						await expect(
-							provider.generate(STUDY_AGENT_MESSAGES, new AbortController().signal),
-						).rejects.toBe(failure)
-						expect(captureError(() => fixture.transport.check())).toBe(failure)
-						expect(
-							fixture.server.requests.filter((request) => request.path === '/api/chat'),
-						).toHaveLength(1)
-					} catch (error) {
-						failures.push(error)
-					} finally {
-						try {
-							await fixture.transport.close()
-						} catch (error) {
-							failures.push(error)
-						} finally {
-							try {
-								if (sink !== undefined) await expect(sink.close()).resolves.toBeUndefined()
-							} catch (error) {
-								failures.push(error)
-							} finally {
-								try {
-									fixture.goal.close()
-								} catch (error) {
-									failures.push(error)
-								} finally {
-									try {
-										await fixture.server.close()
-									} catch (error) {
-										failures.push(error)
-									}
-								}
-							}
-						}
-						try {
-							expect(fixture.goal.usage()).toEqual([
-								{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
-							])
-						} catch (error) {
-							failures.push(error)
-						}
-					}
-				} catch (error) {
-					failures.push(error)
+					expect(rows.some((row) => row.phase === 'response' && row.stage === 'execution')).toBe(
+						false,
+					)
+					expect(rows.some((row) => row.phase === 'complete')).toBe(false)
+					expect(
+						rows.flatMap((row) =>
+							row.phase === 'attempt' && row.stage === 'preflight' ? [row.path] : [],
+						),
+					).toEqual(recording ? ['/api/version', '/api/tags', '/api/show', '/api/show'] : [])
 				} finally {
-					if (sink !== undefined) {
-						try {
-							await expect(sink.close()).resolves.toBeUndefined()
-						} catch (error) {
-							failures.push(error)
-						}
-						try {
-							const rows = readStudyExchangeRows(await readFile(path), false)
-							const attempts = rows.filter((row) => row.phase === 'attempt' && row.stage === 'execution')
-							const terminals = rows.filter((row) => row.phase === 'failure' && row.stage === 'execution')
-							console.info('Native abandonment retained execution', { attempts, terminals })
-							expect(attempts).toHaveLength(1)
-							expect(terminals).toHaveLength(1)
-							const attempt = requireValue(attempts[0])
-							const terminal = requireValue(terminals[0])
-							if (attempt.phase !== 'attempt' || terminal.phase !== 'failure')
-								throw new Error('Missing execution attempt or failure terminal')
-							expect(terminal).toMatchObject({
-								ordinal: attempt.ordinal,
-								goal: attempt.goal,
-								role: 'agent',
-								path: '/api/chat',
-								method: attempt.method,
-								reason: 'Ollama response cancelled before its end',
-							})
-							expect(terminal.step).toBe(attempt.step)
-							expect(terminal.response).toMatchObject({
-								status: 200,
-								body: Buffer.from(STUDY_OLLAMA_PARTIAL_ROW).toString('base64'),
-								digest: hashStudyBytes(STUDY_OLLAMA_PARTIAL_ROW),
-								size: Buffer.byteLength(STUDY_OLLAMA_PARTIAL_ROW),
-							})
-							expect(
-								rows.some((row) => row.phase === 'response' && row.stage === 'execution'),
-							).toBe(false)
-							expect(rows.some((row) => row.phase === 'complete')).toBe(false)
-							expect(rows.flatMap((row) =>
-								row.phase === 'attempt' && row.stage === 'preflight' ? [row.path] : [],
-							)).toEqual([
-								'/api/version',
-								'/api/tags',
-								'/api/show',
-								'/api/show',
-							])
-						} catch (error) {
-							failures.push(error)
-						}
-					}
+					await fixture.close()
 				}
-			} catch (error) {
-				failures.push(error)
-			} finally {
-				try {
-					scratch.destroy()
-					console.info('Native abandonment resources released', { recording, path })
-				} catch (error) {
-					failures.push(error)
-				}
-			}
-			if (failures.length !== 0)
-				throw new AggregateError(failures, 'Native stream abandonment failed', { cause: failures[0] })
-		}, 5000)
+				expect(fixture.goal.usage()).toEqual([
+					{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
+				])
+			}, 5000)
+		},
+	)
+	it('joins concurrent close through retained recording and native reader cleanup', async () => {
+		const entered = Promise.withResolvers<void>()
+		const release = Promise.withResolvers<void>()
+		const fixture = await createOllamaDiskFixture(true, [], {
+			fetch: async (role, input, init) =>
+				role === 'metadata'
+					? globalThis.fetch(input, init)
+					: new Response(
+							new ReadableStream<Uint8Array>({
+								start: (controller) => controller.enqueue(encoder.encode(STUDY_OLLAMA_PARTIAL_ROW)),
+								cancel: () => {
+									entered.resolve()
+									return release.promise
+								},
+							}),
+						),
+		})
+		try {
+			await fixture.transport.verify()
+			const provider = createOllamaTransportProvider(fixture.transport, fixture.server.url)
+			const stream = provider.stream(STUDY_AGENT_MESSAGES, new AbortController().signal)
+			expect(await stream.next()).toMatchObject({ done: false })
+			const ending = stream.return({ content: '' })
+			await entered.promise
+			const closing = fixture.transport.close()
+			expect(fixture.transport.close()).toBe(closing)
+			const rows = readStudyExchangeRows(await readFile(fixture.path), false)
+			expect(
+				rows.filter((row) => row.phase === 'failure' && row.stage === 'execution'),
+			).toHaveLength(1)
+			expect(await readSettled(closing)).toBe(false)
+			expect(await readSettled(ending)).toBe(false)
+			release.resolve()
+			await ending
+			await expect(closing).resolves.toBeUndefined()
+			await expect(fixture.sink?.close()).resolves.toBeUndefined()
+			expect(fixture.goal.usage()).toEqual([
+				{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
+			])
+		} finally {
+			release.resolve()
+			await fixture.close()
+		}
+	}, 5000)
+
+	it('retains a real failure terminal after EOF accounting refuses completion', async () => {
+		const body = buildOllamaRow({ prompt: 7, completion: 512 })
+		const fixture = await createOllamaDiskFixture(true, [{ path: '/api/chat', body }])
+		try {
+			await fixture.transport.verify()
+			const response = await fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+				method: 'POST',
+				body: STUDY_OLLAMA_CHAT_BODY,
+			})
+			await expect(response.text()).rejects.toMatchObject({ code: 'CAPACITY' })
+			expect(fixture.goal.usage()).toEqual([
+				{
+					role: 'agent',
+					calls: 1,
+					tokens: 519,
+					bytes: Buffer.byteLength(STUDY_OLLAMA_CHAT_BODY) + Buffer.byteLength(body),
+				},
+			])
+			await fixture.transport.close()
+			await fixture.sink?.close()
+			const rows = readStudyExchangeRows(await readFile(fixture.path), false)
+			expect(
+				rows.filter((row) => row.phase === 'failure' && row.stage === 'execution'),
+			).toMatchObject([{ role: 'agent', response: { body: Buffer.from(body).toString('base64') } }])
+			expect(
+				rows.some(
+					(row) =>
+						(row.phase === 'response' && row.stage === 'execution') || row.phase === 'complete',
+				),
+			).toBe(false)
+		} finally {
+			await fixture.close()
+		}
+	})
+
+	it('joins close with EOF finalization already awaiting its evidence', async () => {
+		const entered = Promise.withResolvers<void>()
+		const release = Promise.withResolvers<void>()
+		const body = buildOllamaRow({ prompt: 7, completion: 2 })
+		const fixture = await createOllamaDiskFixture(true, [{ path: '/api/chat', body }])
+		fixture.transport.clear()
+		fixture.transport.prepare({
+			goal: 'first',
+			checkpoint: undefined,
+			context: {
+				...fixture.goal.context,
+				evidence: {
+					append: async (row) => {
+						await fixture.goal.context.evidence.append(row)
+						if (row.event === 'wire' && isRecord(row.value) && row.value.role === 'agent') {
+							entered.resolve()
+							await release.promise
+						}
+					},
+				},
+			},
+		})
+		try {
+			await fixture.transport.verify()
+			const response = await fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+				method: 'POST',
+				body: STUDY_OLLAMA_CHAT_BODY,
+			})
+			const reading = response.text().then(
+				() => undefined,
+				(error: unknown) => error,
+			)
+			await entered.promise
+			const closing = fixture.transport.close()
+			expect(fixture.transport.close()).toBe(closing)
+			await readFile(fixture.path)
+			expect(await readSettled(closing)).toBe(false)
+			release.resolve()
+			expect(await reading).toMatchObject({ message: 'Ollama transport closed' })
+			await expect(closing).resolves.toBeUndefined()
+			await fixture.sink?.close()
+			expect(fixture.goal.usage()).toEqual([
+				{
+					role: 'agent',
+					calls: 1,
+					tokens: 9,
+					bytes: Buffer.byteLength(STUDY_OLLAMA_CHAT_BODY) + Buffer.byteLength(body),
+				},
+			])
+			const rows = readStudyExchangeRows(await readFile(fixture.path), false)
+			expect(
+				rows.filter((row) => row.phase === 'failure' && row.stage === 'execution'),
+			).toMatchObject([
+				{
+					reason: 'Ollama transport closed',
+					response: { body: Buffer.from(body).toString('base64') },
+				},
+			])
+			expect(
+				rows.some(
+					(row) =>
+						(row.phase === 'response' && row.stage === 'execution') || row.phase === 'complete',
+				),
+			).toBe(false)
+		} finally {
+			release.resolve()
+			await fixture.close()
+		}
+	}, 5000)
+
+	it('propagates a real terminal write failure through cancellation and repeated close', async () => {
+		const fixture = await createOllamaDiskFixture(true, [
+			{ path: '/api/chat', body: STUDY_OLLAMA_PARTIAL_ROW, open: true },
+		])
+		try {
+			await fixture.transport.verify()
+			const response = await fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+				method: 'POST',
+				body: STUDY_OLLAMA_CHAT_BODY,
+			})
+			const reader = requireValue(response.body).getReader()
+			expect(await reader.read()).toMatchObject({ done: false })
+			await requireValue(fixture.file).close()
+			const failure = await reader.cancel(new Error('Abandoned after descriptor failure')).then(
+				() => undefined,
+				(error: unknown) => error,
+			)
+			expect(failure).toMatchObject({ code: 'EBADF' })
+			const closing = fixture.transport.close()
+			expect(fixture.transport.close()).toBe(closing)
+			await expect(closing).rejects.toBe(failure)
+			await expect(fixture.close()).rejects.toMatchObject({
+				errors: [failure, expect.objectContaining({ code: 'EBADF' })],
+			})
+			expect(fixture.goal.usage()).toEqual([
+				{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
+			])
+		} finally {
+			await fixture.close()
+		}
 	})
 
 	describe('open recording admission', () => {
@@ -3008,7 +3128,7 @@ describe('transport stop chain', () => {
 				consumed: 2,
 			})
 		} finally {
-			await fixture.close()
+			await expect(fixture.close()).rejects.toBe(refusal)
 		}
 	})
 })

@@ -68,6 +68,7 @@ import type {
 	OllamaStrictRolesFixture,
 	OllamaTransportFixture,
 	OllamaRecordingFixture,
+	OllamaDiskFixture,
 	OllamaWireReplyFixture,
 } from './src/server/ollama/types.js'
 import type {
@@ -92,10 +93,16 @@ import {
 } from './setupDistribution.js'
 import { isArray, isInteger, isRecord, parseJSON } from '@orkestrel/contract'
 import { createScratch, isRunning } from '@orkestrel/test/server'
-import { requireValue, waitForCondition, waitForEvent, waitForDelay } from '@orkestrel/test'
+import {
+	createTeardown,
+	requireValue,
+	waitForCondition,
+	waitForEvent,
+	waitForDelay,
+} from '@orkestrel/test'
 import { execFile, fork, spawn } from 'node:child_process'
 import { cpSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
-import { writeFile } from 'node:fs/promises'
+import { open as openFile, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { createRequire, isBuiltin } from 'node:module'
 import { pathToFileURL } from 'node:url'
@@ -125,6 +132,7 @@ import { STUDY_TASK_DURATION, STUDY_WORKER_OPERATION } from '../src/server/proce
 import { STUDY_LAUNCH_BYTES } from '../src/server/launchers/constants.js'
 import { collectStudyEvidence } from '../src/server/commands/helpers.js'
 import { StudyResultStore } from '../src/server/stores/StudyResultStore.js'
+import { StudyExchangeSink } from '../src/server/stores/StudyExchangeSink.js'
 import {
 	buildStudyPacket,
 	projectStudyExchangeIdentity,
@@ -1598,6 +1606,69 @@ export function createStudyPeer(scratch: ScratchInterface, source: string): Stud
 	})
 }
 
+/** Starts real source accounting behind a native IPC channel and waits for its readiness.
+ * @param scratch - The owned temporary directory holding the self-contained child entry.
+ * @returns The parent-accounting peer with bounded native process cleanup.
+ */
+export async function createStudyAccountingPeer(
+	scratch: ScratchInterface,
+): Promise<StudyPeerFixture> {
+	const library = new URL('../src/', import.meta.url).href
+	const entry = createArtifactWorker(
+		scratch,
+		`
+const { StudyControl, StudyScope, StudyMeter } = await import(${JSON.stringify(`${library}core/index.ts`)})
+const { StudyChannel } = await import(${JSON.stringify(`${library}server/processes/StudyChannel.ts`)})
+const control = new StudyControl()
+const scope = new StudyScope({ control, label: 'IPC goal', limit: { duration: 15000, calls: 8, tokens: 1048576, bytes: 8388608 } })
+const meter = new StudyMeter({ control, scopes: [scope], request: { duration: 5000, calls: 1, tokens: 32640, bytes: 1048576 } })
+const tickets = new Map()
+const operations = []
+new StudyChannel({
+ endpoint: process,
+ handle: async (operation, value) => {
+  if (operation === 'evidence') {
+   meter.close()
+   return { pending: tickets.size, operations, usage: meter.usage.map(({ role, calls, tokens, bytes }) => ({ role, calls, tokens: tokens ?? null, bytes: bytes ?? null })), failure: control.failure ?? null }
+  }
+  operations.push(operation)
+  if (operation === 'admit') {
+   if (tickets.has(value.id)) throw new Error('Repeated admission')
+   tickets.set(value.id, meter.admit(value.charge))
+   return { id: value.id }
+  }
+  const ticket = tickets.get(value.id)
+  if (ticket === undefined) throw new Error('Missing admitted ticket')
+  if (operation === 'fail') ticket.fail(value.failure)
+  else if (operation === 'finish') ticket.finish(value.usage)
+  else throw new Error('Unexpected accounting operation')
+  tickets.delete(value.id)
+  return true
+ },
+ abort: () => { throw new Error('Unexpected parent cancellation') }
+})
+process.send({ ready: true })
+`,
+	)
+	const peer = createStudyPeer(scratch, `void import(${JSON.stringify(pathToFileURL(entry).href)})`)
+	try {
+		const [message] = await waitForEvent<readonly [unknown]>(
+			(listener) => {
+				peer.child.once('message', listener)
+				return () => peer.child.off('message', listener)
+			},
+			'IPC accounting readiness',
+			{ budget: 5000 },
+		)
+		if (!isRecord(message) || message.ready !== true)
+			throw new Error('Invalid accounting readiness')
+		return peer
+	} catch (error) {
+		await peer.close()
+		throw error
+	}
+}
+
 /** Opens a direct parent channel to the built worker without driver or session admission.
  * @param entry - The built real Study executable.
  * @returns The worker, its protocol channel, and release of its recorded tree.
@@ -2835,6 +2906,52 @@ export async function createOpenOllamaRecordingFixture(
 	return { ...fixture, sink, rows: sink.rows }
 }
 
+/** Opens a native transport with optional real disk recording and ordered, exhaustive cleanup.
+ * @param recording - If true, retains an open declaration in an exclusive sidecar; if false, records no sidecar.
+ * @param replies - The loopback peer's exact queued responses.
+ * @param change - Transport overrides that preserve the selected recording boundary.
+ * @returns The real transport, accounting, optional descriptor and sink, and their shared cleanup.
+ */
+export async function createOllamaDiskFixture(
+	recording: boolean,
+	replies: readonly OllamaWireReplyFixture[] = [],
+	change: Partial<StudyOllamaTransportOptions> = {},
+): Promise<OllamaDiskFixture> {
+	const teardown = createTeardown()
+	const scratch = createScratch()
+	teardown.add(() => scratch.destroy())
+	const path = join(scratch.path, 'exchanges.jsonl')
+	try {
+		const { procedure: _procedure, ...declaration } = buildOllamaDeclaration()
+		const file = recording ? await openFile(path, 'wx') : undefined
+		if (file !== undefined) teardown.add(() => file.close())
+		const sink =
+			file === undefined ? undefined : new StudyExchangeSink({ file, record: declaration.record })
+		if (sink !== undefined) {
+			await sink.append(declaration)
+		}
+		const fixture = await createOllamaTransportFixture(replies, {
+			...change,
+			...(sink === undefined ? {} : { exchanges: sink }),
+		})
+		teardown.add(() => fixture.server.close())
+		teardown.add(() => fixture.goal.close())
+		// The sink remains open until every transport continuation has drained.
+		teardown.add(() => sink?.close())
+		teardown.add(() => fixture.transport.close())
+		return { ...fixture, path, file, sink, close: () => teardown.destroy() }
+	} catch (error) {
+		try {
+			await teardown.destroy()
+		} catch (cleanup) {
+			throw new AggregateError([error, cleanup], 'Disk transport construction failed', {
+				cause: cleanup,
+			})
+		}
+		throw error
+	}
+}
+
 /** Creates real goal accounting and an append-only evidence recorder sized for the fixture transport.
  * @param signal - The goal's cancellation.
  * @returns The context, its evidence, the real meter, and one cleanup boundary.
@@ -2928,15 +3045,15 @@ export async function createOllamaTransportFixture(
 	try {
 		const transport = new StudyOllamaTransport(buildOllamaTransportOptions(server.url, change))
 		transport.prepare({ goal: 'first', context: goal.context, checkpoint })
+		const teardown = createTeardown()
+		teardown.add(() => server.close())
+		teardown.add(() => goal.close())
+		teardown.add(() => transport.close())
 		return {
 			server,
 			goal,
 			transport,
-			close: async () => {
-				await transport.close()
-				goal.close()
-				await server.close()
-			},
+			close: () => teardown.destroy(),
 		}
 	} catch (error) {
 		goal.close()

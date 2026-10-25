@@ -11,6 +11,8 @@ import type {
 } from '../../../../src/server/stores/types.js'
 import type { StudyOllamaExchange } from '../../../../src/server/ollama/StudyOllamaExchange.js'
 import type { StudyOllamaTransport } from '../../../../src/server/ollama/StudyOllamaTransport.js'
+import type { StudyExchangeSink } from '../../../../src/server/stores/StudyExchangeSink.js'
+import type { FileHandle } from 'node:fs/promises'
 import type { StudyMeterFixture } from '../../core/engines/types.js'
 import type { OllamaReplyFixture, OllamaRequestFixture } from '../../core/agents/types.js'
 
@@ -74,6 +76,13 @@ export interface OllamaTransportFixture {
 export interface OllamaRecordingFixture extends OllamaTransportFixture {
 	readonly sink: StudyExchangeSinkInterface
 	readonly rows: readonly StudyExchangeRow[]
+}
+
+/** Holds a real optional sidecar and its descriptor through ordered transport cleanup. */
+export interface OllamaDiskFixture extends OllamaTransportFixture {
+	readonly path: string
+	readonly file: FileHandle | undefined
+	readonly sink: StudyExchangeSink | undefined
 }
 
 /** Holds a 200 response body whose reading must fail, and the failure the transport must retain. */

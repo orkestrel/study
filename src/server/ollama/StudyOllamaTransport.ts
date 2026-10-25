@@ -54,6 +54,10 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 	readonly #abort = new AbortController()
 	readonly #sends = new Set<Promise<StudyOllamaExchange>>()
 	readonly #wires = new Set<StudyOllamaExchange>()
+	readonly #finalizations = new WeakMap<StudyOllamaExchange, Promise<void>>()
+	readonly #drains = new Set<Promise<void>>()
+	#closing: Promise<void> | undefined
+	#drainFailure: { readonly error: unknown } | undefined
 	readonly #requests = new Set<symbol>()
 	readonly #verifications = new Set<symbol>()
 	readonly #metadataControl: StudyControl
@@ -294,20 +298,50 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 	}
 
 	/** Cancels every outstanding native reader and permanently closes the transport.
-	 * @returns Completion after finite native cancellation.
+	 * @returns Shared completion after response finalization and native cancellation.
+	 * @throws Thrown when finalization cannot retain its terminal or evidence, or release its reader.
 	 */
-	async close(): Promise<void> {
+	close(): Promise<void> {
+		this.#closing ??= Promise.resolve().then(() => this.#close())
 		this.#abort.abort(new StudyError('FAULT', 'Ollama transport closed'))
+		return this.#closing
+	}
+
+	async #close(): Promise<void> {
 		await Promise.all(
 			[...this.#sends].map((sending) => sending.catch((error: unknown) => this.fail(error))),
 		)
-		await Promise.all(
+		await Promise.allSettled(
 			[...this.#wires].map((wire) => this.#failWire(wire, this.#abort.signal.reason)),
 		)
+		// A pull owns its terminal append even after accounting releases the wire.
+		await Promise.allSettled(this.#drains)
 		this.#goal = undefined
 		this.#metadataMeter.close()
 		this.#metadataScope.close()
 		this.#metadataControl.close()
+		if (this.#drainFailure !== undefined) throw this.#drainFailure.error
+	}
+
+	#track(work: Promise<void>): Promise<void> {
+		this.#drains.add(work)
+		void work.then(
+			() => this.#drains.delete(work),
+			(error: unknown) => {
+				this.#drainFailure ??= { error }
+				this.#drains.delete(work)
+			},
+		)
+		return work
+	}
+
+	#finalize(wire: StudyOllamaExchange, work: () => Promise<void>): Promise<void> {
+		const existing = this.#finalizations.get(wire)
+		if (existing !== undefined) return existing
+		// Publish ownership before ticket settlement can synchronously abort another pull.
+		const pending = Promise.resolve().then(work)
+		this.#finalizations.set(wire, pending)
+		return this.#track(pending)
 	}
 
 	async #request(
@@ -498,7 +532,14 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		}
 	}
 
-	async #pull(
+	#pull(
+		wire: StudyOllamaExchange,
+		controller: ReadableStreamDefaultController<Uint8Array>,
+	): Promise<void> {
+		return this.#track(this.#readResponse(wire, controller))
+	}
+
+	async #readResponse(
 		wire: StudyOllamaExchange,
 		controller: ReadableStreamDefaultController<Uint8Array>,
 	): Promise<void> {
@@ -515,6 +556,24 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				controller.enqueue(chunk.value)
 				return
 			}
+			await this.#finalize(wire, () => this.#completeResponse(wire, controller))
+		} catch (error) {
+			this.fail(error)
+			try {
+				if (isBudgetError(error)) await this.#cut(wire, error)
+				else await this.#failWire(wire, error)
+			} finally {
+				this.#requests.delete(wire.slot)
+				controller.error(error)
+			}
+		}
+	}
+
+	async #completeResponse(
+		wire: StudyOllamaExchange,
+		controller: ReadableStreamDefaultController<Uint8Array>,
+	): Promise<void> {
+		try {
 			wire.flush()
 			if (wire.request.role === 'metadata') {
 				const value: unknown = JSON.parse(wire.text)
@@ -560,9 +619,9 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		} catch (error) {
 			this.fail(error)
 			try {
-				if (wire.settled) await this.#recordFailure(wire, error)
-				if (isBudgetError(error)) await this.#cut(wire, error)
-				else await this.#failWire(wire, error)
+				// This path already owns finalization; joining it here would await itself.
+				if (isBudgetError(error)) await this.#cutResponse(wire, error)
+				else await this.#failResponse(wire, error)
 			} finally {
 				this.#requests.delete(wire.slot)
 				controller.error(error)
@@ -885,8 +944,12 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 	}
 
 	// Accounts a request an Agent budget cut: the wire settles, the cut is retained as one `cut` row, and the request finishes with unknown tokens.
-	async #cut(wire: StudyOllamaExchange, error: BudgetError): Promise<void> {
-		if (wire.settled) return
+	#cut(wire: StudyOllamaExchange, error: BudgetError): Promise<void> {
+		return this.#finalize(wire, () => this.#cutResponse(wire, error))
+	}
+
+	async #cutResponse(wire: StudyOllamaExchange, error: BudgetError): Promise<void> {
+		if (wire.settled) return await this.#recordFailure(wire, error)
 		this.#settle(wire)
 		const observation = this.#options.observe ? this.#timeline(wire) : {}
 		const stop = readStudyFailure(error).stop
@@ -928,8 +991,12 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		}
 	}
 
-	async #failWire(wire: StudyOllamaExchange, error: unknown): Promise<void> {
-		if (wire.settled) return
+	#failWire(wire: StudyOllamaExchange, error: unknown): Promise<void> {
+		return this.#finalize(wire, () => this.#failResponse(wire, error))
+	}
+
+	async #failResponse(wire: StudyOllamaExchange, error: unknown): Promise<void> {
+		if (wire.settled) return await this.#recordFailure(wire, error)
 		this.fail(error)
 		this.#settle(wire)
 		const observation = this.#options.observe ? this.#timeline(wire) : {}

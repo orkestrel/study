@@ -1,5 +1,6 @@
 import type { StudyUsage } from '../../../../src/core/types.js'
-import { createScratch } from '@orkestrel/test/server'
+import { createScratch, isRunning } from '@orkestrel/test/server'
+import { createTeardown, requireValue } from '@orkestrel/test'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -9,10 +10,100 @@ import { failStudyTicket } from '../../../../src/core/engines/helpers.js'
 import { STUDY_PROCESS_LABEL } from '../../../../src/server/processes/constants.js'
 import { StudyChannel } from '../../../../src/server/processes/StudyChannel.js'
 import { StudyRemoteMeter } from '../../../../src/server/processes/StudyRemoteMeter.js'
-import { createStudyPeer } from '../../../setupServer.js'
-import { readSettled } from '../../../setupStudy.js'
+import {
+	createStudyPeer,
+	createStudyAccountingPeer,
+	createOllamaDiskFixture,
+	createOllamaTransportProvider,
+} from '../../../setupServer.js'
+import { readSettled, STUDY_AGENT_MESSAGES, STUDY_OLLAMA_PARTIAL_ROW } from '../../../setupStudy.js'
+import { readStudyExchangeRows } from '../../../../src/server/stores/helpers.js'
 
 describe('StudyRemoteMeter', () => {
+	it('joins recorded native abandonment with singular accounting over real IPC', async () => {
+		const teardown = createTeardown()
+		const scratch = createScratch()
+		teardown.add(() => scratch.destroy())
+		const peer = await createStudyAccountingPeer(scratch)
+		teardown.add(() => peer.close())
+		const pid = requireValue(peer.child.pid)
+		const channel = new StudyChannel({
+			endpoint: peer.child,
+			handle: async () => {
+				throw new Error('Accounting peer requested worker work')
+			},
+			abort: () => {
+				throw new Error('Unexpected accounting cancellation')
+			},
+		})
+		teardown.add(() => channel.close())
+		const control = new StudyControl()
+		teardown.add(() => control.close())
+		const meter = new StudyRemoteMeter({ channel, control })
+		try {
+			const fixture = await createOllamaDiskFixture(true, [
+				{ path: '/api/chat', body: STUDY_OLLAMA_PARTIAL_ROW, open: true },
+			])
+			teardown.add(() => fixture.close())
+			fixture.transport.clear()
+			fixture.transport.prepare({
+				goal: 'first',
+				checkpoint: undefined,
+				context: { ...fixture.goal.context, signal: control.signal, meter },
+			})
+			await fixture.transport.verify()
+			const provider = createOllamaTransportProvider(fixture.transport, fixture.server.url)
+			const stream = provider.stream(STUDY_AGENT_MESSAGES, control.signal)
+			expect(await stream.next()).toEqual({
+				done: false,
+				value: { channel: 'content', text: 'par' },
+			})
+			await stream.return({ content: '' })
+			expect(control.signal.aborted).toBe(true)
+			await expect(meter.close()).rejects.toMatchObject({
+				message: 'Ollama response cancelled before its end',
+			})
+			expect(await channel.request('evidence', null)).toMatchObject({
+				operations: ['admit', 'fail'],
+				pending: 0,
+				usage: [{ role: 'agent', calls: 1, tokens: null, bytes: null }],
+				failure: { message: 'Ollama response cancelled before its end', role: 'agent' },
+			})
+			expect(meter.usage).toEqual([])
+			await expect(
+				provider.generate(STUDY_AGENT_MESSAGES, new AbortController().signal),
+			).rejects.toThrow('cancelled before its end')
+			expect(
+				fixture.server.requests.filter((request) => request.path === '/api/chat'),
+			).toHaveLength(1)
+			await fixture.transport.close()
+			await fixture.sink?.close()
+			const rows = readStudyExchangeRows(readFileSync(fixture.path), false)
+			expect(
+				rows.filter((row) => row.phase === 'attempt' && row.stage === 'execution'),
+			).toHaveLength(1)
+			expect(
+				rows.filter((row) => row.phase === 'failure' && row.stage === 'execution'),
+			).toMatchObject([
+				{
+					ordinal: 5,
+					role: 'agent',
+					response: { body: Buffer.from(STUDY_OLLAMA_PARTIAL_ROW).toString('base64') },
+				},
+			])
+			expect(
+				rows.some(
+					(row) =>
+						(row.phase === 'response' && row.stage === 'execution') || row.phase === 'complete',
+				),
+			).toBe(false)
+		} finally {
+			await teardown.destroy()
+		}
+		expect(isRunning(pid)).toBe(false)
+		expect(existsSync(scratch.path)).toBe(false)
+	}, 10000)
+
 	it('waits for a real IPC admission grant and settlement acknowledgment before completion', async () => {
 		const scratch = createScratch()
 		const peer = createStudyPeer(
