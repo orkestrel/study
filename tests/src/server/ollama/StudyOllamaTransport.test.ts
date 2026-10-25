@@ -46,6 +46,7 @@ import {
 } from '../../../setupStudy.js'
 import {
 	STUDY_OLLAMA_CHAT_BODY,
+	STUDY_OLLAMA_ABANDONMENT_CASES,
 	STUDY_OLLAMA_SIDECAR_CASES,
 	STUDY_OLLAMA_ROW_FAULTS,
 	STUDY_OLLAMA_STREAM_FAILURES,
@@ -66,6 +67,155 @@ import {
 const encoder = new TextEncoder()
 
 describe('StudyOllamaTransport', () => {
+	describe.each(STUDY_OLLAMA_ABANDONMENT_CASES)('native abandonment recording=$recording', ({ recording }) => {
+		it('retains one terminal when a native stream is abandoned', async () => {
+			const scratch = createScratch()
+			const path = join(scratch.path, 'exchanges.jsonl')
+			const failures: unknown[] = []
+			try {
+				const { procedure: _procedure, ...declaration } = buildOllamaDeclaration()
+				const sink = recording
+					? new StudyExchangeSink({ file: await open(path, 'wx'), record: declaration.record })
+					: undefined
+				try {
+					if (sink !== undefined) {
+						expect(declaration).not.toHaveProperty('procedure')
+						await sink.append(declaration)
+						expect(sink.declaration).toMatchObject({ phase: 'declaration' })
+						expect(sink.declaration).not.toHaveProperty('procedure')
+						console.info('Native abandonment declaration', { recording, path })
+					}
+					const fixture = await createOllamaTransportFixture(
+						[{ path: '/api/chat', body: STUDY_OLLAMA_PARTIAL_ROW, open: true }],
+						sink === undefined ? {} : { exchanges: sink },
+					)
+					try {
+						await fixture.transport.verify()
+						const provider = createOllamaTransportProvider(fixture.transport, fixture.server.url)
+						const stream = provider.stream(STUDY_AGENT_MESSAGES, new AbortController().signal)
+						const delta = await stream.next()
+						expect(delta).toEqual({ done: false, value: { channel: 'content', text: 'par' } })
+						console.info('Native abandonment delta', { recording, delta })
+						await expect(stream.return({ content: '' })).resolves.toEqual({
+							done: true,
+							value: { content: '' },
+						})
+						expect(fixture.goal.usage()).toEqual([
+							{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
+						])
+						const failure = captureError(() => fixture.transport.check())
+						expect(failure).toMatchObject({
+							code: 'FAULT',
+							message: 'Ollama response cancelled before its end',
+						})
+						await expect(
+							provider.generate(STUDY_AGENT_MESSAGES, new AbortController().signal),
+						).rejects.toBe(failure)
+						expect(captureError(() => fixture.transport.check())).toBe(failure)
+						expect(
+							fixture.server.requests.filter((request) => request.path === '/api/chat'),
+						).toHaveLength(1)
+					} catch (error) {
+						failures.push(error)
+					} finally {
+						try {
+							await fixture.transport.close()
+						} catch (error) {
+							failures.push(error)
+						} finally {
+							try {
+								if (sink !== undefined) await expect(sink.close()).resolves.toBeUndefined()
+							} catch (error) {
+								failures.push(error)
+							} finally {
+								try {
+									fixture.goal.close()
+								} catch (error) {
+									failures.push(error)
+								} finally {
+									try {
+										await fixture.server.close()
+									} catch (error) {
+										failures.push(error)
+									}
+								}
+							}
+						}
+						try {
+							expect(fixture.goal.usage()).toEqual([
+								{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
+							])
+						} catch (error) {
+							failures.push(error)
+						}
+					}
+				} catch (error) {
+					failures.push(error)
+				} finally {
+					if (sink !== undefined) {
+						try {
+							await expect(sink.close()).resolves.toBeUndefined()
+						} catch (error) {
+							failures.push(error)
+						}
+						try {
+							const rows = readStudyExchangeRows(await readFile(path), false)
+							const attempts = rows.filter((row) => row.phase === 'attempt' && row.stage === 'execution')
+							const terminals = rows.filter((row) => row.phase === 'failure' && row.stage === 'execution')
+							console.info('Native abandonment retained execution', { attempts, terminals })
+							expect(attempts).toHaveLength(1)
+							expect(terminals).toHaveLength(1)
+							const attempt = requireValue(attempts[0])
+							const terminal = requireValue(terminals[0])
+							if (attempt.phase !== 'attempt' || terminal.phase !== 'failure')
+								throw new Error('Missing execution attempt or failure terminal')
+							expect(terminal).toMatchObject({
+								ordinal: attempt.ordinal,
+								goal: attempt.goal,
+								role: 'agent',
+								path: '/api/chat',
+								method: attempt.method,
+								reason: 'Ollama response cancelled before its end',
+							})
+							expect(terminal.step).toBe(attempt.step)
+							expect(terminal.response).toMatchObject({
+								status: 200,
+								body: Buffer.from(STUDY_OLLAMA_PARTIAL_ROW).toString('base64'),
+								digest: hashStudyBytes(STUDY_OLLAMA_PARTIAL_ROW),
+								size: Buffer.byteLength(STUDY_OLLAMA_PARTIAL_ROW),
+							})
+							expect(
+								rows.some((row) => row.phase === 'response' && row.stage === 'execution'),
+							).toBe(false)
+							expect(rows.some((row) => row.phase === 'complete')).toBe(false)
+							expect(rows.flatMap((row) =>
+								row.phase === 'attempt' && row.stage === 'preflight' ? [row.path] : [],
+							)).toEqual([
+								'/api/version',
+								'/api/tags',
+								'/api/show',
+								'/api/show',
+							])
+						} catch (error) {
+							failures.push(error)
+						}
+					}
+				}
+			} catch (error) {
+				failures.push(error)
+			} finally {
+				try {
+					scratch.destroy()
+					console.info('Native abandonment resources released', { recording, path })
+				} catch (error) {
+					failures.push(error)
+				}
+			}
+			if (failures.length !== 0)
+				throw new AggregateError(failures, 'Native stream abandonment failed', { cause: failures[0] })
+		}, 5000)
+	})
+
 	describe('open recording admission', () => {
 		it('reads the sink declaration once before retaining its independent configuration', async () => {
 			const sink = new OllamaExchangeRecorder()

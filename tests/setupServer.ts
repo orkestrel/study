@@ -2627,6 +2627,12 @@ export function buildOllamaTransportOptions(
 	}
 }
 
+/** Supplies native stream abandonment with recording disabled and enabled. */
+export const STUDY_OLLAMA_ABANDONMENT_CASES = Object.freeze([
+	{ recording: false },
+	{ recording: true },
+])
+
 /** Supplies disk sidecar pressure cases and fitting response controls. */
 export const STUDY_OLLAMA_SIDECAR_CASES = Object.freeze([
 	{ bytes: 8192, status: 200 },
