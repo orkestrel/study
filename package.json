@@ -1,6 +1,6 @@
 {
 	"name": "@orkestrel/study",
-	"version": "0.0.5",
+	"version": "0.0.6",
 	"description": "Runs declared comparative studies with admitted requests, sealed execution custody, and independent grading. Part of the @orkestrel line.",
 	"keywords": [
 		"agent",
@@ -97,7 +97,7 @@
 		"@orkestrel/agent": "^0.0.32",
 		"@orkestrel/budget": "^0.0.14",
 		"@orkestrel/contract": "^0.0.19",
-		"@orkestrel/ollama": "^0.0.25",
+		"@orkestrel/ollama": "^0.0.26",
 		"@orkestrel/timeout": "^0.0.13",
 		"@orkestrel/tool": "^0.0.19"
 	},
