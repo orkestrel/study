@@ -1,7 +1,7 @@
 ---
 name: orkestrel-parallel
 description: >-
-  Run several writer lanes in one checkout at the same time, coordinated by messages: writers edit owned regions in phases, one runner lane owns every test and check process, and the Orchestrator rules and mediates. Use when a campaign has three or more units whose files are mostly disjoint and whose shared files are a few kind files, guides, or entry tests. Do not use it when two units rewrite the same region, when a unit needs a quiet tree for a measurement, or when the harness gives lanes no shared file system or no message channel that wakes an idle lane.
+  Coordinate independently owned writer lanes in one checkout through messages, with one runner for checks and an Orchestrator for decisions. Use when implementation units can progress in parallel with disjoint files or explicit regions of shared files. Serialize overlapping edits and hold every input needed for a reliable measurement. Require shared files and a channel that can wake an idle lane.
 ---
 
 # Load the canonical skill
