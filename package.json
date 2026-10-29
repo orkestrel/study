@@ -80,7 +80,7 @@
 		"test:policy": "vitest run --config vite.config.ts --no-cache --reporter=dot --project policy",
 		"test:config": "vitest run --config vite.config.ts --no-cache --reporter=dot --project config",
 		"test:probe": "vitest run --config vite.config.ts --no-cache --reporter=verbose --project probe",
-		"test:bench": "vitest bench --config vite.config.ts --no-cache --project probe",
+		"test:bench": "vitest bench --config vite.config.ts --no-cache --project \"probe (bench)\" --mode benchmark",
 		"test:distribution": "vitest run --config vite.config.ts --no-cache --reporter=dot --project distribution",
 		"test:setup": "vitest run --config vite.config.ts --no-cache --reporter=dot --project setup",
 		"test:guides": "node --experimental-strip-types tests/guides.test.ts",
