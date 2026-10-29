@@ -1,4 +1,6 @@
-import type { StudyFailure, StudyStop } from '../../../src/core/types.js'
+import { StudyFieldCeiling } from '../../setupStudy.js'
+import { DerivedStudyError } from '../../setupStudy.js'
+import type { StudyFailure } from '../../../src/core/types.js'
 import { isRecord } from '@orkestrel/contract'
 import { requireValue } from '@orkestrel/test'
 import { resolve } from 'node:path'
@@ -89,34 +91,22 @@ it('crosses guards from built error copies at distinct scratch paths', async () 
 })
 
 it('recognizes subclass instances with their own names and self-brands', () => {
-	class DerivedStudyError extends StudyError {
-		constructor() {
-			super('CONFIG', 'Subclass refusal')
-			this.name = 'DerivedStudyError'
-		}
-	}
 	const error = new DerivedStudyError()
 	expect(Object.getOwnPropertyDescriptor(error, BRAND)?.value).toBe(error)
 	expect(isStudyError(error)).toBe(true)
 })
 
 it('recognizes a typed class stop without imposing serialized record shape', () => {
-	class Ceiling implements StudyStop {
-		readonly layer = 'model'
-		readonly id = 'num_predict'
-		readonly max = 100
-		readonly consumed = 101
-	}
 	const failure: StudyFailure = {
 		cause: 'capacity',
 		message: 'Reached',
 		role: 'agent',
-		stop: new Ceiling(),
+		stop: new StudyFieldCeiling(),
 	}
 	expect(isStudyError(new StudyError('CAPACITY', 'Class stop', failure))).toBe(true)
 	const extended: StudyFailure = {
 		...failure,
-		stop: Object.assign(new Ceiling(), { id: '', extra: true }),
+		stop: Object.assign(new StudyFieldCeiling(), { id: '', extra: true }),
 	}
 	expect(isStudyError(new StudyError('CAPACITY', 'Structural stop', extended))).toBe(true)
 })
@@ -304,4 +294,23 @@ it('refuses proxies and hostile property access without throwing', () => {
 	})
 	expect(isStudyError(coded)).toBe(false)
 	expect(isStudyError(real)).toBe(true)
+})
+it('admits callable failure and stop records and does not require the error name', () => {
+	const stop = Object.assign(() => undefined, {
+		layer: 'model',
+		id: '',
+		max: NaN,
+		consumed: Infinity,
+	})
+	const failure = Object.assign(() => undefined, {
+		cause: 'capacity',
+		message: 'Reached',
+		role: undefined,
+		stop,
+	})
+	const error = new StudyError('CAPACITY', 'Callable attribution')
+	Object.defineProperty(error, 'failure', { value: failure })
+	Object.defineProperty(error, 'stack', { value: 'Stable stack' })
+	Object.defineProperty(error, 'name', { value: 7 })
+	expect(isStudyError(error)).toBe(true)
 })

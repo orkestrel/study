@@ -1,3 +1,4 @@
+import { StudyError } from '../src/core/errors.js'
 import type { JSONValue } from '@orkestrel/contract'
 import type {
 	StudyAttempt,
@@ -5,8 +6,7 @@ import type {
 	StudyBounds,
 	StudyCriterion,
 	StudyDefinition,
-	StudyGrading,
-	StudyDriverInterface,
+	StudyAssessment,
 	StudyEvidence,
 	StudyFailure,
 	StudyJudgment,
@@ -18,7 +18,6 @@ import type {
 	StudyScenario,
 	StudySessionInterface,
 	StudySinkInterface,
-	StudyStoreInterface,
 	StudyTrial,
 	StudyStop,
 	StudyCharge,
@@ -31,12 +30,9 @@ import type {
 	StudyLeaseFixture,
 	StudyMeterFixture,
 	StudyStoreFixture,
-} from './src/core/engines/types.js'
-import type { StudyExecutionCase } from './src/server/stores/types.js'
-import type {
-	OllamaMetadataFailureFixture,
-	OllamaWireReplyFixture,
-} from './src/server/ollama/types.js'
+} from './setup.js'
+import type { StudyExecutionCase } from './setupServer.js'
+import type { OllamaMetadataFailureFixture, OllamaWireReplyFixture } from './setupServer.js'
 import type {
 	JudgeInterface,
 	JudgeRequest,
@@ -59,7 +55,7 @@ import type {
 	OllamaRowFixture,
 	ProviderStreamFixture,
 	StudyLatchFixture,
-} from './src/core/agents/types.js'
+} from './setup.js'
 import type {
 	StudyAgentSummaryFixture,
 	StudyAgentSummaryFixtureOptions,
@@ -69,10 +65,10 @@ import type {
 	StudySinkFixtureOptions,
 	StudyOllamaMessageFixture,
 	StudyAgentSeriesResult,
-} from './src/server/agents/types.js'
+} from './setupServer.js'
 import type { StudyAgentResponse } from '../src/server/agents/types.js'
 import type { ToolCall } from '@orkestrel/tool'
-import type { StudyAgentReading, StudyAgentRuntime } from '../src/core/agents/types.js'
+import type { StudyAgentMeasurement, StudyAgentRuntime } from '../src/core/agents/types.js'
 import { Agent, AgentError, estimateRequest, isAgentError, measureRequest } from '@orkestrel/agent'
 import { isRecord, parseJSON } from '@orkestrel/contract'
 import { createOllama, createOllamaJudge } from '@orkestrel/ollama'
@@ -189,8 +185,8 @@ export const STUDY_COMMAND_INVALID_ARGUMENTS: ReadonlyArray<readonly string[]> =
 	['execute', 'tools', '--out', '../escape'],
 	['execute', 'tools', '--expected', 'invalid'],
 	['grade', 'result'],
-	['label', 'result', '--grading', 'a'.repeat(64)],
-	['report', 'result', '--grading', 'invalid'],
+	['label', 'result', '--assessment', 'a'.repeat(64)],
+	['report', 'result', '--assessment', 'invalid'],
 ])
 
 /** Supplies missing declaration selections and their root-relative diagnostics. */
@@ -431,7 +427,7 @@ export function buildStudyManifest(): StudyManifest {
 export function buildStudyGrading(
 	schedule: readonly StudyTrial[],
 	judgments: readonly StudyJudgment[] = [],
-): StudyGrading {
+): StudyAssessment {
 	return {
 		result: 'a'.repeat(64),
 		rubric: 'b'.repeat(64),
@@ -503,26 +499,30 @@ export function createStudyDriverFixture(
 	const opened = createRecorder<readonly [StudyTrial]>()
 	const executed = createRecorder<readonly [string]>()
 	const closed = createRecorder<readonly [string]>()
-	const driver: StudyDriverInterface = {
-		async open(trial): Promise<StudySessionInterface> {
-			opened.handler(trial)
-			if (options.refuse !== undefined) throw options.refuse
-			if (options.opening !== undefined) await options.opening
-			return {
-				async execute(goal, context): Promise<StudyProduct> {
-					executed.handler(goal.id)
-					return options.execute === undefined
-						? { value: goal.id, partial: false }
-						: options.execute(goal, context)
-				},
-				async close(): Promise<void> {
-					closed.handler(trial.id)
-					if (options.closing !== undefined) throw options.closing
-				},
-			}
+	return Object.freeze({
+		driver: {
+			async open(trial: StudyTrial): Promise<StudySessionInterface> {
+				opened.handler(trial)
+				if (options.refuse !== undefined) throw options.refuse
+				if (options.opening !== undefined) await options.opening
+				return {
+					async execute(goal, context): Promise<StudyProduct> {
+						executed.handler(goal.id)
+						return options.execute === undefined
+							? { value: goal.id, partial: false }
+							: options.execute(goal, context)
+					},
+					async close(): Promise<void> {
+						closed.handler(trial.id)
+						if (options.closing !== undefined) throw options.closing
+					},
+				}
+			},
 		},
-	}
-	return Object.freeze({ driver, opened, executed, closed })
+		opened,
+		executed,
+		closed,
+	})
 }
 
 /** Creates one trial's lease over recording boundary fixtures, a real failure owner, series scope and deadline.
@@ -567,16 +567,19 @@ export function createStudyLeaseFixture(
 export function createStudyStoreFixture(): StudyStoreFixture {
 	const started = createRecorder<readonly [StudyTrial]>()
 	const attempts = createRecorder<readonly [StudyAttempt]>()
-	const store: StudyStoreInterface = {
-		async start(trial): Promise<StudySinkInterface> {
-			started.handler(trial)
-			return { async append(): Promise<void> {} }
+	return Object.freeze({
+		store: {
+			async start(trial: StudyTrial): Promise<StudySinkInterface> {
+				started.handler(trial)
+				return { async append(): Promise<void> {} }
+			},
+			async finish(attempt: StudyAttempt): Promise<void> {
+				attempts.handler(attempt)
+			},
 		},
-		async finish(attempt): Promise<void> {
-			attempts.handler(attempt)
-		},
-	}
-	return Object.freeze({ store, started, attempts })
+		started,
+		attempts,
+	})
 }
 
 /**
@@ -1614,7 +1617,7 @@ export function createAgentObserver(
 		...(replay === undefined ? {} : { replay }),
 		options: STUDY_OLLAMA_OPTIONS,
 	})
-	const readings = new StudyLog<StudyAgentReading>()
+	const readings = new StudyLog<StudyAgentMeasurement>()
 	const requests = new StudyLog<ProviderRequest>()
 	const observer = new StudyAgentObserver({
 		provider: inner,
@@ -1709,16 +1712,19 @@ export function buildStudyAgentOrigins(messages: readonly Message[]): JSONValue 
 export function createStudySinkFixture(options: StudySinkFixtureOptions = {}): StudySinkFixture {
 	const accepted = new StudyLog<StudyEvidence>()
 	const received = new StudyLog<StudyEvidence>()
-	const sink: StudySinkInterface = {
-		async append(evidence): Promise<void> {
-			await options.during?.()
-			const row = received.entries.length
-			received.append(evidence)
-			if (options.refuse !== undefined && options.refuse.row === row) throw options.refuse.error
-			accepted.append(evidence)
+	return {
+		sink: {
+			async append(evidence): Promise<void> {
+				await options.during?.()
+				const row = received.entries.length
+				received.append(evidence)
+				if (options.refuse !== undefined && options.refuse.row === row) throw options.refuse.error
+				accepted.append(evidence)
+			},
 		},
+		rows: accepted.entries,
+		offered: received.entries,
 	}
-	return { sink, rows: accepted.entries, offered: received.entries }
 }
 
 /** Creates a real trace over the actual Agent runtime and a recorded failure owner.
@@ -2034,4 +2040,68 @@ export function createStudyScriptFixture(
 			},
 		},
 	})
+}
+/** Provides the foreign judge rejection boundary with its exact thrown value. */
+export function createRejectedStudyJudge(error: unknown, record?: () => void): JudgeInterface {
+	return {
+		id: 'judge',
+		name: 'ollama',
+		model: 'judge',
+		ask: () => {
+			record?.()
+			return Promise.reject(error)
+		},
+	}
+}
+/** Creates own enumerable foreign call accessors and retains each access in its recorder. */
+export function createObservedStudyCall(
+	ids: () => void,
+	names: () => void,
+	reads: () => void,
+	parameters: Readonly<Record<string, unknown>>,
+) {
+	return {
+		get id() {
+			ids()
+			return ''
+		},
+		get name() {
+			names()
+			return 'write'
+		},
+		get arguments() {
+			reads()
+			return parameters
+		},
+		extra: 'omitted',
+	}
+}
+
+export class DerivedStudyError extends StudyError {
+	constructor() {
+		super('CONFIG', 'Subclass refusal')
+		this.name = 'DerivedStudyError'
+	}
+}
+
+export class StudyFieldCeiling implements StudyStop {
+	readonly layer = 'model'
+	readonly id = 'num_predict'
+	readonly max = 100
+	readonly consumed = 101
+}
+
+export class StudyAccessorCeiling implements StudyStop {
+	get layer(): 'model' {
+		return 'model'
+	}
+	get id(): string {
+		return 'num_predict'
+	}
+	get max(): number {
+		return 100
+	}
+	get consumed(): number {
+		return 101
+	}
 }

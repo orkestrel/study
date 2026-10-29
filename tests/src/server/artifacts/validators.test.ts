@@ -9,6 +9,7 @@ import {
 	isArtifactMember,
 } from '../../../../src/server/artifacts/validators.js'
 import {
+	createUnreadableArtifactDestination,
 	ARTIFACT_CLOSURE_FILES,
 	ARTIFACT_REFUSED_KEYS,
 	buildArtifactClosureOptions,
@@ -24,18 +25,7 @@ it('narrows closure shapes and refuses malformed and unreadable records without 
 		for (const member of closure.members) expect(isArtifactMember(member)).toBe(true)
 		for (const key of ARTIFACT_REFUSED_KEYS) expect(isArtifactKey(key)).toBe(false)
 		expect(isArtifactKey('caf\u00e9/e\u0301.txt')).toBe(true)
-		for (const invalid of [
-			undefined,
-			null,
-			[],
-			1,
-			{},
-			{
-				get destination() {
-					throw new Error('unreadable')
-				},
-			},
-		]) {
+		for (const invalid of [undefined, null, [], 1, {}, createUnreadableArtifactDestination()]) {
 			expect(isArtifactClosure(invalid)).toBe(false)
 			expect(isArtifactLoaderOptions(invalid)).toBe(false)
 			expect(isArtifactMember(invalid)).toBe(false)

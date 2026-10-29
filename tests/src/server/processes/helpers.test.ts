@@ -28,7 +28,7 @@ import { isStudyExchangeDeclaration } from '../../../../src/server/stores/valida
 import {
 	buildStudyExchangeDeclaration,
 	computeStudyConfigurationDigest,
-	validateStudyRecordingDeclaration,
+	validateStudyCaptureDeclaration,
 	collectStudyAncestors,
 	collectStudyEntries,
 	drainStudyChild,
@@ -162,7 +162,7 @@ describe('process helpers', () => {
 		})
 		expect(declaration.procedure).toBeUndefined()
 		expect(() =>
-			validateStudyRecordingDeclaration(declaration, profile, trial, scenario),
+			validateStudyCaptureDeclaration(declaration, profile, trial, scenario),
 		).not.toThrow()
 		expect(buildStudyExchangeDeclaration(profile, trial, scenario, true).maintenance).toEqual(
 			profile.provider.daemon?.models,
@@ -182,7 +182,7 @@ describe('process helpers', () => {
 			{ ...declaration, maintenance: [requireValue(profile.provider.daemon.models[0])] },
 		]) {
 			expect(isStudyExchangeDeclaration(changed)).toBe(true)
-			expect(() => validateStudyRecordingDeclaration(changed, profile, trial, scenario)).toThrow(
+			expect(() => validateStudyCaptureDeclaration(changed, profile, trial, scenario)).toThrow(
 				/differs/,
 			)
 		}

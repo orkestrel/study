@@ -21,7 +21,7 @@ export interface StudyAgentRuntime {
 }
 
 /** Holds one dispatched request's explicit size reading. */
-export interface StudyAgentReading {
+export interface StudyAgentMeasurement {
 	/** Holds the runtime's estimate of the complete pre-encoding request. */
 	readonly estimate: number
 	/** Holds the gauge projection of that estimate; undefined when no gauge applies. */
@@ -29,7 +29,10 @@ export interface StudyAgentReading {
 }
 
 /** Receives one reading and the exact pre-encoding request it measured. */
-export type StudyAgentRecordHandler = (reading: StudyAgentReading, request: ProviderRequest) => void
+export type StudyAgentRecordHandler = (
+	reading: StudyAgentMeasurement,
+	request: ProviderRequest,
+) => void
 
 /**
  * Holds the observing provider's delegate, measurement seam and explicit policies.

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { JudgeInterface } from '@orkestrel/agent'
 import { StudyAgentJudge } from '../../../../src/core/agents/StudyAgentJudge.js'
 import { StudyError } from '../../../../src/core/errors.js'
+
+import { createRejectedStudyJudge } from '../../../setupStudy.js'
 import {
 	STUDY_JUDGE_REQUEST,
 	STUDY_OLLAMA_ORIGIN,
@@ -66,12 +67,7 @@ describe('StudyAgentJudge', () => {
 	] as const)(
 		'hands a thrown %s to the failure owner and rethrows that same value',
 		async (_name, thrown) => {
-			const failing: JudgeInterface = {
-				id: 'judge',
-				name: 'ollama',
-				model: 'judge',
-				ask: () => Promise.reject(thrown),
-			}
+			const failing = createRejectedStudyJudge(thrown)
 			const latch = createStudyLatch()
 			const judge = new StudyAgentJudge(failing, latch)
 			const outcome = await judge.ask(STUDY_JUDGE_REQUEST, new AbortController().signal).then(

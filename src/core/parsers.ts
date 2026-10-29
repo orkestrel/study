@@ -1,7 +1,7 @@
 import type {
 	StudyDefinition,
-	StudyGrading,
-	StudyLabeling,
+	StudyAssessment,
+	StudyLabels,
 	StudyProfile,
 	StudyRubric,
 	StudyScenario,
@@ -11,8 +11,8 @@ import { StudyError } from './errors.js'
 import { normalizeStudyProfile } from './helpers.js'
 import {
 	isStudyDefinition,
-	isStudyGrading,
-	isStudyLabeling,
+	isStudyAssessment,
+	isStudyLabels,
 	isStudyProfile,
 	isStudyRubric,
 	isStudyScenario,
@@ -24,11 +24,11 @@ import {
  * @returns The value when it is a finite number; undefined otherwise
  * @example
  * ```ts
- * parseStudyReading(2048) // 2048
- * parseStudyReading(Number.NaN) // undefined
+ * parseStudyMeasurement(2048) // 2048
+ * parseStudyMeasurement(Number.NaN) // undefined
  * ```
  */
-export function parseStudyReading(value: unknown): number | undefined {
+export function parseStudyMeasurement(value: unknown): number | undefined {
 	return isFiniteNumber(value) ? value : undefined
 }
 
@@ -123,19 +123,19 @@ export function parseStudyRubric(value: unknown): StudyRubric {
  * @throws StudyError - Thrown when evidence is invalid or cannot be owned
  * @example
  * ```ts
- * parseStudyGrading(evidence)
+ * parseStudyAssessment(evidence)
  * ```
  */
-export function parseStudyGrading(value: unknown): StudyGrading {
+export function parseStudyAssessment(value: unknown): StudyAssessment {
 	try {
-		if (!isStudyGrading(value)) throw new StudyError('EVIDENCE', 'Invalid study grading')
+		if (!isStudyAssessment(value)) throw new StudyError('EVIDENCE', 'Invalid study grading')
 		const { labels, packet, ...required } = value
 		const snapshot = cloneJSONValue({
 			...required,
 			...(labels === undefined ? {} : { labels }),
 			...(packet === undefined ? {} : { packet }),
 		})
-		if (isStudyGrading(snapshot)) return snapshot
+		if (isStudyAssessment(snapshot)) return snapshot
 	} catch {
 		throw new StudyError('EVIDENCE', 'Invalid or unreadable study grading')
 	}
@@ -149,12 +149,12 @@ export function parseStudyGrading(value: unknown): StudyGrading {
  * @throws StudyError - Thrown when evidence is invalid or cannot be owned
  * @example
  * ```ts
- * parseStudyLabeling(evidence)
+ * parseStudyLabels(evidence)
  * ```
  */
-export function parseStudyLabeling(value: unknown): StudyLabeling {
+export function parseStudyLabels(value: unknown): StudyLabels {
 	try {
-		if (!isStudyLabeling(value)) throw new StudyError('EVIDENCE', 'Invalid study labels')
+		if (!isStudyLabels(value)) throw new StudyError('EVIDENCE', 'Invalid study labels')
 		const snapshot = cloneJSONValue({
 			...value,
 			usage: value.usage.map(({ tokens, bytes, ...usage }) => ({
@@ -163,7 +163,7 @@ export function parseStudyLabeling(value: unknown): StudyLabeling {
 				...(bytes === undefined ? {} : { bytes }),
 			})),
 		})
-		if (isStudyLabeling(snapshot)) return snapshot
+		if (isStudyLabels(snapshot)) return snapshot
 	} catch {
 		throw new StudyError('EVIDENCE', 'Invalid or unreadable study labels')
 	}

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 describe('src server entry', () => {
 	it('exposes the immutable result and grading boundaries', () => {
 		expect(entry).toHaveProperty('StudyResultStore')
-		expect(entry).toHaveProperty('StudyGradingStore')
+		expect(entry).toHaveProperty('StudyAssessmentStore')
 		expect(entry).toHaveProperty('readStudyResult')
 		expect(entry).toHaveProperty('buildStudyPacket')
 	})

@@ -1,10 +1,10 @@
-import type { StudyGrading, StudyLabeling, StudyRubric } from '@src/core'
-import type { StudyGradingStoreOptions, StudyPacketBundle, StudySealedResult } from './types.js'
+import type { StudyAssessment, StudyLabels, StudyRubric } from '@src/core'
+import type { StudyAssessmentStoreOptions, StudyPacketBundle, StudySealedResult } from './types.js'
 import {
 	StudyError,
 	computeStudyScores,
-	parseStudyGrading,
-	parseStudyLabeling,
+	parseStudyAssessment,
+	parseStudyLabels,
 	parseStudyRubric,
 	isStudyDigest,
 } from '@src/core'
@@ -19,18 +19,18 @@ import {
 	computeStudyPacketDigest,
 	readStudyBytes,
 	readStudyResult,
-	translateStudyPacketLabeling,
+	translateStudyPacketLabels,
 	writeStudyBytes,
 } from './helpers.js'
 
 /** Retains immutable deterministic grading versions independently of execution bytes. */
-export class StudyGradingStore {
+export class StudyAssessmentStore {
 	readonly #directory: string
 	readonly #seal: string
 	readonly #rubric: StudyRubric
 	readonly #rubricBytes: Uint8Array
 	readonly #rubricDigest: string
-	readonly #labels: StudyLabeling | undefined
+	readonly #labels: StudyLabels | undefined
 	readonly #labelsBytes: Uint8Array | undefined
 	readonly #labelsDigest: string | undefined
 	readonly #packet: StudyPacketBundle | undefined
@@ -42,7 +42,7 @@ export class StudyGradingStore {
 	 * @param options - The verified execution and exact rubric and optional labels bytes
 	 * @throws StudyError - Thrown when imported bytes exceed bounds or fail validation
 	 */
-	constructor(options: StudyGradingStoreOptions) {
+	constructor(options: StudyAssessmentStoreOptions) {
 		if (options.result.status !== 'sealed')
 			throw new StudyError('CUSTODY', 'Grading requires a sealed execution')
 		if (
@@ -61,7 +61,7 @@ export class StudyGradingStore {
 		this.#labels =
 			this.#labelsBytes === undefined
 				? undefined
-				: parseStudyLabeling(decodeStudyJSON(this.#labelsBytes))
+				: parseStudyLabels(decodeStudyJSON(this.#labelsBytes))
 		if (
 			options.packet !== undefined &&
 			(options.packet.content.byteLength > STUDY_CUSTODY_BYTES ||
@@ -79,13 +79,13 @@ export class StudyGradingStore {
 
 	/**
 	 * Retains a deterministic grading version or verifies identical existing bytes.
-	 * @param grading - The complete evidence-backed judgments and artifact bindings
+	 * @param assessment - The complete evidence-backed judgments and artifact bindings
 	 * @returns The exact grading-byte SHA-256 identity
 	 * @throws StudyError - Thrown when coverage, bindings, or existing bytes are invalid
 	 */
-	write(grading: StudyGrading): Promise<string> {
+	write(assessment: StudyAssessment): Promise<string> {
 		try {
-			const snapshot = parseStudyGrading(grading)
+			const snapshot = parseStudyAssessment(assessment)
 			const bytes = encodeStudyJSON(snapshot)
 			if (bytes.byteLength > STUDY_CUSTODY_BYTES)
 				throw new StudyError('CAPACITY', 'Grading exceeds the metadata allowance')
@@ -105,10 +105,10 @@ export class StudyGradingStore {
 	/**
 	 * Reads an immutable grading version and verifies every bound artifact byte.
 	 * @param id - The grading-byte SHA-256 identity
-	 * @returns The verified grading, or undefined when the version does not exist
+	 * @returns The verified assessment, or undefined when the version does not exist
 	 * @throws StudyError - Thrown when an existing version is partial or tampered
 	 */
-	async read(id: string): Promise<StudyGrading | undefined> {
+	async read(id: string): Promise<StudyAssessment | undefined> {
 		if (!isStudyDigest(id)) throw new StudyError('EVIDENCE', 'Invalid grading identity')
 		const result = await this.#verifyResult()
 		const directory = join(result.directory, 'grades', id)
@@ -122,14 +122,14 @@ export class StudyGradingStore {
 		const bytes = await readStudyBytes(join(directory, 'grading.json'), STUDY_CUSTODY_BYTES)
 		if (hashStudyBytes(bytes) !== id)
 			throw new StudyError('CUSTODY', 'Grading identity differs from its exact bytes')
-		const grading = parseStudyGrading(decodeStudyJSON(bytes))
+		const assessment = parseStudyAssessment(decodeStudyJSON(bytes))
 		const expected = [
 			'grading.json',
-			`${grading.rubric}.rubric.json`,
-			...(grading.labels === undefined ? [] : [`${grading.labels}.labels.json`]),
-			...(grading.packet === undefined
+			`${assessment.rubric}.rubric.json`,
+			...(assessment.labels === undefined ? [] : [`${assessment.labels}.labels.json`]),
+			...(assessment.packet === undefined
 				? []
-				: [`${grading.packet}.packet.json`, `${grading.packet}.mapping.json`]),
+				: [`${assessment.packet}.packet.json`, `${assessment.packet}.mapping.json`]),
 		]
 		const entries = await readdir(directory, { withFileTypes: true })
 		if (
@@ -140,47 +140,49 @@ export class StudyGradingStore {
 		)
 			throw new StudyError('CUSTODY', 'Grading inventory differs from its bound artifacts')
 		const rubricBytes = await readStudyBytes(
-			join(directory, `${grading.rubric}.rubric.json`),
+			join(directory, `${assessment.rubric}.rubric.json`),
 			STUDY_CUSTODY_BYTES,
 		)
-		if (hashStudyBytes(rubricBytes) !== grading.rubric)
+		if (hashStudyBytes(rubricBytes) !== assessment.rubric)
 			throw new StudyError('CUSTODY', 'Rubric bytes differ from the grading identity')
 		const rubric = parseStudyRubric(decodeStudyJSON(rubricBytes))
 		const labels =
-			grading.labels === undefined ? undefined : await this.#retrieve(directory, grading.labels)
+			assessment.labels === undefined
+				? undefined
+				: await this.#retrieve(directory, assessment.labels)
 		const packet: StudyPacketBundle | undefined =
-			grading.packet === undefined
+			assessment.packet === undefined
 				? undefined
 				: {
 						content: await readStudyBytes(
-							join(directory, `${grading.packet}.packet.json`),
+							join(directory, `${assessment.packet}.packet.json`),
 							STUDY_CUSTODY_BYTES,
 						),
 						mapping: await readStudyBytes(
-							join(directory, `${grading.packet}.mapping.json`),
+							join(directory, `${assessment.packet}.mapping.json`),
 							STUDY_CUSTODY_BYTES,
 						),
 					}
-		this.#validate(grading, result, rubric, labels, packet)
+		this.#validate(assessment, result, rubric, labels, packet)
 		await this.#verifyResult()
-		return grading
+		return assessment
 	}
 
-	async #retrieve(directory: string, digest: string): Promise<StudyLabeling> {
+	async #retrieve(directory: string, digest: string): Promise<StudyLabels> {
 		const bytes = await readStudyBytes(
 			join(directory, `${digest}.labels.json`),
 			STUDY_CUSTODY_BYTES,
 		)
 		if (hashStudyBytes(bytes) !== digest)
 			throw new StudyError('CUSTODY', 'Labels bytes differ from the grading identity')
-		return parseStudyLabeling(decodeStudyJSON(bytes))
+		return parseStudyLabels(decodeStudyJSON(bytes))
 	}
 
-	async #write(grading: StudyGrading, bytes: Uint8Array): Promise<string> {
+	async #write(assessment: StudyAssessment, bytes: Uint8Array): Promise<string> {
 		const result = await this.#verifyResult()
-		if (grading.rubric !== this.#rubricDigest || grading.labels !== this.#labelsDigest)
+		if (assessment.rubric !== this.#rubricDigest || assessment.labels !== this.#labelsDigest)
 			throw new StudyError('EVIDENCE', 'Grading does not bind the imported artifact bytes')
-		this.#validate(grading, result, this.#rubric, this.#labels, this.#packet)
+		this.#validate(assessment, result, this.#rubric, this.#labels, this.#packet)
 		const id = hashStudyBytes(bytes)
 		const root = join(result.directory, 'grades')
 		try {
@@ -197,7 +199,7 @@ export class StudyGradingStore {
 			const existing = await this.read(id)
 			if (
 				existing === undefined ||
-				canonicalStringify(existing) !== canonicalStringify(grading) ||
+				canonicalStringify(existing) !== canonicalStringify(assessment) ||
 				hashStudyBytes(
 					await readStudyBytes(join(directory, 'grading.json'), STUDY_CUSTODY_BYTES),
 				) !== id
@@ -206,9 +208,15 @@ export class StudyGradingStore {
 			return id
 		}
 		await writeStudyBytes(join(directory, `${this.#rubricDigest}.rubric.json`), this.#rubricBytes)
-		if (this.#packet !== undefined && grading.packet !== undefined) {
-			await writeStudyBytes(join(directory, `${grading.packet}.packet.json`), this.#packet.content)
-			await writeStudyBytes(join(directory, `${grading.packet}.mapping.json`), this.#packet.mapping)
+		if (this.#packet !== undefined && assessment.packet !== undefined) {
+			await writeStudyBytes(
+				join(directory, `${assessment.packet}.packet.json`),
+				this.#packet.content,
+			)
+			await writeStudyBytes(
+				join(directory, `${assessment.packet}.mapping.json`),
+				this.#packet.mapping,
+			)
 		}
 		if (this.#labelsBytes !== undefined && this.#labelsDigest !== undefined)
 			await writeStudyBytes(join(directory, `${this.#labelsDigest}.labels.json`), this.#labelsBytes)
@@ -225,19 +233,19 @@ export class StudyGradingStore {
 	}
 
 	#validate(
-		grading: StudyGrading,
+		assessment: StudyAssessment,
 		result: StudySealedResult,
 		rubric: StudyRubric,
-		labels: StudyLabeling | undefined,
+		labels: StudyLabels | undefined,
 		packet: StudyPacketBundle | undefined,
 	): void {
-		if (grading.result !== result.seal.id)
+		if (assessment.result !== result.seal.id)
 			throw new StudyError('EVIDENCE', 'Grading binds a different execution seal')
-		computeStudyScores(result.manifest, rubric, grading)
-		if (grading.packet !== (packet === undefined ? undefined : computeStudyPacketDigest(packet)))
+		computeStudyScores(result.manifest, rubric, assessment)
+		if (assessment.packet !== (packet === undefined ? undefined : computeStudyPacketDigest(packet)))
 			throw new StudyError('CUSTODY', 'Grading packet bytes do not match their bundle identity')
 		if (packet !== undefined) {
-			const expected = buildStudyPacket(result, rubric, grading.rubric)
+			const expected = buildStudyPacket(result, rubric, assessment.rubric)
 			if (
 				expected === undefined ||
 				hashStudyBytes(expected.content) !== hashStudyBytes(packet.content) ||
@@ -250,11 +258,11 @@ export class StudyGradingStore {
 		const translated =
 			labels === undefined
 				? []
-				: translateStudyPacketLabeling(result, rubric, grading.rubric, labels)
+				: translateStudyPacketLabels(result, rubric, assessment.rubric, labels)
 		for (const trial of result.manifest.schedule) {
 			for (const criterion of rubric.criteria) {
 				if (criterion.scenario !== trial.scenario) continue
-				const judgment = grading.judgments.find(
+				const judgment = assessment.judgments.find(
 					(entry) => entry.trial === trial.id && entry.criterion === criterion.id,
 				)
 				if (judgment === undefined)
@@ -269,7 +277,7 @@ export class StudyGradingStore {
 		}
 		for (const judgment of translated) {
 			if (
-				!grading.judgments.some(
+				!assessment.judgments.some(
 					(entry) => canonicalStringify(entry) === canonicalStringify(judgment),
 				)
 			)

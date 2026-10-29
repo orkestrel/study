@@ -17,6 +17,7 @@ import {
 import { StudyAgentScript } from '../../../../src/server/agents/StudyAgentScript.js'
 import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
 import {
+	createObservedStudyCall,
 	STUDY_AGENT_MESSAGES,
 	STUDY_AGENT_TOOL_CALL,
 	STUDY_AGENT_TOOL_FIELDS,
@@ -41,21 +42,7 @@ describe('readStudyAgentToolCall', () => {
 		const names = createRecorder<[]>()
 		const reads = createRecorder<[]>()
 		const parameters = { path: 'note.txt' }
-		const call = {
-			get id() {
-				ids.handler()
-				return ''
-			},
-			get name() {
-				names.handler()
-				return 'write'
-			},
-			get arguments() {
-				reads.handler()
-				return parameters
-			},
-			extra: 'omitted',
-		}
+		const call = createObservedStudyCall(ids.handler, names.handler, reads.handler, parameters)
 		const observed = readStudyAgentToolCall(call)
 		expect(observed).toEqual({ id: '', name: 'write', arguments: { path: 'note.txt' } })
 		expect(Object.is(observed, call)).toBe(false)

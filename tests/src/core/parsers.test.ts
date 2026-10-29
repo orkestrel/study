@@ -1,18 +1,18 @@
 import { STUDY_FINITE_READINGS, STUDY_UNKNOWN_READINGS } from '../../setupStudy.js'
-import { parseStudyReading } from '../../../src/core/parsers.js'
+import { parseStudyMeasurement } from '../../../src/core/parsers.js'
 import { expect, it } from 'vitest'
 import {
 	parseStudyDefinition,
-	parseStudyGrading,
-	parseStudyLabeling,
+	parseStudyAssessment,
+	parseStudyLabels,
 	parseStudyProfile,
 	parseStudyRubric,
 	parseStudyScenario,
 } from '../../../src/core/parsers.js'
 import {
 	isStudyDefinition,
-	isStudyGrading,
-	isStudyLabeling,
+	isStudyAssessment,
+	isStudyLabels,
 	isStudyProfile,
 	isStudyRubric,
 	isStudyScenario,
@@ -144,11 +144,15 @@ it('keeps an undeclared recap and judge off the owned profile and round-trips de
 })
 
 it('parses real JSON grading and labels without coercion and preserves unknown token usage', () => {
-	const grading = buildStudyGrading(buildStudyManifest().schedule, [buildStudyJudgment('r1-s1-a1')])
-	const parsed = parseStudyGrading(JSON.parse(JSON.stringify(grading)))
-	expect(isStudyGrading(parsed)).toBe(true)
-	expect(parsed.judgments).toEqual(grading.judgments)
-	expect(parseStudyGrading({ ...grading, labels: undefined, packet: undefined })).toEqual(parsed)
+	const assessment = buildStudyGrading(buildStudyManifest().schedule, [
+		buildStudyJudgment('r1-s1-a1'),
+	])
+	const parsed = parseStudyAssessment(JSON.parse(JSON.stringify(assessment)))
+	expect(isStudyAssessment(parsed)).toBe(true)
+	expect(parsed.judgments).toEqual(assessment.judgments)
+	expect(parseStudyAssessment({ ...assessment, labels: undefined, packet: undefined })).toEqual(
+		parsed,
+	)
 	expect(Object.isFrozen(parsed.judgments[0]?.references)).toBe(true)
 	const labels = {
 		packet: 'a'.repeat(64),
@@ -158,12 +162,12 @@ it('parses real JSON grading and labels without coercion and preserves unknown t
 		usage: [{ role: 'judge', calls: 0, tokens: undefined, bytes: undefined, duration: 0 }],
 		judgments: [buildStudyJudgment('r1-s1-a1', 'first-read', 'unknown', 'human')],
 	}
-	const parsedLabels = parseStudyLabeling(labels)
-	expect(isStudyLabeling(parsedLabels)).toBe(true)
+	const parsedLabels = parseStudyLabels(labels)
+	expect(isStudyLabels(parsedLabels)).toBe(true)
 	expect(parsedLabels.usage[0]?.tokens).toBeUndefined()
 	expect(parsedLabels.usage[0]?.bytes).toBeUndefined()
 	expect(Object.isFrozen(parsedLabels.usage[0])).toBe(true)
-	expect(parseStudyLabeling(JSON.parse(JSON.stringify(labels)))).toEqual(parsedLabels)
+	expect(parseStudyLabels(JSON.parse(JSON.stringify(labels)))).toEqual(parsedLabels)
 })
 
 it('rejects unknown keys, unsafe limits, malformed JSON shapes and hostile reads with coded errors', () => {
@@ -180,8 +184,8 @@ it('rejects unknown keys, unsafe limits, malformed JSON shapes and hostile reads
 		}),
 	).toThrow(StudyError)
 	expect(() => parseStudyRubric({ ...buildStudyRubric(), criteria: [] })).toThrow(StudyError)
-	expect(() => parseStudyGrading({})).toThrow(expect.objectContaining({ code: 'EVIDENCE' }))
-	expect(() => parseStudyLabeling({})).toThrow(expect.objectContaining({ code: 'EVIDENCE' }))
+	expect(() => parseStudyAssessment({})).toThrow(expect.objectContaining({ code: 'EVIDENCE' }))
+	expect(() => parseStudyLabels({})).toThrow(expect.objectContaining({ code: 'EVIDENCE' }))
 	expect(() =>
 		parseStudyScenario(
 			new Proxy(
@@ -198,8 +202,8 @@ it('rejects unknown keys, unsafe limits, malformed JSON shapes and hostile reads
 })
 
 it('keeps finite foreign readings and leaves absent or non-finite readings unknown', () => {
-	for (const value of STUDY_FINITE_READINGS) expect(parseStudyReading(value)).toBe(value)
-	for (const value of STUDY_UNKNOWN_READINGS) expect(parseStudyReading(value)).toBeUndefined()
+	for (const value of STUDY_FINITE_READINGS) expect(parseStudyMeasurement(value)).toBe(value)
+	for (const value of STUDY_UNKNOWN_READINGS) expect(parseStudyMeasurement(value)).toBeUndefined()
 })
 
 it('owns daemon declarations at profile load and rejects missing model digests and relative executables', () => {

@@ -19,7 +19,7 @@ import { computeStudyExchangeOffset } from '../stores/helpers.js'
 import { hashStudyBytes } from '../helpers.js'
 import { isStudyExchangeDeclaration } from '../stores/validators.js'
 import { isStudyOllamaMetadata, isStudyOllamaModel, isStudyOllamaStep } from './validators.js'
-import { StudyError, parseStudyReading } from '@src/core'
+import { StudyError, parseStudyMeasurement } from '@src/core'
 import {
 	attempt,
 	canonicalStringify,
@@ -136,7 +136,7 @@ export function buildStudyOllamaBytes(bytes: Uint8Array): StudyExchangeBytes {
  * @returns The validated sink declaration, or undefined without recording.
  * @throws StudyError - Thrown with CONFIG for invalid bounds, groups, identities or ordered policies.
  */
-export function validateStudyOllamaRecording(
+export function validateStudyOllamaCapture(
 	options: StudyOllamaTransportOptions,
 ): StudyExchangeDeclaration | undefined {
 	if (!isStudyOllamaMetadata(options.metadata))
@@ -349,7 +349,7 @@ export function readStudyOllamaSupport(value: unknown, context: number): number 
 				id: 'context_length',
 				max:
 					keys.length === 1 && Number.isSafeInteger(ceiling)
-						? parseStudyReading(ceiling)
+						? parseStudyMeasurement(ceiling)
 						: undefined,
 				consumed: context,
 			},
@@ -418,8 +418,8 @@ export function readStudyOllamaFailure(
 			? {
 					layer: 'model',
 					id: 'num_ctx',
-					max: parseStudyReading(limit),
-					consumed: parseStudyReading(prompt),
+					max: parseStudyMeasurement(limit),
+					consumed: parseStudyMeasurement(prompt),
 				}
 			: undefined,
 	})

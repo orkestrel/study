@@ -87,7 +87,7 @@ export function computeStudyConfigurationDigest(profile: StudyProfile): string {
  * @param scenario - The complete horizon when the reader holds it.
  * @returns Nothing after checking every member the reader can independently verify.
  */
-export function validateStudyRecordingDeclaration(
+export function validateStudyCaptureDeclaration(
 	declaration: StudyExchangeDeclaration,
 	profile: StudyProfile,
 	trial: StudyTrial,
@@ -256,7 +256,7 @@ export function collectStudyEntries(profile: StudyProfile): readonly string[] {
 /** Computes the instrument identity binding trusted runtime bytes to the adapter inventory.
  * @param entry - The SHA-256 identity of the trusted runtime entry bytes.
  * @param inventory - The captured adapter inventory digest.
- * @returns The identity that validation, grading, and trial children must share.
+ * @returns The identity that validation, assessment, and trial children must share.
  */
 export function computeStudyInstrumentDigest(entry: string, inventory: string): string {
 	return hashStudyBytes(JSON.stringify([entry, inventory]))

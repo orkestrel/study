@@ -38,7 +38,6 @@ export function isArtifactError(value: unknown): value is ArtifactError {
 		const stack: unknown = INTRINSICS.reflect.read(value, 'stack')
 		return (
 			ARTIFACT_ERROR_CODES.some((candidate) => candidate === code) &&
-			isString(INTRINSICS.reflect.read(value, 'name')) &&
 			isString(INTRINSICS.reflect.read(value, 'message')) &&
 			(stack === undefined || isString(stack))
 		)

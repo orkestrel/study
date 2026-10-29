@@ -9,7 +9,7 @@ import {
 	buildCustodyPacketLabeling,
 	retainStudyFixture,
 } from '../../../setupServer.js'
-import { StudyGradingStore } from '../../../../src/server/stores/StudyGradingStore.js'
+import { StudyAssessmentStore } from '../../../../src/server/stores/StudyAssessmentStore.js'
 import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
 import {
 	buildStudyPacket,
@@ -28,25 +28,30 @@ describe('StudyGradingStore', () => {
 			const base = buildCustodyGrading(result, rubric)
 			const packet = buildStudyPacket(result, rubric, base.rubric)
 			if (packet === undefined) throw new Error('Missing packet fixture')
-			const grading = { ...base, packet: computeStudyPacketDigest(packet) }
-			const store = new StudyGradingStore({ result, rubric: encodeStudyJSON(rubric), packet })
+			const assessment = { ...base, packet: computeStudyPacketDigest(packet) }
+			const store = new StudyAssessmentStore({ result, rubric: encodeStudyJSON(rubric), packet })
 			const original = await readFile(join(result.directory, 'execution', 'manifest.json'))
-			const id = await store.write(grading)
-			expect(await store.write(grading)).toBe(id)
-			await appendFile(join(result.directory, 'grades', id, `${grading.packet}.packet.json`), ' ')
-			await expect(store.read(id)).rejects.toMatchObject({ code: 'CUSTODY' })
-			const later = await store.write({ ...grading, grader: 'packet-v2' })
+			const id = await store.write(assessment)
+			expect(await store.write(assessment)).toBe(id)
 			await appendFile(
-				join(result.directory, 'grades', later, `${grading.packet}.mapping.json`),
+				join(result.directory, 'grades', id, `${assessment.packet}.packet.json`),
+				' ',
+			)
+			await expect(store.read(id)).rejects.toMatchObject({ code: 'CUSTODY' })
+			const later = await store.write({ ...assessment, grader: 'packet-v2' })
+			await appendFile(
+				join(result.directory, 'grades', later, `${assessment.packet}.mapping.json`),
 				' ',
 			)
 			await expect(store.read(later)).rejects.toMatchObject({ code: 'CUSTODY' })
 			const forged = { ...packet, mapping: encodeStudyJSON({ entries: [] }) }
 			await expect(
-				new StudyGradingStore({ result, rubric: encodeStudyJSON(rubric), packet: forged }).write({
-					...grading,
-					packet: computeStudyPacketDigest(forged),
-				}),
+				new StudyAssessmentStore({ result, rubric: encodeStudyJSON(rubric), packet: forged }).write(
+					{
+						...assessment,
+						packet: computeStudyPacketDigest(forged),
+					},
+				),
 			).rejects.toMatchObject({ code: 'CUSTODY' })
 			const labels = buildCustodyPacketLabeling(result, rubric)
 			const foreign = {
@@ -54,12 +59,12 @@ describe('StudyGradingStore', () => {
 				judgments: labels.judgments.map((judgment) => ({ ...judgment, criterion: 'first-write' })),
 			}
 			await expect(
-				new StudyGradingStore({
+				new StudyAssessmentStore({
 					result,
 					rubric: encodeStudyJSON(rubric),
 					packet,
 					labels: encodeStudyJSON(foreign),
-				}).write({ ...grading, labels: hashStudyBytes(encodeStudyJSON(foreign)) }),
+				}).write({ ...assessment, labels: hashStudyBytes(encodeStudyJSON(foreign)) }),
 			).rejects.toMatchObject({ code: 'EVIDENCE' })
 			expect(await readFile(join(result.directory, 'execution', 'manifest.json'))).toEqual(original)
 		} finally {
@@ -74,21 +79,26 @@ describe('StudyGradingStore', () => {
 				buildCompactCustodyManifest(),
 			)
 			const rubric = buildStudyRubric()
-			const grades = new StudyGradingStore({ result, rubric: encodeStudyJSON(rubric) })
+			const grades = new StudyAssessmentStore({ result, rubric: encodeStudyJSON(rubric) })
 			const original = await Promise.all(
 				result.seal.files.map((file) =>
 					readFile(join(result.directory, 'execution', ...file.path.split('/'))),
 				),
 			)
-			const grading = buildCustodyGrading(result, rubric)
-			const [id, duplicate] = await Promise.all([grades.write(grading), grades.write(grading)])
+			const assessment = buildCustodyGrading(result, rubric)
+			const [id, duplicate] = await Promise.all([
+				grades.write(assessment),
+				grades.write(assessment),
+			])
 			expect(duplicate).toBe(id)
 			expect(
-				await new StudyGradingStore({ result, rubric: encodeStudyJSON(rubric) }).write(grading),
+				await new StudyAssessmentStore({ result, rubric: encodeStudyJSON(rubric) }).write(
+					assessment,
+				),
 			).toBe(id)
-			expect(await grades.read(id)).toEqual({ ...grading, labels: undefined })
+			expect(await grades.read(id)).toEqual({ ...assessment, labels: undefined })
 			expect(await grades.read('f'.repeat(64))).toBeUndefined()
-			const changed = await grades.write({ ...grading, grader: 'predicate-v2' })
+			const changed = await grades.write({ ...assessment, grader: 'predicate-v2' })
 			expect(changed).not.toBe(id)
 			expect(scratch.names('result/grades')).toEqual(expect.arrayContaining([id, changed]))
 			expect(
@@ -111,11 +121,11 @@ describe('StudyGradingStore', () => {
 				buildCompactCustodyManifest(),
 			)
 			const rubric = buildStudyRubric()
-			const grades = new StudyGradingStore({ result, rubric: encodeStudyJSON(rubric) })
-			const grading = buildCustodyGrading(result, rubric)
-			const first = grades.write(grading)
+			const grades = new StudyAssessmentStore({ result, rubric: encodeStudyJSON(rubric) })
+			const assessment = buildCustodyGrading(result, rubric)
+			const first = grades.write(assessment)
 			// Refused after the same verification the first write needs, so it would settle first if unqueued.
-			const second = grades.write({ ...grading, rubric: 'f'.repeat(64) })
+			const second = grades.write({ ...assessment, rubric: 'f'.repeat(64) })
 			await expect(second).rejects.toMatchObject({ code: 'EVIDENCE' })
 			expect(await readSettled(first)).toBe(true)
 			expect(scratch.names('result/grades')).toEqual([await first])
@@ -137,35 +147,35 @@ describe('StudyGradingStore', () => {
 			const packet = buildStudyPacket(result, rubric, base.rubric)
 			if (packet === undefined) throw new Error('Missing packet fixture')
 			const labels = buildCustodyPacketLabeling(result, rubric)
-			const grading = {
+			const assessment = {
 				...base,
 				labels: hashStudyBytes(encodeStudyJSON(labels)),
 				packet: computeStudyPacketDigest(packet),
 			}
-			const first = new StudyGradingStore({
+			const first = new StudyAssessmentStore({
 				result,
 				rubric: encodeStudyJSON(rubric),
 				labels: encodeStudyJSON(labels),
 				packet,
 			})
-			const id = await first.write(grading)
+			const id = await first.write(assessment)
 			const changed = { ...labels, labeler: 'human-v2' }
-			const second = new StudyGradingStore({
+			const second = new StudyAssessmentStore({
 				result,
 				rubric: encodeStudyJSON(rubric),
 				labels: encodeStudyJSON(changed),
 				packet,
 			})
 			const later = await second.write({
-				...grading,
+				...assessment,
 				labels: hashStudyBytes(encodeStudyJSON(changed)),
 			})
 			expect(later).not.toBe(id)
 			expect(
-				await readFile(join(result.directory, 'grades', id, `${grading.labels}.labels.json`)),
+				await readFile(join(result.directory, 'grades', id, `${assessment.labels}.labels.json`)),
 			).toEqual(Buffer.from(encodeStudyJSON(labels)))
-			expect((await first.read(id))?.judgments).toEqual(grading.judgments)
-			expect((await first.read(later))?.labels).not.toBe(grading.labels)
+			expect((await first.read(id))?.judgments).toEqual(assessment.judgments)
+			expect((await first.read(later))?.labels).not.toBe(assessment.labels)
 		} finally {
 			scratch.destroy()
 		}
@@ -179,27 +189,31 @@ describe('StudyGradingStore', () => {
 				buildCompactCustodyManifest(),
 			)
 			const rubric = buildStudyRubric()
-			const grades = new StudyGradingStore({ result, rubric: encodeStudyJSON(rubric) })
-			const grading = buildCustodyGrading(result, rubric)
-			await expect(grades.write({ ...grading, judgments: [] })).rejects.toMatchObject({
+			const grades = new StudyAssessmentStore({ result, rubric: encodeStudyJSON(rubric) })
+			const assessment = buildCustodyGrading(result, rubric)
+			await expect(grades.write({ ...assessment, judgments: [] })).rejects.toMatchObject({
 				code: 'EVIDENCE',
 			})
-			await expect(grades.write({ ...grading, attempts: ['unexecuted'] })).rejects.toMatchObject({
+			await expect(grades.write({ ...assessment, attempts: ['unexecuted'] })).rejects.toMatchObject(
+				{
+					code: 'EVIDENCE',
+				},
+			)
+			await expect(
+				grades.write({ ...assessment, result: result.manifest.id }),
+			).rejects.toMatchObject({
 				code: 'EVIDENCE',
 			})
-			await expect(grades.write({ ...grading, result: result.manifest.id })).rejects.toMatchObject({
+			await expect(grades.write({ ...assessment, rubric: 'f'.repeat(64) })).rejects.toMatchObject({
 				code: 'EVIDENCE',
 			})
-			await expect(grades.write({ ...grading, rubric: 'f'.repeat(64) })).rejects.toMatchObject({
-				code: 'EVIDENCE',
-			})
-			await expect(grades.write({ ...grading, labels: 'f'.repeat(64) })).rejects.toMatchObject({
+			await expect(grades.write({ ...assessment, labels: 'f'.repeat(64) })).rejects.toMatchObject({
 				code: 'EVIDENCE',
 			})
 			await expect(
 				grades.write({
-					...grading,
-					judgments: grading.judgments.map((judgment) =>
+					...assessment,
+					judgments: assessment.judgments.map((judgment) =>
 						judgment.method === 'human'
 							? { ...judgment, verdict: 'achieved', references: ['unbound'] }
 							: judgment,
@@ -220,19 +234,19 @@ describe('StudyGradingStore', () => {
 				buildCompactCustodyManifest(),
 			)
 			const rubric = buildStudyRubric()
-			const grades = new StudyGradingStore({ result, rubric: encodeStudyJSON(rubric) })
-			const grading = buildCustodyGrading(result, rubric)
-			const id = await grades.write(grading)
-			const artifact = join(result.directory, 'grades', id, `${grading.rubric}.rubric.json`)
+			const grades = new StudyAssessmentStore({ result, rubric: encodeStudyJSON(rubric) })
+			const assessment = buildCustodyGrading(result, rubric)
+			const id = await grades.write(assessment)
+			const artifact = join(result.directory, 'grades', id, `${assessment.rubric}.rubric.json`)
 			await appendFile(artifact, ' ')
 			await expect(grades.read(id)).rejects.toMatchObject({ code: 'CUSTODY' })
-			await expect(grades.write(grading)).rejects.toMatchObject({ code: 'CUSTODY' })
+			await expect(grades.write(assessment)).rejects.toMatchObject({ code: 'CUSTODY' })
 			expect((await readFile(artifact, 'utf8')).endsWith(' ')).toBe(true)
-			const later = await grades.write({ ...grading, grader: 'later' })
+			const later = await grades.write({ ...assessment, grader: 'later' })
 			await appendFile(join(result.directory, 'grades', later, 'grading.json'), ' ')
 			await expect(grades.read(later)).rejects.toMatchObject({ code: 'CUSTODY' })
 			await appendFile(join(result.directory, 'execution', 'manifest.json'), ' ')
-			await expect(grades.write({ ...grading, grader: 'after-tamper' })).rejects.toMatchObject({
+			await expect(grades.write({ ...assessment, grader: 'after-tamper' })).rejects.toMatchObject({
 				code: 'CUSTODY',
 			})
 		} finally {

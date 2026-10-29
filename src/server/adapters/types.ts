@@ -64,7 +64,7 @@ export interface StudyGradeTarget {
 }
 
 /** Holds a consumer predicate's reading of one target, citing only retained files and rows. */
-export interface StudyGradeReading {
+export interface StudyGradeVerdict {
 	readonly verdict: StudyJudgment['verdict']
 	readonly method: StudyJudgment['method']
 	readonly reason: string
@@ -72,9 +72,9 @@ export interface StudyGradeReading {
 }
 
 /** Reads one declared target against the consumer's domain predicate. */
-export type StudyGradeFunction = (target: StudyGradeTarget) => StudyGradeReading
+export type StudyGradeFunction = (target: StudyGradeTarget) => StudyGradeVerdict
 
-/** Defines the consumer's domain checks, driver construction, and retained-evidence grading.
+/** Defines the consumer's domain checks, driver construction, and retained-evidence assessment.
  * @remarks
  * An authored module exports a createStudyAdapter factory returning this interface.
  * The host invokes adapter code in a bounded child. It passes criteria to validation

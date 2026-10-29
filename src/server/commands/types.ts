@@ -1,7 +1,7 @@
 import type {
 	StudyDefinition,
 	StudyFailure,
-	StudyGrading,
+	StudyAssessment,
 	StudyIdentity,
 	StudyProfile,
 	StudyRubric,
@@ -96,7 +96,7 @@ export interface StudyGradeRequest {
 export interface StudyLabelRequest {
 	readonly command: 'label'
 	readonly target: string
-	readonly grading: string
+	readonly assessment: string
 	readonly labels: string
 }
 
@@ -104,7 +104,7 @@ export interface StudyLabelRequest {
 export interface StudyReportRequest {
 	readonly command: 'report'
 	readonly target: string
-	readonly grading: string
+	readonly assessment: string
 }
 
 /** Names the independently dispatched study command operation. */
@@ -158,8 +158,8 @@ export interface StudyPreparation {
 }
 
 /** Holds artifacts already verified inside a selected immutable grading directory. */
-export interface StudyGradingContext {
-	readonly grading: StudyGrading
+export interface StudyAssessmentContext {
+	readonly assessment: StudyAssessment
 	readonly rubric: StudyRubric
 	readonly bytes: Uint8Array
 	readonly packet: StudyPacketBundle | undefined

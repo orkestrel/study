@@ -5,9 +5,9 @@ import type {
 	StudyDefinition,
 	StudyCriterion,
 	StudyErrorCode,
-	StudyGrading,
+	StudyAssessment,
 	StudyJudgment,
-	StudyLabeling,
+	StudyLabels,
 	StudyGoal,
 	StudyLimit,
 	StudyProduct,
@@ -654,10 +654,10 @@ export function isStudyJudgment(value: unknown): value is StudyJudgment {
  * @returns True if provenance, usage and semantic judgments are valid; false otherwise
  * @example
  * ```ts
- * isStudyLabeling({}) // false
+ * isStudyLabels({}) // false
  * ```
  */
-export function isStudyLabeling(value: unknown): value is StudyLabeling {
+export function isStudyLabels(value: unknown): value is StudyLabels {
 	return holds(() => {
 		return (
 			isRecord(value) &&
@@ -706,14 +706,14 @@ export function isStudyErrorCode(value: unknown): value is StudyErrorCode {
 
 /**
  * Checks whether grading binds accountable judgments to unique attempt identities.
- * @param value - The candidate grading
+ * @param value - The candidate assessment
  * @returns True if its identities, attempts and judgments are valid; false otherwise
  * @example
  * ```ts
- * isStudyGrading({}) // false
+ * isStudyAssessment({}) // false
  * ```
  */
-export function isStudyGrading(value: unknown): value is StudyGrading {
+export function isStudyAssessment(value: unknown): value is StudyAssessment {
 	return holds(() => {
 		return (
 			isRecord(value) &&

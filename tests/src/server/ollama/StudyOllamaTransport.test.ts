@@ -1,4 +1,4 @@
-import type { JudgeInterface } from '@orkestrel/agent'
+import { createRejectedStudyJudge } from '../../../setupStudy.js'
 import type { StudyOllamaFetchFunction } from '../../../../src/server/ollama/types.js'
 import { STUDY_STOP_SWITCHES, readSettled } from '../../../setupStudy.js'
 import { createForeignBudgetError, createBudgetLookalike } from '../../../setupServer.js'
@@ -2457,13 +2457,10 @@ describe('StudyOllamaTransport', () => {
 				const roles = buildOllamaStrictRoles()
 				const fixture = await createOllamaTransportFixture([], { roles })
 				try {
-					const changes = {
-						'strict flag': () => Reflect.set(roles.agent, 'strict', false),
-						model: () => Reflect.set(roles.agent, 'model', 'judge'),
-						'nested options': () => Reflect.set(roles.agent.options, 'num_predict', 1),
-						role: () => Reflect.set(roles, 'agent', undefined),
-					}
-					changes[axis]()
+					if (axis === 'strict flag') Reflect.set(roles.agent, 'strict', false)
+					else if (axis === 'model') Reflect.set(roles.agent, 'model', 'judge')
+					else if (axis === 'nested options') Reflect.set(roles.agent.options, 'num_predict', 1)
+					else Reflect.set(roles, 'agent', undefined)
 					const provider = createOllamaTransportProvider(fixture.transport, fixture.server.url)
 					await provider.generate(STUDY_AGENT_MESSAGES, new AbortController().signal).then(
 						() => undefined,
@@ -2558,31 +2555,24 @@ describe('StudyOllamaTransport', () => {
 					const init = { method: 'POST', body: STUDY_OLLAMA_CHAT_BODY, headers }
 					const dispatch = { id: 1, revision: 'f'.repeat(64) }
 					const pending = fixture.transport.fetch('agent', url, init, dispatch)
-					const changes = {
-						path: () => {
-							url.pathname = '/outside'
-						},
-						origin: () => {
-							url.port = '1'
-						},
-						body: () =>
-							Reflect.set(
-								init,
-								'body',
-								JSON.stringify({
-									model: 'judge',
-									stream: true,
-									think: false,
-									options: STUDY_OLLAMA_OPTIONS,
-								}),
-							),
-						headers: () => headers.set('x-study-owned', 'changed'),
-						dispatch: () => {
-							Reflect.set(dispatch, 'id', 99)
-							Reflect.set(dispatch, 'revision', '0'.repeat(64))
-						},
+					if (axis === 'path') url.pathname = '/outside'
+					else if (axis === 'origin') url.port = '1'
+					else if (axis === 'body')
+						Reflect.set(
+							init,
+							'body',
+							JSON.stringify({
+								model: 'judge',
+								stream: true,
+								think: false,
+								options: STUDY_OLLAMA_OPTIONS,
+							}),
+						)
+					else if (axis === 'headers') headers.set('x-study-owned', 'changed')
+					else {
+						Reflect.set(dispatch, 'id', 99)
+						Reflect.set(dispatch, 'revision', '0'.repeat(64))
 					}
-					changes[axis]()
 					const response = await pending
 					await response.text()
 					expect(fixture.server.requests).toEqual([
@@ -2734,15 +2724,7 @@ describe('StudyOllamaTransport', () => {
 			const fixture = await createOllamaTransportFixture()
 			try {
 				const calls = createRecorder<[]>()
-				const failing: JudgeInterface = {
-					id: 'judge',
-					name: 'ollama',
-					model: 'judge',
-					ask: () => {
-						calls.handler()
-						return Promise.reject(thrown)
-					},
-				}
+				const failing = createRejectedStudyJudge(thrown, calls.handler)
 				const judge = new StudyAgentJudge(failing, fixture.transport)
 				const signal = new AbortController().signal
 				const outcomes: Array<{ readonly error: unknown }> = []

@@ -1,5 +1,6 @@
+import { createStudyScratch } from '../../../setupServer.js'
 import { isArray, isRecord, parseJSON } from '@orkestrel/contract'
-import { createScratch, destroyScratch, isRunning } from '@orkestrel/test/server'
+import { destroyScratch, isRunning } from '@orkestrel/test/server'
 import { readFileSync, appendFileSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import { expect, it } from 'vitest'
@@ -22,7 +23,7 @@ import {
 } from '../../../setupServer.js'
 
 it('CT1 extends a grown frozen closure with an ancestor-bound check and an ancestor-free freeze fingerprint', async () => {
-	const library = createScratch({ parent: resolve('tmp/units') })
+	const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
 	const subject = await buildStudyLibrary(
 		library,
 		resolve('src/server/ollama/StudyOllamaTransport.ts'),
@@ -80,7 +81,7 @@ it('CT1 extends a grown frozen closure with an ancestor-bound check and an ances
 }, 240000)
 
 it('CT1 and CT3 extend one goal to two with raised record bounds and only suffix daemon traffic', async () => {
-	const library = createScratch({ parent: resolve('tmp/units') })
+	const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
 	const subject = await buildStudyLibrary(
 		library,
 		resolve('src/server/ollama/StudyOllamaTransport.ts'),
@@ -202,7 +203,7 @@ it('CT1 and CT3 extend one goal to two with raised record bounds and only suffix
 
 it('RP3 keeps content equal across a renamed frozen consumer and JSON edits, binds runtime, and replays changed code with both identities', async () => {
 	const fixture = await createStudyReplayFixture(true)
-	const copies = createScratch({ parent: resolve('tmp/units') })
+	const copies = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
 	try {
 		const { scratch, command, entry, profile, result, history, recorded, server } = fixture
 		expect(profile.roots[0]).toBe(scratch.path)

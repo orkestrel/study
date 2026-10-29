@@ -51,7 +51,7 @@ import { STUDY_CAUSES, STUDY_ROLES, STUDY_LAYERS } from '../../../../src/core/co
 import { ArtifactLoader } from '../../../../src/server/artifacts/ArtifactLoader.js'
 
 it('resolves a canonical daemon executable and refuses a relative executable before launch', async () => {
-	const fixture = await createStudyDaemonFixture(resolve('tmp/units/fixture-library/dist/index.js'))
+	const fixture = await createStudyDaemonFixture()
 	try {
 		const provider = fixture.profile.provider
 		const daemon = provider?.daemon
@@ -693,7 +693,7 @@ describe('study command helpers', () => {
 		try {
 			const result = await retainStudyFixture(join(scratch.path, 'result'))
 			const rubric = buildStudyRubric()
-			const grading = buildCustodyGrading(result, rubric)
+			const assessment = buildCustodyGrading(result, rubric)
 			const report = computeStudyReport(
 				{
 					...result,
@@ -708,7 +708,7 @@ describe('study command helpers', () => {
 					})),
 				},
 				rubric,
-				grading,
+				assessment,
 			)
 			expect(report).toMatchObject({
 				population: 'Complete declared trial and criterion horizon',

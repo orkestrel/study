@@ -1,3 +1,4 @@
+import { DerivedArtifactError } from '../../../setupServer.js'
 import { createScratch, destroyScratch } from '@orkestrel/test/server'
 import { closeSync, openSync, opendirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -119,12 +120,6 @@ it('hashes content with sorted relative members, selections, package identities,
 })
 
 it('recognizes branded artifact refusals and refuses malformed members and proxies', () => {
-	class DerivedArtifactError extends ArtifactError {
-		constructor() {
-			super('Subclass refusal', 'DRIFT')
-			this.name = 'DerivedArtifactError'
-		}
-	}
 	const error = new DerivedArtifactError()
 	const brand = Symbol.for('@orkestrel/study.ArtifactError')
 	expect(Object.getOwnPropertyDescriptor(error, brand)).toMatchObject({

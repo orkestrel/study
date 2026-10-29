@@ -4,7 +4,7 @@ import type { StudyDaemonSessionOptions } from './types.js'
 import type { StudyExchangeDestination } from '../stores/types.js'
 import { StudyError } from '@src/core'
 import { canonicalStringify } from '@orkestrel/contract'
-import { validateStudyRecordingDeclaration } from '../processes/helpers.js'
+import { validateStudyCaptureDeclaration } from '../processes/helpers.js'
 import { StudyDaemonTrial } from './StudyDaemonTrial.js'
 
 /** Owns the declared daemon and its serial trial preparation through permanent cleanup.
@@ -93,7 +93,7 @@ export class StudyDaemonSession {
 		const models = this.#options.profile.provider?.daemon?.models
 		const first = this.#options.scenarios.find((scenario) => scenario.id === trial.scenario)
 			?.goals[0]
-		validateStudyRecordingDeclaration(
+		validateStudyCaptureDeclaration(
 			declaration,
 			this.#options.profile,
 			trial,

@@ -101,7 +101,7 @@ describe('built study executable', () => {
 			const refusal = await executeStudyCLI(entry, scratch.path, [
 				'report',
 				'nope',
-				'--grading',
+				'--assessment',
 				'a'.repeat(64),
 			])
 			expect(refusal.code).toBe(1)
@@ -415,20 +415,20 @@ try { parseStudyArguments([]) } catch (error) {
 				code: 0,
 				output: '',
 			})
-			const grading = parseJSON(grade.output)
+			const assessment = parseJSON(grade.output)
 			if (
-				!isRecord(grading) ||
-				typeof grading.grading !== 'string' ||
-				!arrayOf(isString)(grading.next)
+				!isRecord(assessment) ||
+				typeof assessment.assessment !== 'string' ||
+				!arrayOf(isString)(assessment.next)
 			)
 				throw new Error('Missing grading')
-			expect(parseStudyArguments(grading.next)).toEqual({
+			expect(parseStudyArguments(assessment.next)).toEqual({
 				command: 'report',
 				target: result.path,
-				grading: grading.grading,
+				assessment: assessment.assessment,
 			})
 			expect((scratch.read('imports.log') ?? '').trim().split(/\r\n|\n/)).toHaveLength(1)
-			const report = await executeStudyCLI(entry, scratch.path, grading.next)
+			const report = await executeStudyCLI(entry, scratch.path, assessment.next)
 			expect({ code: report.code, output: report.code === 0 ? '' : report.output }).toEqual({
 				code: 0,
 				output: '',
@@ -444,8 +444,8 @@ try { parseStudyArguments([]) } catch (error) {
 			const labeled = await executeStudyCLI(entry, scratch.path, [
 				'label',
 				result.path,
-				'--grading',
-				grading.grading,
+				'--assessment',
+				assessment.assessment,
 				'--labels',
 				path,
 			])
@@ -459,7 +459,7 @@ try { parseStudyArguments([]) } catch (error) {
 			expect(parseStudyArguments(labeledResult.next)).toEqual({
 				command: 'report',
 				target: result.path,
-				grading: labeledResult.grading,
+				assessment: labeledResult.assessment,
 			})
 			const labeledReport = await executeStudyCLI(entry, scratch.path, labeledResult.next)
 			expect(parseJSON(labeledReport.output)).toMatchObject({
@@ -467,8 +467,8 @@ try { parseStudyArguments([]) } catch (error) {
 			})
 			const missingGrade = 'e'.repeat(64)
 			for (const operation of [
-				['report', result.result, '--grading', missingGrade],
-				['label', result.result, '--grading', missingGrade, '--labels', path],
+				['report', result.result, '--assessment', missingGrade],
+				['label', result.result, '--assessment', missingGrade, '--labels', path],
 			]) {
 				const missing = await executeStudyCLI(entry, scratch.path, operation)
 				expect(missing.code).not.toBe(0)
@@ -491,9 +491,9 @@ try { parseStudyArguments([]) } catch (error) {
 				output: '',
 			})
 			const current = parseJSON(regraded.output)
-			if (!isRecord(current) || typeof current.grading !== 'string')
+			if (!isRecord(current) || typeof current.assessment !== 'string')
 				throw new Error('Missing regrading')
-			expect(current.grading).not.toBe(grading.grading)
+			expect(current.assessment).not.toBe(assessment.assessment)
 			const reread = await readStudyResult(result.path)
 			if (reread.status !== 'sealed') throw new Error('Execution seal changed')
 			expect(reread.seal.id).toBe(sealed.seal.id)
@@ -1069,8 +1069,8 @@ try { parseStudyArguments([]) } catch (error) {
 				code: 0,
 				output: '',
 			})
-			const grading = parseJSON(graded.output)
-			if (!isRecord(grading) || typeof grading.grading !== 'string')
+			const assessment = parseJSON(graded.output)
+			if (!isRecord(assessment) || typeof assessment.assessment !== 'string')
 				throw new Error('Missing grading')
 			const sealed = await readStudyResult(result.path)
 			if (sealed.status !== 'sealed') throw new Error('Execution did not seal')
@@ -1081,14 +1081,21 @@ try { parseStudyArguments([]) } catch (error) {
 				'labels.json',
 				JSON.stringify(buildCustodyPacketLabeling(sealed, rubric)),
 			)
-			const tokens = ['label', result.path, '--grading', grading.grading, '--labels', labels]
+			const tokens = [
+				'label',
+				result.path,
+				'--assessment',
+				assessment.assessment,
+				'--labels',
+				labels,
+			]
 			const labeled = await executeStudyCLI(entry, scratch.path, tokens)
 			expect({ code: labeled.code, output: labeled.code === 0 ? '' : labeled.output }).toEqual({
 				code: 0,
 				output: '',
 			})
 			const first = parseJSON(labeled.output)
-			if (!isRecord(first) || typeof first.grading !== 'string') throw new Error('Missing label')
+			if (!isRecord(first) || typeof first.assessment !== 'string') throw new Error('Missing label')
 			runtime.write(
 				'runtime/dist/src/server/index.js',
 				`${server}\n// Changed label server bytes\n`,
@@ -1100,11 +1107,11 @@ try { parseStudyArguments([]) } catch (error) {
 				output: relabeled.code === 0 ? '' : relabeled.output,
 			}).toEqual({ code: 0, output: '' })
 			const second = parseJSON(relabeled.output)
-			if (!isRecord(second) || typeof second.grading !== 'string')
+			if (!isRecord(second) || typeof second.assessment !== 'string')
 				throw new Error('Missing changed label')
-			expect(first.previous).toBe(grading.grading)
-			expect(second.previous).toBe(grading.grading)
-			expect(second.grading).not.toBe(first.grading)
+			expect(first.previous).toBe(assessment.assessment)
+			expect(second.previous).toBe(assessment.assessment)
+			expect(second.assessment).not.toBe(first.assessment)
 		} finally {
 			runtime.write('runtime/dist/src/server/index.js', server)
 			await destroyScratch(scratch)
@@ -1126,11 +1133,11 @@ try { parseStudyArguments([]) } catch (error) {
 			if (
 				!isRecord(first) ||
 				!isRecord(second) ||
-				typeof first.grading !== 'string' ||
-				typeof second.grading !== 'string'
+				typeof first.assessment !== 'string' ||
+				typeof second.assessment !== 'string'
 			)
 				throw new Error('Missing gradings')
-			expect(first.grading).not.toBe(second.grading)
+			expect(first.assessment).not.toBe(second.assessment)
 			const sealed = await readStudyResult(result.path)
 			if (sealed.status !== 'sealed') throw new Error('Execution did not seal')
 			const rubric = parseStudyRubric(
@@ -1141,12 +1148,12 @@ try { parseStudyArguments([]) } catch (error) {
 				JSON.stringify(buildCustodyPacketLabeling(sealed, rubric)),
 			)
 			const labeled: string[] = []
-			for (const grading of [first.grading, second.grading]) {
+			for (const assessment of [first.assessment, second.assessment]) {
 				const output = await executeStudyCLI(entry, scratch.path, [
 					'label',
 					result.path,
-					'--grading',
-					grading,
+					'--assessment',
+					assessment,
 					'--labels',
 					labels,
 				])
@@ -1155,11 +1162,12 @@ try { parseStudyArguments([]) } catch (error) {
 					output: '',
 				})
 				const value = parseJSON(output.output)
-				if (!isRecord(value) || typeof value.grading !== 'string') throw new Error('Missing label')
-				expect(value.previous).toBe(grading)
-				labeled.push(value.grading)
+				if (!isRecord(value) || typeof value.assessment !== 'string')
+					throw new Error('Missing label')
+				expect(value.previous).toBe(assessment)
+				labeled.push(value.assessment)
 			}
-			expect(new Set([first.grading, second.grading, ...labeled]).size).toBe(4)
+			expect(new Set([first.assessment, second.assessment, ...labeled]).size).toBe(4)
 			const importer = runtime.read(entry)
 			if (importer === undefined) throw new Error('Missing importer bytes')
 			try {
@@ -1167,26 +1175,27 @@ try { parseStudyArguments([]) } catch (error) {
 				const imported = await executeStudyCLI(entry, scratch.path, [
 					'label',
 					result.path,
-					'--grading',
-					first.grading,
+					'--assessment',
+					first.assessment,
 					'--labels',
 					labels,
 				])
 				expect(imported.code).toBe(0)
 				const value = parseJSON(imported.output)
-				if (!isRecord(value) || typeof value.grading !== 'string') throw new Error('Missing label')
-				expect(value.previous).toBe(first.grading)
-				expect(labeled).not.toContain(value.grading)
-				labeled.push(value.grading)
+				if (!isRecord(value) || typeof value.assessment !== 'string')
+					throw new Error('Missing label')
+				expect(value.previous).toBe(first.assessment)
+				expect(labeled).not.toContain(value.assessment)
+				labeled.push(value.assessment)
 			} finally {
 				runtime.write(entry, importer)
 			}
-			for (const grading of [first.grading, second.grading, ...labeled]) {
+			for (const assessment of [first.assessment, second.assessment, ...labeled]) {
 				const report = await executeStudyCLI(entry, scratch.path, [
 					'report',
 					result.path,
-					'--grading',
-					grading,
+					'--assessment',
+					assessment,
 				])
 				expect(report.code).toBe(0)
 			}

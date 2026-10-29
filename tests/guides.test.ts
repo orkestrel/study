@@ -309,8 +309,8 @@ await new GuideCommand({
 			code: 'CAPACITY',
 			failure: { stop: { layer: 'meter', id: 'meter', max: 2000, consumed: 2001 } },
 		})
-		expect(core.parseStudyReading(2048)).toBe(2048)
-		expect(core.parseStudyReading(NaN)).toBeUndefined()
+		expect(core.parseStudyMeasurement(2048)).toBe(2048)
+		expect(core.parseStudyMeasurement(NaN)).toBeUndefined()
 		expect(
 			core.computeStudyAdmittedStop(
 				{ role: 'agent', tokens: 10, bytes: 100 },
@@ -556,15 +556,15 @@ await new GuideCommand({
 		try {
 			const result = await retainStudyFixture(join(scratch.path, 'result'))
 			const rubric = buildStudyRubric()
-			const grading = buildCustodyGrading(result, rubric)
-			const versions = new server.StudyGradingStore({
+			const assessment = buildCustodyGrading(result, rubric)
+			const versions = new server.StudyAssessmentStore({
 				result,
 				rubric: server.encodeStudyJSON(rubric),
 			})
-			const id = await versions.write(grading)
-			expect(await versions.read(id)).toEqual(grading)
-			expect(await versions.write(grading)).toBe(id)
-			const scores = core.computeStudyScores(result.manifest, rubric, grading)
+			const id = await versions.write(assessment)
+			expect(await versions.read(id)).toEqual(assessment)
+			expect(await versions.write(assessment)).toBe(id)
+			const scores = core.computeStudyScores(result.manifest, rubric, assessment)
 			expect(scores.length).toBeGreaterThan(0)
 			for (const score of scores) {
 				expect(score.unknown).toBeGreaterThan(0)

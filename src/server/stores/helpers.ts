@@ -2,7 +2,7 @@ import type {
 	StudyAttempt,
 	StudyEvidence,
 	StudyJudgment,
-	StudyLabeling,
+	StudyLabels,
 	StudyManifest,
 	StudyRubric,
 } from '@src/core'
@@ -18,7 +18,7 @@ import type {
 	StudyPacketBundle,
 	StudyPacketEntry,
 	StudyPacketLink,
-	StudyResultReading,
+	StudyResultView,
 	StudySealedResult,
 } from './types.js'
 import type { FileHandle } from 'node:fs/promises'
@@ -231,14 +231,14 @@ export function computeStudyPacketDigest(packet: StudyPacketBundle): string {
  * @throws StudyError - Thrown when the packet or a label identity is foreign
  * @example
  * ```ts
- * translateStudyPacketLabeling(result, rubric, rubricDigest, labels)
+ * translateStudyPacketLabels(result, rubric, rubricDigest, labels)
  * ```
  */
-export function translateStudyPacketLabeling(
+export function translateStudyPacketLabels(
 	result: StudySealedResult,
 	rubric: StudyRubric,
 	digest: string,
-	labels: StudyLabeling,
+	labels: StudyLabels,
 ): readonly StudyJudgment[] {
 	const packet = buildStudyPacket(result, rubric, digest)
 	if (packet === undefined || labels.packet !== hashStudyBytes(packet.content))
@@ -509,7 +509,7 @@ export function computeStudySealId(result: string, files: readonly StudyFile[]):
 }
 
 /**
- * Inspects custody bytes offline and verifies complete execution before grading.
+ * Inspects custody bytes offline and verifies complete execution before assessment.
  * @param directory - The result directory
  * @returns A sealed result or explicitly interrupted safe metadata
  * @throws StudyError - Thrown when existing custody bytes are invalid or tampered
@@ -518,7 +518,7 @@ export function computeStudySealId(result: string, files: readonly StudyFile[]):
  * await readStudyResult(directory)
  * ```
  */
-export async function readStudyResult(directory: string): Promise<StudyResultReading> {
+export async function readStudyResult(directory: string): Promise<StudyResultView> {
 	const absolute = await checkStudyDirectory(directory)
 	const root = await readdir(absolute, { withFileTypes: true })
 	for (const entry of root) {

@@ -234,22 +234,22 @@ it('binds rubric paths independently of versioned regrading over the same execut
 	const original = buildStudyManifest()
 	const manifest = { ...original, definition: { ...original.definition, rubric: 'rubric.json' } }
 	const rubric = buildStudyRubric()
-	const grading = buildStudyGrading(manifest.schedule)
+	const assessment = buildStudyGrading(manifest.schedule)
 	expect(() =>
 		validateStudyInputs(manifest.definition, manifest.scenarios, rubric, {
 			...buildStudyProfile(),
 			qualification: 'tmp/studies/capacity',
 		}),
 	).not.toThrow()
-	const first = computeStudyScores(manifest, rubric, grading)
+	const first = computeStudyScores(manifest, rubric, assessment)
 	const revised = { ...rubric, version: '2' }
-	expect(computeStudyScores(manifest, revised, { ...grading, rubric: 'd'.repeat(64) })).toEqual(
+	expect(computeStudyScores(manifest, revised, { ...assessment, rubric: 'd'.repeat(64) })).toEqual(
 		first,
 	)
 	expect(manifest.definition.rubric).toBe('rubric.json')
 	expect(manifest.schedule).toBe(original.schedule)
 	expect(() =>
-		computeStudyScores(manifest, { ...revised, criteria: revised.criteria.slice(1) }, grading),
+		computeStudyScores(manifest, { ...revised, criteria: revised.criteria.slice(1) }, assessment),
 	).toThrow(StudyError)
 	expect(() =>
 		computeStudyScores(
@@ -258,7 +258,7 @@ it('binds rubric paths independently of versioned regrading over the same execut
 				...revised,
 				criteria: revised.criteria.map((criterion) => ({ ...criterion, goal: 'foreign' })),
 			},
-			grading,
+			assessment,
 		),
 	).toThrow(StudyError)
 })
@@ -307,8 +307,8 @@ it('requires a capacity qualification for quality after existing room and covera
 it('retains unserved and missing judgments in each complete horizon', () => {
 	const manifest = buildStudyManifest()
 	const rubric = buildStudyRubric()
-	const grading = buildStudyGrading(manifest.schedule)
-	expect(computeStudyScores(manifest, rubric, grading)).toEqual(
+	const assessment = buildStudyGrading(manifest.schedule)
+	expect(computeStudyScores(manifest, rubric, assessment)).toEqual(
 		['small', 'large'].map((arm) => ({
 			arm,
 			total: 8,
@@ -322,7 +322,7 @@ it('retains unserved and missing judgments in each complete horizon', () => {
 		})),
 	)
 	const judged = {
-		...grading,
+		...assessment,
 		judgments: [
 			buildStudyJudgment('r1-s1-a1'),
 			buildStudyJudgment('r2-s1-a1', 'first-write', 'unsuccessful'),
@@ -358,51 +358,51 @@ it('retains unserved and missing judgments in each complete horizon', () => {
 it('rejects incomplete schedules, mismatched attempts, foreign or duplicate judgments and methods', () => {
 	const manifest = buildStudyManifest()
 	const rubric = buildStudyRubric()
-	const grading = buildStudyGrading(manifest.schedule)
+	const assessment = buildStudyGrading(manifest.schedule)
 	const judgment = buildStudyJudgment('r1-s1-a1')
 	expect(() =>
-		computeStudyScores({ ...manifest, schedule: manifest.schedule.slice(1) }, rubric, grading),
+		computeStudyScores({ ...manifest, schedule: manifest.schedule.slice(1) }, rubric, assessment),
 	).toThrow(StudyError)
 	expect(() =>
 		computeStudyScores(
 			{ ...manifest, schedule: [...manifest.schedule].reverse() },
 			rubric,
-			grading,
+			assessment,
 		),
 	).toThrow(StudyError)
 	expect(() =>
-		computeStudyScores(manifest, rubric, { ...grading, attempts: grading.attempts.slice(1) }),
+		computeStudyScores(manifest, rubric, { ...assessment, attempts: assessment.attempts.slice(1) }),
 	).toThrow(StudyError)
 	expect(() =>
 		computeStudyScores(manifest, rubric, {
-			...grading,
-			attempts: [...grading.attempts.slice(1), 'foreign'],
+			...assessment,
+			attempts: [...assessment.attempts.slice(1), 'foreign'],
 		}),
 	).toThrow(StudyError)
 	expect(() =>
-		computeStudyScores(manifest, rubric, { ...grading, judgments: [judgment, judgment] }),
+		computeStudyScores(manifest, rubric, { ...assessment, judgments: [judgment, judgment] }),
 	).toThrow(StudyError)
 	expect(() =>
 		computeStudyScores(manifest, rubric, {
-			...grading,
+			...assessment,
 			judgments: [buildStudyJudgment('foreign')],
 		}),
 	).toThrow(StudyError)
 	expect(() =>
 		computeStudyScores(manifest, rubric, {
-			...grading,
+			...assessment,
 			judgments: [buildStudyJudgment('r1-s1-a1', 'second-write')],
 		}),
 	).toThrow(StudyError)
 	expect(() =>
 		computeStudyScores(manifest, rubric, {
-			...grading,
+			...assessment,
 			judgments: [buildStudyJudgment('r1-s1-a1', 'first-write', 'achieved', 'human')],
 		}),
 	).toThrow(StudyError)
 	expect(() =>
 		computeStudyScores(manifest, rubric, {
-			...grading,
+			...assessment,
 			judgments: [buildStudyJudgment('r1-s1-a1', 'first-read', 'achieved', 'state')],
 		}),
 	).toThrow(StudyError)

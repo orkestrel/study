@@ -19,7 +19,7 @@ import {
 	validateStudyOllamaInventory,
 	validateStudyOllamaRoles,
 	buildStudyOllamaBytes,
-	validateStudyOllamaRecording,
+	validateStudyOllamaCapture,
 	validateStudyOllamaStep,
 	describeStudyReplayDifference,
 } from '../../../../src/server/ollama/helpers.js'
@@ -127,9 +127,9 @@ describe('recording declaration and byte helpers', () => {
 	})
 
 	it('requires a complete recording group and contiguous policies', () => {
-		expect(() => validateStudyOllamaRecording(options)).not.toThrow()
+		expect(() => validateStudyOllamaCapture(options)).not.toThrow()
 		expect(() =>
-			validateStudyOllamaRecording({
+			validateStudyOllamaCapture({
 				...options,
 				exchanges: new OllamaExchangeRecorder({ ...buildOllamaDeclaration(), version: '' }),
 			}),
@@ -138,9 +138,9 @@ describe('recording declaration and byte helpers', () => {
 			...options,
 			exchanges: new OllamaExchangeRecorder(),
 		}
-		expect(() => validateStudyOllamaRecording(recorded)).not.toThrow()
+		expect(() => validateStudyOllamaCapture(recorded)).not.toThrow()
 		expect(() =>
-			validateStudyOllamaRecording({
+			validateStudyOllamaCapture({
 				...recorded,
 				exchanges: new OllamaExchangeRecorder(
 					buildOllamaDeclaration([buildOllamaStep('capture', undefined, 'agent', 2)]),

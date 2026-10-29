@@ -1,22 +1,31 @@
+import { ArtifactError } from '../src/server/artifacts/errors.js'
+import type { StudyChannelOptions } from '../src/server/processes/types.js'
+import type { AgentResult, LedgerGauge } from '@orkestrel/agent'
+import type { RecorderInterface } from '@orkestrel/test'
+import type { StudySinkInterface } from '../src/core/types.js'
+import type { StudyAgentPlan } from '../src/server/agents/types.js'
+import type { StudyAgentSummary } from '../src/server/agents/StudyAgentSummary.js'
+import type { StudyAgentTrace } from '../src/server/agents/StudyAgentTrace.js'
+import type { OllamaFetchFixture, StudyLatchFixture } from './setup.js'
+import type { StudyProfile } from '../src/core/types.js'
+import type { StudyCause, StudyContext, StudyUsage } from '../src/core/types.js'
+import type { StudyOllamaMetadata, StudyOllamaPolicy } from '../src/server/ollama/types.js'
+import type { FileHandle } from 'node:fs/promises'
+import type { StudyMeterFixture } from './setup.js'
+import type { StudyResultStoreInterface } from '../src/server/stores/types.js'
 import type { BudgetError, BudgetErrorContext } from '@orkestrel/budget'
 import type { DistributionObservation, DistributionStage } from './setupDistribution.js'
 import type { StudyLaunchResult } from '../src/server/launchers/types.js'
 import type { ScratchInterface } from '@orkestrel/test/server'
 import type { ArtifactLoaderOptions } from '../src/server/artifacts/types.js'
 import type { ChildProcess } from 'node:child_process'
-import type {
-	StudyDaemonFixture,
-	StudyReplayFixture,
-	StudyContinuationFixture,
-	StudyContinuationRefusal,
-	StudyContinuationSource,
-} from './src/server/commands/types.js'
+
 import type {
 	StudyAttempt,
 	StudyCriterion,
 	StudyEvidence,
-	StudyGrading,
-	StudyLabeling,
+	StudyAssessment,
+	StudyLabels,
 	StudyManifest,
 	StudyObservation,
 	StudyRole,
@@ -30,24 +39,13 @@ import type {
 	StudyExchangeIdentity,
 	StudySealedResult,
 } from '../src/server/stores/types.js'
-import type {
-	StudyExchangeCustodyFixture,
-	StudyExchangeMutation,
-} from './src/server/stores/types.js'
+
 import type {
 	StudyProcessSessionOptions,
 	StudyTaskOptions,
 	StudyTaskRequest,
 } from '../src/server/processes/types.js'
-import type {
-	StudyAgentFixture,
-	StudyCheckReading,
-	StudyOrphanReceipt,
-	StudyPeerFixture,
-	StudyWorkerFixture,
-	StudyTaskFixture,
-	StudyTaskMode,
-} from './src/server/processes/types.js'
+
 import type { ProviderInterface } from '@orkestrel/agent'
 import type { StudyAgentDispatch } from '../src/core/agents/types.js'
 import type {
@@ -57,27 +55,8 @@ import type {
 } from '../src/server/ollama/types.js'
 import type { StudyExchangeRow, StudyExchangeSinkInterface } from '../src/server/stores/types.js'
 import type { JSONValue } from '@orkestrel/contract'
-import type { OllamaReplyFixture, OllamaRequestFixture } from './src/core/agents/types.js'
-import type {
-	OllamaContextFixture,
-	OllamaExchangeFixture,
-	OllamaFailureFixture,
-	OllamaServerFixture,
-	OllamaStatusFailureFixture,
-	OllamaStreamFailureFixture,
-	OllamaStrictRolesFixture,
-	OllamaTransportFixture,
-	OllamaRecordingFixture,
-	OllamaDiskFixture,
-	OllamaWireReplyFixture,
-} from './src/server/ollama/types.js'
-import type {
-	StudyMCPAnswer,
-	StudyMCPFixture,
-	StudyMCPInterference,
-	StudyMCPProxy,
-	StudySparseEvidence,
-} from './src/server/adapters/types.js'
+import type { OllamaReplyFixture, OllamaRequestFixture } from './setup.js'
+
 import {
 	DISTRIBUTION_FORMATS,
 	DISTRIBUTION_RESOLUTIONS,
@@ -201,7 +180,7 @@ export function nestStudyConsumer(scratch: ScratchInterface, entry: string): str
  */
 export async function createStudyReplayFixture(nested = false): Promise<StudyReplayFixture> {
 	const scratch = createStudyConsumer()
-	const library = createScratch({ parent: resolve('tmp/units') })
+	const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
 	const server = await createOllamaServer()
 	try {
 		const subject = await buildStudyLibrary(
@@ -1228,7 +1207,7 @@ export function createStudyAdapter() { return {
  * @returns The owned consumer; close releases only its recorded fixture processes.
  */
 export async function createStudyDaemonFixture(
-	library: string,
+	library?: string,
 	mode = 'normal',
 	open = false,
 ): Promise<StudyDaemonFixture> {
@@ -1242,7 +1221,13 @@ export async function createStudyDaemonFixture(
 		await new Promise<void>((fulfill, reject) =>
 			port.close((error) => (error ? reject(error) : fulfill())),
 		)
-		writeStudyRecordingConsumer(scratch, url, library, open)
+		writeStudyRecordingConsumer(
+			scratch,
+			url,
+			library ??
+				(await buildStudyLibrary(scratch, resolve('src/server/ollama/StudyOllamaTransport.ts'))),
+			open,
+		)
 		const original = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
 		if (!isRecord(original) || !isRecord(original.provider) || !isRecord(original.settings))
 			throw new Error('Missing daemon consumer profile')
@@ -2001,7 +1986,7 @@ export function buildCustodyPacketLabeling(
 	result: StudySealedResult,
 	rubric: StudyRubric,
 	labeler = 'human-v1',
-): StudyLabeling {
+): StudyLabels {
 	const original = buildCustodyLabeling(result, labeler)
 	const packet = buildStudyPacket(result, rubric, hashStudyBytes(encodeStudyJSON(rubric)))
 	const link = buildStudyPacketLinks(result, rubric).find(
@@ -2110,8 +2095,8 @@ export function buildStudyReportResult(
 export function buildCustodyGrading(
 	result: StudySealedResult,
 	rubric: StudyRubric = buildStudyRubric(),
-	labels?: StudyLabeling,
-): StudyGrading {
+	labels?: StudyLabels,
+): StudyAssessment {
 	return {
 		result: result.seal.id,
 		rubric: hashStudyBytes(encodeStudyJSON(rubric)),
@@ -2150,10 +2135,7 @@ export function buildCustodyGrading(
  * @param labeler - The supplied accountable labeler
  * @returns The inert labels artifact
  */
-export function buildCustodyLabeling(
-	result: StudySealedResult,
-	labeler = 'human-v1',
-): StudyLabeling {
+export function buildCustodyLabeling(result: StudySealedResult, labeler = 'human-v1'): StudyLabels {
 	const trial = result.manifest.schedule[0]
 	if (trial === undefined) throw new Error('Fixture has no trial')
 	return {
@@ -3860,7 +3842,8 @@ export function checkStudyDistributionControl(stage: DistributionStage): readonl
 }
 
 /** Defines the consumer's error recognition checks across formats and duplicate paths. */
-export const STUDY_DISTRIBUTION_ERROR_SOURCE = `import { createRequire } from 'node:module'
+export const STUDY_DISTRIBUTION_ERROR_SOURCE = `import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { join } from 'node:path'
 const require = createRequire(import.meta.url)
@@ -3873,6 +3856,10 @@ const coreCopy = await import(pathToFileURL(join(duplicate, 'dist/src/core/index
 const coreRequired = require(join(duplicate, 'dist/src/core/index.cjs'))
 const serverCopy = await import(pathToFileURL(join(duplicate, 'dist/src/server/index.js')).href)
 const serverRequired = require(join(duplicate, 'dist/src/server/index.cjs'))
+for (const constructors of [
+ [imported.StudyError, required.StudyError, coreCopy.StudyError, coreRequired.StudyError],
+ [server.ArtifactError, common.ArtifactError, serverCopy.ArtifactError, serverRequired.ArtifactError],
+]) assert.equal(new Set(constructors).size, constructors.length)
 const pairs = [
 	[imported, required, 'StudyError', 'isStudyError', ['CONFIG', 'Refused'], '@orkestrel/study.error'],
 	[imported, coreCopy, 'StudyError', 'isStudyError', ['CONFIG', 'Refused'], '@orkestrel/study.error'],
@@ -3889,6 +3876,22 @@ const checks = pairs.flatMap(([first, second, name, guard, args, brand]) => [[fi
 	Object.defineProperty(plain, Symbol.for(brand), { value: plain })
 	return { cross: reader[guard](error), subclass: reader[guard](new Derived()), lookalike: reader[guard](lookalike), proxy: reader[guard](new Proxy(error, {})), plain: reader[guard](plain) }
 }))
+for (const entry of [imported, required, coreCopy, coreRequired]) {
+ const callable = Object.assign(() => undefined, { cause: 'capacity', message: 'Callable attribution', role: undefined, stop: undefined })
+ const stop = Object.assign(() => undefined, { layer: 'model', id: '', max: NaN, consumed: Infinity })
+ const error = new entry.StudyError('CAPACITY', 'Callable failure', callable)
+ assert.equal(entry.isStudyError(error), true)
+ assert.equal(entry.isStudyError(new entry.StudyError('CAPACITY', 'Callable stop', { cause: 'capacity', message: 'Stopped', role: undefined, stop })), true)
+ Object.defineProperty(error, 'stack', { value: 'stable stack' })
+ Object.defineProperty(error, 'name', { value: 7 })
+ assert.equal(entry.isStudyError(error), true)
+}
+for (const entry of [server, common, serverCopy, serverRequired]) {
+ const error = new entry.ArtifactError('Name-independent', 'DRIFT')
+ Object.defineProperty(error, 'stack', { value: 'stable stack' })
+ Object.defineProperty(error, 'name', { value: 7 })
+ assert.equal(entry.isArtifactError(error), true)
+}
 const failure = { cause: 'capacity', message: 'Context full', role: 'agent' }
 process.stdout.write(JSON.stringify({
 	distinct: pairs.every(([first, second, name]) => first[name] !== second[name]), checks,
@@ -3912,4 +3915,357 @@ export function readStudyDistributionErrors(stage: DistributionStage): unknown {
 	const result = runDistributionNode([path, duplicate], stage.consumer)
 	if (result.status !== 0) throw new Error(readDistributionOutput(result))
 	return JSON.parse(result.stdout)
+}
+
+/** Holds evidence arrays with absent retained positions. */
+export interface StudySparseEvidence {
+	readonly lone: readonly StudyEvidence[]
+	readonly tail: readonly StudyEvidence[]
+	readonly interior: readonly StudyEvidence[]
+}
+
+/** Answers one fixture chat request from its exact bytes, or declines so the default answer applies. */
+export type StudyMCPAnswer = (path: string, body: string) => string | undefined
+
+/** Names how a loopback proxy interferes with a `tools/call` request while it forwards all else. */
+export type StudyMCPInterference = 'status' | 'reset' | 'held' | 'invalid' | 'error'
+
+/** Holds a loopback proxy in front of a real MCP server that interferes only with `tools/call`. */
+export interface StudyMCPProxy {
+	/** Holds the endpoint the subject's client posts to. */
+	readonly url: string
+	/** Holds the JSON-RPC id of each interfered `tools/call`, in arrival order. */
+	readonly intercepted: readonly unknown[]
+	/** Destroys held and open connections, then stops the proxy. */
+	close(): Promise<void>
+}
+
+/** Holds a real loopback MCP server owned by the parent test, with the receipts it recorded. */
+export interface StudyMCPFixture {
+	/** Holds the Streamable-HTTP endpoint the subject's client posts to. */
+	readonly url: string
+	/** Holds the arguments of each executed `lookup` call, in arrival order. */
+	readonly calls: ReadonlyArray<Readonly<Record<string, unknown>>>
+	/** Holds the JSON-RPC method of each received POST, in arrival order. */
+	readonly methods: readonly string[]
+	/** Stops the server and releases its tools. */
+	close(): Promise<void>
+}
+
+/** Holds terminal custody and the real Agent results observed before stop translation. */
+export interface StudyAgentSeriesResult {
+	readonly attempts: readonly StudyAttempt[]
+	readonly results: readonly AgentResult[]
+}
+
+/**
+ * Holds the custody refusal and the append hook a sink fixture applies.
+ * @remarks
+ * `refuse` throws its error on the zero-based appended row before retaining it. `during` runs at the
+ * start of every append, before the refusal check.
+ */
+export interface StudySinkFixtureOptions {
+	readonly refuse?: { readonly error: unknown; readonly row: number }
+	readonly during?: () => void | Promise<void>
+}
+
+/** Holds an evidence sink, the rows it accepted in order, and every row offered to it, a refused one included. */
+export interface StudySinkFixture {
+	readonly sink: StudySinkInterface
+	readonly rows: readonly StudyEvidence[]
+	readonly offered: readonly StudyEvidence[]
+}
+
+/** Holds a real trace and the recorded failure owner it latches through. */
+export interface StudyAgentTraceFixture {
+	readonly trace: StudyAgentTrace
+	readonly latch: StudyLatchFixture
+}
+
+/**
+ * Holds the wire replies, observation switch, prompt limit and cancellation a summary fixture applies.
+ * @remarks
+ * `replies` are the queued protocol answers of the real provider's wire. `observe` is the trace's
+ * observation switch. `limit` is the summary's prompt projection limit. `signal` is the summary's
+ * own cancellation; omitted, a live signal is used. `gauge` prices each request; omitted, the
+ * fixture gauge that projects every fixture request at the declared projection is used. `refusal` wraps the value the latch's check
+ * throws; omitted, work continues.
+ */
+export interface StudyAgentSummaryFixtureOptions {
+	readonly replies: readonly OllamaReplyFixture[]
+	readonly observe: boolean
+	readonly limit: number
+	readonly signal?: AbortSignal
+	readonly gauge?: LedgerGauge
+	readonly refusal?: { readonly error: unknown }
+}
+
+/** Holds a real summary, the real trace and latch it reports through, and the wire its provider sends on. */
+export interface StudyAgentSummaryFixture extends StudyAgentTraceFixture {
+	readonly summary: StudyAgentSummary
+	readonly wire: OllamaFetchFixture
+}
+
+/** Holds a scripted plan, the evidence rows its context retained, and its separate workload controller. */
+export interface StudyScriptFixture {
+	readonly plan: StudyAgentPlan
+	readonly rows: RecorderInterface<readonly [StudyEvidence]>
+	readonly workload: AbortController
+}
+
+/** Holds one chat message of a request body as the wire carried it. */
+export interface StudyOllamaMessageFixture {
+	readonly role: string
+	readonly content: string
+}
+
+/** Holds an owned protocol-daemon consumer and its resolved profile. */
+export interface StudyDaemonFixture {
+	readonly scratch: ScratchInterface
+	readonly profile: StudyProfile
+	readonly url: string
+	close(): Promise<void>
+}
+
+/** Holds a one-goal daemon recording with the executing scenario grown to its next goal. */
+export interface StudyContinuationFixture extends StudyDaemonFixture {
+	readonly entry: string
+	readonly command: StudyCommand
+	readonly recorded: string
+	readonly result: StudySealedResult
+	readonly history: StudyExchangeHistory
+}
+
+/** Names one independently altered declaration and its exact original bytes. */
+export interface StudyContinuationRefusal {
+	readonly name: string
+	readonly path: string
+	readonly original: string
+	readonly changed: string
+}
+
+/** Describes an ancestor custody state that continuation must refuse. */
+export interface StudyContinuationSource {
+	readonly name: string
+	readonly recording: boolean
+	readonly declared: boolean
+	readonly sealed: boolean
+	readonly code: 'CONFIG' | 'CUSTODY'
+}
+
+/** Holds a sealed open recording and its real command, worker, and protocol resources. */
+export interface StudyReplayFixture {
+	readonly scratch: ScratchInterface
+	readonly entry: string
+	readonly command: StudyCommand
+	readonly server: OllamaServerFixture
+	readonly recorded: string
+	readonly result: StudySealedResult
+	readonly history: StudyExchangeHistory
+	readonly profile: StudyProfile
+	close(): Promise<void>
+}
+
+/** Holds a loopback Ollama protocol fixture and the exact requests it received. */
+export interface OllamaServerFixture {
+	readonly url: string
+	readonly requests: readonly OllamaRequestFixture[]
+	/** Holds the incoming `x-study-owned` header value for each received request. */
+	readonly owned: ReadonlyArray<string | undefined>
+	/** Holds the queued replies the fixture has not served. */
+	readonly replies: readonly OllamaReplyFixture[]
+	close(): Promise<void>
+}
+
+/** Holds raw protocol response chunks and deterministic fixture failures. */
+export interface OllamaWireReplyFixture extends OllamaReplyFixture {
+	readonly chunks?: readonly Uint8Array[]
+	readonly headers?: Readonly<Record<string, string>>
+	readonly pause?: number
+	readonly interrupted?: boolean
+}
+
+/** Holds metadata failures that must prevent every model send. */
+export interface OllamaMetadataFailureFixture {
+	readonly name: string
+	readonly reply: OllamaWireReplyFixture
+	readonly metadata?: StudyOllamaMetadata
+}
+
+/** Holds caller-owned strict role declarations a test mutates after construction. */
+export interface OllamaStrictRolesFixture {
+	readonly agent: StudyOllamaPolicy
+}
+
+/** Holds real goal accounting with append-only evidence and one cleanup boundary. */
+export interface OllamaContextFixture {
+	readonly context: StudyContext
+	readonly evidence: readonly StudyEvidence[]
+	readonly meter: StudyMeterFixture
+	/** Reads the settled usage of every admitted request without its elapsed clock. */
+	usage(): ReadonlyArray<Omit<StudyUsage, 'duration'>>
+	close(): void
+}
+
+/** Holds an exchange over real goal accounting with one cleanup boundary. */
+export interface OllamaExchangeFixture {
+	readonly exchange: StudyOllamaExchange
+	readonly goal: OllamaContextFixture
+	close(): void
+}
+
+/** Holds a prepared transport over a loopback fixture with real goal accounting and one cleanup boundary. */
+export interface OllamaTransportFixture {
+	readonly server: OllamaServerFixture
+	readonly goal: OllamaContextFixture
+	readonly transport: StudyOllamaTransport
+	close(): Promise<void>
+}
+
+/** Holds a recording transport and the append-only sink's complete row population. */
+export interface OllamaRecordingFixture extends OllamaTransportFixture {
+	readonly sink: StudyExchangeSinkInterface
+	readonly rows: readonly StudyExchangeRow[]
+}
+
+/** Holds a real optional sidecar and its descriptor through ordered transport cleanup. */
+export interface OllamaDiskFixture extends OllamaTransportFixture {
+	readonly path: string
+	readonly file: FileHandle | undefined
+	readonly sink: StudyExchangeSink | undefined
+}
+
+/** Holds a 200 response body whose reading must fail, and the failure the transport must retain. */
+export interface OllamaStreamFailureFixture {
+	readonly name: string
+	readonly body: string
+	/** Holds a substring of the retained failure message. */
+	readonly message: string
+	readonly cause: StudyCause
+}
+
+/** Holds a non-2xx response and the failure the transport must throw after reading it. */
+export interface OllamaStatusFailureFixture {
+	readonly name: string
+	readonly status: number
+	readonly body: string
+	readonly code: 'CAPACITY' | 'FAULT'
+	/** Holds a substring of the thrown failure message. */
+	readonly message: string
+}
+
+/** Holds one native error value, the status it arrived with, and the failure it must read as. */
+export interface OllamaFailureFixture {
+	readonly name: string
+	readonly value: unknown
+	readonly status?: number
+	readonly code: 'CAPACITY' | 'FAULT'
+	/** Holds substrings the readable reason must contain, such as the native message and type. */
+	readonly reason: readonly string[]
+}
+
+/** Holds one forked protocol peer and its bounded release. */
+export interface StudyPeerFixture {
+	readonly child: ChildProcess
+	close(): Promise<void>
+}
+
+/** Holds a real worker with a direct parent channel and bounded tree cleanup. */
+export interface StudyWorkerFixture extends StudyPeerFixture {
+	readonly channel: StudyChannel
+}
+
+/** Names how a fixture adapter answers its one request. */
+export type StudyTaskMode = 'valid' | 'malformed' | 'repeated' | 'combined-output' | 'hold'
+
+/** Holds one task over a scripted adapter and the scratch file recording the adapter's pid. */
+export interface StudyTaskFixture {
+	readonly task: StudyTask
+	readonly pid: string
+}
+
+/** Records the exited fixture root and the detached leaf that outlives it. */
+export interface StudyOrphanReceipt {
+	readonly root: number
+	readonly leaf: number
+}
+
+/** Holds one installed Agent fixture package, its built entry, and its evaluation log. */
+export interface StudyAgentFixture {
+	readonly root: string
+	readonly entry: string
+	readonly log: string
+}
+
+/** Holds the agent identity and fingerprint a supervisor check printed. */
+export interface StudyCheckReading {
+	readonly agent: string
+	readonly fingerprint: string
+}
+
+/** Declares one terminal record shape against the custody decision it must receive. */
+export interface StudyExecutionCase {
+	/** Names the case in the test title. */
+	readonly name: string
+	/** If `true`, custody accepts the attempt; if `false`, custody refuses it. */
+	readonly valid: boolean
+	/** Replaces the fields of a fully executed attempt for the compact scenario's two goals; malformed members stay unknown and inert. */
+	readonly attempt: Readonly<Record<string, unknown>>
+}
+
+/** Names an independently malformed exchange journal fixture. */
+export type StudyExchangeMutation =
+	| 'complete'
+	| 'missing-response'
+	| 'missing-metadata'
+	| 'duplicate'
+	| 'orphan'
+	| 'open'
+	| 'partial'
+	| 'reversed'
+	| 'altered'
+	| 'incomplete'
+	| 'failed'
+	| 'outside-goal'
+	| 'backward-goal'
+	| 'postflight-goal'
+	| 'count'
+	| 'goals'
+	| 'record'
+
+/** Holds the real store and complete fixture population before sealing. */
+export interface StudyExchangeCustodyFixture {
+	readonly store: StudyResultStoreInterface
+	readonly manifest: StudyManifest
+	readonly directory: string
+}
+/** Creates an own enumerable destination getter that refuses access. */
+export function createUnreadableArtifactDestination() {
+	return {
+		get destination(): never {
+			throw new Error('unreadable')
+		},
+	}
+}
+
+/** Creates a channel callback that records its foreign operation before accepting it. */
+export function createStudyChannelHandler(record: (operation: string) => void) {
+	return async (operation: string) => {
+		record(operation)
+		return true
+	}
+}
+/** Creates mutable caller options for the channel ownership proof. */
+export function createStudyChannelOptions(
+	endpoint: StudyChannelOptions['endpoint'],
+	record: (operation: string) => void,
+) {
+	return { endpoint, handle: createStudyChannelHandler(record), abort: () => undefined }
+}
+
+export class DerivedArtifactError extends ArtifactError {
+	constructor() {
+		super('Subclass refusal', 'DRIFT')
+		this.name = 'DerivedArtifactError'
+	}
 }

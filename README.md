@@ -47,8 +47,8 @@ The `study --help` command prints the command reference. The `study --version` c
 | Validate declarations   | `study check <study> [--profile <name>]`                                        |
 | Execute a study         | `study execute <study> [--profile <name>] [--out <path>] [--expected <sha256>]` |
 | Grade retained evidence | `study grade <result> --rubric <path>`                                          |
-| Import semantic labels  | `study label <result> --grading <sha256> --labels <path>`                       |
-| Report an exact grading | `study report <result> --grading <sha256>`                                      |
+| Import semantic labels  | `study label <result> --assessment <sha256> --labels <path>`                    |
+| Report an exact grading | `study report <result> --assessment <sha256>`                                   |
 
 Declare a study at `studies/<name>/study.json`. Its rubric path resolves inside that study directory. Its `driver` field selects a bundle at `studies/<driver>/` containing the adapter module `index.ts`, scenario declarations at `scenarios/<scenario>.json`, and execution profiles at `profiles/<profile>.json`. The profile defaults to `local`.
 

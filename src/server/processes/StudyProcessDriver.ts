@@ -8,7 +8,7 @@ import { StudyError } from '@src/core'
 import {
 	readStudyPreparedDestination,
 	readStudyReplayHistory,
-	validateStudyRecordingDeclaration,
+	validateStudyCaptureDeclaration,
 } from './helpers.js'
 import { isStudyExchangeDestination } from './validators.js'
 import { StudyProcessSession } from './StudyProcessSession.js'
@@ -45,7 +45,7 @@ export class StudyProcessDriver implements StudyDriverInterface {
 		if (this.#options.profile.record === undefined && destination !== undefined)
 			throw new StudyError('CONFIG', 'Unrecorded trial cannot receive a sidecar')
 		if (destination !== undefined)
-			validateStudyRecordingDeclaration(destination.declaration, this.#options.profile, owned)
+			validateStudyCaptureDeclaration(destination.declaration, this.#options.profile, owned)
 		if (this.#options.replay !== undefined) {
 			if (destination === undefined) throw new StudyError('CONFIG', 'Replay requires a declaration')
 			await readStudyReplayHistory(this.#options.replay, this.#options.profile, owned)

@@ -4,7 +4,7 @@ import type { StudyRole, StudyStop } from '../types.js'
 import type { StudyAgentDispatch, StudyAgentRuntime } from './types.js'
 import { attempt, isNonEmptyString, isObject } from '@orkestrel/contract'
 import { StudyError } from '../errors.js'
-import { parseStudyReading } from '../parsers.js'
+import { parseStudyMeasurement } from '../parsers.js'
 
 /**
  * Prices a runtime estimate through an explicit gauge.
@@ -61,8 +61,8 @@ export function translateStudyAgentError(
 		stop: {
 			layer: 'window',
 			id: 'Agent window',
-			max: parseStudyReading(context?.max),
-			consumed: parseStudyReading(context?.consumed),
+			max: parseStudyMeasurement(context?.max),
+			consumed: parseStudyMeasurement(context?.consumed),
 		},
 	})
 }
@@ -94,8 +94,8 @@ export function translateStudyAgentStop(stop: unknown): StudyError | undefined {
 		if (layer === 'meter' || layer === 'budget') {
 			const max: unknown = Reflect.get(stop, 'max')
 			const consumed: unknown = Reflect.get(stop, 'consumed')
-			const limit = parseStudyReading(max)
-			const used = parseStudyReading(consumed)
+			const limit = parseStudyMeasurement(max)
+			const used = parseStudyMeasurement(consumed)
 			return limit === undefined || used === undefined
 				? undefined
 				: { layer, id, max: limit, consumed: used }
@@ -106,7 +106,9 @@ export function translateStudyAgentStop(stop: unknown): StudyError | undefined {
 				layer,
 				id,
 				max: undefined,
-				consumed: isObject(usage) ? parseStudyReading(Reflect.get(usage, 'completion')) : undefined,
+				consumed: isObject(usage)
+					? parseStudyMeasurement(Reflect.get(usage, 'completion'))
+					: undefined,
 			}
 		}
 		return undefined

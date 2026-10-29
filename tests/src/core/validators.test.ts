@@ -17,9 +17,9 @@ import {
 	isStudyDigest,
 	isStudyErrorCode,
 	isStudyGoal,
-	isStudyGrading,
+	isStudyAssessment,
 	isStudyJudgment,
-	isStudyLabeling,
+	isStudyLabels,
 	isStudyLimit,
 	isStudyName,
 	isStudyProduct,
@@ -328,16 +328,16 @@ it('requires nonnegative known usage and honest semantic-label provenance', () =
 	expect(isStudyUsage({ ...usage, calls: -0, duration: -0, tokens: -0, bytes: -0 })).toBe(true)
 	expect(isStudyUsage({ ...usage, role: 'foreign' })).toBe(false)
 	expect(isStudyUsage({ ...usage, typo: true })).toBe(false)
-	expect(isStudyLabeling(labels)).toBe(true)
-	expect(isStudyLabeling({ ...labels, labeler: ' ' })).toBe(false)
-	expect(isStudyLabeling({ ...labels, packet: '' })).toBe(false)
-	expect(isStudyLabeling({ ...labels, judgments: [buildStudyJudgment('r1-s1-a1')] })).toBe(false)
-	expect(
-		isStudyLabeling({ ...labels, judgments: [...labels.judgments, ...labels.judgments] }),
-	).toBe(false)
-	expect(isStudyLabeling({ ...labels, usage: Array(1) })).toBe(false)
-	expect(isStudyLabeling({ ...labels, usage: Object.assign([usage], { typo: true }) })).toBe(false)
-	expect(isStudyLabeling({ ...labels, typo: true })).toBe(false)
+	expect(isStudyLabels(labels)).toBe(true)
+	expect(isStudyLabels({ ...labels, labeler: ' ' })).toBe(false)
+	expect(isStudyLabels({ ...labels, packet: '' })).toBe(false)
+	expect(isStudyLabels({ ...labels, judgments: [buildStudyJudgment('r1-s1-a1')] })).toBe(false)
+	expect(isStudyLabels({ ...labels, judgments: [...labels.judgments, ...labels.judgments] })).toBe(
+		false,
+	)
+	expect(isStudyLabels({ ...labels, usage: Array(1) })).toBe(false)
+	expect(isStudyLabels({ ...labels, usage: Object.assign([usage], { typo: true }) })).toBe(false)
+	expect(isStudyLabels({ ...labels, typo: true })).toBe(false)
 })
 
 it('accepts JSON products with partial status and refuses non-JSON or hostile output', () => {
@@ -386,10 +386,10 @@ it('accepts exactly the declared roles and operational causes in their frozen re
 })
 
 it('carries no format counter in a grading identity', () => {
-	const grading = buildStudyGrading([])
-	expect(isStudyGrading(grading)).toBe(true)
-	expect(Object.hasOwn(grading, 'version')).toBe(false)
-	expect(isStudyGrading({ ...grading, version: 1 })).toBe(false)
+	const assessment = buildStudyGrading([])
+	expect(isStudyAssessment(assessment)).toBe(true)
+	expect(Object.hasOwn(assessment, 'version')).toBe(false)
+	expect(isStudyAssessment({ ...assessment, version: 1 })).toBe(false)
 })
 
 it('accepts only declared error codes, never a foreign or case-folded code', () => {
@@ -404,17 +404,25 @@ it('accepts only declared error codes, never a foreign or case-folded code', () 
 })
 
 it('requires SHA bindings, unique attempts and exact grading keys', () => {
-	const grading = buildStudyGrading(buildStudyManifest().schedule, [buildStudyJudgment('r1-s1-a1')])
-	expect(isStudyGrading(grading)).toBe(true)
-	expect(isStudyGrading({ ...grading, result: 'result-name' })).toBe(false)
-	expect(isStudyGrading({ ...grading, labels: 'labels-name' })).toBe(false)
-	expect(isStudyGrading({ ...grading, attempts: [...grading.attempts, ...grading.attempts] })).toBe(
-		false,
-	)
+	const assessment = buildStudyGrading(buildStudyManifest().schedule, [
+		buildStudyJudgment('r1-s1-a1'),
+	])
+	expect(isStudyAssessment(assessment)).toBe(true)
+	expect(isStudyAssessment({ ...assessment, result: 'result-name' })).toBe(false)
+	expect(isStudyAssessment({ ...assessment, labels: 'labels-name' })).toBe(false)
 	expect(
-		isStudyGrading({ ...grading, judgments: [...grading.judgments, ...grading.judgments] }),
+		isStudyAssessment({
+			...assessment,
+			attempts: [...assessment.attempts, ...assessment.attempts],
+		}),
 	).toBe(false)
-	expect(isStudyGrading({ ...grading, typo: true })).toBe(false)
+	expect(
+		isStudyAssessment({
+			...assessment,
+			judgments: [...assessment.judgments, ...assessment.judgments],
+		}),
+	).toBe(false)
+	expect(isStudyAssessment({ ...assessment, typo: true })).toBe(false)
 })
 
 it('contains hostile property reads and cyclic unknown data in total guards', () => {
@@ -428,8 +436,8 @@ it('contains hostile property reads and cyclic unknown data in total guards', ()
 	)
 	expect(isStudyProfile(hostile)).toBe(false)
 	expect(isStudyRubric(hostile)).toBe(false)
-	expect(isStudyLabeling(hostile)).toBe(false)
-	expect(isStudyGrading(hostile)).toBe(false)
+	expect(isStudyLabels(hostile)).toBe(false)
+	expect(isStudyAssessment(hostile)).toBe(false)
 	const cycle: Record<string, unknown> = {}
 	cycle.self = cycle
 	expect(isStudyGoal({ id: 'cycle', input: cycle })).toBe(false)

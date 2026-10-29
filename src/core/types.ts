@@ -391,7 +391,7 @@ export interface StudyJudgment {
 }
 
 /** Holds imported semantic judgments and their accountable origin. */
-export interface StudyLabeling {
+export interface StudyLabels {
 	readonly packet: string
 	readonly labeler: string
 	readonly version: string
@@ -401,7 +401,7 @@ export interface StudyLabeling {
 }
 
 /** Holds a grading identity that cannot replace or mutate execution bytes. */
-export interface StudyGrading {
+export interface StudyAssessment {
 	readonly result: string
 	readonly rubric: string
 	readonly grader: string

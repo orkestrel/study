@@ -1,5 +1,5 @@
 import type { StudyErrorCode, StudyFailure } from './types.js'
-import { holds, INTRINSICS, isNumber, isObject } from '@orkestrel/contract'
+import { holds, INTRINSICS, isNumber, isObject, isFunction } from '@orkestrel/contract'
 import { STUDY_ERROR_BRAND } from './constants.js'
 import { isStudyCause, isStudyErrorCode, isStudyLayer, isStudyRole } from './validators.js'
 
@@ -59,13 +59,12 @@ export function isStudyError(value: unknown): value is StudyError {
 		if (
 			brand !== value ||
 			!isStudyErrorCode(code) ||
-			typeof INTRINSICS.reflect.read(value, 'name') !== 'string' ||
 			typeof INTRINSICS.reflect.read(value, 'message') !== 'string' ||
 			(stack !== undefined && typeof stack !== 'string')
 		)
 			return false
 		if (failure === undefined) return true
-		if (!isObject(failure)) return false
+		if (!isObject(failure) && !isFunction(failure)) return false
 		const cause: unknown = INTRINSICS.reflect.read(failure, 'cause')
 		const message: unknown = INTRINSICS.reflect.read(failure, 'message')
 		const role: unknown = INTRINSICS.reflect.read(failure, 'role')
@@ -77,7 +76,7 @@ export function isStudyError(value: unknown): value is StudyError {
 		)
 			return false
 		if (stop === undefined) return true
-		if (!isObject(stop)) return false
+		if (!isObject(stop) && !isFunction(stop)) return false
 		const layer: unknown = INTRINSICS.reflect.read(stop, 'layer')
 		const id: unknown = INTRINSICS.reflect.read(stop, 'id')
 		const max: unknown = INTRINSICS.reflect.read(stop, 'max')

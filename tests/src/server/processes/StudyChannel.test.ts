@@ -1,3 +1,4 @@
+import { createStudyChannelOptions, createStudyChannelHandler } from '../../../setupServer.js'
 import { isRecord } from '@orkestrel/contract'
 import { createRecorder, waitForAbort, waitForCondition } from '@orkestrel/test'
 import { createScratch } from '@orkestrel/test/server'
@@ -108,21 +109,11 @@ describe('StudyChannel', () => {
 		)
 		const original = createRecorder<readonly [string]>()
 		const replacement = createRecorder<readonly [string]>()
-		const options = {
-			endpoint: first.child,
-			handle: async (operation: string) => {
-				original.handler(operation)
-				return true
-			},
-			abort: () => undefined,
-		}
+		const options = createStudyChannelOptions(first.child, original.handler)
 		const channel = new StudyChannel(options)
 		try {
 			options.endpoint = second.child
-			options.handle = async (operation: string) => {
-				replacement.handler(operation)
-				return true
-			}
+			options.handle = createStudyChannelHandler(replacement.handler)
 			const result = await new StudyDeadline({ duration: 2000, label: STUDY_PROCESS_LABEL }).wait(
 				channel.request('goal', { public: 'input' }),
 			)

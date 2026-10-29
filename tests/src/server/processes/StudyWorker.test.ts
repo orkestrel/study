@@ -1,4 +1,5 @@
-import { createScratch, isRunning } from '@orkestrel/test/server'
+import { createStudyScratch } from '../../../setupServer.js'
+import { isRunning } from '@orkestrel/test/server'
 import { requireValue } from '@orkestrel/test'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -18,7 +19,7 @@ import { hashStudyBytes } from '../../../../src/server/helpers.js'
 
 describe('StudyWorker', () => {
 	it('F2 refuses a profile-mismatched declaration through its own parent channel before creating a sink', async () => {
-		const scratch = createScratch({ parent: resolve('tmp/units') })
+		const scratch = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
 		try {
 			const entry = await buildStudyCLI(scratch)
 			const options = buildStudyRecordedSessionOptions(scratch, entry, new AbortController().signal)
@@ -54,7 +55,7 @@ describe('StudyWorker', () => {
 	}, 60000)
 
 	it('F2 rechecks replay runtime and continuation content through its own parent channel', async () => {
-		const scratch = createScratch({ parent: resolve('tmp/units') })
+		const scratch = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
 		try {
 			const entry = await buildStudyCLI(scratch)
 			const retained = await retainStudyExchangeFixture(

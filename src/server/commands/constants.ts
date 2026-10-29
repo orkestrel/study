@@ -9,8 +9,8 @@ export const STUDY_COMMAND_HELP = `study check <study> [--profile <name>] [--clo
 study freeze <study> --profile <name> --to <directory>
 study execute <study> [--profile <name>] [--out <path>] [--expected <sha256>] [--closure <directory>] [--extend <result> | --replay <result> --prefix <JSON trial counts> --offline <true|false>]
 study grade <result> --rubric <path>
-study label <result> --grading <sha256> --labels <path>
-study report <result> --grading <sha256>
+study label <result> --assessment <sha256> --labels <path>
+study report <result> --assessment <sha256>
 study --help
 study --version
 
@@ -19,7 +19,7 @@ Results default to tmp/studies/<result>; scratch also uses tmp/studies.
 A result is its id under tmp/studies, a root-relative path, or an absolute path.
 Relative paths, including --out, must stay inside the consumer working directory.
 Output directories must be new; existing results are never overwritten.
---expected pins the fingerprint returned by check. --grading selects an exact grading.
+--expected pins the fingerprint returned by check. --assessment selects an exact assessment.
 --rubric selects independent criteria. --labels imports caller-supplied semantic labels.
 --closure selects retained artifacts. Replay requires explicit prefix counts and offline behavior.
 --extend continues a sealed open recording with further goals and requires a declared daemon.

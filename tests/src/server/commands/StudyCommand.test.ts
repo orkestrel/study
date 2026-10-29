@@ -1,4 +1,5 @@
-import { createScratch, isRunning } from '@orkestrel/test/server'
+import { createStudyScratch } from '../../../setupServer.js'
+import { isRunning } from '@orkestrel/test/server'
 import { isArray, isRecord, parseJSON } from '@orkestrel/contract'
 import { createRecorder, requireValue } from '@orkestrel/test'
 import { join, resolve } from 'node:path'
@@ -35,7 +36,7 @@ describe('recording and replay command handoff', () => {
 	it.each(STUDY_CONTINUATION_COMMANDS)(
 		'F1 %s refuses a continuation profile changed between its early comparison and executing preparation',
 		async (operation) => {
-			const library = createScratch({ parent: resolve('tmp/units') })
+			const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
 			const subject = await buildStudyLibrary(
 				library,
 				resolve('src/server/ollama/StudyOllamaTransport.ts'),
@@ -101,7 +102,7 @@ describe('recording and replay command handoff', () => {
 	)
 
 	it('CT2 refuses changed continuation declarations before daemon startup or worker opening and binds the ancestor seal', async () => {
-		const library = createScratch({ parent: resolve('tmp/units') })
+		const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
 		const subject = await buildStudyLibrary(
 			library,
 			resolve('src/server/ollama/StudyOllamaTransport.ts'),
@@ -244,7 +245,7 @@ describe('recording and replay command handoff', () => {
 	it.each(STUDY_CONTINUATION_DIVERGENCES)(
 		'CT2 retains an environment-driven %s prefix divergence with zero live model requests',
 		async (change) => {
-			const library = createScratch({ parent: resolve('tmp/units') })
+			const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
 			const subject = await buildStudyLibrary(
 				library,
 				resolve('src/server/ollama/StudyOllamaTransport.ts'),
@@ -538,7 +539,7 @@ describe('recording and replay command handoff', () => {
 		'retains interrupted custody and charges when open record.%s stops a trial',
 		async (bound) => {
 			const scratch = createStudyConsumer()
-			const library = createScratch({ parent: resolve('tmp/units') })
+			const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
 			const server = await createOllamaServer(
 				bound === 'duration'
 					? [{ path: '/api/chat', body: STUDY_OLLAMA_PARTIAL_ROW, open: true }]
@@ -611,7 +612,7 @@ describe('recording and replay command handoff', () => {
 
 	it('O1 seals unpredicted agent summary and judge bodies without a procedure and joins their ordinals', async () => {
 		const scratch = createStudyConsumer()
-		const library = createScratch({ parent: resolve('tmp/units') })
+		const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
 		const server = await createOllamaServer()
 		try {
 			const subject = await buildStudyLibrary(
@@ -698,7 +699,7 @@ describe('recording and replay command handoff', () => {
 
 	it('records, seals and replays captured bodies in a fresh offline worker with zero fixture requests', async () => {
 		const scratch = createStudyConsumer()
-		const library = createScratch({ parent: resolve('tmp/units') })
+		const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
 		const server = await createOllamaServer()
 		try {
 			const subject = await buildStudyLibrary(

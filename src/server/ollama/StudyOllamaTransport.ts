@@ -41,7 +41,7 @@ import {
 	validateStudyOllamaCompletion,
 	validateStudyOllamaInventory,
 	validateStudyOllamaRoles,
-	validateStudyOllamaRecording,
+	validateStudyOllamaCapture,
 	validateStudyOllamaStep,
 	buildStudyOllamaBytes,
 } from './helpers.js'
@@ -80,7 +80,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		if (owned.fetch !== undefined && !isFunction(owned.fetch))
 			throw new StudyError('CONFIG', 'Ollama fetch collaborator must be callable')
 		validateStudyOllamaRoles(owned.roles, owned.models)
-		this.#declaration = structuredClone(validateStudyOllamaRecording(owned))
+		this.#declaration = structuredClone(validateStudyOllamaCapture(owned))
 		this.#options = owned
 		this.#metadataControl = new StudyControl(owned.signal)
 		const duration = Math.min(MAX_TIMEOUT_MS, Math.ceil(owned.metadata.duration))

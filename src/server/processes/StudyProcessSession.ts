@@ -20,7 +20,7 @@ import {
 	createStudyProcessFailure,
 	drainStudyChild,
 	valueToWire,
-	validateStudyRecordingDeclaration,
+	validateStudyCaptureDeclaration,
 } from './helpers.js'
 import { StudyChannel } from './StudyChannel.js'
 import { StudyProcessGoal } from './StudyProcessGoal.js'
@@ -72,7 +72,7 @@ export class StudyProcessSession implements StudySessionInterface {
 		)
 			throw new StudyError('CONFIG', 'Session recording differs from its reserved allowance')
 		if (destination !== undefined)
-			validateStudyRecordingDeclaration(
+			validateStudyCaptureDeclaration(
 				destination.declaration,
 				this.#options.profile,
 				this.#options.trial,

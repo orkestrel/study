@@ -23,7 +23,7 @@ import { STUDY_PROCESS_LABEL } from './constants.js'
 import {
 	computeStudyProfileDigest,
 	createStudyProcessFailure,
-	validateStudyRecordingDeclaration,
+	validateStudyCaptureDeclaration,
 	readStudyReplayHistory,
 	valueToWire,
 } from './helpers.js'
@@ -152,7 +152,7 @@ export class StudyWorker {
 		if (destination !== undefined) {
 			if (!isStudyExchangeDestination(destination))
 				throw new StudyError('CONFIG', 'Invalid worker exchange destination')
-			validateStudyRecordingDeclaration(destination.declaration, value.profile, value.trial)
+			validateStudyCaptureDeclaration(destination.declaration, value.profile, value.trial)
 		}
 		if (value.replay !== undefined) {
 			if (!isStudyReplaySelection(value.replay) || value.profile.provider === undefined)

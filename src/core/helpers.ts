@@ -1,6 +1,6 @@
 import type {
 	StudyDefinition,
-	StudyGrading,
+	StudyAssessment,
 	StudyManifest,
 	StudyProfile,
 	StudyRubric,
@@ -14,7 +14,7 @@ import { holds, canonicalStringify, isRecord } from '@orkestrel/contract'
 import { StudyError } from './errors.js'
 import {
 	isStudyDefinition,
-	isStudyGrading,
+	isStudyAssessment,
 	isStudyProfile,
 	isStudyRubric,
 	isStudyScenario,
@@ -211,28 +211,28 @@ export function validateStudyInputs(
  * Computes arm intervals over the complete declared criterion horizon.
  * @param manifest - The sealed population and schedule
  * @param rubric - The criterion declaration
- * @param grading - Judgments bound to the complete scheduled attempt set
+ * @param assessment - Judgments bound to the complete scheduled attempt set
  * @returns Whole-horizon scores in declared arm order
  * @throws StudyError - Thrown when schedule, attempts or judgments are incompatible
  * @example
  * ```ts
- * computeStudyScores(manifest, rubric, grading)
+ * computeStudyScores(manifest, rubric, assessment)
  * ```
  */
 export function computeStudyScores(
 	manifest: StudyManifest,
 	rubric: StudyRubric,
-	grading: StudyGrading,
+	assessment: StudyAssessment,
 ): readonly StudyScore[] {
-	if (!isStudyRubric(rubric) || !isStudyGrading(grading))
+	if (!isStudyRubric(rubric) || !isStudyAssessment(assessment))
 		throw new StudyError('EVIDENCE', 'Invalid rubric or grading')
 	const expected = buildStudySchedule(manifest.definition, manifest.scenarios)
 	if (canonicalStringify(expected) !== canonicalStringify(manifest.schedule))
 		throw new StudyError('EVIDENCE', 'Manifest schedule differs from the declared population')
 	const trials = new Map(expected.map((trial) => [trial.id, trial]))
 	if (
-		grading.attempts.length !== expected.length ||
-		!grading.attempts.every((id) => trials.has(id))
+		assessment.attempts.length !== expected.length ||
+		!assessment.attempts.every((id) => trials.has(id))
 	)
 		throw new StudyError('EVIDENCE', 'Grading attempts differ from the declared schedule')
 	const criteria = new Map(rubric.criteria.map((criterion) => [criterion.id, criterion]))
@@ -257,7 +257,7 @@ export function computeStudyScores(
 		)
 			throw new StudyError('EVIDENCE', 'Criterion is incompatible with the study')
 	}
-	const keyed = grading.judgments.map((judgment) => ({
+	const keyed = assessment.judgments.map((judgment) => ({
 		judgment,
 		key: canonicalStringify([judgment.trial, judgment.criterion]) ?? '',
 	}))

@@ -107,16 +107,18 @@ describe('study command arguments', () => {
 			parseStudyArguments([
 				'label',
 				'result',
-				'--grading',
+				'--assessment',
 				'a'.repeat(64),
 				'--labels',
 				'labels.json',
 			]),
 		).toMatchObject({ command: 'label', labels: 'labels.json' })
-		expect(parseStudyArguments(['report', 'result', '--grading', 'a'.repeat(64)])).toMatchObject({
-			command: 'report',
-			grading: 'a'.repeat(64),
-		})
+		expect(parseStudyArguments(['report', 'result', '--assessment', 'a'.repeat(64)])).toMatchObject(
+			{
+				command: 'report',
+				assessment: 'a'.repeat(64),
+			},
+		)
 	})
 })
 it('parses freeze, closure and an explicit replay selection without defaulting its bounds', () => {

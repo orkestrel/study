@@ -29,7 +29,7 @@ import {
 	scanStudyExecution,
 	scanStudyTree,
 	validateStudyEvidenceBytes,
-	translateStudyPacketLabeling,
+	translateStudyPacketLabels,
 	writeStudyBytes,
 	computeStudyExchangeOffset,
 	scanStudyDivergence,
@@ -94,7 +94,7 @@ describe('study custody helpers', () => {
 				computeStudyPacketDigest(packet),
 			)
 			const labels = buildCustodyPacketLabeling(result, rubric)
-			expect(translateStudyPacketLabeling(result, rubric, digest, labels)).toMatchObject([
+			expect(translateStudyPacketLabels(result, rubric, digest, labels)).toMatchObject([
 				{
 					trial: result.manifest.schedule[0]?.id,
 					criterion: 'first-read',
@@ -103,10 +103,10 @@ describe('study custody helpers', () => {
 				},
 			])
 			expect(() =>
-				translateStudyPacketLabeling(result, rubric, digest, { ...labels, packet: 'f'.repeat(64) }),
+				translateStudyPacketLabels(result, rubric, digest, { ...labels, packet: 'f'.repeat(64) }),
 			).toThrow('different semantic packet')
 			expect(() =>
-				translateStudyPacketLabeling(result, rubric, digest, {
+				translateStudyPacketLabels(result, rubric, digest, {
 					...labels,
 					judgments: labels.judgments.map((judgment) => ({
 						...judgment,

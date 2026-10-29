@@ -10,7 +10,7 @@ import type {
 import { isBudgetError } from '@orkestrel/budget'
 import { attempt, isError, isNonEmptyString } from '@orkestrel/contract'
 import { isStudyError, StudyError } from '../errors.js'
-import { parseStudyReading } from '../parsers.js'
+import { parseStudyMeasurement } from '../parsers.js'
 
 /** Converts an operational reading to its throwable boundary.
  * @param failure - The retained operational reading.
@@ -58,8 +58,8 @@ export function readStudyFailure(error: unknown): StudyFailure {
 				stop: {
 					layer: 'budget',
 					id: isNonEmptyString(reading.value.id) ? reading.value.id : 'Agent budget',
-					max: parseStudyReading(reading.value.max),
-					consumed: parseStudyReading(reading.value.consumed),
+					max: parseStudyMeasurement(reading.value.max),
+					consumed: parseStudyMeasurement(reading.value.consumed),
 				},
 			}
 	}

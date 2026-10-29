@@ -269,10 +269,10 @@ export interface StudySealedResult {
 }
 
 /** Holds an offline execution reading discriminated by custody completeness. */
-export type StudyResultReading = StudyInterruptedResult | StudySealedResult
+export type StudyResultView = StudyInterruptedResult | StudySealedResult
 
 /** Holds imported grading artifacts independently of execution. */
-export interface StudyGradingStoreOptions {
+export interface StudyAssessmentStoreOptions {
 	readonly result: StudySealedResult
 	readonly rubric: Uint8Array
 	readonly labels?: Uint8Array

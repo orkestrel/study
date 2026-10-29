@@ -1,4 +1,5 @@
-import type { StudyFailure, StudyStop } from '../../../../src/core/types.js'
+import { StudyAccessorCeiling } from '../../../setupStudy.js'
+import type { StudyFailure } from '../../../../src/core/types.js'
 import { Budget, BudgetError } from '@orkestrel/budget'
 import {
 	computeStudyAdmittedStop,
@@ -16,25 +17,11 @@ import { createStudyMeterFixture, importStudyErrorCopy } from '../../../setupStu
 
 describe('study engine error attribution', () => {
 	it('retains attribution from a stop implemented through inherited class accessors', () => {
-		class Ceiling implements StudyStop {
-			get layer(): 'model' {
-				return 'model'
-			}
-			get id(): string {
-				return 'num_predict'
-			}
-			get max(): number {
-				return 100
-			}
-			get consumed(): number {
-				return 101
-			}
-		}
 		const failure: StudyFailure = {
 			cause: 'capacity',
 			message: 'Reached',
 			role: 'agent',
-			stop: new Ceiling(),
+			stop: new StudyAccessorCeiling(),
 		}
 		const reading = readStudyFailure(new StudyError('CAPACITY', 'Class stop', failure))
 		expect(reading).toBe(failure)

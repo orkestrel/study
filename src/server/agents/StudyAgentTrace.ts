@@ -1,4 +1,4 @@
-import type { StudySinkInterface, StudyAgentDispatch, StudyAgentReading } from '@src/core'
+import type { StudySinkInterface, StudyAgentDispatch, StudyAgentMeasurement } from '@src/core'
 import type { LedgerGauge, ProviderRequest } from '@orkestrel/agent'
 import type { JSONValue } from '@orkestrel/contract'
 import type {
@@ -95,7 +95,7 @@ export class StudyAgentTrace {
 	 * @param reading - The explicit size reading.
 	 * @param request - The exact pre-encoding request.
 	 */
-	record(reading: StudyAgentReading, request: ProviderRequest): void {
+	record(reading: StudyAgentMeasurement, request: ProviderRequest): void {
 		const goal = this.#observed()
 		if (goal === undefined) return
 		const dispatch = this.#number('agent', request, reading)
@@ -119,7 +119,7 @@ export class StudyAgentTrace {
 		stage: StudyAgentStage,
 		role: StudyAgentRole,
 		request: ProviderRequest,
-		reading: StudyAgentReading,
+		reading: StudyAgentMeasurement,
 		dispatch: number | undefined,
 	): StudyAgentStamp | undefined {
 		const goal = this.#observed()
@@ -145,7 +145,7 @@ export class StudyAgentTrace {
 	 * @param request - The exact pre-encoding request.
 	 * @param reading - The explicit size reading.
 	 */
-	dispatch(role: StudyAgentRole, request: ProviderRequest, reading: StudyAgentReading): void {
+	dispatch(role: StudyAgentRole, request: ProviderRequest, reading: StudyAgentMeasurement): void {
 		if (this.#observed() === undefined) return
 		this.#number(role, request, reading)
 	}
@@ -178,7 +178,7 @@ export class StudyAgentTrace {
 	#number(
 		role: StudyAgentRole,
 		request: ProviderRequest,
-		reading: StudyAgentReading,
+		reading: StudyAgentMeasurement,
 	): StudyAgentDispatch {
 		const id = ++this.#dispatches
 		const stamp = this.measure('dispatch', role, request, reading, id)

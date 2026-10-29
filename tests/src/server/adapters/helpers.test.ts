@@ -497,8 +497,9 @@ describe('gradeStudyEvidence sparse evidence', () => {
 				reason: 'Hostile',
 				references: [hostile],
 			}
-			const args = [base, () => reading]
-			const caught = captureError(() => Reflect.apply(gradeStudyEvidence, undefined, args))
+			const caught = captureError(() =>
+				Reflect.apply(gradeStudyEvidence, undefined, [base, () => reading]),
+			)
 			expect(isStudyError(caught)).toBe(true)
 			expect(caught).toMatchObject({ code: 'EVIDENCE' })
 		}

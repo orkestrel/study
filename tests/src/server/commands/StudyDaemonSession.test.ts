@@ -1,4 +1,5 @@
-import { createScratch, isRunning } from '@orkestrel/test/server'
+import { createStudyScratch } from '../../../setupServer.js'
+import { isRunning } from '@orkestrel/test/server'
 import { isRecord, parseJSON } from '@orkestrel/contract'
 import { requireValue, waitForCondition, waitForEvent } from '@orkestrel/test'
 import { spawn, spawnSync } from 'node:child_process'
@@ -26,7 +27,7 @@ import {
 } from '../../../setupServer.js'
 
 describe('execution-owned daemon staging', () => {
-	const library = createScratch({ parent: resolve('tmp/units') })
+	const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
 	afterAll(() => library.destroy())
 	it('F2 refuses a profile-mismatched declaration before daemon unload', async () => {
 		const subject = await buildStudyLibrary(
@@ -113,7 +114,7 @@ describe('execution-owned daemon staging', () => {
 	}, 60000)
 
 	it('loads an adapter importing the Study server face in a captured worker with daemon staging present', async () => {
-		const scratch = createScratch({ parent: resolve('tmp/units') })
+		const scratch = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
 		try {
 			await buildStudyCLI(scratch)
 			const instrument = join(scratch.path, 'runtime')

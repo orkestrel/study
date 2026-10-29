@@ -3,7 +3,7 @@ import type {
 	StudyBounds,
 	StudyDefinition,
 	StudyEvidence,
-	StudyGrading,
+	StudyAssessment,
 	StudyIdentity,
 	StudyObservation,
 	StudyProfile,
@@ -426,7 +426,7 @@ export function computeStudyAttributions(sources: readonly StudyAttributionSourc
  * Computes whole-horizon results with operational costs and repetitions kept distinct.
  * @param result - The verified complete execution
  * @param rubric - The retained compatible rubric
- * @param grading - The independently verified selected grading
+ * @param assessment - The independently verified selected assessment
  * @returns The JSON report without pooling identities or inventing absent measurements
  * @remarks
  * Operations count affected trial and goal records, not independent failure events, and the
@@ -435,15 +435,15 @@ export function computeStudyAttributions(sources: readonly StudyAttributionSourc
  * failure and every goal completed. It is neither task success nor a qualification gate.
  * @example
  * ```ts
- * computeStudyReport(result, rubric, grading)
+ * computeStudyReport(result, rubric, assessment)
  * ```
  */
 export function computeStudyReport(
 	result: StudySealedResult,
 	rubric: StudyRubric,
-	grading: StudyGrading,
+	assessment: StudyAssessment,
 ): JSONValue {
-	const scores = computeStudyScores(result.manifest, rubric, grading)
+	const scores = computeStudyScores(result.manifest, rubric, assessment)
 	const observations = result.attempts.flatMap((attempt) => attempt.observations)
 	const usage = observations.flatMap((observation) => observation.usage)
 	const completed = new Set(
@@ -472,7 +472,7 @@ export function computeStudyReport(
 				)
 			const judgments = applicable.map((pair) => ({
 				criterion: pair.criterion,
-				judgment: grading.judgments.find(
+				judgment: assessment.judgments.find(
 					(entry) => entry.trial === pair.trial && entry.criterion === pair.criterion.id,
 				),
 			}))
@@ -514,7 +514,7 @@ export function computeStudyReport(
 		uncertainty:
 			repetitions.length === 1
 				? 'One repetition is descriptive and does not establish replicated capacity or quality.'
-				: 'Repetitions are retained separately; intervals represent unresolved grading, not statistical confidence.',
+				: 'Repetitions are retained separately; intervals represent unresolved assessment, not statistical confidence.',
 		scores: scores.map((score) => ({ ...score })),
 		repetitions,
 		operations: {

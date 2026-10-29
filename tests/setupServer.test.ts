@@ -88,16 +88,16 @@ import {
 	writeStudyOrphan,
 } from './setupServer.js'
 import { readStudyResult, readStudyExchanges } from '../src/server/stores/helpers.js'
-import { validateStudyRecordingDeclaration, valueToWire } from '../src/server/processes/helpers.js'
+import { validateStudyCaptureDeclaration, valueToWire } from '../src/server/processes/helpers.js'
 
 it('builds a profile-matched recorded opening and owns a direct worker through cleanup', async () => {
-	const scratch = createScratch({ parent: resolve('tmp/units') })
+	const scratch = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
 	try {
 		const entry = await buildStudyCLI(scratch)
 		const options = buildStudyRecordedSessionOptions(scratch, entry, new AbortController().signal)
 		const destination = requireValue(options.exchanges?.[options.trial.id])
 		expect(() =>
-			validateStudyRecordingDeclaration(destination.declaration, options.profile, options.trial),
+			validateStudyCaptureDeclaration(destination.declaration, options.profile, options.trial),
 		).not.toThrow()
 		expect(destination.path).toBe(join(scratch.path, 'exchanges.jsonl'))
 		const worker = createStudyWorker(entry)
@@ -116,7 +116,7 @@ it('builds a profile-matched recorded opening and owns a direct worker through c
 }, 60000)
 
 it('owns a grown continuation fixture and retains independent ancestor admission controls', async () => {
-	const library = createScratch({ parent: resolve('tmp/units') })
+	const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
 	const subject = await buildStudyLibrary(
 		library,
 		resolve('src/server/ollama/StudyOllamaTransport.ts'),
@@ -659,14 +659,14 @@ describe('study server fixtures', () => {
 		try {
 			const result = await retainStudyFixture(join(scratch.path, 'result'))
 			const rubric = buildStudyRubric()
-			const grading = buildCustodyGrading(result, rubric)
+			const assessment = buildCustodyGrading(result, rubric)
 			const neutral = buildCustodyPacketLabeling(result, rubric)
 			expect(neutral.packet).not.toBe(result.seal.id)
 			expect(neutral.judgments[0]?.trial).not.toBe(result.manifest.schedule[0]?.id)
 			expect(neutral.judgments[0]?.criterion).not.toBe('first-read')
-			expect(grading.attempts).toEqual(result.manifest.schedule.map((trial) => trial.id))
+			expect(assessment.attempts).toEqual(result.manifest.schedule.map((trial) => trial.id))
 			expect(
-				grading.judgments
+				assessment.judgments
 					.filter((judgment) => judgment.method === 'human')
 					.every((judgment) => judgment.verdict === 'unknown'),
 			).toBe(true)
@@ -1016,7 +1016,7 @@ describe('Ollama recording fixtures', () => {
 })
 
 it('builds a daemon consumer without starting a process and rejects malformed declarations at load', async () => {
-	const fixture = await createStudyDaemonFixture(resolve('tmp/units/fixture-library/dist/index.js'))
+	const fixture = await createStudyDaemonFixture()
 	try {
 		expect(fixture.scratch.has('daemon.pid')).toBe(false)
 		expect(fixture.scratch.has('daemon-requests.jsonl')).toBe(false)

@@ -59,8 +59,8 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 					: command === 'grade'
 						? ['--rubric']
 						: command === 'label'
-							? ['--grading', '--labels']
-							: ['--grading']
+							? ['--assessment', '--labels']
+							: ['--assessment']
 	const tokens: ReadonlyArray<string | undefined> = arguments_.slice(2)
 	// Positions, not present elements: a sparse token array keeps each hole as an absent flag or value.
 	const pairs = [...tokens.entries()].flatMap(([index, flag]) =>
@@ -186,19 +186,19 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 		if (rubric === undefined) throw new StudyError('CONFIG', 'Missing --rubric. ' + usage)
 		return { command, target, rubric }
 	}
-	const grading = flags.get('--grading')
-	if (!isStudyDigest(grading))
+	const assessment = flags.get('--assessment')
+	if (!isStudyDigest(assessment))
 		throw new StudyError(
 			'CONFIG',
-			'--grading ' +
-				JSON.stringify(grading ?? '<missing>') +
+			'--assessment ' +
+				JSON.stringify(assessment ?? '<missing>') +
 				' must be an exact SHA-256 grading identity. ' +
 				usage,
 		)
 	if (command === 'label') {
 		const labels = flags.get('--labels')
 		if (labels === undefined) throw new StudyError('CONFIG', 'Missing --labels. ' + usage)
-		return { command, target, grading, labels }
+		return { command, target, assessment, labels }
 	}
-	return { command: 'report', target, grading }
+	return { command: 'report', target, assessment }
 }
