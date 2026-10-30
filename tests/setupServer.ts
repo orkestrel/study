@@ -122,6 +122,8 @@ import {
 } from '../src/server/stores/helpers.js'
 
 /** Moves fixture package manifests and built bytes beneath a consumer's node_modules.
+ * @remarks A root installed beneath `node_modules` keeps its nesting there, so two installed
+ * copies of one package name stay distinct roots; any other root moves to its package name.
  * @param scratch - The consumer holding its profile and built runtime.
  * @param entry - The built Study executable before relocation.
  * @returns The nested Study executable, with the consumer root admitted first.
@@ -136,7 +138,14 @@ export function nestStudyConsumer(scratch: ScratchInterface, entry: string): str
 		const value = parseJSON(manifest)
 		if (!isRecord(value) || typeof value.name !== 'string')
 			throw new Error('Missing fixture package name')
-		const target = join(scratch.path, 'node_modules', ...value.name.split('/'))
+		const installed = root.indexOf(`${sep}node_modules${sep}`)
+		const target = join(
+			scratch.path,
+			'node_modules',
+			...(installed < 0
+				? value.name.split('/')
+				: root.slice(installed + `${sep}node_modules${sep}`.length).split(sep)),
+		)
 		mkdirSync(target, { recursive: true })
 		cpSync(join(root, 'package.json'), join(target, 'package.json'))
 		cpSync(join(root, 'dist'), join(target, 'dist'), { recursive: true })

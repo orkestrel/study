@@ -148,7 +148,7 @@ export function buildStudyAgentParts(measure: RequestMeasure): JSONValue {
 			id: message.id,
 			role: message.role,
 			content: message.content,
-			framing: message.framing,
+			uniform: message.uniform,
 			calls: message.calls,
 			thinking: message.thinking,
 			images: message.images,

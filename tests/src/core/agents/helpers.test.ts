@@ -213,7 +213,7 @@ describe('buildStudyAgentParts', () => {
 		expect(measure.tools).toBeGreaterThan(0)
 		expect(buildStudyAgentParts(measure)).toEqual({
 			messages: [
-				{ id: 'm1', role: 'user', content: 4, framing: 4, calls: 0, thinking: 0, images: 0 },
+				{ id: 'm1', role: 'user', content: 4, uniform: 4, calls: 0, thinking: 0, images: 0 },
 			],
 			tools: measure.tools,
 			schema: 0,

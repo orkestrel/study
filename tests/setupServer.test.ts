@@ -187,6 +187,44 @@ it('nests fixture packages beneath the consumer root and rewrites every selected
 	}
 })
 
+it('keeps two installed copies of one package name as distinct nested roots', () => {
+	const scratch = createStudyConsumer()
+	try {
+		const profile = parseStudyProfile(
+			parseJSON(scratch.read('studies/files/profiles/local.json') ?? ''),
+		)
+		const copies = [
+			'installed/node_modules/@orkestrel/shared',
+			'installed/node_modules/@orkestrel/outer/node_modules/@orkestrel/shared',
+		].map((path) => {
+			scratch.write(
+				`${path}/package.json`,
+				JSON.stringify({ name: '@orkestrel/shared', version: '1.0.0', type: 'module' }),
+			)
+			scratch.write(`${path}/dist/index.js`, `export const path = ${JSON.stringify(path)}\n`)
+			return join(scratch.path, path)
+		})
+		scratch.write(
+			'studies/files/profiles/local.json',
+			JSON.stringify({ ...profile, roots: [...profile.roots, ...copies] }),
+		)
+		scratch.write(
+			'runtime/package.json',
+			JSON.stringify({ name: '@orkestrel/study', version: '1.0.0', type: 'module' }),
+		)
+		nestStudyConsumer(scratch, scratch.write('runtime/dist/bin/main.js', 'export {}\n'))
+		const nested = parseStudyProfile(
+			parseJSON(scratch.read('studies/files/profiles/local.json') ?? ''),
+		)
+		const inner = join(scratch.path, 'node_modules/@orkestrel/outer/node_modules/@orkestrel/shared')
+		expect(nested.roots).toContain(join(scratch.path, 'node_modules/@orkestrel/shared'))
+		expect(nested.roots).toContain(inner)
+		expect(readFileSync(join(inner, 'dist/index.js'), 'utf8')).toContain('@orkestrel/outer')
+	} finally {
+		scratch.destroy()
+	}
+})
+
 it('owns a sealed replay fixture and removes its resources on close', async () => {
 	const fixture = await createStudyReplayFixture()
 	try {
