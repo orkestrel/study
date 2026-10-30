@@ -791,7 +791,7 @@ The following declarations describe this concept.
 | `isStudyAncestor`                  | function  | Checks a sealed source reference and its retained identities.                                                                  |
 | `isStudyExchangeAncestor`          | function  | Checks a sealed sidecar reference and its positive exchange prefix.                                                            |
 
-| API                         | Kind      | Summary                                                                                     |
+| Name                        | Kind      | Summary                                                                                     |
 | --------------------------- | --------- | ------------------------------------------------------------------------------------------- |
 | `StudyDaemonSession`        | class     | Owns the declared daemon and its serial trial preparation through permanent cleanup.        |
 | `StudyDaemonTrial`          | class     | Records one trial's daemon maintenance before handing its verified prefix to a worker.      |
