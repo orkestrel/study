@@ -72,8 +72,6 @@ Pass `tools` (a non-empty `ToolDefinition[]` from `@orkestrel/tool`) to advertis
 
 ### Surface
 
-A `Shape` cell holds an interface's data members as bare names in braces, `?` marking an optional member and `plus` introducing its call-signature members, and a type alias's own type literal with a union's arms escaped as `\|`. An extended interface's name comes before `plus`, with the members it adds after. A function row's `Shape` cell holds its signature, and a guard row's the type it narrows to. A class row's `Shape` cell holds the interface it implements, or its constructor signature where it implements none. A `Shape` cell holds the constant's declared type.
-
 | Name                 | Kind      | Signature                                                                                      | Summary                                                                                                                                                                     |
 | -------------------- | --------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `createOllama`       | function  | `(options: OllamaOptions) => ProviderInterface`                                                | Creates a local Ollama inference provider — a `ProviderInterface` over the daemon's `POST /api/chat`, assembling `generate` from the same NDJSON engine as `stream`.        |
@@ -173,7 +171,7 @@ The session composes the following validators and protocol helpers, each exporte
 | `readOllamaBody`            | function | `(response: Response, limit: number) => Promise<Pick<OllamaMaintenance, 'response' \| 'status' \| 'error'>>`                                                                                                                    | Reads a bounded response and preserves its partial bytes on a transport refusal.                |
 | `readOllamaReply`           | function | `(origin: string, path: string, options?: OllamaMetadataOptions, signal?: AbortSignal, request?: OllamaBytes, transport?: OllamaDaemonOptions['fetch']) => Promise<Pick<OllamaMaintenance, 'response' \| 'status' \| 'error'>>` | Exchanges metadata or unload bytes with a dedicated origin under one complete-request deadline. |
 
-`OllamaDaemonInterface` keeps its data members in its row: `url` is the declared origin, `identity` is the verified startup receipt (`undefined` before verification and kept after stop), `maintenance` is every unload attempt in sequence order, and `emitter` is the typed lifecycle surface. Its lifecycle methods are documented under [Methods](#methods). `SessionOptions` is owned by `@orkestrel/process`, and `EmitterInterface`, `EmitterHooks`, and `EmitterErrorHandler` by `@orkestrel/emitter`; the server face reuses them and redefines none of them.
+`OllamaDaemonInterface` keeps its data members in its row: `url` is the declared origin, `identity` is the verified startup receipt (`undefined` before verification and kept after stop), `maintenance` is every unload attempt in sequence order, and `emitter` is the typed lifecycle surface. Its lifecycle methods are documented under [Methods](#methods). `DuplexOptions` is owned by `@orkestrel/process`, and `EmitterInterface`, `EmitterHooks`, and `EmitterErrorHandler` by `@orkestrel/emitter`; the server face reuses them and redefines none of them.
 
 ## Methods
 
