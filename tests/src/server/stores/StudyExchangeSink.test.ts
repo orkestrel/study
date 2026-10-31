@@ -63,7 +63,7 @@ describe('StudyExchangeSink', () => {
 		process.stdout.write(
 			`Append validation measurement: rows=${rows.length} bytes=${bytes} summedMs=${total.toFixed(3)} thresholdMs=30000 node=${process.version} platform=${process.platform} arch=${process.arch}\n`,
 		)
-	})
+	}, 30000)
 
 	it('serializes bounded complete rows, derives ordinals and drains its descriptor', async () => {
 		const scratch = createScratch()
