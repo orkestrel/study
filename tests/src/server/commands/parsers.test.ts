@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { STUDY_COMMAND_INVALID_ARGUMENTS } from '../../../setupStudy.js'
+import { STUDY_COMMAND_INVALID_ARGUMENTS, STUDY_PROGRESS_REFUSALS } from '../../../setupStudy.js'
 import { parseStudyArguments } from '../../../../src/server/commands/parsers.js'
 
 describe('study command arguments', () => {
@@ -120,6 +120,30 @@ describe('study command arguments', () => {
 			},
 		)
 	})
+
+	it('parses progress over a result with an optional first goal', () => {
+		expect(parseStudyArguments(['progress', 'result'])).toEqual({
+			command: 'progress',
+			target: 'result',
+			from: undefined,
+		})
+		expect(parseStudyArguments(['progress', 'tmp/studies/result', '--from', 'read'])).toEqual({
+			command: 'progress',
+			target: 'tmp/studies/result',
+			from: 'read',
+		})
+	})
+
+	it.each(STUDY_PROGRESS_REFUSALS)(
+		'refuses a progress $name as invalid input',
+		async ({ tokens, message }) => {
+			const refusal = Promise.resolve().then(() => parseStudyArguments(tokens))
+			await expect(refusal).rejects.toMatchObject({
+				code: 'CONFIG',
+				message: expect.stringMatching(message),
+			})
+		},
+	)
 })
 it('parses freeze, closure and an explicit replay selection without defaulting its bounds', () => {
 	expect(

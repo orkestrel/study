@@ -425,3 +425,69 @@ export interface StudyScore {
 	readonly upper: number
 	readonly coverage: number
 }
+
+/**
+ * Holds one role's request readings over the `wire` evidence rows of one goal.
+ * @remarks
+ * `calls` counts the role's `wire` rows. `replayed` counts those whose ordinal lies within the
+ * exchange prefix the trial's sidecar declaration names as replayed, and is 0 without one.
+ * `prompt` and `completion` sum the token counts the rows report; `cached` sums the cached prompt
+ * count each row's `timing` reports. Each of those three is undefined when any of the role's rows
+ * leaves its reading unreported. `total` sums the Ollama `total_duration` each row's `timing`
+ * reports, in nanoseconds, over the rows that report it. `length` counts the rows whose `finish` is
+ * `length`, the Ollama `done_reason`.
+ */
+export interface StudyProgressUsage {
+	readonly role: StudyRole
+	readonly calls: number
+	readonly replayed: number
+	readonly prompt: number | undefined
+	readonly cached: number | undefined
+	readonly completion: number | undefined
+	readonly total: number
+	readonly length: number
+}
+
+/**
+ * Holds what the complete evidence rows of one goal show while or after its trial runs.
+ * @remarks
+ * `rows` holds the one-based `evidence.jsonl` line numbers of the goal's first and last row.
+ * `usage` holds one entry per role with at least one `wire` row, in report order. `stops` holds the
+ * ceilings the goal's `stop` rows name. `events` counts every row of the goal by its event name,
+ * Study's own `dispatch`, `wire`, `stop`, and `cut` rows included. `reading` holds the adapter's
+ * progress projection, and is undefined when no projection ran.
+ */
+export interface StudyProgressGoal {
+	readonly goal: string
+	readonly rows: { readonly first: number; readonly last: number }
+	readonly usage: readonly StudyProgressUsage[]
+	readonly stops: readonly StudyStop[]
+	readonly events: Readonly<Record<string, number>>
+	readonly reading: JSONValue | undefined
+}
+
+/**
+ * Holds the listed goals of one scheduled trial and whether its terminal record exists.
+ * @remarks
+ * `horizon` counts the scenario's declared goals. `ended` is true once the trial's terminal attempt
+ * parses as a valid record, and `failure` is that attempt's failure.
+ */
+export interface StudyProgressTrial {
+	readonly trial: StudyTrial
+	readonly horizon: number
+	readonly ended: boolean
+	readonly failure: StudyFailure | undefined
+	readonly goals: readonly StudyProgressGoal[]
+}
+
+/**
+ * Holds what a live or sealed result's complete evidence rows show, trial by trial.
+ * @remarks
+ * `sealed` reports that `seal.json` is present as a regular file. The progress reader never
+ * verifies the seal; verification belongs to `study check` and `study grade`.
+ */
+export interface StudyProgress {
+	readonly id: string
+	readonly sealed: boolean
+	readonly trials: readonly StudyProgressTrial[]
+}

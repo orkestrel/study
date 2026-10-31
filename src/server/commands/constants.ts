@@ -11,6 +11,7 @@ study execute <study> [--profile <name>] [--out <path>] [--expected <sha256>] [-
 study grade <result> --rubric <path>
 study label <result> --assessment <sha256> --labels <path>
 study report <result> --assessment <sha256>
+study progress <result> [--from <goal>]
 study --help
 study --version
 
@@ -25,7 +26,7 @@ Output directories must be new; existing results are never overwritten.
 --extend continues a sealed open recording with further goals and requires a declared daemon.
 check carries --extend into next and binds the ancestor seal into its fingerprint.
 Success writes one JSON document; next contains suggested argv, never executed automatically.
-check, freeze, grade, label and report have a fixed allowance of 60 seconds.
+check, freeze, grade, label, report and progress have a fixed allowance of 60 seconds.
 execute checks first, then uses the declared series duration plus 15 seconds for cleanup.
 Exit codes: 0 success, 64 invalid input, 124 deadline, 130 interruption, 1 operational failure.
 `

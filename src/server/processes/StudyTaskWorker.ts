@@ -1,6 +1,6 @@
 import type { StudyEvidence, StudyAttempt, StudyProfile } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
-import type { StudyAdapterInterface } from '../adapters/types.js'
+import type { StudyAdapterInterface, StudyProgressTarget } from '../adapters/types.js'
 import {
 	isStudyError,
 	StudyError,
@@ -10,7 +10,7 @@ import {
 	parseStudyScenario,
 	isStudyJudgment,
 } from '@src/core'
-import { arrayOf, isArray, isRecord, isString } from '@orkestrel/contract'
+import { arrayOf, isArray, isJSONValue, isRecord, isString } from '@orkestrel/contract'
 import { dirname } from 'node:path'
 import { ArtifactLoader } from '../artifacts/ArtifactLoader.js'
 import { verifyArtifactClosure } from '../artifacts/helpers.js'
@@ -23,6 +23,7 @@ import {
 	isStudyCustodyAttempt,
 	isStudyCustodyEvidence,
 	isStudyCustodyManifest,
+	isStudyCustodyTrial,
 } from '../stores/validators.js'
 import { STUDY_FRAME_BYTES } from './constants.js'
 import {
@@ -88,11 +89,13 @@ export class StudyTaskWorker {
 			loader.inspect().digest,
 		)
 		const adapter = readStudyAdapter(await loader.load(value.adapter))
-		if (profile === undefined && value.operation !== 'grade')
+		if (profile === undefined && value.operation !== 'grade' && value.operation !== 'progress')
 			throw new StudyError('CONFIG', 'Unknown adapter operation')
 		const output: unknown =
 			profile === undefined
-				? this.#grade(adapter, value.input)
+				? value.operation === 'grade'
+					? this.#grade(adapter, value.input)
+					: this.#progress(adapter, value.input)
 				: this.#validate(adapter, value.input, profile)
 		loader.verify()
 		if (closure !== undefined) verifyArtifactClosure(closure.closure, true)
@@ -145,5 +148,53 @@ export class StudyTaskWorker {
 		if (!isArray(output) || !output.every(isStudyJudgment))
 			throw new StudyError('FAULT', 'Adapter returned invalid judgments')
 		return output
+	}
+
+	#progress(
+		adapter: StudyAdapterInterface,
+		input: Readonly<Record<string, unknown>>,
+	): readonly JSONValue[] {
+		const targets: unknown = input.targets
+		if (
+			!isArray(targets) ||
+			!targets.every(
+				(target): target is StudyProgressTarget =>
+					isRecord(target) &&
+					isStudyCustodyTrial(target.trial) &&
+					typeof target.goal === 'string' &&
+					isArray(target.evidence) &&
+					target.evidence.every(isStudyCustodyEvidence),
+			)
+		)
+			throw new StudyError('CONFIG', 'Adapter progress input is invalid')
+		if (adapter.progress === undefined) return []
+		return targets.map((target) => {
+			const reading = this.#project(adapter, target)
+			if (!isJSONValue(reading))
+				throw new StudyError(
+					'FAULT',
+					'Adapter returned an invalid progress reading for trial ' +
+						JSON.stringify(target.trial.id) +
+						' goal ' +
+						JSON.stringify(target.goal),
+				)
+			return reading
+		})
+	}
+
+	#project(adapter: StudyAdapterInterface, target: StudyProgressTarget): unknown {
+		try {
+			return adapter.progress?.(target)
+		} catch (error) {
+			throw new StudyError(
+				isStudyError(error) ? error.code : 'FAULT',
+				'Adapter progress failed for trial ' +
+					JSON.stringify(target.trial.id) +
+					' goal ' +
+					JSON.stringify(target.goal) +
+					': ' +
+					(error instanceof Error ? error.message : String(error)),
+			)
+		}
 	}
 }

@@ -3,23 +3,26 @@ import { createScratch, destroyScratch, isRunning } from '@orkestrel/test/server
 import { dirname, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
-import { cpSync } from 'node:fs'
+import { cpSync, readFileSync } from 'node:fs'
 import { parseStudyArguments } from '../../../src/server/commands/parsers.js'
 import { StudyCLI } from '../../../src/server/launchers/StudyCLI.js'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { StudyTask } from '../../../src/server/processes/StudyTask.js'
 import { StudyCommand } from '../../../src/server/commands/StudyCommand.js'
 import { readStudyResult } from '../../../src/server/stores/helpers.js'
+import { isStudyCustodyManifest } from '../../../src/server/stores/validators.js'
 import {
 	createStudyScratch,
 	admitStudyLibrary,
 	buildStudyCLI,
 	buildStudyLibrary,
+	buildStudyProgressManifest,
 	createStudyConsumer,
 	executeStudyCLI,
 	readStudyCheck,
 	writeStudyAgent,
 	writeStudyConsumer,
+	writeStudyProgressResult,
 	buildCustodyPacketLabeling,
 } from '../../setupServer.js'
 import { parseStudyRubric } from '../../../src/core/parsers.js'
@@ -500,6 +503,210 @@ try { parseStudyArguments([]) } catch (error) {
 		} finally {
 			await destroyScratch(scratch)
 		}
+	})
+
+	describe('study progress', () => {
+		const consumer = createStudyConsumer()
+		const executed = Promise.withResolvers<{ readonly path: string; readonly source: string }>()
+		// Each variant inserts one progress method before the adapter's grade method.
+		const projections = {
+			reading: 'progress(target) { return {goal: target.goal, rows: target.evidence.length} },',
+			thrown: "progress(target) { throw new Error('Projection broke on '+target.goal) },",
+			callable: 'progress() { return () => 1 },',
+		}
+		afterAll(async () => {
+			await destroyScratch(consumer)
+		})
+		beforeAll(async () => {
+			const entry = await compiled.promise
+			const checked = parseJSON(
+				(await executeStudyCLI(entry, consumer.path, ['check', 'assessment'])).output,
+			)
+			if (!isRecord(checked) || !arrayOf(isString)(checked.next))
+				throw new Error('Missing check next argv')
+			const execution = parseJSON(
+				(await executeStudyCLI(entry, consumer.path, checked.next)).output,
+			)
+			if (!isRecord(execution) || typeof execution.path !== 'string')
+				throw new Error('Missing execution path')
+			executed.resolve({
+				path: execution.path,
+				source: consumer.read('studies/files/index.ts') ?? '',
+			})
+		}, 60000)
+
+		it('reads a sealed result without a projection, from a goal, and with the adapter reading', async () => {
+			const entry = await compiled.promise
+			const { path, source } = await executed.promise
+			consumer.write('studies/files/index.ts', source)
+			const last = await executeStudyCLI(entry, consumer.path, ['progress', path])
+			expect({ code: last.code, output: last.code === 0 ? '' : last.output }).toEqual({
+				code: 0,
+				output: '',
+			})
+			const document = parseJSON(last.output)
+			expect(document).toMatchObject({
+				command: 'progress',
+				progress: {
+					sealed: true,
+					trials: [{ horizon: 2, ended: true, goals: [{ goal: 'read', events: { saved: 1 } }] }],
+				},
+			})
+			if (!isRecord(document) || !isRecord(document.progress) || !isArray(document.progress.trials))
+				throw new Error('Missing progress document')
+			expect(
+				document.progress.trials
+					.flatMap((trial) => (isRecord(trial) && isArray(trial.goals) ? trial.goals : []))
+					.filter((goal) => !isRecord(goal) || 'reading' in goal),
+			).toEqual([])
+			const listed = await executeStudyCLI(entry, consumer.path, [
+				'progress',
+				path,
+				'--from',
+				'write',
+			])
+			expect(parseJSON(listed.output)).toMatchObject({
+				progress: { trials: [{ goals: [{ goal: 'write' }, { goal: 'read' }] }] },
+			})
+			consumer.write(
+				'studies/files/index.ts',
+				source.replace(' grade(input) {', ' ' + projections.reading + '\n grade(input) {'),
+			)
+			const projected = await executeStudyCLI(entry, consumer.path, [
+				'progress',
+				path,
+				'--from',
+				'write',
+			])
+			expect({
+				code: projected.code,
+				output: projected.code === 0 ? '' : projected.output,
+			}).toEqual({ code: 0, output: '' })
+			expect(parseJSON(projected.output)).toMatchObject({
+				progress: {
+					trials: [
+						{
+							goals: [
+								{ goal: 'write', reading: { goal: 'write', rows: 1 } },
+								{ goal: 'read', reading: { goal: 'read', rows: 1 } },
+							],
+						},
+					],
+				},
+			})
+		}, 60000)
+
+		it('refuses a throwing or non-JSON projection as an operational failure naming the goal', async () => {
+			const entry = await compiled.promise
+			const { path, source } = await executed.promise
+			for (const [projection, message] of [
+				[projections.thrown, 'Projection broke on read'],
+				[projections.callable, 'Adapter returned an invalid progress reading'],
+			]) {
+				consumer.write(
+					'studies/files/index.ts',
+					source.replace(' grade(input) {', ' ' + projection + '\n grade(input) {'),
+				)
+				const refused = await executeStudyCLI(entry, consumer.path, ['progress', path])
+				expect(refused.code).toBe(1)
+				expect(refused.output).toContain('study: FAULT: ')
+				expect(refused.output).toContain(message)
+				expect(refused.output).toContain('goal "read"')
+			}
+			consumer.write('studies/files/index.ts', source)
+		}, 60000)
+
+		it('reads an interrupted result that grade refuses', async () => {
+			const entry = await compiled.promise
+			const { path, source } = await executed.promise
+			consumer.write('studies/files/index.ts', source)
+			const copy = join(consumer.path, 'tmp', 'studies', 'interrupted')
+			cpSync(path, copy, {
+				recursive: true,
+				filter: (file) => !file.endsWith('seal.json') && !file.endsWith('attempt.json'),
+			})
+			const graded = await executeStudyCLI(entry, consumer.path, [
+				'grade',
+				copy,
+				'--rubric',
+				'studies/assessment/rubric.json',
+			])
+			expect(graded.code).toBe(1)
+			expect(graded.output).toContain('Interrupted execution cannot be graded or reported')
+			const read = await executeStudyCLI(entry, consumer.path, ['progress', 'interrupted'])
+			expect({ code: read.code, output: read.code === 0 ? '' : read.output }).toEqual({
+				code: 0,
+				output: '',
+			})
+			expect(parseJSON(read.output)).toMatchObject({
+				progress: { sealed: false, trials: [{ ended: false, goals: [{ goal: 'read' }] }] },
+			})
+		}, 60000)
+
+		it('frame batches: reads every goal of a result whose rows exceed one frame', async () => {
+			const entry = await compiled.promise
+			const { path, source } = await executed.promise
+			consumer.write(
+				'studies/files/index.ts',
+				source.replace(' grade(input) {', ' ' + projections.reading + '\n grade(input) {'),
+			)
+			const base = parseJSON(readFileSync(join(path, 'execution', 'manifest.json'), 'utf8'))
+			if (!isStudyCustodyManifest(base)) throw new Error('Missing executed manifest')
+			const goals = ['goal-1', 'goal-2', 'goal-3']
+			const manifest = buildStudyProgressManifest(goals, base)
+			const trial = manifest.schedule[0]
+			if (trial === undefined) throw new Error('Missing trial')
+			const raw = 'x'.repeat(1024 * 1024)
+			await writeStudyProgressResult(join(consumer.path, 'tmp', 'studies', 'frame'), manifest, {
+				[trial.id]: goals.flatMap((goal) =>
+					Array.from({ length: 7 }, (_, index) => ({ event: 'note', goal, value: { index, raw } })),
+				),
+			})
+			const read = await executeStudyCLI(entry, consumer.path, [
+				'progress',
+				'frame',
+				'--from',
+				'goal-1',
+			])
+			expect({ code: read.code, output: read.code === 0 ? '' : read.output }).toEqual({
+				code: 0,
+				output: '',
+			})
+			expect(parseJSON(read.output)).toEqual({
+				command: 'progress',
+				progress: {
+					id: manifest.id,
+					sealed: false,
+					trials: [
+						{
+							trial,
+							horizon: 3,
+							ended: false,
+							goals: goals.map((goal, index) => ({
+								goal,
+								rows: { first: index * 7 + 1, last: index * 7 + 7 },
+								usage: [],
+								stops: [],
+								events: { note: 7 },
+								reading: { goal, rows: 7 },
+							})),
+						},
+						{ trial: manifest.schedule[1], horizon: 3, ended: false, goals: [] },
+					],
+				},
+			})
+			consumer.write('studies/files/index.ts', source)
+		}, 60000)
+
+		it('refuses a missing result and lists the progress grammar in help', async () => {
+			const entry = await compiled.promise
+			const missing = await executeStudyCLI(entry, consumer.path, ['progress', 'nope'])
+			expect(missing.code).toBe(1)
+			expect(missing.output).toBe('study: CUSTODY: Selected result is missing: nope\n')
+			const help = await executeStudyCLI(entry, consumer.path, ['--help'])
+			expect(help.code).toBe(0)
+			expect(help.output).toContain('study progress <result> [--from <goal>]\n')
+		})
 	})
 
 	it('refuses a domain-invalid scenario before subject import and execution writes', async () => {

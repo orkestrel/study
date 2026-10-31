@@ -81,7 +81,7 @@ import {
 } from '@orkestrel/test'
 import { execFile, fork, spawn } from 'node:child_process'
 import { cpSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
-import { open as openFile, writeFile } from 'node:fs/promises'
+import { mkdir, open as openFile, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { createRequire, isBuiltin } from 'node:module'
 import { pathToFileURL } from 'node:url'
@@ -91,6 +91,7 @@ import binConfig from '../configs/src/vite.bin.config.js'
 import { outputBoundary, resolveExternal } from '../configs/helpers.js'
 import { encodeStudyJSON, hashStudyBytes } from '../src/server/helpers.js'
 import { parseStudyProfile } from '../src/core/parsers.js'
+import { buildStudySchedule } from '../src/core/helpers.js'
 import {
 	isStudyCharge,
 	isStudyEvidence,
@@ -4277,4 +4278,157 @@ export class DerivedArtifactError extends ArtifactError {
 		super('Subclass refusal', 'DRIFT')
 		this.name = 'DerivedArtifactError'
 	}
+}
+
+/** Sizes the observed progress fixture and fixes the request readings its rows report.
+ * @remarks
+ * The fixture declares `goals` goals. Each goal holds two agent requests, a judge burst of `burst`
+ * requests on every `cadence`-th goal, a `raw` dispatch text of that many characters, a domain
+ * `note` row, and one `checkpoint` row. The small arm's trial reaches its first `reached` goals.
+ */
+export const STUDY_PROGRESS_SCALE = Object.freeze({
+	goals: 77,
+	burst: 137,
+	cadence: 7,
+	raw: 2048,
+	reached: 5,
+	prompt: 100,
+	completion: 20,
+	cached: 50,
+	total: 1000000,
+	judge: 40,
+})
+
+/** Builds the observed evidence rows of one progress fixture goal.
+ * @param goal - The goal id.
+ * @param index - The goal's zero-based position in the scenario.
+ * @returns A note row, a dispatch and wire row per request with one-based trial ordinals, and a checkpoint row.
+ */
+export function buildStudyProgressRows(goal: string, index: number): readonly StudyEvidence[] {
+	const scale = STUDY_PROGRESS_SCALE
+	const start = index * 2 + Math.floor(index / scale.cadence) * scale.burst
+	const timing = {
+		durations: { total: scale.total, load: null, prompt: null, decode: null },
+		counts: { prompt: scale.prompt, decode: scale.completion, cached: scale.cached },
+		invalid: false,
+	}
+	const requests = [
+		{ role: 'agent', finish: 'stop', prompt: scale.prompt, completion: scale.completion, timing },
+		{ role: 'agent', finish: 'length', prompt: scale.prompt, completion: scale.completion, timing },
+		...Array.from(
+			{ length: index % scale.cadence === scale.cadence - 1 ? scale.burst : 0 },
+			() => ({
+				role: 'judge',
+				finish: 'stop',
+				prompt: scale.judge,
+				completion: null,
+				timing: null,
+			}),
+		),
+	]
+	return [
+		{ event: 'note', goal, value: { index } },
+		...requests.flatMap(({ role, finish, prompt, completion, timing: reading }, position) => {
+			const request = { role, path: '/api/chat', model: 'fixture', options: {} }
+			const ordinal = start + position + 1
+			return [
+				{
+					event: 'dispatch',
+					goal,
+					value: { ...request, bytes: scale.raw, ordinal, raw: 'r'.repeat(scale.raw) },
+				},
+				{
+					event: 'wire',
+					goal,
+					value: {
+						...request,
+						finish,
+						prompt,
+						completion,
+						bytes: scale.raw,
+						ordinal,
+						timing: reading,
+					},
+				},
+			]
+		}),
+		{ event: 'checkpoint', goal, value: { index } },
+	]
+}
+
+/** Builds a progress manifest whose one scenario declares the given goals over a large and a small arm.
+ * @param goals - The scenario's goal ids in order.
+ * @param base - The manifest whose identity, host, and driver the result keeps; Default: a fresh custody manifest.
+ * @returns The manifest, with byte allowances wide enough for evidence larger than one frame.
+ */
+export function buildStudyProgressManifest(
+	goals: readonly string[],
+	base: StudyManifest = buildCustodyManifest(),
+): StudyManifest {
+	const definition = {
+		...base.definition,
+		scenarios: ['observed'],
+		arms: ['large', 'small'],
+		order: [['large', 'small']],
+	}
+	const scenarios = [{ id: 'observed', goals: goals.map((id) => ({ id, input: id })) }]
+	return {
+		...base,
+		definition,
+		scenarios,
+		schedule: buildStudySchedule(definition, scenarios),
+		bounds: {
+			request: { duration: 1000, calls: 1, tokens: 1000, bytes: 1024 },
+			goal: { duration: 2000, calls: 1000, tokens: 1000000, bytes: 32 * 1024 * 1024 },
+			trial: { duration: 4000, calls: 100000, tokens: 100000000, bytes: 64 * 1024 * 1024 },
+			series: { duration: 32000, calls: 1000000, tokens: 1000000000, bytes: 256 * 1024 * 1024 },
+		},
+	}
+}
+
+/** Writes a live result: its manifest and the given trials' evidence, with no terminal attempt and no seal.
+ * @param directory - The result directory inside an owned scratch resource.
+ * @param manifest - The execution declaration.
+ * @param rows - The evidence rows by trial id; a trial absent here has no evidence file.
+ * @returns The evidence bytes written across every trial.
+ */
+export async function writeStudyProgressResult(
+	directory: string,
+	manifest: StudyManifest,
+	rows: Readonly<Record<string, readonly StudyEvidence[]>>,
+): Promise<number> {
+	await mkdir(join(directory, 'execution', 'trials'), { recursive: true })
+	await writeFile(join(directory, 'execution', 'manifest.json'), encodeStudyJSON(manifest))
+	const sizes = await Promise.all(
+		Object.entries(rows).map(async ([trial, entries]) => {
+			const bytes = Buffer.from(entries.map((row) => JSON.stringify(row) + '\n').join(''))
+			await mkdir(join(directory, 'execution', 'trials', trial), { recursive: true })
+			await writeFile(join(directory, 'execution', 'trials', trial, 'evidence.jsonl'), bytes)
+			return bytes.byteLength
+		}),
+	)
+	return sizes.reduce((total, size) => total + size, 0)
+}
+
+/** Writes the live observed progress fixture that `STUDY_PROGRESS_SCALE` sizes.
+ * @param directory - The result directory inside an owned scratch resource.
+ * @returns The manifest, whose large-arm trial holds every goal and whose small-arm trial holds the goals it reached, and the evidence bytes written.
+ */
+export async function writeStudyProgressFixture(
+	directory: string,
+): Promise<{ readonly manifest: StudyManifest; readonly bytes: number }> {
+	const goals = Array.from(
+		{ length: STUDY_PROGRESS_SCALE.goals },
+		(_, index) => `goal-${index + 1}`,
+	)
+	const manifest = buildStudyProgressManifest(goals)
+	const [large, small] = manifest.schedule
+	if (large === undefined || small === undefined) throw new Error('Missing progress trials')
+	const bytes = await writeStudyProgressResult(directory, manifest, {
+		[large.id]: goals.flatMap((goal, index) => buildStudyProgressRows(goal, index)),
+		[small.id]: goals
+			.slice(0, STUDY_PROGRESS_SCALE.reached)
+			.flatMap((goal, index) => buildStudyProgressRows(goal, index)),
+	})
+	return { manifest, bytes }
 }

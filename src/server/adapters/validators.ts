@@ -3,7 +3,8 @@ import { holds } from '@orkestrel/contract'
 
 /** Checks whether a factory returned the complete consumer adapter contract.
  * @param value - The unknown factory result.
- * @returns True if validation, construction, and grading are callable; false otherwise.
+ * @returns True if validation, construction, and grading are callable and a present progress
+ *   projection is callable; false otherwise.
  * @example Refuse an incomplete adapter
  * ```ts
  * import { isStudyAdapter } from '@orkestrel/study/server'
@@ -21,7 +22,10 @@ export function isStudyAdapter(value: unknown): value is StudyAdapterInterface {
 			'driver' in value &&
 			typeof value.driver === 'function' &&
 			'grade' in value &&
-			typeof value.grade === 'function'
+			typeof value.grade === 'function' &&
+			(!('progress' in value) ||
+				value.progress === undefined ||
+				typeof value.progress === 'function')
 		)
 	})
 }

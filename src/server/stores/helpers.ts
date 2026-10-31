@@ -4,6 +4,8 @@ import type {
 	StudyJudgment,
 	StudyLabels,
 	StudyManifest,
+	StudyProgress,
+	StudyProgressUsage,
 	StudyRubric,
 } from '@src/core'
 import type {
@@ -21,19 +23,23 @@ import type {
 	StudyResultView,
 	StudySealedResult,
 } from './types.js'
+import type { JSONValue } from '@orkestrel/contract'
 import type { FileHandle } from 'node:fs/promises'
-import { StudyError } from '@src/core'
+import type { StudyProgressFunction, StudyProgressTarget } from '../adapters/types.js'
+import { STUDY_ROLES, StudyError, isStudyStop, parseStudyMeasurement } from '@src/core'
 import { attempt, canonicalStringify, isRecord, parseJSON } from '@orkestrel/contract'
 import { constants } from 'node:fs'
 import { lstat, open, readdir } from 'node:fs/promises'
 import { dirname, join, parse, relative, resolve, sep } from 'node:path'
-import { decodeStudyJSON, encodeStudyJSON, hashStudyBytes } from '../helpers.js'
+import { decodeStudyJSON, encodeStudyJSON, hashStudyBytes, matchesSystemError } from '../helpers.js'
+import { STUDY_FRAME_BYTES } from '../processes/constants.js'
 import { STUDY_CUSTODY_BYTES, STUDY_PACKET_DISCLOSURE } from './constants.js'
 import {
 	isStudyCustodyAttempt,
 	isStudyCustodyEvidence,
 	isStudyCustodyManifest,
 	isStudyCustodySeal,
+	isStudyExchangeDeclaration,
 	isStudyExchangeHistory,
 	isStudyExchangeRow,
 } from './validators.js'
@@ -639,6 +645,280 @@ export async function readStudyResult(directory: string): Promise<StudyResultVie
 		attempts: Object.freeze(attempts),
 		seal,
 	})
+}
+
+/**
+ * Reads what the complete evidence rows of a live or sealed result show, without verifying it.
+ * @remarks
+ * The read takes the manifest, each scheduled trial's `evidence.jsonl` and `attempt.json`, and,
+ * for a recorded continuation, the first line of its `exchanges.jsonl`, one time each. It reads an
+ * evidence file up to the byte length the file had when opened, decodes each LF-terminated line on
+ * its own, and skips the segment after the last LF, which the writer may still be appending. It
+ * holds no timer or watcher, verifies no seal or digest, and writes nothing. Without `from`, each
+ * trial lists its last goal holding a complete row; with it, each trial lists every such goal from
+ * that goal onward. With `project`, consecutive listed goals travel in batches whose encoded
+ * adapter request, `envelope` bytes plus the targets, stays within `STUDY_FRAME_BYTES`.
+ * @param directory - The result directory
+ * @param from - The first goal each trial lists; Default: each trial's last goal
+ * @param project - The adapter projection called once per batch; Default: no reading
+ * @param envelope - The encoded bytes of the adapter request that carries an empty batch; Default: 0
+ * @returns The trials in schedule order with their listed goals
+ * @throws StudyError - Thrown with `CUSTODY` when the manifest is absent or invalid, an evidence
+ *   file is linked or exceeds its trial allowance, or a complete row is invalid; with `CONFIG`
+ *   when some scheduled scenario declares no `from` goal
+ * @example
+ * ```ts
+ * await readStudyProgress(directory, 'read')
+ * ```
+ */
+export async function readStudyProgress(
+	directory: string,
+	from?: string,
+	project?: StudyProgressFunction,
+	envelope = 0,
+): Promise<StudyProgress> {
+	const absolute = await checkStudyDirectory(directory)
+	const execution = join(absolute, 'execution')
+	const bytes = await readStudyBytes(join(execution, 'manifest.json'), STUDY_CUSTODY_BYTES).catch(
+		(error: unknown) => {
+			if (matchesSystemError(error, 'ENOENT'))
+				throw new StudyError('CUSTODY', 'Result has no execution manifest')
+			throw error
+		},
+	)
+	const decoded = attempt((): unknown => decodeStudyJSON(bytes))
+	const manifest: unknown = decoded.success ? decoded.value : undefined
+	if (!isStudyCustodyManifest(manifest))
+		throw new StudyError('CUSTODY', 'Invalid execution manifest')
+	const horizons = new Map(
+		manifest.scenarios.map(
+			(scenario) => [scenario.id, scenario.goals.map(({ id }) => id)] as const,
+		),
+	)
+	if (
+		from !== undefined &&
+		manifest.schedule.some((trial) => !(horizons.get(trial.scenario) ?? []).includes(from))
+	)
+		throw new StudyError(
+			'CONFIG',
+			`Goal ${JSON.stringify(from)} is not declared by every scheduled scenario`,
+		)
+	const sealed = await lstat(join(absolute, 'seal.json')).then(
+		(stat) => stat.isFile(),
+		(error: unknown) => {
+			if (matchesSystemError(error, 'ENOENT')) return false
+			throw error
+		},
+	)
+	const flags = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)
+	const trials = await Promise.all(
+		manifest.schedule.map(async (trial) => {
+			const folder = join(execution, 'trials', trial.id)
+			const path = join(folder, 'evidence.jsonl')
+			const horizon = horizons.get(trial.scenario) ?? []
+			const prior = await lstat(path).catch((error: unknown) => {
+				if (matchesSystemError(error, 'ENOENT')) return undefined
+				throw error
+			})
+			if (prior !== undefined) await checkStudyDirectory(folder)
+			if (prior !== undefined && (prior.isSymbolicLink() || !prior.isFile()))
+				throw new StudyError('CUSTODY', 'Invalid evidence file')
+			// The size comes from the opened handle, so rows appended after it are left for a later read.
+			const evidence =
+				prior === undefined
+					? Buffer.alloc(0)
+					: await open(path, flags).then((handle) =>
+							handle
+								.stat()
+								.then((stat) => {
+									if (!stat.isFile() || stat.dev !== prior.dev || stat.ino !== prior.ino)
+										throw new StudyError('CUSTODY', 'Custody file changed during admission')
+									if (stat.size > manifest.bounds.trial.bytes)
+										throw new StudyError('CUSTODY', 'Evidence exceeds the declared trial')
+									return readStudyHandle(handle, Buffer.alloc(stat.size))
+								})
+								.finally(() => handle.close()),
+						)
+			const breaks: number[] = []
+			while (evidence.indexOf(0x0a, (breaks.at(-1) ?? -1) + 1) !== -1)
+				breaks.push(evidence.indexOf(0x0a, (breaks.at(-1) ?? -1) + 1))
+			const segments = [...breaks, evidence.length].map((end, index) =>
+				evidence.subarray(index === 0 ? 0 : (breaks[index - 1] ?? -1) + 1, end),
+			)
+			// The segment after the last LF is a row the writer may not have finished, so it is never read.
+			const lines = segments.slice(0, -1)
+			const rows = lines.map((line, index) => {
+				const row = attempt((): unknown =>
+					decodeStudyJSON(line.at(-1) === 0x0d ? line.subarray(0, -1) : line),
+				)
+				if (!row.success || !isStudyCustodyEvidence(row.value) || !horizon.includes(row.value.goal))
+					throw new StudyError(
+						'CUSTODY',
+						`Evidence line ${index + 1} of trial ${trial.id} is not a row of a declared goal`,
+					)
+				return row.value
+			})
+			// An absent, unreadable, or unfinished terminal record reads as a trial still running.
+			const terminal = await readStudyBytes(join(folder, 'attempt.json'), STUDY_CUSTODY_BYTES)
+				.then((retained) => decodeStudyJSON(retained))
+				.catch(() => undefined)
+			const record =
+				isStudyCustodyAttempt(terminal, manifest) && terminal.trial.id === trial.id
+					? terminal
+					: undefined
+			const sidecar =
+				manifest.record === undefined || manifest.ancestor === undefined
+					? undefined
+					: await open(join(folder, 'exchanges.jsonl'), flags).then(
+							(handle) =>
+								handle
+									.stat()
+									.then((stat) =>
+										stat.isFile()
+											? readStudyHandle(
+													handle,
+													Buffer.alloc(Math.min(stat.size, STUDY_CUSTODY_BYTES)),
+												)
+											: undefined,
+									)
+									.finally(() => handle.close()),
+							(error: unknown) => {
+								if (matchesSystemError(error, 'ENOENT')) return undefined
+								throw error
+							},
+						)
+			const declaration =
+				sidecar === undefined || sidecar.indexOf(0x0a) === -1
+					? undefined
+					: attempt((): unknown => decodeStudyJSON(sidecar.subarray(0, sidecar.indexOf(0x0a))))
+			const prefix =
+				declaration?.success === true &&
+				isStudyExchangeDeclaration(declaration.value) &&
+				declaration.value.ancestor !== undefined
+					? declaration.value.ancestor.prefix
+					: 0
+			const groups = Map.groupBy(
+				rows.map((row, index) => ({ row, line: index + 1 })),
+				({ row }) => row.goal,
+			)
+			const present = horizon.filter((goal) => groups.has(goal))
+			const listed =
+				from === undefined
+					? present.slice(-1)
+					: present.filter((goal) => horizon.indexOf(goal) >= horizon.indexOf(from))
+			return {
+				trial,
+				horizon: horizon.length,
+				ended: record !== undefined,
+				failure: record?.failure,
+				goals: listed.map((goal) => {
+					const entries = groups.get(goal) ?? []
+					return {
+						target: { trial, goal, evidence: entries.map(({ row }) => row) },
+						rows: { first: entries[0]?.line ?? 0, last: entries.at(-1)?.line ?? 0 },
+						prefix,
+					}
+				}),
+			}
+		}),
+	)
+	const targets = trials.flatMap(({ goals }) => goals.map(({ target }) => target))
+	// A batch's encoded request is the envelope plus its targets and the commas between them, and
+	// `size` carries the encoded bytes of the open batch's request.
+	const { batches } = targets.reduce<{
+		readonly batches: ReadonlyArray<readonly StudyProgressTarget[]>
+		readonly size: number
+	}>(
+		({ batches: packed, size }, target) => {
+			const encoded = Buffer.byteLength(JSON.stringify(target))
+			const last = packed.at(-1)
+			return last !== undefined && size + 1 + encoded <= STUDY_FRAME_BYTES
+				? { batches: [...packed.slice(0, -1), [...last, target]], size: size + 1 + encoded }
+				: { batches: [...packed, [target]], size: envelope + encoded }
+		},
+		{ batches: [], size: 0 },
+	)
+	const answers: Array<ReadonlyArray<JSONValue | undefined>> = []
+	if (project !== undefined) for (const batch of batches) answers.push(await project(batch))
+	const readings = new Map(
+		batches.flatMap((batch, index) =>
+			batch.map((target, position) => [target, answers[index]?.[position]] as const),
+		),
+	)
+	return {
+		id: manifest.id,
+		sealed,
+		trials: trials.map(({ goals, ...trial }) => ({
+			...trial,
+			goals: goals.map(({ target, rows, prefix }) => {
+				const wires = target.evidence.flatMap((row) =>
+					row.event === 'wire' && isRecord(row.value) ? [row.value] : [],
+				)
+				return {
+					goal: target.goal,
+					rows,
+					usage: STUDY_ROLES.flatMap((role): StudyProgressUsage[] => {
+						const values = wires.filter((value) => value.role === role)
+						const timings = values.map((value) =>
+							isRecord(value.timing) ? value.timing : undefined,
+						)
+						const [prompt, cached, completion] = [
+							values.map((value) => parseStudyMeasurement(value.prompt)),
+							timings.map((timing) =>
+								isRecord(timing?.counts) ? parseStudyMeasurement(timing.counts.cached) : undefined,
+							),
+							values.map((value) => parseStudyMeasurement(value.completion)),
+						].map((measurements) =>
+							measurements.every((measurement) => measurement !== undefined)
+								? measurements.reduce<number>((total, measurement) => total + (measurement ?? 0), 0)
+								: undefined,
+						)
+						return values.length === 0
+							? []
+							: [
+									{
+										role,
+										calls: values.length,
+										replayed: values.filter(
+											(value) => typeof value.ordinal === 'number' && value.ordinal <= prefix,
+										).length,
+										prompt,
+										cached,
+										completion,
+										total: timings.reduce(
+											(total, timing) =>
+												total +
+												((isRecord(timing?.durations)
+													? parseStudyMeasurement(timing.durations.total)
+													: undefined) ?? 0),
+											0,
+										),
+										length: values.filter((value) => value.finish === 'length').length,
+									},
+								]
+					}),
+					stops: target.evidence.flatMap((row) => {
+						const stop =
+							row.event === 'stop' && isRecord(row.value) && isRecord(row.value.stop)
+								? {
+										layer: row.value.stop.layer,
+										id: row.value.stop.id,
+										max: parseStudyMeasurement(row.value.stop.max),
+										consumed: parseStudyMeasurement(row.value.stop.consumed),
+									}
+								: undefined
+						return isStudyStop(stop) ? [stop] : []
+					}),
+					events: Object.fromEntries(
+						[...Map.groupBy(target.evidence, ({ event }) => event)].map(
+							([event, entries]) => [event, entries.length] as const,
+						),
+					),
+					reading: readings.get(target),
+				}
+			}),
+		})),
+	}
 }
 
 /** Projects fixed and declared HTTP identities around the retained execution population.

@@ -22,8 +22,10 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 	const target = arguments_[1]
 	const usage =
 		STUDY_COMMAND_HELP.split('\n').find((line) => line.startsWith('study ' + command + ' ')) ??
-		'Expected study check, freeze, execute, grade, label, or report; use study --help.'
-	if (!['check', 'freeze', 'execute', 'grade', 'label', 'report'].includes(command ?? ''))
+		'Expected study check, freeze, execute, grade, label, report, or progress; use study --help.'
+	if (
+		!['check', 'freeze', 'execute', 'grade', 'label', 'report', 'progress'].includes(command ?? '')
+	)
 		throw new StudyError(
 			'CONFIG',
 			'Unknown or missing command ' + JSON.stringify(command ?? '<command>') + '. ' + usage,
@@ -60,7 +62,9 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 						? ['--rubric']
 						: command === 'label'
 							? ['--assessment', '--labels']
-							: ['--assessment']
+							: command === 'progress'
+								? ['--from']
+								: ['--assessment']
 	const tokens: ReadonlyArray<string | undefined> = arguments_.slice(2)
 	// Positions, not present elements: a sparse token array keeps each hole as an absent flag or value.
 	const pairs = [...tokens.entries()].flatMap(([index, flag]) =>
@@ -181,6 +185,7 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 					}),
 		}
 	}
+	if (command === 'progress') return { command, target, from: flags.get('--from') }
 	if (command === 'grade') {
 		const rubric = flags.get('--rubric')
 		if (rubric === undefined) throw new StudyError('CONFIG', 'Missing --rubric. ' + usage)

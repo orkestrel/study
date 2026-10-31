@@ -1,22 +1,41 @@
+import type { StudyProgressTarget } from '../../../../src/server/adapters/types.js'
+import type { Socket } from 'node:net'
+import { parseJSON } from '@orkestrel/contract'
 import { createScratch } from '@orkestrel/test/server'
+import { randomUUID } from 'node:crypto'
 import { readdirSync } from 'node:fs'
 import { mkdir, open, readFile, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:net'
 import { join } from 'node:path'
+import { createInterface } from 'node:readline'
 import { describe, expect, it } from 'vitest'
 import {
 	buildCompactCustodyManifest,
+	buildCustodyAttempt,
 	buildCustodyManifest,
+	buildStudyFailure,
 	buildStudyHole,
 	buildStudyRubric,
 	buildStudySparse,
 } from '../../../setupStudy.js'
 import { STUDY_CUSTODY_BYTES } from '../../../../src/server/stores/constants.js'
 import {
+	STUDY_PROGRESS_SCALE,
 	buildCustodyPacketLabeling,
+	buildOllamaDeclaration,
+	buildStudyProgressManifest,
+	buildStudyProgressRows,
 	retainStudyFixture,
 	buildStudyExchangeHistory,
+	spawnStudyScript,
+	writeStudyProgressFixture,
+	writeStudyProgressResult,
 } from '../../../setupServer.js'
 import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
+import { STUDY_FRAME_BYTES } from '../../../../src/server/processes/constants.js'
+import { valueToWire } from '../../../../src/server/processes/helpers.js'
+import { StudyResultStore } from '../../../../src/server/stores/StudyResultStore.js'
+import { isStudyExchangeDeclaration } from '../../../../src/server/stores/validators.js'
 import {
 	checkStudyDirectory,
 	buildStudyPacket,
@@ -25,6 +44,7 @@ import {
 	computeStudySealId,
 	readStudyBytes,
 	readStudyHandle,
+	readStudyProgress,
 	readStudyResult,
 	scanStudyExecution,
 	scanStudyTree,
@@ -410,6 +430,590 @@ describe('readStudyHandle', () => {
 			} finally {
 				await handle.close()
 			}
+		} finally {
+			scratch.destroy()
+		}
+	})
+})
+
+describe('readStudyProgress', () => {
+	it('partial line: reads every complete row of an interrupted result and skips the unfinished row', async () => {
+		const scratch = createScratch()
+		try {
+			const manifest = buildCustodyManifest()
+			const [trial, ...others] = manifest.schedule
+			if (trial === undefined) throw new Error('Missing trial')
+			await writeStudyProgressResult(scratch.path, manifest, {})
+			await mkdir(join(scratch.path, 'execution', 'trials', trial.id))
+			const path = join(scratch.path, 'execution', 'trials', trial.id, 'evidence.jsonl')
+			const complete = [
+				'{"event":"saved","goal":"write","value":1}\r\n',
+				'{"event":"saved","goal":"write","value":2}\n',
+				'{"event":"saved","goal":"read","value":3}\n',
+			].join('')
+			for (const partial of [
+				'{"event":"saved","goal":"read","va',
+				'{"event":"saved","goal":"read","value":4}',
+			]) {
+				await writeFile(path, complete + partial)
+				const progress = await readStudyProgress(scratch.path, 'write')
+				expect(progress).toEqual({
+					id: manifest.id,
+					sealed: false,
+					trials: [
+						{
+							trial,
+							horizon: 2,
+							ended: false,
+							failure: undefined,
+							goals: [
+								{
+									goal: 'write',
+									rows: { first: 1, last: 2 },
+									usage: [],
+									stops: [],
+									events: { saved: 2 },
+									reading: undefined,
+								},
+								{
+									goal: 'read',
+									rows: { first: 3, last: 3 },
+									usage: [],
+									stops: [],
+									events: { saved: 1 },
+									reading: undefined,
+								},
+							],
+						},
+						...others.map((other) => ({
+							trial: other,
+							horizon: 2,
+							ended: false,
+							failure: undefined,
+							goals: [],
+						})),
+					],
+				})
+			}
+			await writeFile(path, complete)
+			expect(
+				(await readStudyProgress(scratch.path)).trials[0]?.goals.map(({ goal, rows }) => ({
+					goal,
+					rows,
+				})),
+			).toEqual([{ goal: 'read', rows: { first: 3, last: 3 } }])
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('sealed ended: reads a sealed result whose attempts carry a failure', async () => {
+		const scratch = createScratch()
+		try {
+			const directory = join(scratch.path, 'result')
+			const manifest = buildCustodyManifest()
+			const results = new StudyResultStore({ directory, manifest })
+			await results.create()
+			for (const trial of manifest.schedule) {
+				const sink = await results.start(trial)
+				await sink.append({ event: 'saved', goal: 'write', value: 'remember' })
+				await results.finish({
+					...buildCustodyAttempt(manifest, trial),
+					failure: buildStudyFailure(),
+				})
+			}
+			await results.seal()
+			const progress = await readStudyProgress(directory)
+			expect(progress.sealed).toBe(true)
+			expect(progress.trials).toEqual(
+				manifest.schedule.map((trial) => ({
+					trial,
+					horizon: 2,
+					ended: true,
+					failure: buildStudyFailure(),
+					goals: [
+						{
+							goal: 'write',
+							rows: { first: 1, last: 1 },
+							usage: [],
+							stops: [],
+							events: { saved: 1 },
+							reading: undefined,
+						},
+					],
+				})),
+			)
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('live append: reads only complete rows while another process appends without syncing', async () => {
+		const scratch = createScratch()
+		const server = createServer()
+		try {
+			const manifest = buildCustodyManifest()
+			const trial = manifest.schedule[0]
+			if (trial === undefined) throw new Error('Missing trial')
+			await writeStudyProgressResult(scratch.path, manifest, {})
+			await mkdir(join(scratch.path, 'execution', 'trials', trial.id))
+			const path = join(scratch.path, 'execution', 'trials', trial.id, 'evidence.jsonl')
+			const second = '{"event":"saved","goal":"write","value":2}'
+			const steps = [
+				'{"event":"saved","goal":"write","value":1}\n',
+				second.slice(0, 20),
+				second.slice(20) + '\n',
+				'{"event":"saved","goal":"read","value":3}\n',
+			]
+			const pipe =
+				process.platform === 'win32'
+					? '\\\\.\\pipe\\study-progress-' + randomUUID()
+					: join(scratch.path, 'live.sock')
+			const connection = new Promise<Socket>((resolve) => server.once('connection', resolve))
+			await new Promise<void>((resolve) => server.listen(pipe, resolve))
+			// The child appends one step per message and holds the file open, syncing only at the end.
+			const child = spawnStudyScript(
+				[
+					"const fs = require('node:fs')",
+					"const net = require('node:net')",
+					`const steps = ${JSON.stringify(steps)}`,
+					`const handle = fs.openSync(${JSON.stringify(path)}, 'a')`,
+					`const socket = net.connect(${JSON.stringify(pipe)})`,
+					"socket.on('data', () => {",
+					'const step = steps.shift()',
+					'if (step === undefined) { fs.fsyncSync(handle); fs.closeSync(handle); socket.end(); return }',
+					'fs.writeSync(handle, step)',
+					"process.stdout.write('appended\\n')",
+					'})',
+				].join('\n'),
+			)
+			const exited = new Promise((resolve) => child.once('exit', resolve))
+			if (child.stdout === null) throw new Error('Missing child output')
+			const socket = await connection
+			socket.write('next')
+			const counts: number[] = []
+			for await (const line of createInterface({ input: child.stdout })) {
+				expect(line).toBe('appended')
+				const progress = await readStudyProgress(scratch.path, 'write')
+				counts.push(
+					(progress.trials[0]?.goals ?? []).reduce(
+						(total, { events }) => total + (events.saved ?? 0),
+						0,
+					),
+				)
+				socket.write('next')
+			}
+			expect(await exited).toBe(0)
+			// The first reading follows a written row that no sync has reached, so it proves visibility.
+			expect(counts).toEqual([1, 1, 2, 3])
+			const final = await readStudyProgress(scratch.path, 'write')
+			expect(final.trials[0]?.goals.map(({ goal, rows }) => ({ goal, rows }))).toEqual([
+				{ goal: 'write', rows: { first: 1, last: 2 } },
+				{ goal: 'read', rows: { first: 3, last: 3 } },
+			])
+		} finally {
+			server.close()
+			scratch.destroy()
+		}
+	})
+
+	it('usage: tallies each role over hand-counted wire rows and replays up to the ancestor prefix', async () => {
+		const scratch = createScratch()
+		try {
+			const base = buildCustodyManifest()
+			const ancestor = { result: 'ancestor', seal: 'd'.repeat(64), identity: base.identity }
+			const recorded = buildCustodyManifest({
+				record: { bytes: 32768, calls: 256, duration: 15000 },
+				ancestor,
+			})
+			const trial = base.schedule[0]
+			if (trial === undefined) throw new Error('Missing trial')
+			const request = { path: '/api/chat', model: 'fixture', options: {} }
+			// Each entry is the goal, role, finish, prompt, completion, ordinal, and timing total and cache.
+			const wires = (
+				[
+					['write', 'agent', 'stop', 10, 5, 1, [100, 4]],
+					['write', 'agent', 'length', 20, 7, 2, [200, 6]],
+					['write', 'agent', 'stop', 30, 9, 3, [300, null]],
+					['write', 'judge', 'stop', 8, null, 4, undefined],
+					['read', 'agent', 'stop', 1, 2, 6, [10, 4]],
+					['read', 'agent', 'stop', 3, 4, 7, [20, 6]],
+				] as const
+			).map(([goal, role, finish, prompt, completion, ordinal, timing]) => ({
+				event: 'wire',
+				goal,
+				value: {
+					...request,
+					role,
+					finish,
+					prompt,
+					completion,
+					bytes: 9,
+					ordinal,
+					timing:
+						timing === undefined
+							? null
+							: {
+									durations: { total: timing[0], load: null, prompt: null, decode: null },
+									counts: { prompt: 1, decode: 1, cached: timing[1] },
+									invalid: false,
+								},
+				},
+			}))
+			const rows = [
+				{
+					event: 'dispatch',
+					goal: 'write',
+					value: { ...request, role: 'agent', bytes: 9, ordinal: 1 },
+				},
+				...wires.slice(0, 4),
+				{
+					event: 'wire',
+					goal: 'write',
+					value: { ordinal: 5, role: 'maintenance', path: '/api/ps' },
+				},
+				{ event: 'wire', goal: 'write', value: { ...request, role: 'robot', prompt: 1 } },
+				{
+					event: 'stop',
+					goal: 'write',
+					value: {
+						role: 'agent',
+						path: '/api/chat',
+						finish: 'length',
+						prompt: 30,
+						completion: 9,
+						stop: { layer: 'scope', id: 'Goal tokens', max: 100, consumed: null },
+					},
+				},
+				{ event: 'cut', goal: 'write', value: { role: 'agent', path: '/api/chat' } },
+				...wires.slice(4),
+			]
+			const declaration = buildOllamaDeclaration(undefined, {
+				trial: trial.id,
+				ancestor: {
+					...ancestor,
+					file: { path: `trials/${trial.id}/exchanges.jsonl`, bytes: 1, digest: 'e'.repeat(64) },
+					prefix: 2,
+				},
+			})
+			expect(isStudyExchangeDeclaration(parseJSON(JSON.stringify(declaration)))).toBe(true)
+			const write = {
+				goal: 'write',
+				rows: { first: 1, last: 9 },
+				usage: [
+					{
+						role: 'agent',
+						calls: 3,
+						replayed: 2,
+						prompt: 60,
+						cached: undefined,
+						completion: 21,
+						total: 600,
+						length: 1,
+					},
+					{
+						role: 'judge',
+						calls: 1,
+						replayed: 0,
+						prompt: 8,
+						cached: undefined,
+						completion: undefined,
+						total: 0,
+						length: 0,
+					},
+					{
+						role: 'maintenance',
+						calls: 1,
+						replayed: 0,
+						prompt: undefined,
+						cached: undefined,
+						completion: undefined,
+						total: 0,
+						length: 0,
+					},
+				],
+				stops: [{ layer: 'scope', id: 'Goal tokens', max: 100, consumed: undefined }],
+				events: { dispatch: 1, wire: 6, stop: 1, cut: 1 },
+				reading: undefined,
+			}
+			const read = {
+				goal: 'read',
+				rows: { first: 10, last: 11 },
+				usage: [
+					{
+						role: 'agent',
+						calls: 2,
+						replayed: 0,
+						prompt: 4,
+						cached: 10,
+						completion: 6,
+						total: 30,
+						length: 0,
+					},
+				],
+				stops: [],
+				events: { wire: 2 },
+				reading: undefined,
+			}
+			for (const [manifest, replayed] of [
+				[recorded, 2],
+				[base, 0],
+			] as const) {
+				const directory = join(scratch.path, String(replayed))
+				await writeStudyProgressResult(directory, manifest, { [trial.id]: rows })
+				await writeFile(
+					join(directory, 'execution', 'trials', trial.id, 'exchanges.jsonl'),
+					JSON.stringify(declaration) + '\n{"partial":',
+				)
+				const goals = (await readStudyProgress(directory, 'write')).trials[0]?.goals
+				expect(goals).toEqual([
+					{
+						...write,
+						usage: write.usage.map((usage) =>
+							usage.role === 'agent' ? { ...usage, replayed } : usage,
+						),
+					},
+					read,
+				])
+			}
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('from: lists from the named goal onward, else each trial last goal, and refuses an unknown goal', async () => {
+		const scratch = createScratch()
+		try {
+			const manifest = buildCustodyManifest()
+			const [first, second, third] = manifest.schedule
+			if (first === undefined || second === undefined || third === undefined)
+				throw new Error('Missing trials')
+			await writeStudyProgressResult(scratch.path, manifest, {
+				[first.id]: [
+					{ event: 'saved', goal: 'write', value: 1 },
+					{ event: 'saved', goal: 'read', value: 2 },
+				],
+				[second.id]: [{ event: 'saved', goal: 'write', value: 3 }],
+			})
+			// Every later scheduled trial holds no rows, so it lists no goal.
+			for (const [from, listed] of [
+				['write', [['write', 'read'], ['write']]],
+				['read', [['read'], []]],
+				[undefined, [['read'], ['write']]],
+			] as const)
+				expect(
+					(await readStudyProgress(scratch.path, from)).trials.map(({ goals }) =>
+						goals.map(({ goal }) => goal),
+					),
+				).toEqual([...listed, ...manifest.schedule.slice(listed.length).map(() => [])])
+			// An invalid trial file stays unread when the goal refusal comes first.
+			await mkdir(join(scratch.path, 'execution', 'trials', third.id))
+			await writeFile(join(scratch.path, 'execution', 'trials', third.id, 'evidence.jsonl'), '{\n')
+			await expect(readStudyProgress(scratch.path, 'nope')).rejects.toMatchObject({
+				code: 'CONFIG',
+				message: expect.stringContaining('"nope"'),
+			})
+			await expect(readStudyProgress(scratch.path)).rejects.toMatchObject({ code: 'CUSTODY' })
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('refusals: refuses an absent or invalid manifest and names an invalid complete row', async () => {
+		const scratch = createScratch()
+		try {
+			await expect(readStudyProgress(scratch.path)).rejects.toMatchObject({
+				code: 'CUSTODY',
+				message: 'Result has no execution manifest',
+			})
+			await mkdir(join(scratch.path, 'execution'))
+			await writeFile(join(scratch.path, 'execution', 'manifest.json'), '{')
+			await expect(readStudyProgress(scratch.path)).rejects.toMatchObject({
+				code: 'CUSTODY',
+				message: 'Invalid execution manifest',
+			})
+			const manifest = buildCustodyManifest()
+			const trial = manifest.schedule[0]
+			if (trial === undefined) throw new Error('Missing trial')
+			for (const [rows, line] of [
+				['{"event":"saved","goal":"write","value":1}\n{"event":"saved"}\n', 2],
+				['{"event":"saved","goal":"write","value":1}\n\n', 2],
+				['{"event":"saved","goal":"nope","value":1}\n', 1],
+			] as const) {
+				await writeStudyProgressResult(scratch.path, manifest, {})
+				await mkdir(join(scratch.path, 'execution', 'trials', trial.id), { recursive: true })
+				await writeFile(join(scratch.path, 'execution', 'trials', trial.id, 'evidence.jsonl'), rows)
+				await expect(readStudyProgress(scratch.path)).rejects.toMatchObject({
+					code: 'CUSTODY',
+					message: `Evidence line ${line} of trial ${trial.id} is not a row of a declared goal`,
+				})
+			}
+			await writeFile(
+				join(scratch.path, 'execution', 'trials', trial.id, 'evidence.jsonl'),
+				'x'.repeat(manifest.bounds.trial.bytes + 1),
+			)
+			await expect(readStudyProgress(scratch.path)).rejects.toMatchObject({
+				code: 'CUSTODY',
+				message: 'Evidence exceeds the declared trial',
+			})
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('project: hands each listed goal exactly its rows and keeps each reading by position', async () => {
+		const scratch = createScratch()
+		try {
+			const manifest = buildCustodyManifest()
+			const [first, second] = manifest.schedule
+			if (first === undefined || second === undefined) throw new Error('Missing trials')
+			const rows = [
+				{ event: 'saved', goal: 'write', value: 1 },
+				{ event: 'saved', goal: 'read', value: 2 },
+				{ event: 'saved', goal: 'write', value: 3 },
+			]
+			await writeStudyProgressResult(scratch.path, manifest, {
+				[first.id]: rows,
+				[second.id]: [{ event: 'saved', goal: 'write', value: 4 }],
+			})
+			const received: Array<readonly StudyProgressTarget[]> = []
+			const progress = await readStudyProgress(scratch.path, 'write', async (targets) => {
+				received.push(targets)
+				return targets.map(({ goal, evidence }) => ({ goal, count: evidence.length }))
+			})
+			expect(received).toEqual([
+				[
+					{ trial: first, goal: 'write', evidence: [rows[0], rows[2]] },
+					{ trial: first, goal: 'read', evidence: [rows[1]] },
+					{ trial: second, goal: 'write', evidence: [{ event: 'saved', goal: 'write', value: 4 }] },
+				],
+			])
+			expect(
+				progress.trials.map(({ goals }) =>
+					goals.map(({ goal, rows: range, reading }) => ({ goal, range, reading })),
+				),
+			).toEqual([
+				[
+					{ goal: 'write', range: { first: 1, last: 3 }, reading: { goal: 'write', count: 2 } },
+					{ goal: 'read', range: { first: 2, last: 2 }, reading: { goal: 'read', count: 1 } },
+				],
+				[{ goal: 'write', range: { first: 1, last: 1 }, reading: { goal: 'write', count: 1 } }],
+				...manifest.schedule.slice(2).map(() => []),
+			])
+			// Without a projection, and with one that answers no readings, every reading is undefined.
+			for (const unread of [
+				await readStudyProgress(scratch.path, 'write'),
+				await readStudyProgress(scratch.path, 'write', async () => []),
+			])
+				expect(unread.trials.flatMap(({ goals }) => goals.map(({ reading }) => reading))).toEqual([
+					undefined,
+					undefined,
+					undefined,
+				])
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('frame batches: splits listed goals whose rows exceed one frame into requests within it', async () => {
+		const scratch = createScratch()
+		try {
+			const goals = ['goal-1', 'goal-2', 'goal-3']
+			const manifest = buildStudyProgressManifest(goals)
+			const trial = manifest.schedule[0]
+			if (trial === undefined) throw new Error('Missing trial')
+			const raw = 'x'.repeat(1024 * 1024)
+			await writeStudyProgressResult(scratch.path, manifest, {
+				[trial.id]: goals.flatMap((goal) =>
+					Array.from({ length: 7 }, (_, index) => ({ event: 'note', goal, value: { index, raw } })),
+				),
+			})
+			const options = {
+				root: scratch.path,
+				entry: join(scratch.path, 'dist', 'bin', 'main.js'),
+				adapter: join(scratch.path, 'studies', 'memory', 'index.ts'),
+				roots: [scratch.path],
+			}
+			const batches: Array<readonly StudyProgressTarget[]> = []
+			const progress = await readStudyProgress(
+				scratch.path,
+				'goal-1',
+				async (targets) => {
+					batches.push(targets)
+					return targets.map(({ goal }) => goal)
+				},
+				Buffer.byteLength(
+					JSON.stringify(
+						valueToWire({ ...options, operation: 'progress', input: { targets: [] } }),
+					),
+				),
+			)
+			// Each size is the request StudyTask encodes for its batch, the whole listing last.
+			const sizes = [...batches, batches.flat()].map((targets) =>
+				Buffer.byteLength(
+					JSON.stringify(valueToWire({ ...options, operation: 'progress', input: { targets } })),
+				),
+			)
+			expect(batches.length).toBeGreaterThan(1)
+			expect(sizes.at(-1)).toBeGreaterThan(STUDY_FRAME_BYTES)
+			for (const size of sizes.slice(0, -1)) expect(size).toBeLessThanOrEqual(STUDY_FRAME_BYTES)
+			expect(batches.flat().map(({ goal }) => goal)).toEqual(goals)
+			expect(progress.trials[0]?.goals.map(({ goal, reading }) => ({ goal, reading }))).toEqual(
+				goals.map((goal) => ({ goal, reading: goal })),
+			)
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('77 goals: reads every goal of a generated observed result from its first goal', async () => {
+		const scratch = createScratch()
+		try {
+			const scale = STUDY_PROGRESS_SCALE
+			const { manifest } = await writeStudyProgressFixture(scratch.path)
+			const progress = await readStudyProgress(scratch.path, 'goal-1')
+			expect(progress.trials.map(({ goals }) => goals.length)).toEqual([scale.goals, scale.reached])
+			expect(progress.trials.map(({ trial }) => trial)).toEqual(manifest.schedule)
+			for (const { goals } of progress.trials)
+				for (const [index, { goal, events, usage }] of goals.entries()) {
+					const burst = index % scale.cadence === scale.cadence - 1
+					expect(goal).toBe(`goal-${index + 1}`)
+					expect(events).toEqual({
+						note: 1,
+						dispatch: burst ? 2 + scale.burst : 2,
+						wire: burst ? 2 + scale.burst : 2,
+						checkpoint: 1,
+					})
+					expect(usage).toEqual([
+						{
+							role: 'agent',
+							calls: 2,
+							replayed: 0,
+							prompt: 2 * scale.prompt,
+							cached: 2 * scale.cached,
+							completion: 2 * scale.completion,
+							total: 2 * scale.total,
+							length: 1,
+						},
+						...(burst
+							? [
+									{
+										role: 'judge',
+										calls: scale.burst,
+										replayed: 0,
+										prompt: scale.burst * scale.judge,
+										cached: undefined,
+										completion: undefined,
+										total: 0,
+										length: 0,
+									},
+								]
+							: []),
+					])
+				}
+			expect(
+				buildStudyProgressRows('goal-7', 6).filter(({ event }) => event === 'wire'),
+			).toHaveLength(2 + scale.burst)
 		} finally {
 			scratch.destroy()
 		}

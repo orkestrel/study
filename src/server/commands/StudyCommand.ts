@@ -10,6 +10,7 @@ import type {
 	StudyLabelRequest,
 	StudyPreparation,
 	StudyReportRequest,
+	StudyProgressRequest,
 	StudyFreezeRequest,
 	StudyClosure,
 	StudyContinuation,
@@ -25,7 +26,14 @@ import {
 	StudySeries,
 	isStudyJudgment,
 } from '@src/core'
-import { arrayOf, canonicalStringify, isArray, isString, parseJSON } from '@orkestrel/contract'
+import {
+	arrayOf,
+	canonicalStringify,
+	isArray,
+	isJSONValue,
+	isString,
+	parseJSON,
+} from '@orkestrel/contract'
 import { randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, resolve } from 'node:path'
@@ -49,10 +57,12 @@ import {
 	checkStudyDirectory,
 	computeStudyPacketDigest,
 	readStudyBytes,
+	readStudyProgress,
 	readStudyResult,
 	readStudyExchanges,
 	translateStudyPacketLabels,
 } from '../stores/helpers.js'
+import { isStudyCustodyManifest } from '../stores/validators.js'
 import { StudyAssessmentStore } from '../stores/StudyAssessmentStore.js'
 import { StudyResultStore } from '../stores/StudyResultStore.js'
 import { StudyTask } from '../processes/StudyTask.js'
@@ -107,6 +117,7 @@ export class StudyCommand {
 		if (request.command === 'grade') return this.#grade(request, signal)
 		if (request.command === 'label') return this.#label(request, signal)
 		if (request.command === 'report') return this.#report(request, signal)
+		if (request.command === 'progress') return this.#progress(request, signal)
 		throw new StudyError('CONFIG', 'Unsupported study operation')
 	}
 
@@ -794,12 +805,69 @@ export class StudyCommand {
 		})
 	}
 
-	async #result(target: string): Promise<StudySealedResult> {
-		const path = isAbsolute(target)
+	async #progress(request: StudyProgressRequest, signal: AbortSignal): Promise<JSONValue> {
+		const path = this.#location(request.target)
+		await checkStudyDirectory(path).catch((error: unknown) => {
+			if (matchesSystemError(error, 'ENOENT'))
+				throw new StudyError('CUSTODY', `Selected result is missing: ${request.target}`)
+			throw error
+		})
+		// The manifest names the adapter and its roots before the reader takes the evidence.
+		const bytes = await readStudyBytes(
+			join(path, 'execution', 'manifest.json'),
+			STUDY_CUSTODY_BYTES,
+		).catch((error: unknown) => {
+			if (matchesSystemError(error, 'ENOENT'))
+				throw new StudyError('CUSTODY', 'Result has no execution manifest')
+			throw error
+		})
+		const manifest = decodeStudyJSON(bytes)
+		if (!isStudyCustodyManifest(manifest))
+			throw new StudyError('CUSTODY', 'Invalid execution manifest')
+		const roots = parseJSON(manifest.host.roots ?? '')
+		if (!arrayOf(isString)(roots))
+			throw new StudyError('CONFIG', 'Execution does not retain adapter dependency roots')
+		const options = {
+			root: this.#root,
+			entry: this.#entry,
+			adapter: join(
+				resolveStudyPath(join(this.#root, 'studies'), manifest.definition.driver),
+				'index.ts',
+			),
+			roots,
+		}
+		const task = new StudyTask(options)
+		const progress = await readStudyProgress(
+			path,
+			request.from,
+			async (targets) => {
+				const evaluated = await task.execute({ operation: 'progress', input: { targets } }, signal)
+				const readings: unknown = evaluated.value
+				if (
+					!isArray(readings) ||
+					(readings.length !== 0 && readings.length !== targets.length) ||
+					!readings.every(isJSONValue)
+				)
+					throw new StudyError('FAULT', 'Adapter returned invalid progress readings')
+				return readings
+			},
+			Buffer.byteLength(
+				JSON.stringify(valueToWire({ ...options, operation: 'progress', input: { targets: [] } })),
+			),
+		)
+		return valueToWire({ command: 'progress', progress })
+	}
+
+	#location(target: string): string {
+		return isAbsolute(target)
 			? resolve(target)
 			: target.includes('/')
 				? resolveStudyPath(this.#root, target)
 				: resolveStudyPath(join(this.#root, 'tmp', 'studies'), target)
+	}
+
+	async #result(target: string): Promise<StudySealedResult> {
+		const path = this.#location(target)
 		const result = await readStudyResult(path).catch((error: unknown) => {
 			if (matchesSystemError(error, 'ENOENT'))
 				throw new StudyError('CUSTODY', `Selected result is missing: ${target}`)

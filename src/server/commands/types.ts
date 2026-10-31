@@ -107,6 +107,14 @@ export interface StudyReportRequest {
 	readonly assessment: string
 }
 
+/** Holds a read-only progress request over a live or sealed result. */
+export interface StudyProgressRequest {
+	readonly command: 'progress'
+	readonly target: string
+	/** Names the first goal each trial lists; undefined lists each trial's last goal. */
+	readonly from: string | undefined
+}
+
 /** Names the independently dispatched study command operation. */
 export type StudyCommandRequest =
 	| StudyExecutionRequest
@@ -114,6 +122,7 @@ export type StudyCommandRequest =
 	| StudyGradeRequest
 	| StudyLabelRequest
 	| StudyReportRequest
+	| StudyProgressRequest
 
 /** Holds one bounded source artifact retained during offline validation. */
 export interface StudyCommandArtifact {

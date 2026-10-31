@@ -187,7 +187,28 @@ export const STUDY_COMMAND_INVALID_ARGUMENTS: ReadonlyArray<readonly string[]> =
 	['grade', 'result'],
 	['label', 'result', '--assessment', 'a'.repeat(64)],
 	['report', 'result', '--assessment', 'invalid'],
+	['progress', 'result', '--unknown', 'x'],
+	['progress', 'result', '--from'],
 ])
+
+/** Pairs malformed progress tokens with the grammar diagnostic each must name. */
+export const STUDY_PROGRESS_REFUSALS = Object.freeze([
+	{
+		name: 'unknown flag',
+		tokens: ['progress', 'result', '--unknown', 'x'],
+		message: /^"--unknown" is not a progress flag; accepts --from\. study progress <result>/,
+	},
+	{
+		name: 'missing goal',
+		tokens: ['progress', 'result', '--from'],
+		message: /^--from requires a value before "<end>"\. study progress <result>/,
+	},
+	{
+		name: 'duplicate goal',
+		tokens: ['progress', 'result', '--from', 'read', '--from', 'write'],
+		message: /^--from is duplicate\. study progress <result>/,
+	},
+] as const)
 
 /** Supplies missing declaration selections and their root-relative diagnostics. */
 export const STUDY_MISSING_DECLARATIONS = Object.freeze([

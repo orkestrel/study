@@ -11,7 +11,7 @@ import type {
 import type { StudyChannel } from './StudyChannel.js'
 import type { JSONValue } from '@orkestrel/contract'
 import type { ChildProcess } from 'node:child_process'
-import type { StudyValidation, StudyAdjudication } from '../adapters/types.js'
+import type { StudyValidation, StudyAdjudication, StudyProgressTarget } from '../adapters/types.js'
 import type { StudyClosure } from '../commands/types.js'
 import type { StudyExchangeDestination } from '../stores/types.js'
 import type { StudyOllamaReplaySelection } from '../ollama/types.js'
@@ -27,10 +27,14 @@ export interface StudyTaskOptions {
 	readonly closure?: StudyClosure
 }
 
-/** Carries only declarations or sealed evidence to an adapter child. */
+/** Carries only declarations or retained evidence to an adapter child. */
 export type StudyTaskRequest =
 	| { readonly operation: 'validate'; readonly input: StudyValidation }
 	| { readonly operation: 'grade'; readonly input: StudyAdjudication }
+	| {
+			readonly operation: 'progress'
+			readonly input: { readonly targets: readonly StudyProgressTarget[] }
+	  }
 
 /** Returns adapter output with the exact active instrumentation digest. */
 export interface StudyTaskResult {

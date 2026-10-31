@@ -53,4 +53,23 @@ describe('consumer adapter boundary', () => {
 		).toBe(false)
 		expect(() => readStudyAdapter({ createStudyAdapter: () => ({}) })).toThrow(/incomplete/)
 	})
+
+	it('admits an adapter whose progress is absent, undefined, or callable', () => {
+		const methods = { validate: Object.keys, driver: Object.values, grade: Object.entries }
+		expect(isStudyAdapter(methods)).toBe(true)
+		expect(isStudyAdapter({ ...methods, progress: undefined })).toBe(true)
+		expect(isStudyAdapter({ ...methods, progress: Object.freeze })).toBe(true)
+		expect(isStudyAdapter(Object.create({ ...methods, progress: Object.freeze }))).toBe(true)
+	})
+
+	it('refuses an adapter whose progress is present and not callable', () => {
+		const methods = { validate: Object.keys, driver: Object.values, grade: Object.entries }
+		for (const progress of [null, false, 0, 'progress', {}, []]) {
+			expect(isStudyAdapter({ ...methods, progress })).toBe(false)
+			expect(isStudyAdapter(Object.create({ ...methods, progress }))).toBe(false)
+			expect(() =>
+				readStudyAdapter({ createStudyAdapter: () => ({ ...methods, progress }) }),
+			).toThrow(/incomplete/)
+		}
+	})
 })

@@ -36,7 +36,7 @@ export class StudyCLI {
 			)
 				throw new StudyError(
 					'CONFIG',
-					`Private route ${JSON.stringify(arguments_[0])} requires supervised native IPC; use study check, execute, grade, label, or report. Use study --help for grammar.`,
+					`Private route ${JSON.stringify(arguments_[0])} requires supervised native IPC; use study check, execute, grade, label, report, or progress. Use study --help for grammar.`,
 				)
 			if (arguments_[0] === STUDY_WORKER_OPERATION) {
 				await new StudyWorker().execute()

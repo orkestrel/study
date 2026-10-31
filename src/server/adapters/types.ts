@@ -11,6 +11,7 @@ import type {
 	StudyScenario,
 	StudyTrial,
 } from '@src/core'
+import type { JSONValue } from '@orkestrel/contract'
 import type { StudyExchangeSinkInterface } from '../stores/types.js'
 import type { StudyOllamaReplayInterface } from '../ollama/types.js'
 
@@ -74,6 +75,19 @@ export interface StudyGradeVerdict {
 /** Reads one declared target against the consumer's domain predicate. */
 export type StudyGradeFunction = (target: StudyGradeTarget) => StudyGradeVerdict
 
+/** Holds one listed goal of a scheduled trial with exactly that goal's complete evidence rows. */
+export interface StudyProgressTarget {
+	readonly trial: StudyTrial
+	readonly goal: string
+	/** Holds the goal's complete rows in append order, without rows of any other goal. */
+	readonly evidence: readonly StudyEvidence[]
+}
+
+/** Projects a batch of listed goals into one adapter reading per target, in target order. */
+export type StudyProgressFunction = (
+	targets: readonly StudyProgressTarget[],
+) => Promise<ReadonlyArray<JSONValue | undefined>>
+
 /** Defines the consumer's domain checks, driver construction, and retained-evidence assessment.
  * @remarks
  * An authored module exports a createStudyAdapter factory returning this interface.
@@ -96,4 +110,13 @@ export interface StudyAdapterInterface {
 	 * @returns Criterion readings; unavailable evidence remains unknown.
 	 */
 	grade(input: StudyAdjudication): readonly StudyJudgment[]
+	/** Reads one listed goal's complete evidence into the adapter's own progress value.
+	 * @remarks
+	 * Optional. The host calls it in a bounded child once per listed goal, in trial then goal order.
+	 * A thrown `StudyError` keeps its code and any other throw becomes `FAULT`; a return that is not
+	 * a JSON value is `FAULT`. Either refuses the whole command and names the trial and goal.
+	 * @param target - The trial, the goal, and exactly that goal's complete evidence rows.
+	 * @returns A JSON value the progress document carries as the goal's reading.
+	 */
+	progress?(target: StudyProgressTarget): JSONValue
 }
