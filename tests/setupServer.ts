@@ -3870,9 +3870,9 @@ for (const constructors of [
  [server.ArtifactError, common.ArtifactError, serverCopy.ArtifactError, serverRequired.ArtifactError],
 ]) assert.equal(new Set(constructors).size, constructors.length)
 const pairs = [
-	[imported, required, 'StudyError', 'isStudyError', ['CONFIG', 'Refused'], '@orkestrel/study.error'],
-	[imported, coreCopy, 'StudyError', 'isStudyError', ['CONFIG', 'Refused'], '@orkestrel/study.error'],
-	[required, coreRequired, 'StudyError', 'isStudyError', ['CONFIG', 'Refused'], '@orkestrel/study.error'],
+	[imported, required, 'StudyError', 'isStudyError', ['CONFIG', 'Refused'], '@orkestrel/study.StudyError'],
+	[imported, coreCopy, 'StudyError', 'isStudyError', ['CONFIG', 'Refused'], '@orkestrel/study.StudyError'],
+	[required, coreRequired, 'StudyError', 'isStudyError', ['CONFIG', 'Refused'], '@orkestrel/study.StudyError'],
 	[server, common, 'ArtifactError', 'isArtifactError', ['Refused', 'DRIFT'], '@orkestrel/study.ArtifactError'],
 	[server, serverCopy, 'ArtifactError', 'isArtifactError', ['Refused', 'DRIFT'], '@orkestrel/study.ArtifactError'],
 	[common, serverRequired, 'ArtifactError', 'isArtifactError', ['Refused', 'DRIFT'], '@orkestrel/study.ArtifactError'],

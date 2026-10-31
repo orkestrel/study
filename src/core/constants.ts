@@ -7,7 +7,7 @@ import type { StudyCause, StudyLayer, StudyRole } from './types.js'
  * key. The registry makes the key discoverable; it recognizes the contract without proving
  * its origin.
  */
-export const STUDY_ERROR_BRAND = Symbol.for('@orkestrel/study.error')
+export const STUDY_ERROR_BRAND = Symbol.for('@orkestrel/study.StudyError')
 
 /** Caps a declared trial population before schedule allocation. */
 export const STUDY_TRIALS = 4096

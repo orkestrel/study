@@ -11,7 +11,7 @@ import { isStudyError, StudyError } from '../../../src/core/errors.js'
 import { importStudyErrorCopy } from '../../setupStudy.js'
 import { createStudyScratch, buildStudyLibrary } from '../../setupServer.js'
 
-const BRAND = Symbol.for('@orkestrel/study.error')
+const BRAND = Symbol.for('@orkestrel/study.StudyError')
 
 it('retains coded failure attribution and safely narrows caught values', () => {
 	const failure = {
