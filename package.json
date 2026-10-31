@@ -102,12 +102,12 @@
 		"@orkestrel/tool": "^0.0.20"
 	},
 	"devDependencies": {
-		"@microsoft/api-extractor": "^7.60.0",
-		"@orkestrel/guide": "^0.0.26",
+		"@microsoft/api-extractor": "^7.60.1",
+		"@orkestrel/guide": "^0.0.28",
 		"@orkestrel/mcp": "^0.0.40",
 		"@orkestrel/probe": "^0.0.26",
 		"@orkestrel/router": "^0.0.18",
-		"@orkestrel/scaffold": "^0.0.113",
+		"@orkestrel/scaffold": "^0.0.118",
 		"@orkestrel/server": "^0.0.24",
 		"@orkestrel/test": "^0.0.31",
 		"@types/node": "^24.19.2",
