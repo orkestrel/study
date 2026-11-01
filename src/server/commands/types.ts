@@ -7,7 +7,12 @@ import type {
 	StudyRubric,
 	StudyScenario,
 	StudyAncestor,
+	StudyRange,
+	StudySeed,
+	StudySelection,
+	StudyTrial,
 } from '@src/core'
+import type { JSONValue } from '@orkestrel/contract'
 import type { StudyArtifactLoader } from '../processes/StudyArtifactLoader.js'
 import type { StudyPacketBundle } from '../stores/types.js'
 import type { StudyExchangeDestination } from '../stores/types.js'
@@ -48,6 +53,38 @@ export interface StudyExecutionRequest {
 	readonly replay?: StudyOllamaReplaySelection
 	/** Extends a sealed open recording with a strict continuation of every scenario's goals. */
 	readonly extend?: string
+	/** Selects one scheduled trial by its id. */
+	readonly trial?: string
+	/** Projects every selected scenario to an inclusive goal range. */
+	readonly goals?: StudyRange
+	/** Opens the selected trial from a sealed source's checkpoint row. */
+	readonly seed?: StudySeedSelection
+}
+
+/** Names the sealed source result, source trial, and goal whose checkpoint row seeds an execution. */
+export interface StudySeedSelection {
+	readonly result: string
+	readonly trial: string
+	readonly goal: string
+}
+
+/** Holds a verified seed record and the checkpoint row value handed to the driver. */
+export interface StudySeedResult {
+	readonly seed: StudySeed
+	readonly value: JSONValue
+}
+
+/**
+ * Holds an execution's resolved selection with its projected population and seed value.
+ * @remarks
+ * `scenarios` and `schedule` equal the full declaration when `selection` is undefined; `seed` is
+ * the checkpoint row value the selected trial opens from, undefined when it opens fresh.
+ */
+export interface StudySegment {
+	readonly scenarios: readonly StudyScenario[]
+	readonly schedule: readonly StudyTrial[]
+	readonly selection: StudySelection | undefined
+	readonly seed: JSONValue | undefined
 }
 
 /** Holds an admitted continuation's derived replay selection and immediate sealed ancestor. */

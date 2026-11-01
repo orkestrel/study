@@ -174,6 +174,39 @@ export interface StudyAncestor {
 	readonly identity: StudyIdentity
 }
 
+/** Holds an inclusive goal range named by its first and last goal ids. */
+export interface StudyRange {
+	readonly first: string
+	readonly last: string
+}
+
+/**
+ * Identifies the sealed `checkpoint` evidence row a seeded execution opens its trial from.
+ * @remarks
+ * `result` and `seal` name the sealed source, `trial` and `goal` the row's source trial and goal,
+ * and `digest` the SHA-256 of the row's canonical JSON bytes.
+ */
+export interface StudySeed {
+	readonly result: string
+	readonly seal: string
+	readonly trial: string
+	readonly goal: string
+	readonly digest: string
+}
+
+/**
+ * Holds the execute-time segment an execution selected from its declared population.
+ * @remarks
+ * `trial` names the one scheduled trial, `goals` the inclusive goal range every selected scenario
+ * was projected to, and `seed` the checkpoint row the trial opened from; each is undefined when its
+ * selector was not given. The identity's full-scenario fixture digest stays unchanged beside it.
+ */
+export interface StudySelection {
+	readonly trial: string | undefined
+	readonly goals: StudyRange | undefined
+	readonly seed: StudySeed | undefined
+}
+
 /** Holds the execution declaration sealed before any trial begins. */
 export interface StudyManifest {
 	readonly id: string
@@ -188,6 +221,8 @@ export interface StudyManifest {
 	/** Copies the profile's recording declaration before any trial starts. */
 	readonly record?: StudyRecord | undefined
 	readonly ancestor?: StudyAncestor
+	/** Records the selected segment; absent when no selector was given. */
+	readonly selection?: StudySelection
 }
 
 /**
@@ -316,9 +351,10 @@ export interface StudyDriverInterface {
 	/** Creates fresh domain state for one scheduled trial.
 	 * @param trial - The scheduled scenario, arm, and repetition.
 	 * @param signal - The caller's cancellation.
+	 * @param seed - The row value a seeded execution hands the trial; undefined opens fresh state.
 	 * @returns The isolated session for this trial.
 	 */
-	open(trial: StudyTrial, signal: AbortSignal): Promise<StudySessionInterface>
+	open(trial: StudyTrial, signal: AbortSignal, seed?: JSONValue): Promise<StudySessionInterface>
 }
 
 /** Holds the retained outcome of a scheduled goal. */
@@ -362,6 +398,8 @@ export interface StudySeriesOptions {
 	readonly driver: StudyDriverInterface
 	readonly store: StudyStoreInterface
 	readonly signal: AbortSignal
+	/** Holds the checkpoint row value handed to each trial's opening; absent opens fresh state. */
+	readonly seed?: JSONValue
 }
 
 /** Holds a grader-owned criterion outside the driver's public input. */
@@ -410,6 +448,8 @@ export interface StudyAssessment {
 	readonly labels: string | undefined
 	/** Binds the retained public packet and private mapping when semantic criteria exist. */
 	readonly packet?: string
+	/** Lists the tracked rubric's criterion ids a goal range dropped, in rubric order; absent without a goal range. */
+	readonly unselected?: readonly string[]
 	readonly judgments: readonly StudyJudgment[]
 }
 

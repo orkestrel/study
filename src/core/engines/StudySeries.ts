@@ -13,7 +13,7 @@ import type {
 import { Budget } from '@orkestrel/budget'
 import { canonicalStringify, cloneJSONValue } from '@orkestrel/contract'
 import { isStudyError, StudyError } from '../errors.js'
-import { buildStudySchedule } from '../helpers.js'
+import { buildStudySchedule, filterStudySchedule } from '../helpers.js'
 import { isStudyBounds, isStudyProduct } from '../validators.js'
 import { computeStudyOutputStop, readStudyFailure } from './helpers.js'
 import { StudyControl } from './StudyControl.js'
@@ -43,7 +43,10 @@ export class StudySeries {
 		if (this.#executed) throw new StudyError('CONFIG', 'Study series can execute only once')
 		this.#executed = true
 		const manifest = this.#options.manifest
-		const expected = buildStudySchedule(manifest.definition, manifest.scenarios)
+		const expected = filterStudySchedule(
+			buildStudySchedule(manifest.definition, manifest.scenarios),
+			manifest.selection?.trial,
+		)
 		if (
 			!isStudyBounds(manifest.bounds) ||
 			canonicalStringify(expected) !== canonicalStringify(manifest.schedule)

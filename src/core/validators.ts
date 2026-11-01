@@ -720,7 +720,7 @@ export function isStudyAssessment(value: unknown): value is StudyAssessment {
 			matchesStudyKeys(
 				value,
 				['result', 'rubric', 'grader', 'instrument', 'attempts', 'judgments'],
-				['labels', 'packet'],
+				['labels', 'packet', 'unselected'],
 			) &&
 			isStudyDigest(value.result) &&
 			isStudyDigest(value.rubric) &&
@@ -729,6 +729,11 @@ export function isStudyAssessment(value: unknown): value is StudyAssessment {
 			value.grader.trim().length > 0 &&
 			(value.labels === undefined || isStudyDigest(value.labels)) &&
 			(value.packet === undefined || isStudyDigest(value.packet)) &&
+			(value.unselected === undefined ||
+				(isArray(value.unselected) &&
+					isJSONValue(value.unselected) &&
+					value.unselected.every(isStudyName) &&
+					new Set(value.unselected).size === value.unselected.length)) &&
 			isArray(value.attempts) &&
 			isJSONValue(value.attempts) &&
 			value.attempts.every(isStudyName) &&

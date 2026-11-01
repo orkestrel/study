@@ -3,8 +3,12 @@ import { createScratch, supportsFileLinks } from '@orkestrel/test/server'
 import { appendFile, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { isRecord } from '@orkestrel/contract'
+import { isArray, isRecord, parseJSON } from '@orkestrel/contract'
+import { requireValue } from '@orkestrel/test'
+import { createHash } from 'node:crypto'
 import {
+	buildCompactCustodyManifest,
+	buildCustodyAttempt,
 	buildCustodyManifest,
 	buildStudyAttempt,
 	buildStudyFailure,
@@ -27,6 +31,8 @@ import {
 	retainStudyFixture,
 	ARTIFACT_CLOSURE_FILES,
 	buildArtifactClosureOptions,
+	STUDY_SELECTION_NUMBERS,
+	STUDY_SELECTION_SEED,
 } from '../../../setupServer.js'
 import {
 	collectStudyEvidence,
@@ -40,8 +46,10 @@ import {
 	readStudyDeclaration,
 	readStudyDeclarationBytes,
 	readStudyClosure,
+	readStudySeed,
 	resolveStudyClosurePath,
 } from '../../../../src/server/commands/helpers.js'
+import { STUDY_CHECKPOINT_EVENT } from '../../../../src/server/commands/constants.js'
 import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
 import { buildStudyProfile } from '../../../setupStudy.js'
 import { buildStudyStop } from '../../../setupStudy.js'
@@ -795,4 +803,103 @@ describe('study command helpers', () => {
 			}
 		},
 	)
+})
+
+describe('study selection helpers', () => {
+	it('reads exactly one checkpoint row of a scheduled source trial as a seed', async () => {
+		const scratch = createScratch()
+		try {
+			const row = { event: STUDY_CHECKPOINT_EVENT, goal: 'write', value: { state: 'g2' } }
+			const saved = { event: 'saved', goal: 'write', value: 'remember' }
+			const manifest = buildCompactCustodyManifest()
+			const trial = requireValue(manifest.schedule[0])
+			const result = await retainStudyFixture(join(scratch.path, 'one'), manifest, [saved, row])
+			expect(STUDY_CHECKPOINT_EVENT).toBe('checkpoint')
+			await expect(readStudySeed(result, trial.id, 'write')).resolves.toEqual({
+				seed: {
+					result: result.manifest.id,
+					seal: result.seal.id,
+					trial: trial.id,
+					goal: 'write',
+					digest: createHash('sha256')
+						.update('{"event":"checkpoint","goal":"write","value":{"state":"g2"}}\n')
+						.digest('hex'),
+				},
+				value: { state: 'g2' },
+			})
+			await expect(readStudySeed(result, trial.id, 'read')).rejects.toMatchObject({
+				code: 'CUSTODY',
+			})
+			await expect(readStudySeed(result, 'r9-s9-a9', 'write')).rejects.toMatchObject({
+				code: 'CUSTODY',
+			})
+			const doubled = await retainStudyFixture(join(scratch.path, 'two'), manifest, [row, row])
+			await expect(readStudySeed(doubled, trial.id, 'write')).rejects.toMatchObject({
+				code: 'CUSTODY',
+			})
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('binds a selection into the execution fingerprint and keeps a selection-free one unchanged', () => {
+		const manifest = buildCustodyManifest()
+		const { identity, bounds, definition } = manifest
+		const plain = computeStudyCommandFingerprint(identity, bounds, definition)
+		const selections = [
+			{ trial: 'r1-s1-a1', goals: undefined, seed: undefined },
+			{ trial: undefined, goals: { first: 'write', last: 'write' }, seed: undefined },
+			{ trial: 'r1-s1-a1', goals: undefined, seed: STUDY_SELECTION_SEED },
+		]
+		const prints = [undefined, ...selections].map((selection) =>
+			computeStudyCommandFingerprint(identity, bounds, definition, undefined, selection),
+		)
+		expect(prints[0]).toBe(plain)
+		expect(new Set([plain, ...prints]).size).toBe(4)
+	})
+
+	it('reports a one-trial selection over its scheduled arm and repetition with every number finite', () => {
+		const base = buildCustodyManifest()
+		const trial = requireValue(base.schedule.find((entry) => entry.id === 'r2-s1-a2'))
+		const selection = { trial: trial.id, goals: undefined, seed: undefined }
+		const manifest = { ...base, schedule: [trial], selection }
+		const result = buildStudyReportResult([buildCustodyAttempt(manifest, trial)], manifest)
+		const rubric = buildStudyRubric()
+		const assessment = { ...buildCustodyGrading(result, rubric), unselected: ['second-write'] }
+		const report = computeStudyReport(result, rubric, assessment)
+		expect(report).toMatchObject({
+			population: 'Selected segment of the declared trial and criterion horizon',
+			selection: { trial: 'r2-s1-a2' },
+			unselected: ['second-write'],
+			scores: [{ arm: 'large', total: 2 }],
+			repetitions: [{ repetition: 1, arms: [{ arm: 'large', total: 2 }] }],
+		})
+		const wire = parseJSON(JSON.stringify(report))
+		if (!isRecord(wire) || !isArray(wire.scores) || !isArray(wire.repetitions))
+			throw new Error('Missing selected report rows')
+		const rows = [
+			...wire.scores,
+			...wire.repetitions.flatMap((repetition) =>
+				isRecord(repetition) && isArray(repetition.arms) ? repetition.arms : [],
+			),
+		].filter(isRecord)
+		expect(rows).toHaveLength(2)
+		const readings = rows.flatMap((row) => STUDY_SELECTION_NUMBERS.map((key) => row[key]))
+		expect(readings).toHaveLength(16)
+		expect(readings.every(Number.isFinite)).toBe(true)
+		const full = buildStudyReportResult(
+			base.schedule.map((entry) => buildCustodyAttempt(base, entry)),
+			base,
+		)
+		const unselected = computeStudyReport(full, rubric, buildCustodyGrading(full, rubric))
+		expect(unselected).not.toHaveProperty('selection')
+		expect(unselected).not.toHaveProperty('unselected')
+		expect(unselected).toMatchObject({
+			population: 'Complete declared trial and criterion horizon',
+			repetitions: [
+				{ repetition: 0, arms: [{ arm: 'small' }, { arm: 'large' }] },
+				{ repetition: 1, arms: [{ arm: 'small' }, { arm: 'large' }] },
+			],
+		})
+	})
 })

@@ -425,6 +425,18 @@ it('requires SHA bindings, unique attempts and exact grading keys', () => {
 	expect(isStudyAssessment({ ...assessment, typo: true })).toBe(false)
 })
 
+it('admits a unique unselected criterion list on a grading and refuses a malformed one', () => {
+	const assessment = buildStudyGrading(buildStudyManifest().schedule)
+	expect(isStudyAssessment(assessment)).toBe(true)
+	expect(isStudyAssessment({ ...assessment, unselected: ['first-read', 'second-read'] })).toBe(true)
+	expect(isStudyAssessment({ ...assessment, unselected: [] })).toBe(true)
+	expect(isStudyAssessment({ ...assessment, unselected: ['first-read', 'first-read'] })).toBe(false)
+	expect(isStudyAssessment({ ...assessment, unselected: ['First-read'] })).toBe(false)
+	expect(isStudyAssessment({ ...assessment, unselected: 'first-read' })).toBe(false)
+	expect(isStudyAssessment({ ...assessment, unselected: [1] })).toBe(false)
+	expect(isStudyAssessment({ ...assessment, unselected: undefined })).toBe(true)
+})
+
 it('contains hostile property reads and cyclic unknown data in total guards', () => {
 	const hostile = new Proxy(
 		{},

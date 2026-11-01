@@ -38,6 +38,12 @@ export class StudyLauncher {
 				if (this.#interruption.signal.aborted) return 130
 				return (await this.#launch(entry, arguments_, STUDY_LAUNCH_DURATION, true)).code
 			}
+			const { trial, goals, seed } = request
+			const selectors = [
+				...(trial === undefined ? [] : ['--trial', trial]),
+				...(goals === undefined ? [] : ['--goals', goals.first + '..' + goals.last]),
+				...(seed === undefined ? [] : ['--seed', seed.result + ':' + seed.trial + ':' + seed.goal]),
+			]
 			const check = [
 				'check',
 				request.target,
@@ -45,6 +51,7 @@ export class StudyLauncher {
 				request.profile,
 				...(request.closure === undefined ? [] : ['--closure', request.closure]),
 				...(request.extend === undefined ? [] : ['--extend', request.extend]),
+				...selectors,
 			]
 			const reading = await this.#launch(entry, check, STUDY_LAUNCH_DURATION, false)
 			if (reading.code !== 0) {
@@ -83,6 +90,7 @@ export class StudyLauncher {
 							'--offline',
 							String(request.replay.offline),
 						]),
+				...selectors,
 				'--expected',
 				value.fingerprint,
 			]

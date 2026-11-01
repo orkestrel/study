@@ -1,4 +1,5 @@
 import type { StudyDriverInterface, StudySessionInterface, StudyTrial } from '@src/core'
+import type { JSONValue } from '@orkestrel/contract'
 import type {
 	StudyProcessDriverOptions,
 	StudyProcessOptions,
@@ -34,9 +35,14 @@ export class StudyProcessDriver implements StudyDriverInterface {
 	/** Opens isolated child state and waits for its verified readiness.
 	 * @param trial - The public scheduled trial.
 	 * @param signal - Authoritative parent cancellation.
+	 * @param seed - The checkpoint row value the worker hands its driver; undefined opens fresh state.
 	 * @returns A ready process-backed session.
 	 */
-	async open(trial: StudyTrial, signal: AbortSignal): Promise<StudySessionInterface> {
+	async open(
+		trial: StudyTrial,
+		signal: AbortSignal,
+		seed?: JSONValue,
+	): Promise<StudySessionInterface> {
 		signal.throwIfAborted()
 		const owned = structuredClone(trial)
 		const destination = this.#options.exchanges?.[owned.id]
@@ -63,6 +69,7 @@ export class StudyProcessDriver implements StudyDriverInterface {
 			trial: owned,
 			signal,
 			...(prepared === undefined ? {} : { exchanges: { [owned.id]: prepared } }),
+			...(seed === undefined ? {} : { seed: structuredClone(seed) }),
 		})
 		try {
 			await session.start()

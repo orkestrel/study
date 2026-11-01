@@ -4,6 +4,9 @@ import { expect, it } from 'vitest'
 import {
 	buildStudySchedule,
 	computeStudyScores,
+	filterStudyCriteria,
+	filterStudyGoals,
+	filterStudySchedule,
 	matchesStudyKeys,
 	normalizeStudyProfile,
 	omitStudyAbsent,
@@ -421,4 +424,79 @@ it('projects each unknown stop reading to null and preserves distinct known read
 		max: null,
 		consumed: null,
 	})
+})
+
+it('filters a schedule to the trial a selection names and keeps every trial without one', () => {
+	const schedule = buildStudyManifest().schedule
+	expect(filterStudySchedule(schedule, undefined)).toEqual(schedule)
+	expect(filterStudySchedule(schedule, 'r2-s1-a2')).toEqual([
+		{ id: 'r2-s1-a2', scenario: 'first', arm: 'large', repetition: 1 },
+	])
+	expect(filterStudySchedule(schedule, 'r9-s9-a9')).toEqual([])
+	expect(filterStudySchedule([], 'r1-s1-a1')).toEqual([])
+	expect(schedule).toHaveLength(8)
+})
+
+it('projects goals to an inclusive declared range and refuses an absent or reversed range as empty', () => {
+	const goals = ['g1', 'g2', 'g3', 'g4'].map((id) => ({ id, input: id }))
+	expect(filterStudyGoals(goals, undefined)).toEqual(goals)
+	expect(filterStudyGoals(goals, { first: 'g2', last: 'g3' })).toEqual([goals[1], goals[2]])
+	expect(filterStudyGoals(goals, { first: 'g3', last: 'g3' })).toEqual([goals[2]])
+	expect(filterStudyGoals(goals, { first: 'g1', last: 'g4' })).toEqual(goals)
+	expect(filterStudyGoals(goals, { first: 'g3', last: 'g2' })).toEqual([])
+	expect(filterStudyGoals(goals, { first: 'g0', last: 'g2' })).toEqual([])
+	expect(filterStudyGoals(goals, { first: 'g2', last: 'g9' })).toEqual([])
+	expect(filterStudyGoals([], { first: 'g1', last: 'g1' })).toEqual([])
+	expect(goals.map((goal) => goal.id)).toEqual(['g1', 'g2', 'g3', 'g4'])
+})
+
+it('keeps the criteria whose scenario and goal the scenarios declare, in rubric order', () => {
+	const criteria = buildStudyRubric().criteria
+	const scenarios = [buildStudyScenario('second'), buildStudyScenario()]
+	expect(filterStudyCriteria(criteria, scenarios)).toEqual(criteria)
+	const projected = [{ id: 'second', goals: [{ id: 'read', input: [] }] }, buildStudyScenario()]
+	expect(filterStudyCriteria(criteria, projected).map((criterion) => criterion.id)).toEqual([
+		'first-write',
+		'first-read',
+		'second-read',
+	])
+	expect(filterStudyCriteria(criteria, [])).toEqual([])
+	expect(filterStudyCriteria([], scenarios)).toEqual([])
+})
+
+it('scores a selected manifest over its scheduled arms and leaves an unselected manifest unchanged', () => {
+	const manifest = buildStudyManifest()
+	const rubric = buildStudyRubric()
+	const unselected = computeStudyScores(manifest, rubric, buildStudyGrading(manifest.schedule))
+	expect(unselected.map((score) => score.arm)).toEqual(['small', 'large'])
+	const schedule = manifest.schedule.filter((trial) => trial.id === 'r2-s1-a2')
+	const selection = { trial: 'r2-s1-a2', goals: undefined, seed: undefined }
+	const selected = { ...manifest, schedule, selection }
+	const scores = computeStudyScores(
+		selected,
+		rubric,
+		buildStudyGrading(schedule, [buildStudyJudgment('r2-s1-a2')]),
+	)
+	expect(scores).toEqual([
+		{
+			arm: 'large',
+			total: 2,
+			achieved: 1,
+			unsuccessful: 0,
+			unknown: 1,
+			critical: 0,
+			lower: 0.5,
+			upper: 1,
+			coverage: 0.5,
+		},
+	])
+	expect(
+		scores.flatMap((score) => [score.lower, score.upper, score.coverage]).every(Number.isFinite),
+	).toBe(true)
+	expect(() =>
+		computeStudyScores({ ...manifest, selection }, rubric, buildStudyGrading(manifest.schedule)),
+	).toThrow(/Manifest schedule differs/)
+	expect(() =>
+		computeStudyScores({ ...manifest, schedule }, rubric, buildStudyGrading(schedule)),
+	).toThrow(/Manifest schedule differs/)
 })

@@ -1,5 +1,10 @@
-import type { StudyFailure, StudyProduct } from '../../../../src/core/types.js'
-import { createRecorder, waitForCondition } from '@orkestrel/test'
+import type {
+	StudyFailure,
+	StudyProduct,
+	StudySessionInterface,
+} from '../../../../src/core/types.js'
+import type { JSONValue } from '@orkestrel/contract'
+import { createRecorder, requireValue, waitForCondition } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import { StudySeries } from '../../../../src/core/engines/index.js'
 import { StudyError } from '../../../../src/core/errors.js'
@@ -454,5 +459,63 @@ describe('StudySeries', () => {
 		expect(second?.executed).toBe(false)
 		expect(second?.observations.map((observation) => observation.executed)).toEqual([false, false])
 		expect(driver.executed.calls).toEqual([['write']])
+	})
+
+	it('hands the seed to each trial opening, undefined without one, and checks the selected schedule', async () => {
+		const manifest = buildCompactCustodyManifest()
+		const trial = requireValue(manifest.schedule[1])
+		const selection = { trial: trial.id, goals: undefined, seed: undefined }
+		const selected = { ...manifest, schedule: [trial], selection }
+		const opened = createRecorder<readonly [string, JSONValue | undefined]>()
+		const custody = createStudyStoreFixture()
+		const seeded = await new StudySeries({
+			manifest: selected,
+			driver: {
+				async open(entry, _signal, seed): Promise<StudySessionInterface> {
+					opened.handler(entry.id, seed)
+					return {
+						async execute(goal): Promise<StudyProduct> {
+							return { value: goal.id, partial: false }
+						},
+						async close(): Promise<void> {},
+					}
+				},
+			},
+			store: custody.store,
+			signal: new AbortController().signal,
+			seed: { trial: 'r1-s1-a1', goal: 'read' },
+		}).execute()
+		expect(seeded.map((attempt) => attempt.trial.id)).toEqual([trial.id])
+		expect(seeded.every((attempt) => attempt.failure === undefined)).toBe(true)
+		const fresh = await new StudySeries({
+			manifest,
+			driver: {
+				async open(entry, _signal, seed): Promise<StudySessionInterface> {
+					opened.handler(entry.id, seed)
+					return {
+						async execute(goal): Promise<StudyProduct> {
+							return { value: goal.id, partial: false }
+						},
+						async close(): Promise<void> {},
+					}
+				},
+			},
+			store: custody.store,
+			signal: new AbortController().signal,
+		}).execute()
+		expect(fresh).toHaveLength(2)
+		expect(opened.calls).toEqual([
+			[trial.id, { trial: 'r1-s1-a1', goal: 'read' }],
+			['r1-s1-a1', undefined],
+			[trial.id, undefined],
+		])
+		await expect(
+			new StudySeries({
+				manifest: { ...manifest, selection },
+				driver: createStudyDriverFixture().driver,
+				store: custody.store,
+				signal: new AbortController().signal,
+			}).execute(),
+		).rejects.toMatchObject({ code: 'CONFIG' })
 	})
 })

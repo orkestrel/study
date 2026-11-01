@@ -86,6 +86,12 @@ import {
 	writeStudyConsumer,
 	writeStudyLauncherEntry,
 	writeStudyOrphan,
+	writeStudySelectionConsumer,
+	readStudySelectionOpens,
+	buildStudySelectionRefusals,
+	STUDY_SELECTION_GOALS,
+	STUDY_SELECTION_LOG,
+	STUDY_SELECTION_RUBRIC,
 } from './setupServer.js'
 import { readStudyResult, readStudyExchanges } from '../src/server/stores/helpers.js'
 import { validateStudyCaptureDeclaration, valueToWire } from '../src/server/processes/helpers.js'
@@ -1074,5 +1080,44 @@ it('builds a daemon consumer without starting a process and rejects malformed de
 			)
 	} finally {
 		await fixture.close()
+	}
+})
+
+it('writes a selection consumer whose arms set the schedule and builds its refusal rows', () => {
+	const scratch = createStudyConsumer((consumer) =>
+		writeStudySelectionConsumer(consumer, ['small', 'large']),
+	)
+	try {
+		expect(parseJSON(requireValue(scratch.read('studies/selection/study.json')))).toMatchObject({
+			name: 'selection',
+			purpose: 'mechanism',
+			driver: 'segments',
+			arms: ['small', 'large'],
+			order: [['small', 'large']],
+		})
+		const scenario = parseJSON(requireValue(scratch.read('studies/segments/scenarios/first.json')))
+		expect(scenario).toMatchObject({
+			id: 'first',
+			goals: STUDY_SELECTION_GOALS.map((goal) => ({ id: goal, input: goal })),
+		})
+		const rubric = parseJSON(requireValue(scratch.read(STUDY_SELECTION_RUBRIC)))
+		expect(isRecord(rubric) && isArray(rubric.criteria) ? rubric.criteria.length : 0).toBe(8)
+		expect(scratch.read('studies/segments/index.ts')).toContain(STUDY_SELECTION_LOG)
+		expect(readStudySelectionOpens(scratch)).toEqual([])
+		scratch.write(STUDY_SELECTION_LOG, '{"trial":"r1-s1-a1","seed":null}\n')
+		expect(readStudySelectionOpens(scratch)).toEqual([{ trial: 'r1-s1-a1', seed: null }])
+		const sources = { sealed: 'a', tampered: 'b', unsealed: 'c', other: 'd' }
+		const refusals = buildStudySelectionRefusals(sources, 'e'.repeat(64))
+		expect(refusals.map((refusal) => refusal.code)).toContain('CUSTODY')
+		expect(refusals.at(-1)?.tokens).toEqual([
+			'--trial',
+			'r1-s1-a1',
+			'--seed',
+			'd:r1-s1-a1:g2',
+			'--expected',
+			'e'.repeat(64),
+		])
+	} finally {
+		scratch.destroy()
 	}
 })

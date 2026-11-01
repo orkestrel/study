@@ -2,9 +2,12 @@ import { createStudyScratch } from '../../../setupServer.js'
 import { isRunning } from '@orkestrel/test/server'
 import { isArray, isRecord, parseJSON } from '@orkestrel/contract'
 import { createRecorder, requireValue } from '@orkestrel/test'
+import { createHash } from 'node:crypto'
+import { appendFileSync, cpSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { StudyCommand } from '../../../../src/server/commands/StudyCommand.js'
+import { parseStudyArguments } from '../../../../src/server/commands/parsers.js'
 import { parseStudyProfile } from '../../../../src/core/parsers.js'
 import { hashStudyBytes } from '../../../../src/server/helpers.js'
 import { STUDY_OPEN_BOUND_CASES, STUDY_OLLAMA_PARTIAL_ROW } from '../../../setupStudy.js'
@@ -30,6 +33,12 @@ import {
 	STUDY_CONTINUATION_DIVERGENCES,
 	STUDY_CONTINUATION_SOURCES,
 	STUDY_CONTINUATION_COMMANDS,
+	STUDY_SELECTION_NUMBERS,
+	STUDY_SELECTION_RUBRIC,
+	STUDY_SELECTION_ROW,
+	buildStudySelectionRefusals,
+	readStudySelectionOpens,
+	writeStudySelectionConsumer,
 } from '../../../setupServer.js'
 
 describe('recording and replay command handoff', () => {
@@ -933,4 +942,413 @@ describe('recording and replay command handoff', () => {
 			scratch.destroy()
 		}
 	}, 120000)
+})
+
+describe('selection', () => {
+	it('selection: one trial of two', async () => {
+		const scratch = createStudyConsumer((consumer) =>
+			writeStudySelectionConsumer(consumer, ['small', 'large']),
+		)
+		const signal = new AbortController().signal
+		try {
+			const entry = await buildStudyCLI(scratch)
+			const command = new StudyCommand({ root: scratch.path, entry })
+			const output = join(scratch.path, 'selected')
+			const rubric = join(scratch.path, 'studies', 'selection', 'rubric.json')
+			const tracked = hashStudyBytes(
+				Buffer.from(requireValue(scratch.read(STUDY_SELECTION_RUBRIC))),
+			)
+			await expect(
+				command.execute(['execute', 'selection', '--trial', 'r1-s1-a2', '--out', output], signal),
+			).resolves.toMatchObject({ status: 'completed' })
+			const result = await readStudyResult(output)
+			if (result.status !== 'sealed') throw new Error('One-trial selection did not seal')
+			expect(result.manifest.schedule.map((trial) => trial.id)).toEqual(['r1-s1-a2'])
+			expect(result.manifest.selection).toEqual({ trial: 'r1-s1-a2' })
+			expect(result.attempts.map((attempt) => attempt.trial.id)).toEqual(['r1-s1-a2'])
+			expect(readStudySelectionOpens(scratch)).toEqual([{ trial: 'r1-s1-a2', seed: null }])
+			const graded = await command.execute(['grade', output, '--rubric', rubric], signal)
+			if (!isRecord(graded) || typeof graded.assessment !== 'string')
+				throw new Error('Missing one-trial grading')
+			const grading = parseJSON(
+				requireValue(scratch.read(`selected/grades/${graded.assessment}/grading.json`)),
+			)
+			expect(grading).toMatchObject({ rubric: tracked })
+			expect(grading).not.toHaveProperty('unselected')
+			const reported = await command.execute(
+				['report', output, '--assessment', graded.assessment],
+				signal,
+			)
+			if (
+				!isRecord(reported) ||
+				!isRecord(reported.report) ||
+				!isArray(reported.report.scores) ||
+				!isArray(reported.report.repetitions)
+			)
+				throw new Error('Missing one-trial report')
+			expect(reported.report).toMatchObject({
+				selection: { trial: 'r1-s1-a2' },
+				population: 'Selected segment of the declared trial and criterion horizon',
+				scores: [{ arm: 'large', total: 8, achieved: 8, unknown: 0, lower: 1, upper: 1 }],
+				repetitions: [{ repetition: 0, arms: [{ arm: 'large', total: 8, achieved: 8 }] }],
+			})
+			expect(reported.report.scores).toHaveLength(1)
+			const rows = [
+				...reported.report.scores,
+				...reported.report.repetitions.flatMap((repetition) =>
+					isRecord(repetition) && isArray(repetition.arms) ? repetition.arms : [],
+				),
+			]
+			const records = rows.flatMap((row) => (isRecord(row) ? [row] : []))
+			expect(records).toHaveLength(2)
+			const readings = records.flatMap((row) => STUDY_SELECTION_NUMBERS.map((key) => row[key]))
+			expect(readings).toHaveLength(16)
+			expect(readings.every(Number.isFinite)).toBe(true)
+		} finally {
+			scratch.destroy()
+		}
+	}, 240000)
+
+	it('selection: a goal range', async () => {
+		const scratch = createStudyConsumer((consumer) =>
+			writeStudySelectionConsumer(consumer, ['small', 'large']),
+		)
+		const signal = new AbortController().signal
+		try {
+			const entry = await buildStudyCLI(scratch)
+			const command = new StudyCommand({ root: scratch.path, entry })
+			const output = join(scratch.path, 'ranged')
+			const rubric = join(scratch.path, 'studies', 'selection', 'rubric.json')
+			const tracked = hashStudyBytes(
+				Buffer.from(requireValue(scratch.read(STUDY_SELECTION_RUBRIC))),
+			)
+			const checked = await command.execute(['check', 'selection'], signal)
+			if (!isRecord(checked) || !isRecord(checked.identity))
+				throw new Error('Missing selection-free check')
+			await expect(
+				command.execute(['execute', 'selection', '--goals', 'g3..g5', '--out', output], signal),
+			).resolves.toMatchObject({ status: 'completed' })
+			const result = await readStudyResult(output)
+			if (result.status !== 'sealed') throw new Error('Goal range did not seal')
+			expect(result.manifest.selection).toEqual({ goals: { first: 'g3', last: 'g5' } })
+			expect(result.manifest.identity.fixtures).toBe(checked.identity.fixtures)
+			expect(
+				result.manifest.scenarios.map((scenario) => scenario.goals.map((goal) => goal.id)),
+			).toEqual([['g3', 'g4', 'g5']])
+			expect(
+				result.attempts.flatMap((attempt) =>
+					attempt.observations.map((observation) => [attempt.trial.id, observation.goal]),
+				),
+			).toEqual([
+				['r1-s1-a1', 'g3'],
+				['r1-s1-a1', 'g4'],
+				['r1-s1-a1', 'g5'],
+				['r1-s1-a2', 'g3'],
+				['r1-s1-a2', 'g4'],
+				['r1-s1-a2', 'g5'],
+			])
+			const graded = await command.execute(['grade', output, '--rubric', rubric], signal)
+			if (!isRecord(graded) || typeof graded.assessment !== 'string')
+				throw new Error('Missing goal-range grading')
+			const directory = `ranged/grades/${graded.assessment}`
+			const grading = parseJSON(requireValue(scratch.read(`${directory}/grading.json`)))
+			if (!isRecord(grading) || typeof grading.rubric !== 'string')
+				throw new Error('Missing goal-range grading record')
+			expect(grading.rubric).not.toBe(tracked)
+			const unselected = ['first-g1', 'first-g2', 'first-g6', 'first-g7', 'first-g8']
+			expect(grading.unselected).toEqual(unselected)
+			const projected = parseJSON(
+				requireValue(scratch.read(`${directory}/${grading.rubric}.rubric.json`)),
+			)
+			expect(projected).toMatchObject({
+				criteria: [{ id: 'first-g3' }, { id: 'first-g4' }, { id: 'first-g5' }],
+			})
+			const reported = await command.execute(
+				['report', output, '--assessment', graded.assessment],
+				signal,
+			)
+			expect(reported).toMatchObject({
+				report: {
+					selection: { goals: { first: 'g3', last: 'g5' } },
+					unselected,
+					scores: [
+						{ arm: 'small', total: 3, achieved: 3 },
+						{ arm: 'large', total: 3, achieved: 3 },
+					],
+					operations: { goals: { scheduled: 6, executed: 6, unexecuted: 0 } },
+				},
+			})
+		} finally {
+			scratch.destroy()
+		}
+	}, 240000)
+
+	it('selection: a seed from a sealed result', async () => {
+		const scratch = createStudyConsumer((consumer) =>
+			writeStudySelectionConsumer(consumer, ['small', 'large']),
+		)
+		const signal = new AbortController().signal
+		try {
+			const entry = await buildStudyCLI(scratch)
+			const command = new StudyCommand({ root: scratch.path, entry })
+			const source = join(scratch.path, 'source')
+			const output = join(scratch.path, 'seeded')
+			const rubric = join(scratch.path, 'studies', 'selection', 'rubric.json')
+			await command.execute(['execute', 'selection', '--out', source], signal)
+			const sealed = await readStudyResult(source)
+			if (sealed.status !== 'sealed') throw new Error('Seed source did not seal')
+			const selectors = ['--trial', 'r1-s1-a1', '--goals', 'g3..g5']
+			const seed = ['--seed', `${source}:r1-s1-a1:g2`]
+			await expect(
+				command.execute(['execute', 'selection', ...selectors, ...seed, '--out', output], signal),
+			).resolves.toMatchObject({ status: 'completed' })
+			expect(readStudySelectionOpens(scratch)).toEqual([
+				{ trial: 'r1-s1-a1', seed: null },
+				{ trial: 'r1-s1-a2', seed: null },
+				{ trial: 'r1-s1-a1', seed: { trial: 'r1-s1-a1', goal: 'g2' } },
+			])
+			const result = await readStudyResult(output)
+			if (result.status !== 'sealed') throw new Error('Seeded selection did not seal')
+			expect(result.manifest.selection).toEqual({
+				trial: 'r1-s1-a1',
+				goals: { first: 'g3', last: 'g5' },
+				seed: {
+					result: sealed.manifest.id,
+					seal: sealed.seal.id,
+					trial: 'r1-s1-a1',
+					goal: 'g2',
+					digest: createHash('sha256').update(STUDY_SELECTION_ROW).digest('hex'),
+				},
+			})
+			const graded = await command.execute(['grade', output, '--rubric', rubric], signal)
+			if (!isRecord(graded) || typeof graded.assessment !== 'string')
+				throw new Error('Missing seeded grading')
+			const reported = await command.execute(
+				['report', output, '--assessment', graded.assessment],
+				signal,
+			)
+			expect(reported).toMatchObject({
+				report: {
+					selection: { trial: 'r1-s1-a1', seed: { result: sealed.manifest.id, goal: 'g2' } },
+					scores: [{ arm: 'small', total: 3, achieved: 3 }],
+				},
+			})
+		} finally {
+			scratch.destroy()
+		}
+	}, 240000)
+
+	it('selection: a seed on a one-trial schedule', async () => {
+		const scratch = createStudyConsumer((consumer) =>
+			writeStudySelectionConsumer(consumer, ['small']),
+		)
+		const signal = new AbortController().signal
+		try {
+			const entry = await buildStudyCLI(scratch)
+			const command = new StudyCommand({ root: scratch.path, entry })
+			const source = join(scratch.path, 'source')
+			const output = join(scratch.path, 'seeded')
+			const seed = ['--seed', `${source}:r1-s1-a1:g2`]
+			await command.execute(['execute', 'selection', '--out', source], signal)
+			await expect(
+				command.execute(['execute', 'selection', ...seed, '--out', output], signal),
+			).resolves.toMatchObject({ status: 'completed' })
+			expect(readStudySelectionOpens(scratch)).toEqual([
+				{ trial: 'r1-s1-a1', seed: null },
+				{ trial: 'r1-s1-a1', seed: { trial: 'r1-s1-a1', goal: 'g2' } },
+			])
+			const result = await readStudyResult(output)
+			if (result.status !== 'sealed') throw new Error('One-trial seed did not seal')
+			expect(result.manifest.schedule.map((trial) => trial.id)).toEqual(['r1-s1-a1'])
+			expect(result.manifest.selection).toMatchObject({ seed: { trial: 'r1-s1-a1', goal: 'g2' } })
+			expect(result.manifest.selection).not.toHaveProperty('trial')
+		} finally {
+			scratch.destroy()
+		}
+	}, 240000)
+
+	it('selection: refusals before any request', async () => {
+		const scratch = createStudyConsumer((consumer) =>
+			writeStudySelectionConsumer(consumer, ['small', 'large']),
+		)
+		const signal = new AbortController().signal
+		try {
+			const entry = await buildStudyCLI(scratch)
+			const command = new StudyCommand({ root: scratch.path, entry })
+			const sealed = join(scratch.path, 'source')
+			const other = join(scratch.path, 'other')
+			const tampered = join(scratch.path, 'tampered')
+			const unsealed = join(scratch.path, 'unsealed')
+			await command.execute(['execute', 'selection', '--out', sealed], signal)
+			await command.execute(['execute', 'selection', '--trial', 'r1-s1-a1', '--out', other], signal)
+			cpSync(sealed, tampered, { recursive: true })
+			cpSync(sealed, unsealed, { recursive: true })
+			appendFileSync(join(tampered, 'execution', 'trials', 'r1-s1-a1', 'evidence.jsonl'), '\n')
+			rmSync(join(unsealed, 'seal.json'))
+			const seed = ['--seed', `${sealed}:r1-s1-a1:g2`]
+			const checked = await command.execute(
+				['check', 'selection', '--trial', 'r1-s1-a1', ...seed],
+				signal,
+			)
+			if (!isRecord(checked) || typeof checked.fingerprint !== 'string')
+				throw new Error('Missing seeded check')
+			const opened = readStudySelectionOpens(scratch)
+			expect(opened).toHaveLength(3)
+			const refusals = buildStudySelectionRefusals(
+				{ sealed, tampered, unsealed, other },
+				checked.fingerprint,
+			)
+			for (const [index, refusal] of refusals.entries()) {
+				const output = join(scratch.path, `refused-${index}`)
+				await expect(
+					command.execute(['execute', 'selection', ...refusal.tokens, '--out', output], signal),
+				).rejects.toMatchObject({ code: refusal.code })
+				expect(scratch.has(`refused-${index}`)).toBe(false)
+			}
+			expect(readStudySelectionOpens(scratch)).toEqual(opened)
+		} finally {
+			scratch.destroy()
+		}
+	}, 240000)
+
+	it('selection: check binds the selection', async () => {
+		const scratch = createStudyConsumer((consumer) =>
+			writeStudySelectionConsumer(consumer, ['small', 'large']),
+		)
+		const signal = new AbortController().signal
+		try {
+			const entry = await buildStudyCLI(scratch)
+			const command = new StudyCommand({ root: scratch.path, entry })
+			const source = join(scratch.path, 'source')
+			const destination = join(scratch.path, 'frozen')
+			const seed = ['--seed', `${source}:r1-s1-a1:g2`]
+			await command.execute(['execute', 'selection', '--out', source], signal)
+			const plain = await command.execute(['check', 'selection'], signal)
+			const trial = await command.execute(['check', 'selection', '--trial', 'r1-s1-a2'], signal)
+			const goals = await command.execute(['check', 'selection', '--goals', 'g2..g4'], signal)
+			const seeded = await command.execute(
+				['check', 'selection', '--trial', 'r1-s1-a2', ...seed],
+				signal,
+			)
+			if (
+				!isRecord(plain) ||
+				!isRecord(trial) ||
+				!isRecord(goals) ||
+				!isRecord(seeded) ||
+				!isArray(trial.next) ||
+				!isArray(goals.next) ||
+				!isArray(seeded.next)
+			)
+				throw new Error('Missing selection checks')
+			expect(
+				new Set([plain.fingerprint, trial.fingerprint, goals.fingerprint, seeded.fingerprint]).size,
+			).toBe(4)
+			expect(plain).not.toHaveProperty('selection')
+			expect(trial).toMatchObject({
+				selection: { trial: 'r1-s1-a2' },
+				schedule: [{ id: 'r1-s1-a2' }],
+			})
+			expect(goals).toMatchObject({ selection: { goals: { first: 'g2', last: 'g4' } } })
+			expect(parseStudyArguments(trial.next.map(String))).toMatchObject({
+				command: 'execute',
+				trial: 'r1-s1-a2',
+				expected: trial.fingerprint,
+			})
+			expect(parseStudyArguments(goals.next.map(String))).toMatchObject({
+				goals: { first: 'g2', last: 'g4' },
+				expected: goals.fingerprint,
+			})
+			expect(parseStudyArguments(seeded.next.map(String))).toMatchObject({
+				trial: 'r1-s1-a2',
+				seed: { result: resolve(source), trial: 'r1-s1-a1', goal: 'g2' },
+				expected: seeded.fingerprint,
+			})
+			const frozen = await command.execute(
+				['freeze', 'selection', '--profile', 'local', '--to', destination],
+				signal,
+			)
+			const closed = await command.execute(['check', 'selection', '--closure', destination], signal)
+			const selected = await command.execute(
+				['check', 'selection', '--closure', destination, '--trial', 'r1-s1-a2'],
+				signal,
+			)
+			if (!isRecord(frozen) || !isRecord(closed) || !isRecord(selected))
+				throw new Error('Missing closure checks')
+			expect(closed.fingerprint).toBe(frozen.fingerprint)
+			expect(selected.fingerprint).not.toBe(frozen.fingerprint)
+			expect(selected).toMatchObject({ selection: { trial: 'r1-s1-a2' } })
+		} finally {
+			scratch.destroy()
+		}
+	}, 240000)
+
+	it('selection: replay', async () => {
+		const scratch = createStudyConsumer()
+		const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
+		const server = await createOllamaServer()
+		const signal = new AbortController().signal
+		try {
+			const subject = await buildStudyLibrary(
+				library,
+				resolve('src/server/ollama/StudyOllamaTransport.ts'),
+			)
+			writeStudyRecordingConsumer(scratch, server.url, subject, true)
+			const entry = await buildStudyCLI(scratch)
+			const command = new StudyCommand({ root: scratch.path, entry })
+			const recorded = join(scratch.path, 'recorded')
+			const goals = ['--goals', 'write..write']
+			await expect(
+				command.execute(['execute', 'assessment', ...goals, '--out', recorded], signal),
+			).resolves.toMatchObject({ status: 'completed' })
+			const source = await readStudyResult(recorded)
+			if (source.status !== 'sealed') throw new Error('Goal-range recording did not seal')
+			expect(source.manifest.selection).toEqual({ goals: { first: 'write', last: 'write' } })
+			const trial = requireValue(source.manifest.schedule[0])
+			const history = await readStudyExchanges(source, trial.id)
+			const replay = [
+				'--replay',
+				recorded,
+				'--prefix',
+				JSON.stringify({ [trial.id]: history.completion.count }),
+				'--offline',
+				'true',
+			]
+			const offline = join(scratch.path, 'offline')
+			const before = server.requests.length
+			const started = performance.now()
+			await expect(
+				command.execute(['execute', 'assessment', ...goals, '--out', offline, ...replay], signal),
+			).resolves.toMatchObject({ status: 'completed' })
+			process.stdout.write(
+				`Selection replay measurement: ${Math.round(performance.now() - started)} ms\n`,
+			)
+			const replayed = await readStudyResult(offline)
+			if (replayed.status !== 'sealed') throw new Error('Goal-range replay did not seal')
+			expect(replayed.manifest.selection).toEqual(source.manifest.selection)
+			expect(
+				replayed.attempts.flatMap((attempt) => attempt.observations.map((goal) => goal.product)),
+			).toEqual(
+				source.attempts.flatMap((attempt) => attempt.observations.map((goal) => goal.product)),
+			)
+			const checked = await command.execute(['check', 'assessment', ...goals], signal)
+			if (!isRecord(checked) || typeof checked.fingerprint !== 'string')
+				throw new Error('Missing goal-range check')
+			const pinned = ['--expected', checked.fingerprint, '--out', join(scratch.path, 'pinned')]
+			await expect(
+				command.execute(['execute', 'assessment', ...goals, ...pinned, ...replay], signal),
+			).resolves.toMatchObject({ status: 'completed' })
+			expect(server.requests.length).toBe(before)
+			const workers = scratch.read('workers.log')
+			const differing = ['--goals', 'write..recall', '--out', join(scratch.path, 'differing')]
+			await expect(
+				command.execute(['execute', 'assessment', ...differing, ...replay], signal),
+			).rejects.toMatchObject({ code: 'CONFIG' })
+			expect(scratch.read('workers.log')).toBe(workers)
+			expect(scratch.has('differing')).toBe(false)
+		} finally {
+			await server.close()
+			library.destroy()
+			scratch.destroy()
+		}
+	}, 240000)
 })

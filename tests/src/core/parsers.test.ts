@@ -228,3 +228,12 @@ it('owns daemon declarations at profile load and rejects missing model digests a
 			/Invalid.*profile/,
 		)
 })
+
+it('owns an unselected criterion list on a grading and leaves it out when absent', () => {
+	const assessment = buildStudyGrading(buildStudyManifest().schedule)
+	expect(parseStudyAssessment(assessment)).not.toHaveProperty('unselected')
+	const selected = parseStudyAssessment({ ...assessment, unselected: ['first-read'] })
+	expect(selected.unselected).toEqual(['first-read'])
+	expect(isStudyAssessment(selected)).toBe(true)
+	expect(() => parseStudyAssessment({ ...assessment, unselected: [''] })).toThrow(StudyError)
+})

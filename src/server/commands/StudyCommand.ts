@@ -1,4 +1,4 @@
-import type { StudyAssessment, StudyManifest } from '@src/core'
+import type { StudyAssessment, StudyDefinition, StudyManifest, StudyScenario } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
 import type { StudySealedResult } from '../stores/types.js'
 import type { StudyOllamaReplaySelection } from '../ollama/types.js'
@@ -14,10 +14,14 @@ import type {
 	StudyFreezeRequest,
 	StudyClosure,
 	StudyContinuation,
+	StudySegment,
 } from './types.js'
 import {
 	StudyError,
 	buildStudySchedule,
+	filterStudyCriteria,
+	filterStudyGoals,
+	filterStudySchedule,
 	validateStudyInputs,
 	parseStudyAssessment,
 	parseStudyLabels,
@@ -77,6 +81,7 @@ import {
 	readStudyDeclaration,
 	readStudyDeclarationBytes,
 	readStudyClosure,
+	readStudySeed,
 } from './helpers.js'
 import { parseStudyArguments } from './parsers.js'
 import { isStudyReplaySelection } from '../processes/validators.js'
@@ -110,7 +115,8 @@ export class StudyCommand {
 				request.extend === undefined ? undefined : await this.#extend(request, signal)
 			const preparation = await this.#prepare(request, signal)
 			if (continuation !== undefined) await this.#extend(request, signal, preparation)
-			return this.#check(preparation, continuation)
+			const segment = await this.#select(request, preparation.definition, preparation.scenarios)
+			return this.#check(request, preparation, segment, continuation)
 		}
 		if (request.command === 'execute') return this.#execution(request, signal)
 		if (request.command === 'freeze') return this.#freeze(request, signal)
@@ -297,13 +303,20 @@ export class StudyCommand {
 		return preparation
 	}
 
-	#check(preparation: StudyPreparation, continuation?: StudyContinuation): JSONValue {
+	#check(
+		request: StudyExecutionRequest,
+		preparation: StudyPreparation,
+		segment: StudySegment,
+		continuation?: StudyContinuation,
+	): JSONValue {
 		const fingerprint = computeStudyCommandFingerprint(
 			preparation.identity,
 			preparation.profile.bounds,
 			preparation.definition,
 			continuation?.ancestor.seal,
+			segment.selection,
 		)
+		const { trial, goals, seed } = request
 		return valueToWire({
 			command: 'check',
 			study: preparation.definition.name,
@@ -333,9 +346,63 @@ export class StudyCommand {
 					? []
 					: ['--closure', preparation.closure.closure.destination]),
 				...(continuation === undefined ? [] : ['--extend', continuation.replay.result]),
+				...(trial === undefined ? [] : ['--trial', trial]),
+				...(goals === undefined ? [] : ['--goals', goals.first + '..' + goals.last]),
+				...(seed === undefined
+					? []
+					: ['--seed', this.#location(seed.result) + ':' + seed.trial + ':' + seed.goal]),
 			],
-			schedule: buildStudySchedule(preparation.definition, preparation.scenarios),
+			schedule: segment.schedule,
+			...(segment.selection === undefined ? {} : { selection: segment.selection }),
 		})
+	}
+
+	// Resolves the request's selectors against the declaration before any request or result directory.
+	async #select(
+		request: StudyExecutionRequest,
+		definition: StudyDefinition,
+		scenarios: readonly StudyScenario[],
+	): Promise<StudySegment> {
+		const trials = filterStudySchedule(buildStudySchedule(definition, scenarios), request.trial)
+		if (trials.length === 0)
+			throw new StudyError(
+				'CONFIG',
+				`--trial ${request.trial ?? ''} names no scheduled trial; check lists the schedule`,
+			)
+		if (request.seed !== undefined && request.trial === undefined && trials.length > 1)
+			throw new StudyError(
+				'CONFIG',
+				'--seed requires --trial when the schedule holds more than one trial',
+			)
+		const named = new Set(trials.map((trial) => trial.scenario))
+		const projected = scenarios.map((scenario) =>
+			named.has(scenario.id)
+				? { ...scenario, goals: filterStudyGoals(scenario.goals, request.goals) }
+				: scenario,
+		)
+		if (projected.some((scenario) => scenario.goals.length === 0))
+			throw new StudyError(
+				'CONFIG',
+				'--goals must name two declared goals of every selected scenario, the first not after the last',
+			)
+		const seed =
+			request.seed === undefined
+				? undefined
+				: await readStudySeed(
+						await this.#result(request.seed.result),
+						request.seed.trial,
+						request.seed.goal,
+					)
+		const selection =
+			request.trial === undefined && request.goals === undefined && seed === undefined
+				? undefined
+				: { trial: request.trial, goals: request.goals, seed: seed?.seed }
+		return {
+			scenarios: selection === undefined ? scenarios : projected,
+			schedule: filterStudySchedule(buildStudySchedule(definition, projected), request.trial),
+			selection,
+			seed: seed?.value,
+		}
 	}
 
 	async #execution(request: StudyExecutionRequest, signal: AbortSignal): Promise<JSONValue> {
@@ -354,11 +421,13 @@ export class StudyCommand {
 				: { result: source.manifest.id, seal: source.seal.id, identity: source.manifest.identity })
 		const preparation = await this.#prepare(request, signal)
 		if (continuation !== undefined) await this.#extend(request, signal, preparation)
+		const segment = await this.#select(request, preparation.definition, preparation.scenarios)
 		const fingerprint = computeStudyCommandFingerprint(
 			preparation.identity,
 			preparation.profile.bounds,
 			preparation.definition,
 			continuation?.ancestor.seal,
+			segment.selection,
 		)
 		if (request.expected !== undefined && request.expected !== fingerprint)
 			throw new StudyError('CONFIG', 'Validated execution changed after the supervisor check')
@@ -376,7 +445,7 @@ export class StudyCommand {
 					? undefined
 					: new StudyDaemonSession({
 							profile: preparation.profile,
-							scenarios: preparation.scenarios,
+							scenarios: segment.scenarios,
 							workspace: scratch,
 							signal,
 						})
@@ -386,10 +455,11 @@ export class StudyCommand {
 					id,
 					created: new Date().toISOString(),
 					definition: preparation.definition,
-					scenarios: preparation.scenarios,
+					scenarios: segment.scenarios,
 					identity: preparation.identity,
 					...(ancestor === undefined ? {} : { ancestor }),
-					schedule: buildStudySchedule(preparation.definition, preparation.scenarios),
+					...(segment.selection === undefined ? {} : { selection: segment.selection }),
+					schedule: segment.schedule,
 					bounds: preparation.profile.bounds,
 					...(preparation.profile.record === undefined
 						? {}
@@ -412,9 +482,7 @@ export class StudyCommand {
 						: Object.fromEntries(
 								await Promise.all(
 									manifest.schedule.map(async (trial) => {
-										const scenario = preparation.scenarios.find(
-											(entry) => entry.id === trial.scenario,
-										)
+										const scenario = segment.scenarios.find((entry) => entry.id === trial.scenario)
 										if (scenario === undefined)
 											throw new StudyError('CONFIG', 'Recording scenario is absent')
 										const prefix = replay?.prefix[trial.id]
@@ -451,7 +519,13 @@ export class StudyCommand {
 					...(replay === undefined ? {} : { replay }),
 					...(daemon === undefined ? {} : { prepare: daemon.prepare.bind(daemon) }),
 				})
-				const attempts = await new StudySeries({ manifest, driver, store, signal }).execute()
+				const attempts = await new StudySeries({
+					manifest,
+					driver,
+					store,
+					signal,
+					...(segment.seed === undefined ? {} : { seed: segment.seed }),
+				}).execute()
 				await daemon?.stop()
 				preparation.artifacts.verify()
 				const seal = await store.seal()
@@ -631,10 +705,22 @@ export class StudyCommand {
 			parseStudyProfile(decodeStudyJSON(bytes)),
 			closure?.closure,
 		)
-		const schedule = buildStudySchedule(definition, scenarios)
+		const segment = await this.#select(request, definition, scenarios)
+		const retained = source.manifest.selection
+		if (
+			(segment.selection === undefined
+				? undefined
+				: hashStudyBytes(encodeStudyJSON(segment.selection))) !==
+			(retained === undefined ? undefined : hashStudyBytes(encodeStudyJSON(retained)))
+		)
+			throw new StudyError(
+				'CONFIG',
+				'Replay selection differs from its source; repeat the --trial, --goals, and --seed the source used',
+			)
+		const schedule = segment.schedule
 		if (
 			canonicalStringify(definition) !== canonicalStringify(source.manifest.definition) ||
-			canonicalStringify(scenarios) !== canonicalStringify(source.manifest.scenarios) ||
+			canonicalStringify(segment.scenarios) !== canonicalStringify(source.manifest.scenarios) ||
 			canonicalStringify(schedule) !== canonicalStringify(source.manifest.schedule) ||
 			computeStudyFixtureDigest(definition, fixtures) !== source.manifest.identity.fixtures ||
 			Object.keys(selection.prefix).length !== schedule.length ||
@@ -662,7 +748,14 @@ export class StudyCommand {
 			throw new StudyError('CONFIG', 'Replay runtime declaration changed')
 		if (
 			request.expected !== undefined &&
-			request.expected !== computeStudyCommandFingerprint(identity, profile.bounds, definition)
+			request.expected !==
+				computeStudyCommandFingerprint(
+					identity,
+					profile.bounds,
+					definition,
+					undefined,
+					segment.selection,
+				)
 		)
 			throw new StudyError('CONFIG', 'Replay execution bounds or declaration changed after check')
 		artifacts.verify()
@@ -671,8 +764,18 @@ export class StudyCommand {
 
 	async #grade(request: StudyGradeRequest, signal: AbortSignal): Promise<JSONValue> {
 		const result = await this.#result(request.target)
-		const bytes = await readStudyBytes(this.#file(request.rubric), STUDY_CUSTODY_BYTES)
-		const rubric = parseStudyRubric(decodeStudyJSON(bytes))
+		const tracked = await readStudyBytes(this.#file(request.rubric), STUDY_CUSTODY_BYTES)
+		const declared = parseStudyRubric(decodeStudyJSON(tracked))
+		// A goal range grades the projected rubric, retained under its own digest; otherwise the tracked bytes stay.
+		const ranged = result.manifest.selection?.goals !== undefined
+		const criteria = filterStudyCriteria(declared.criteria, result.manifest.scenarios)
+		const rubric = ranged ? { ...declared, criteria } : declared
+		const bytes = ranged ? encodeStudyJSON(rubric) : tracked
+		const unselected = ranged
+			? declared.criteria
+					.filter((criterion) => !criteria.includes(criterion))
+					.map((criterion) => criterion.id)
+			: undefined
 		const evidence = await collectStudyEvidence(result)
 		signal.throwIfAborted()
 		const roots = parseJSON(result.manifest.host.roots ?? '')
@@ -707,6 +810,7 @@ export class StudyCommand {
 			labels: undefined,
 			judgments,
 			...(packet === undefined ? {} : { packet: computeStudyPacketDigest(packet) }),
+			...(unselected === undefined ? {} : { unselected }),
 		}
 		const store = new StudyAssessmentStore({
 			result,

@@ -4,10 +4,13 @@ export const STUDY_COMMAND_DURATION = 86400000
 /** Names the trusted command's independent offline predicate. */
 export const STUDY_COMMAND_GRADER = 'consumer-adapter'
 
+/** Names the evidence event whose row a seeded execution hands its trial at open. */
+export const STUDY_CHECKPOINT_EVENT = 'checkpoint'
+
 /** Defines the complete public CLI reference shared by help and grammar diagnostics. */
-export const STUDY_COMMAND_HELP = `study check <study> [--profile <name>] [--closure <directory>] [--extend <result>]
+export const STUDY_COMMAND_HELP = `study check <study> [--profile <name>] [--closure <directory>] [--extend <result>] [--trial <name>] [--goals <first>..<last>] [--seed <result>:<trial>:<goal>]
 study freeze <study> --profile <name> --to <directory>
-study execute <study> [--profile <name>] [--out <path>] [--expected <sha256>] [--closure <directory>] [--extend <result> | --replay <result> --prefix <JSON trial counts> --offline <true|false>]
+study execute <study> [--profile <name>] [--out <path>] [--expected <sha256>] [--closure <directory>] [--extend <result> | --replay <result> --prefix <JSON trial counts> --offline <true|false>] [--trial <name>] [--goals <first>..<last>] [--seed <result>:<trial>:<goal>]
 study grade <result> --rubric <path>
 study label <result> --assessment <sha256> --labels <path>
 study report <result> --assessment <sha256>
@@ -25,6 +28,7 @@ Output directories must be new; existing results are never overwritten.
 --closure selects retained artifacts. Replay requires explicit prefix counts and offline behavior.
 --extend continues a sealed open recording with further goals and requires a declared daemon.
 check carries --extend into next and binds the ancestor seal into its fingerprint.
+check binds --trial, --goals, and --seed into its fingerprint and carries them into next.
 Success writes one JSON document; next contains suggested argv, never executed automatically.
 check, freeze, grade, label, report and progress have a fixed allowance of 60 seconds.
 execute checks first, then uses the declared series duration plus 15 seconds for cleanup.

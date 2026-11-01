@@ -1,8 +1,11 @@
 import type {
 	StudyDefinition,
 	StudyAssessment,
+	StudyCriterion,
+	StudyGoal,
 	StudyManifest,
 	StudyProfile,
+	StudyRange,
 	StudyRubric,
 	StudyScenario,
 	StudyScore,
@@ -159,6 +162,66 @@ export function buildStudySchedule(
 }
 
 /**
+ * Returns the scheduled trials a selection names, or every trial when it names none.
+ * @param schedule - The built schedule
+ * @param trial - The selected trial id; undefined keeps every trial
+ * @returns The trials whose id equals `trial`, in schedule order
+ * @example
+ * ```ts
+ * filterStudySchedule(buildStudySchedule(definition, scenarios), 'r1-s1-a2') // [{ id: 'r1-s1-a2', … }]
+ * ```
+ */
+export function filterStudySchedule(
+	schedule: readonly StudyTrial[],
+	trial: string | undefined,
+): readonly StudyTrial[] {
+	return trial === undefined ? schedule : schedule.filter((entry) => entry.id === trial)
+}
+
+/**
+ * Returns the goals of an inclusive range named by its first and last goal ids, in declared order.
+ * @param goals - The declared goals of one scenario
+ * @param range - The inclusive range; undefined keeps every goal
+ * @returns The goals from `first` through `last`, or none when either id is absent or the range is reversed
+ * @example
+ * ```ts
+ * filterStudyGoals(scenario.goals, { first: 'g3', last: 'g5' }) // the goals g3, g4, and g5
+ * ```
+ */
+export function filterStudyGoals(
+	goals: readonly StudyGoal[],
+	range: StudyRange | undefined,
+): readonly StudyGoal[] {
+	if (range === undefined) return goals
+	const first = goals.findIndex((goal) => goal.id === range.first)
+	const last = goals.findIndex((goal) => goal.id === range.last)
+	return first === -1 || last < first ? [] : goals.slice(first, last + 1)
+}
+
+/**
+ * Returns the criteria whose scenario and goal the scenarios declare, in rubric order.
+ * @param criteria - The tracked rubric's criteria
+ * @param scenarios - The declared or projected scenarios
+ * @returns The criteria that grade a declared scenario goal
+ * @example
+ * ```ts
+ * filterStudyCriteria(rubric.criteria, manifest.scenarios) // the criteria a goal range keeps
+ * ```
+ */
+export function filterStudyCriteria(
+	criteria: readonly StudyCriterion[],
+	scenarios: readonly StudyScenario[],
+): readonly StudyCriterion[] {
+	return criteria.filter((criterion) =>
+		scenarios.some(
+			(scenario) =>
+				scenario.id === criterion.scenario &&
+				scenario.goals.some((goal) => goal.id === criterion.goal),
+		),
+	)
+}
+
+/**
  * Validates grading coverage and request room against the declared study inputs.
  * @param definition - The population declaration
  * @param scenarios - The complete scenario declarations
@@ -208,11 +271,11 @@ export function validateStudyInputs(
 }
 
 /**
- * Computes arm intervals over the complete declared criterion horizon.
- * @param manifest - The sealed population and schedule
+ * Computes arm intervals over the complete scheduled criterion horizon.
+ * @param manifest - The sealed population and schedule, projected by its selection when present
  * @param rubric - The criterion declaration
  * @param assessment - Judgments bound to the complete scheduled attempt set
- * @returns Whole-horizon scores in declared arm order
+ * @returns Whole-horizon scores in declared arm order, one per arm that holds a scheduled trial
  * @throws StudyError - Thrown when schedule, attempts or judgments are incompatible
  * @example
  * ```ts
@@ -226,7 +289,10 @@ export function computeStudyScores(
 ): readonly StudyScore[] {
 	if (!isStudyRubric(rubric) || !isStudyAssessment(assessment))
 		throw new StudyError('EVIDENCE', 'Invalid rubric or grading')
-	const expected = buildStudySchedule(manifest.definition, manifest.scenarios)
+	const expected = filterStudySchedule(
+		buildStudySchedule(manifest.definition, manifest.scenarios),
+		manifest.selection?.trial,
+	)
 	if (canonicalStringify(expected) !== canonicalStringify(manifest.schedule))
 		throw new StudyError('EVIDENCE', 'Manifest schedule differs from the declared population')
 	const trials = new Map(expected.map((trial) => [trial.id, trial]))
@@ -281,8 +347,9 @@ export function computeStudyScores(
 			throw new StudyError('EVIDENCE', 'Judgment method differs from the criterion')
 	}
 	const judgments = new Map(keyed.map(({ key, judgment }) => [key, judgment]))
+	const arms = manifest.definition.arms.filter((arm) => expected.some((trial) => trial.arm === arm))
 	return Object.freeze(
-		manifest.definition.arms.map((arm): StudyScore => {
+		arms.map((arm): StudyScore => {
 			const pairs = expected
 				.filter((trial) => trial.arm === arm)
 				.flatMap((trial) =>

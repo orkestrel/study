@@ -136,6 +136,8 @@ export interface StudyResponse {
 export interface StudyProcessSessionOptions extends StudyProcessOptions {
 	readonly trial: StudyTrial
 	readonly signal: AbortSignal
+	/** Carries the checkpoint row value the worker hands its driver at opening; absent opens fresh state. */
+	readonly seed?: JSONValue
 }
 
 /** Holds an authoritative parent ticket and its transport listener lifetime. */

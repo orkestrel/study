@@ -16,7 +16,8 @@ import {
 	buildStudySessionOptions,
 	writeStudyPreparationPeer,
 } from '../../../setupServer.js'
-import { createRecorder } from '@orkestrel/test'
+import { createRecorder, requireValue } from '@orkestrel/test'
+import { parseJSON } from '@orkestrel/contract'
 
 describe('StudyProcessDriver', () => {
 	it('F2 refuses a profile-mismatched declaration before parent preparation', async () => {
@@ -219,6 +220,37 @@ describe('StudyProcessDriver', () => {
 			const aborting = waitForDelay(30).then(() => controller.abort())
 			await expect(opened).rejects.toMatchObject({ failure: { cause: 'interrupted' } })
 			await aborting
+		} finally {
+			scratch.destroy()
+		}
+	})
+	it('carries a seed in the worker opening frame and leaves it out without one', async () => {
+		const scratch = createScratch()
+		try {
+			const options = buildStudySessionOptions(
+				scratch,
+				writeStudyPreparationPeer(scratch),
+				new AbortController().signal,
+			)
+			const { trial, signal, ...configuration } = options
+			const driver = new StudyProcessDriver(configuration)
+			const seeded = await driver.open(trial, signal, { trial: 'r1-s1-a1', goal: 'read' })
+			try {
+				expect(parseJSON(requireValue(scratch.read('worker-opening.json')))).toMatchObject({
+					trial,
+					seed: { trial: 'r1-s1-a1', goal: 'read' },
+				})
+			} finally {
+				await seeded.close()
+			}
+			const fresh = await driver.open(trial, signal)
+			try {
+				const opening = parseJSON(requireValue(scratch.read('worker-opening.json')))
+				expect(opening).toMatchObject({ trial })
+				expect(opening).not.toHaveProperty('seed')
+			} finally {
+				await fresh.close()
+			}
 		} finally {
 			scratch.destroy()
 		}

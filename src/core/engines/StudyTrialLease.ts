@@ -121,7 +121,7 @@ export class StudyTrialLease {
 	// Opens the driver session; a failure latched while it opened closes it and refuses.
 	async #launch(): Promise<StudySessionInterface> {
 		const control = this.#control
-		const session = await this.#options.driver.open(this.#trial, control.signal)
+		const session = await this.#options.driver.open(this.#trial, control.signal, this.#options.seed)
 		if (control.failure !== undefined) {
 			await this.#deadline.wait(session.close())
 			throw failureToStudyError(control.failure)

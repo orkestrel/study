@@ -5,12 +5,15 @@ import {
 	createForeignBudgetError,
 	buildStudyExchangeHistory,
 	buildOllamaDeclaration,
+	STUDY_SELECTION_MALFORMED_SEEDS,
+	STUDY_SELECTION_SEED,
 } from '../../../setupServer.js'
 import { readStudyFailure, translateStudyAgentStop } from '../../../../src/core/index.js'
+import { buildStudySchedule } from '../../../../src/core/helpers.js'
 import { isStudyProcessFailure } from '../../../../src/server/processes/validators.js'
 import type { StudyFailure, StudyObservation } from '../../../../src/core/types.js'
 import { isRecord } from '@orkestrel/contract'
-import { createRecorder } from '@orkestrel/test'
+import { createRecorder, requireValue } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
 	buildCompactCustodyManifest,
@@ -35,6 +38,7 @@ import {
 	isStudyAncestor,
 	isStudyExchangeAncestor,
 	isStudyExchangeDeclaration,
+	isStudySelection,
 } from '../../../../src/server/stores/validators.js'
 
 describe('custody validators', () => {
@@ -317,4 +321,66 @@ it('admits legacy failures and capacity or deadline stops while refusing foreign
 		expect(isStudyCustodyFailure({ cause: 'capacity', message: 'Capped', stop: invalid })).toBe(
 			false,
 		)
+})
+
+describe('custody selection', () => {
+	it('checks a selection exactly and refuses one without a selector or with a malformed member', () => {
+		const range = { first: 'read', last: 'read' }
+		expect(isStudySelection({ trial: 'r1-s1-a1', goals: range, seed: STUDY_SELECTION_SEED })).toBe(
+			true,
+		)
+		expect(isStudySelection({ trial: undefined, goals: range, seed: undefined })).toBe(true)
+		expect(isStudySelection({ seed: STUDY_SELECTION_SEED })).toBe(true)
+		expect(isStudySelection({})).toBe(false)
+		expect(isStudySelection({ trial: undefined, goals: undefined, seed: undefined })).toBe(false)
+		expect(isStudySelection({ trial: 'con' })).toBe(false)
+		expect(isStudySelection({ goals: { first: 'read' } })).toBe(false)
+		expect(isStudySelection({ goals: { ...range, extra: true } })).toBe(false)
+		expect(isStudySelection({ trial: 'r1-s1-a1', typo: true })).toBe(false)
+		expect(isStudySelection(null)).toBe(false)
+		for (const seed of STUDY_SELECTION_MALFORMED_SEEDS)
+			expect(isStudySelection({ trial: 'r1-s1-a1', seed })).toBe(false)
+	})
+
+	it('accepts a selected manifest and refuses a full schedule, an absent trial, goals outside the range, and a malformed seed', () => {
+		const manifest = buildCustodyManifest()
+		const trial = requireValue(manifest.schedule.find((entry) => entry.id === 'r1-s1-a2'))
+		const selection = { trial: trial.id, goals: undefined, seed: STUDY_SELECTION_SEED }
+		const selected = { ...manifest, schedule: [trial], selection }
+		expect(isStudyCustodyManifest(selected)).toBe(true)
+		expect(isStudyCustodyManifest(decodeStudyJSON(encodeStudyJSON(selected)))).toBe(true)
+		expect(isStudyCustodyManifest({ ...manifest, selection })).toBe(false)
+		expect(
+			isStudyCustodyManifest({ ...selected, selection: { ...selection, trial: 'r9-s1-a9' } }),
+		).toBe(false)
+		for (const seed of STUDY_SELECTION_MALFORMED_SEEDS)
+			expect(isStudyCustodyManifest({ ...selected, selection: { ...selection, seed } })).toBe(false)
+		const range = { first: 'read', last: 'read' }
+		const projected = manifest.scenarios.map((scenario) => ({
+			...scenario,
+			goals: scenario.goals.filter((goal) => goal.id === 'read'),
+		}))
+		const ranged = {
+			...manifest,
+			scenarios: projected,
+			schedule: buildStudySchedule(manifest.definition, projected),
+			selection: { trial: undefined, goals: range, seed: undefined },
+		}
+		expect(isStudyCustodyManifest(ranged)).toBe(true)
+		expect(isStudyCustodyManifest({ ...ranged, scenarios: manifest.scenarios })).toBe(false)
+		const partial = [requireValue(projected[0]), requireValue(manifest.scenarios[1])]
+		const narrowed = {
+			...manifest,
+			scenarios: partial,
+			schedule: [trial],
+			selection: { trial: trial.id, goals: range, seed: undefined },
+		}
+		expect(isStudyCustodyManifest(narrowed)).toBe(true)
+		expect(
+			isStudyCustodyManifest({
+				...narrowed,
+				selection: { ...narrowed.selection, goals: { first: 'write', last: 'read' } },
+			}),
+		).toBe(false)
+	})
 })

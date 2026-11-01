@@ -5,6 +5,7 @@ import type {
 	StudyFailure,
 	StudyManifest,
 	StudyObservation,
+	StudySelection,
 	StudyTrial,
 } from '@src/core'
 import type {
@@ -20,6 +21,7 @@ import type {
 } from './types.js'
 import {
 	buildStudySchedule,
+	filterStudySchedule,
 	matchesStudyKeys,
 	isStudyBounds,
 	isStudyCause,
@@ -78,6 +80,39 @@ export function isStudyAncestor(value: unknown): value is StudyAncestor {
 	)
 }
 
+/**
+ * Checks whether a manifest selection names at least one valid selector and nothing else.
+ * @param value - The candidate selection, whose unused selectors are absent or undefined
+ * @returns True if its trial, goal range, and seed record are valid where present; false otherwise
+ * @example
+ * ```ts
+ * isStudySelection({ trial: 'r1-s1-a2' }) // true
+ * ```
+ */
+export function isStudySelection(value: unknown): value is StudySelection {
+	return holds(() => {
+		if (!isRecord(value) || !matchesStudyKeys(value, [], ['trial', 'goals', 'seed'])) return false
+		const { trial, goals, seed } = value
+		return (
+			(trial !== undefined || goals !== undefined || seed !== undefined) &&
+			(trial === undefined || isStudyCustodyName(trial)) &&
+			(goals === undefined ||
+				(isRecord(goals) &&
+					matchesStudyKeys(goals, ['first', 'last']) &&
+					isStudyName(goals.first) &&
+					isStudyName(goals.last))) &&
+			(seed === undefined ||
+				(isRecord(seed) &&
+					matchesStudyKeys(seed, ['result', 'seal', 'trial', 'goal', 'digest']) &&
+					isStudyCustodyName(seed.result) &&
+					isStudyDigest(seed.seal) &&
+					isStudyCustodyName(seed.trial) &&
+					isStudyName(seed.goal) &&
+					isStudyDigest(seed.digest)))
+		)
+	})
+}
+
 /** Checks a sealed sidecar reference and its positive exchange prefix.
  * @param value - The candidate replay provenance.
  * @returns True if the sidecar reference is valid; false otherwise.
@@ -111,7 +146,7 @@ export function isStudyCustodyManifest(value: unknown): value is StudyManifest {
 			!matchesStudyKeys(
 				value,
 				['id', 'created', 'definition', 'scenarios', 'identity', 'schedule', 'bounds', 'host'],
-				['qualification', 'record', 'ancestor'],
+				['qualification', 'record', 'ancestor', 'selection'],
 			) ||
 			!isStudyCustodyName(value.id) ||
 			!isStudyTimestamp(value.created) ||
@@ -121,6 +156,7 @@ export function isStudyCustodyManifest(value: unknown): value is StudyManifest {
 			!isStudyBounds(value.bounds) ||
 			(value.record !== undefined && !isStudyRecord(value.record)) ||
 			(value.ancestor !== undefined && !isStudyAncestor(value.ancestor)) ||
+			(value.selection !== undefined && !isStudySelection(value.selection)) ||
 			!isRecord(value.identity) ||
 			!matchesStudyKeys(
 				value.identity,
@@ -141,10 +177,24 @@ export function isStudyCustodyManifest(value: unknown): value is StudyManifest {
 			)
 		)
 			return false
-		const schedule = buildStudySchedule(value.definition, value.scenarios)
+		const selection = value.selection
+		const schedule = filterStudySchedule(
+			buildStudySchedule(value.definition, value.scenarios),
+			selection?.trial,
+		)
+		const range = selection?.goals
+		const scenarios = new Set(schedule.map((trial) => trial.scenario))
 		return (
+			schedule.length > 0 &&
 			value.schedule.every(isStudyCustodyTrial) &&
-			canonicalStringify(schedule) === canonicalStringify(value.schedule)
+			canonicalStringify(schedule) === canonicalStringify(value.schedule) &&
+			(range === undefined ||
+				value.scenarios
+					.filter((scenario) => scenarios.has(scenario.id))
+					.every(
+						(scenario) =>
+							scenario.goals[0]?.id === range.first && scenario.goals.at(-1)?.id === range.last,
+					))
 		)
 	})
 }

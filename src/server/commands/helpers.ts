@@ -9,9 +9,10 @@ import type {
 	StudyProfile,
 	StudyRubric,
 	StudyScenario,
+	StudySelection,
 } from '@src/core'
 import type { StudyAttributionSource, StudyCommandArtifact, StudyDeclaration } from './types.js'
-import type { StudyClosure } from './types.js'
+import type { StudyClosure, StudySeedResult } from './types.js'
 import type { ArtifactClosure } from '../artifacts/types.js'
 import type { StudySealedResult } from '../stores/types.js'
 import type { JSONValue } from '@orkestrel/contract'
@@ -41,6 +42,7 @@ import { readStudyBytes } from '../stores/helpers.js'
 import { isStudyCustodyEvidence } from '../stores/validators.js'
 import { STUDY_CUSTODY_BYTES, STUDY_RESERVED_NAME } from '../stores/constants.js'
 import { readArtifact, verifyArtifactClosure, relocateArtifactPath } from '../artifacts/helpers.js'
+import { STUDY_CHECKPOINT_EVENT } from './constants.js'
 import { isStudyClosure } from './validators.js'
 
 /** Reads and independently verifies an exclusively published closure.
@@ -261,6 +263,7 @@ export function resolveStudyProfile(
  * @param bounds - The validated nested execution limits
  * @param definition - The optional full declaration binding supervisor check to execute
  * @param ancestor - The immediate ancestor seal when checking a continuation
+ * @param selection - The execute-time segment; undefined keeps the selection-free fingerprint
  * @returns The fingerprint that execute must compare before any writes or child work
  * @example
  * ```ts
@@ -272,6 +275,7 @@ export function computeStudyCommandFingerprint(
 	bounds: StudyBounds,
 	definition?: StudyDefinition,
 	ancestor?: string,
+	selection?: StudySelection,
 ): string {
 	return hashStudyBytes(
 		encodeStudyJSON({
@@ -279,6 +283,7 @@ export function computeStudyCommandFingerprint(
 			bounds,
 			...(definition === undefined ? {} : { definition }),
 			...(ancestor === undefined ? {} : { ancestor }),
+			...(selection === undefined ? {} : { selection }),
 		}),
 	)
 }
@@ -345,6 +350,46 @@ export async function collectStudyEvidence(
 		retained.push([trial.id, Object.freeze(rows)])
 	}
 	return Object.freeze(Object.fromEntries(retained))
+}
+
+/**
+ * Reads the one sealed `checkpoint` evidence row a seeded execution opens its trial from.
+ * @param result - The independently verified sealed source
+ * @param trial - The source trial that wrote the row
+ * @param goal - The goal the row names
+ * @returns The seed record naming the source, seal, trial, goal, and row digest, with the row value
+ * @throws StudyError - Thrown as `CUSTODY` when the trial is unscheduled, its evidence drifted, or it holds no row or several rows for the goal
+ * @example
+ * ```ts
+ * await readStudySeed(result, 'r1-s1-a1', 'g2') // { seed: { result, seal, trial, goal, digest }, value }
+ * ```
+ */
+export async function readStudySeed(
+	result: StudySealedResult,
+	trial: string,
+	goal: string,
+): Promise<StudySeedResult> {
+	if (!result.manifest.schedule.some((entry) => entry.id === trial))
+		throw new StudyError('CUSTODY', 'Seed trial is not scheduled in its source: ' + trial)
+	const rows = ((await collectStudyEvidence(result))[trial] ?? []).filter(
+		(row) => row.event === STUDY_CHECKPOINT_EVENT && row.goal === goal,
+	)
+	const [row] = rows
+	if (row === undefined || rows.length !== 1)
+		throw new StudyError(
+			'CUSTODY',
+			'Seed source must hold exactly one checkpoint row for trial ' + trial + ' and goal ' + goal,
+		)
+	return {
+		seed: {
+			result: result.manifest.id,
+			seal: result.seal.id,
+			trial,
+			goal,
+			digest: hashStudyBytes(encodeStudyJSON(row)),
+		},
+		value: row.value,
+	}
 }
 
 /**
@@ -454,48 +499,57 @@ export function computeStudyReport(
 				observation.failure === undefined,
 		),
 	)
-	const repetitions = result.manifest.definition.order.map((order, repetition) => ({
-		repetition,
-		order: [...order],
-		arms: result.manifest.definition.arms.map((arm) => {
-			const trials = new Set(
-				result.manifest.schedule
-					.filter((trial) => trial.repetition === repetition && trial.arm === arm)
-					.map((trial) => trial.id),
-			)
-			const applicable = result.manifest.schedule
-				.filter((trial) => trials.has(trial.id))
-				.flatMap((trial) =>
-					rubric.criteria
-						.filter((criterion) => criterion.scenario === trial.scenario)
-						.map((criterion) => ({ trial: trial.id, criterion })),
+	const { schedule, selection } = result.manifest
+	const repetitions = [...result.manifest.definition.order.entries()]
+		.filter(([repetition]) => schedule.some((trial) => trial.repetition === repetition))
+		.map(([repetition, order]) => ({
+			repetition,
+			order: [...order],
+			arms: result.manifest.definition.arms
+				.filter((arm) =>
+					schedule.some((trial) => trial.repetition === repetition && trial.arm === arm),
 				)
-			const judgments = applicable.map((pair) => ({
-				criterion: pair.criterion,
-				judgment: assessment.judgments.find(
-					(entry) => entry.trial === pair.trial && entry.criterion === pair.criterion.id,
-				),
-			}))
-			const achieved = judgments.filter((entry) => entry.judgment?.verdict === 'achieved').length
-			const unsuccessful = judgments.filter(
-				(entry) => entry.judgment?.verdict === 'unsuccessful',
-			).length
-			const unknown = applicable.length - achieved - unsuccessful
-			return {
-				arm,
-				total: applicable.length,
-				achieved,
-				unsuccessful,
-				unknown,
-				critical: judgments.filter(
-					(entry) => entry.criterion.critical && entry.judgment?.verdict === 'unsuccessful',
-				).length,
-				lower: achieved / applicable.length,
-				upper: (achieved + unknown) / applicable.length,
-				coverage: (achieved + unsuccessful) / applicable.length,
-			}
-		}),
-	}))
+				.map((arm) => {
+					const trials = new Set(
+						result.manifest.schedule
+							.filter((trial) => trial.repetition === repetition && trial.arm === arm)
+							.map((trial) => trial.id),
+					)
+					const applicable = result.manifest.schedule
+						.filter((trial) => trials.has(trial.id))
+						.flatMap((trial) =>
+							rubric.criteria
+								.filter((criterion) => criterion.scenario === trial.scenario)
+								.map((criterion) => ({ trial: trial.id, criterion })),
+						)
+					const judgments = applicable.map((pair) => ({
+						criterion: pair.criterion,
+						judgment: assessment.judgments.find(
+							(entry) => entry.trial === pair.trial && entry.criterion === pair.criterion.id,
+						),
+					}))
+					const achieved = judgments.filter(
+						(entry) => entry.judgment?.verdict === 'achieved',
+					).length
+					const unsuccessful = judgments.filter(
+						(entry) => entry.judgment?.verdict === 'unsuccessful',
+					).length
+					const unknown = applicable.length - achieved - unsuccessful
+					return {
+						arm,
+						total: applicable.length,
+						achieved,
+						unsuccessful,
+						unknown,
+						critical: judgments.filter(
+							(entry) => entry.criterion.critical && entry.judgment?.verdict === 'unsuccessful',
+						).length,
+						lower: achieved / applicable.length,
+						upper: (achieved + unknown) / applicable.length,
+						coverage: (achieved + unsuccessful) / applicable.length,
+					}
+				}),
+		}))
 	const identity = result.manifest.identity
 	return {
 		command: 'report',
@@ -510,7 +564,20 @@ export function computeStudyReport(
 			...(identity.provider === undefined ? {} : { provider: identity.provider }),
 		},
 		purpose: result.manifest.definition.purpose,
-		population: 'Complete declared trial and criterion horizon',
+		population:
+			selection === undefined
+				? 'Complete declared trial and criterion horizon'
+				: 'Selected segment of the declared trial and criterion horizon',
+		...(selection === undefined
+			? {}
+			: {
+					selection: {
+						...(selection.trial === undefined ? {} : { trial: selection.trial }),
+						...(selection.goals === undefined ? {} : { goals: { ...selection.goals } }),
+						...(selection.seed === undefined ? {} : { seed: { ...selection.seed } }),
+					},
+				}),
+		...(assessment.unselected === undefined ? {} : { unselected: [...assessment.unselected] }),
 		uncertainty:
 			repetitions.length === 1
 				? 'One repetition is descriptive and does not establish replicated capacity or quality.'

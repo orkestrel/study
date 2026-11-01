@@ -1,5 +1,5 @@
 import type { StudyCommandRequest } from './types.js'
-import { StudyError, isStudyDigest } from '@src/core'
+import { StudyError, isStudyDigest, isStudyName } from '@src/core'
 import { isRecord, parseJSON } from '@orkestrel/contract'
 import { isAbsolute, resolve } from 'node:path'
 import { isStudyCustodyName } from '../stores/validators.js'
@@ -44,7 +44,7 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 		)
 	const allowed =
 		command === 'check'
-			? ['--profile', '--closure', '--extend']
+			? ['--profile', '--closure', '--extend', '--trial', '--goals', '--seed']
 			: command === 'execute'
 				? [
 						'--profile',
@@ -55,6 +55,9 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 						'--prefix',
 						'--offline',
 						'--extend',
+						'--trial',
+						'--goals',
+						'--seed',
 					]
 				: command === 'freeze'
 					? ['--profile', '--to']
@@ -164,6 +167,53 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 				'CONFIG',
 				'--replay requires --prefix trial counts and --offline true or false. ' + usage,
 			)
+		const selected = flags.get('--trial')
+		const goals = flags.get('--goals')
+		const seed = flags.get('--seed')
+		if (
+			extend !== undefined &&
+			(selected !== undefined || goals !== undefined || seed !== undefined)
+		)
+			throw new StudyError(
+				'CONFIG',
+				'--trial, --goals, and --seed cannot join --extend; continue a segment with --seed. ' +
+					usage,
+			)
+		if (selected !== undefined && !isStudyCustodyName(selected))
+			throw new StudyError(
+				'CONFIG',
+				'--trial ' +
+					JSON.stringify(selected) +
+					' must be a scheduled trial id such as r1-s1-a2. ' +
+					usage,
+			)
+		const [first, last, ...extra] = goals?.split('..') ?? []
+		if (goals !== undefined && (extra.length > 0 || !isStudyName(first) || !isStudyName(last)))
+			throw new StudyError(
+				'CONFIG',
+				'--goals ' + JSON.stringify(goals) + ' must name two goal ids as <first>..<last>. ' + usage,
+			)
+		const parts = seed?.split(':') ?? []
+		const source = parts.slice(0, -2).join(':')
+		const [origin, goal] = parts.slice(-2)
+		if (seed !== undefined && (source === '' || !isStudyCustodyName(origin) || !isStudyName(goal)))
+			throw new StudyError(
+				'CONFIG',
+				'--seed ' + JSON.stringify(seed) + ' must name <result>:<trial>:<goal>. ' + usage,
+			)
+		if (seed !== undefined && !isAbsolute(source)) {
+			try {
+				resolveStudyPath(resolve('.'), source)
+			} catch {
+				throw new StudyError(
+					'CONFIG',
+					'--seed result ' +
+						JSON.stringify(source) +
+						' must be a portable contained path and cannot escape the consumer root. ' +
+						usage,
+				)
+			}
+		}
 		return {
 			command,
 			target,
@@ -172,6 +222,11 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 			expected,
 			...(closure === undefined ? {} : { closure }),
 			...(extend === undefined ? {} : { extend }),
+			...(selected === undefined ? {} : { trial: selected }),
+			...(isStudyName(first) && isStudyName(last) ? { goals: { first, last } } : {}),
+			...(seed === undefined || !isStudyName(origin) || !isStudyName(goal)
+				? {}
+				: { seed: { result: source, trial: origin, goal } }),
 			...(result === undefined || !isRecord(replay)
 				? {}
 				: {

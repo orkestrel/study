@@ -1,5 +1,8 @@
+import { captureError } from '@orkestrel/test'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { STUDY_COMMAND_INVALID_ARGUMENTS, STUDY_PROGRESS_REFUSALS } from '../../../setupStudy.js'
+import { STUDY_SELECTION_ARGUMENTS, STUDY_SELECTION_REFUSALS } from '../../../setupServer.js'
 import { parseStudyArguments } from '../../../../src/server/commands/parsers.js'
 
 describe('study command arguments', () => {
@@ -195,4 +198,33 @@ it('parses freeze, closure and an explicit replay selection without defaulting i
 			'yes',
 		]),
 	).toThrow(/--offline/)
+})
+
+describe('study selection arguments', () => {
+	it('parses trial, goal range, and seed selectors for check and execute', () => {
+		for (const { tokens, request } of STUDY_SELECTION_ARGUMENTS)
+			expect(parseStudyArguments(tokens)).toMatchObject(request)
+		const plain = parseStudyArguments(['execute', 'files'])
+		expect(plain).not.toHaveProperty('trial')
+		expect(plain).not.toHaveProperty('goals')
+		expect(plain).not.toHaveProperty('seed')
+		const trial = parseStudyArguments(['check', 'files', '--trial', 'r1-s1-a1'])
+		expect(trial).not.toHaveProperty('goals')
+		const source = resolve('tmp/studies/source')
+		const seed = `${source}:r1-s1-a1:g2`
+		const seeded = parseStudyArguments(['execute', 'files', '--trial', 'r1-s1-a2', '--seed', seed])
+		expect(seeded).toMatchObject({ seed: { result: source, trial: 'r1-s1-a1', goal: 'g2' } })
+	})
+	it('refuses malformed selectors and any selector beside extend with the usage line', () => {
+		for (const tokens of STUDY_SELECTION_REFUSALS) {
+			const error = captureError(() => parseStudyArguments(tokens))
+			expect(error).toMatchObject({
+				code: 'CONFIG',
+				message: expect.stringMatching(/study (check|execute) <study>/),
+			})
+			expect(error).not.toMatchObject({
+				message: expect.stringMatching(/is not a (check|execute) flag/),
+			})
+		}
+	})
 })

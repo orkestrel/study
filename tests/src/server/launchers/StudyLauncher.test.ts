@@ -47,6 +47,22 @@ describe('StudyLauncher', () => {
 			scratch.destroy()
 		}
 	})
+	it('forwards trial, goal range, and seed selectors to both check and execution', async () => {
+		const scratch = createScratch()
+		try {
+			const entry = writeStudyCheckEntry(scratch, 60000)
+			const seed = 'baseline:r1-s1-a1:g2'
+			const selectors = ['--trial', 'r1-s1-a1', '--goals', 'g3..g5', '--seed', seed]
+			const launcher = new StudyLauncher({ root: scratch.path, entry })
+			expect(await launcher.execute(['execute', 'files', ...selectors])).toBe(0)
+			expect(readStudyCommands(scratch)).toEqual([
+				`check files --profile local ${selectors.join(' ')}`,
+				`execute files --profile local ${selectors.join(' ')} --expected ${STUDY_CHECK_FINGERPRINT}`,
+			])
+		} finally {
+			scratch.destroy()
+		}
+	})
 	it('forwards closure to the check and forwards the full explicit replay selection to execution', async () => {
 		const scratch = createScratch()
 		try {

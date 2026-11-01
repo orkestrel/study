@@ -129,11 +129,12 @@ export function parseStudyRubric(value: unknown): StudyRubric {
 export function parseStudyAssessment(value: unknown): StudyAssessment {
 	try {
 		if (!isStudyAssessment(value)) throw new StudyError('EVIDENCE', 'Invalid study grading')
-		const { labels, packet, ...required } = value
+		const { labels, packet, unselected, ...required } = value
 		const snapshot = cloneJSONValue({
 			...required,
 			...(labels === undefined ? {} : { labels }),
 			...(packet === undefined ? {} : { packet }),
+			...(unselected === undefined ? {} : { unselected }),
 		})
 		if (isStudyAssessment(snapshot)) return snapshot
 	} catch {

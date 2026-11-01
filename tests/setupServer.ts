@@ -4432,3 +4432,258 @@ export async function writeStudyProgressFixture(
 	})
 	return { manifest, bytes }
 }
+
+/** Names the scratch file where the selection consumer appends each trial opening. */
+export const STUDY_SELECTION_LOG = 'selection-opens.log'
+
+/** Names the goals the selection consumer's one scenario declares, in order. */
+export const STUDY_SELECTION_GOALS: readonly string[] = Object.freeze(
+	Array.from({ length: 8 }, (_, index) => `g${index + 1}`),
+)
+
+/** Names the selection consumer's tracked rubric, relative to the consumer root. */
+export const STUDY_SELECTION_RUBRIC = 'studies/selection/rubric.json'
+
+/** Names the numeric members of a report's score rows, which a selection never leaves unfinite. */
+export const STUDY_SELECTION_NUMBERS: readonly string[] = Object.freeze([
+	'total',
+	'achieved',
+	'unsuccessful',
+	'unknown',
+	'critical',
+	'lower',
+	'upper',
+	'coverage',
+])
+
+/** Holds the canonical bytes of the `checkpoint` row the selection consumer seals for trial `r1-s1-a1` at goal `g2`. */
+export const STUDY_SELECTION_ROW =
+	'{"event":"checkpoint","goal":"g2","value":{"goal":"g2","trial":"r1-s1-a1"}}\n'
+
+/** Supplies a shape-valid seed record for custody selection proofs. */
+export const STUDY_SELECTION_SEED = Object.freeze({
+	result: 'source',
+	seal: 'a'.repeat(64),
+	trial: 'r1-s1-a1',
+	goal: 'write',
+	digest: 'b'.repeat(64),
+})
+
+/** Supplies seed records that each break one member of the custody seed contract. */
+export const STUDY_SELECTION_MALFORMED_SEEDS: readonly unknown[] = Object.freeze([
+	{ ...STUDY_SELECTION_SEED, digest: 'b'.repeat(63) },
+	{ ...STUDY_SELECTION_SEED, seal: 'unsealed' },
+	{ ...STUDY_SELECTION_SEED, goal: 'Write' },
+	{ ...STUDY_SELECTION_SEED, trial: 'con' },
+	{ ...STUDY_SELECTION_SEED, result: '' },
+	{ ...STUDY_SELECTION_SEED, extra: true },
+	{ result: 'source', seal: 'a'.repeat(64), trial: 'r1-s1-a1', goal: 'write' },
+	'source:r1-s1-a1:write',
+])
+
+/** Supplies selector grammar rows the command parser admits, each with the request members it yields. */
+export const STUDY_SELECTION_ARGUMENTS = Object.freeze([
+	{
+		tokens: ['check', 'files', '--trial', 'r1-s1-a2'],
+		request: { command: 'check', trial: 'r1-s1-a2' },
+	},
+	{
+		tokens: ['execute', 'files', '--goals', 'g3..g5'],
+		request: { command: 'execute', goals: { first: 'g3', last: 'g5' } },
+	},
+	{
+		tokens: ['check', 'files', '--goals', 'g4..g4'],
+		request: { command: 'check', goals: { first: 'g4', last: 'g4' } },
+	},
+	{
+		tokens: ['execute', 'files', '--trial', 'r1-s1-a1', '--seed', 'baseline:r1-s1-a1:g2'],
+		request: {
+			command: 'execute',
+			trial: 'r1-s1-a1',
+			seed: { result: 'baseline', trial: 'r1-s1-a1', goal: 'g2' },
+		},
+	},
+	{
+		tokens: ['check', 'files', '--seed', 'tmp/studies/source:r1-s1-a2:g8', '--goals', 'g1..g8'],
+		request: {
+			command: 'check',
+			goals: { first: 'g1', last: 'g8' },
+			seed: { result: 'tmp/studies/source', trial: 'r1-s1-a2', goal: 'g8' },
+		},
+	},
+])
+
+/** Supplies selector tokens the command parser refuses with `CONFIG` before any request. */
+export const STUDY_SELECTION_REFUSALS: ReadonlyArray<readonly string[]> = Object.freeze([
+	['execute', 'files', '--trial', 'R1-s1-a1'],
+	['execute', 'files', '--trial', 'con'],
+	['check', 'files', '--goals', 'g3..'],
+	['execute', 'files', '--goals', '..'],
+	['execute', 'files', '--goals', 'g3'],
+	['execute', 'files', '--goals', 'g3...g5'],
+	['execute', 'files', '--goals', 'g3..g4..g5'],
+	['execute', 'files', '--seed', 'baseline:r1-s1-a1'],
+	['execute', 'files', '--seed', ':r1-s1-a1:g2'],
+	['execute', 'files', '--seed', 'baseline:r1-s1-a1:'],
+	['execute', 'files', '--seed', 'baseline:R1:g2'],
+	['execute', 'files', '--seed', 'baseline:r1-s1-a1:G2'],
+	['check', 'files', '--seed', '../outside:r1-s1-a1:g2'],
+	['execute', 'files', '--extend', 'baseline', '--trial', 'r1-s1-a1'],
+	['check', 'files', '--extend', 'baseline', '--goals', 'g1..g2'],
+	['execute', 'files', '--seed', 'baseline:r1-s1-a1:g2', '--extend', 'baseline'],
+])
+
+/** Names the sealed results a selection refusal proof reads its seeds from. */
+export interface StudySelectionSources {
+	readonly sealed: string
+	readonly tampered: string
+	readonly unsealed: string
+	readonly other: string
+}
+
+/** Holds one execution selection the command refuses before any trial opens. */
+export interface StudySelectionRefusal {
+	readonly tokens: readonly string[]
+	readonly code: 'CONFIG' | 'CUSTODY'
+}
+
+/** Writes a mechanism study whose one scenario declares eight goals and whose adapter seals a checkpoint row per goal.
+ * @remarks
+ * The study `selection` runs driver `segments` over scenario `first`, whose goals are
+ * `STUDY_SELECTION_GOALS` with each goal's id as its input, and grades one `state` criterion
+ * `first-<goal>` per goal. Each goal appends a `saved` row valued `saved:<goal>` and a `checkpoint`
+ * row valued `{ trial, goal }`. Each driver opening appends `{ trial, seed }` to
+ * `STUDY_SELECTION_LOG`, with `seed` null when the trial opened fresh.
+ * @param scratch - The owned temporary consumer.
+ * @param arms - The declared arms in their one repetition row; two arms give trials `r1-s1-a1` and `r1-s1-a2`, one arm gives `r1-s1-a1`.
+ */
+export function writeStudySelectionConsumer(
+	scratch: ScratchInterface,
+	arms: readonly string[],
+): void {
+	const definition = {
+		...buildStudyDefinition(),
+		name: 'selection',
+		purpose: 'mechanism',
+		driver: 'segments',
+		scenarios: ['first'],
+		arms,
+		order: [arms],
+		rubric: 'rubric.json',
+	}
+	const profile = {
+		...buildStudyProfile(),
+		room: { ...buildStudyProfile().room, context: 4096 },
+		agent: join(scratch.path, 'subject/dist/index.js'),
+		subject: join(scratch.path, 'subject/dist/index.js'),
+		roots: [join(scratch.path, 'subject')],
+		bounds: {
+			request: { duration: 3000, calls: 1, tokens: 1000, bytes: 4096 },
+			goal: { duration: 5000, calls: 2, tokens: 2000, bytes: 8192 },
+			trial: { duration: 20000, calls: 16, tokens: 16000, bytes: 65536 },
+			series: { duration: 40000, calls: 32, tokens: 32000, bytes: 131072 },
+		},
+	}
+	scratch.write(
+		'subject/package.json',
+		JSON.stringify({ name: 'segment-subject', version: '1.0.0', type: 'module' }),
+	)
+	scratch.write('subject/dist/index.js', `export const prefix = 'saved:';`)
+	scratch.write('studies/selection/study.json', JSON.stringify(definition))
+	scratch.write(
+		'studies/selection/rubric.json',
+		JSON.stringify({
+			version: '1',
+			criteria: STUDY_SELECTION_GOALS.map((goal) => ({
+				id: `first-${goal}`,
+				scenario: 'first',
+				goal,
+				method: 'state',
+				critical: true,
+				assertion: { equals: `saved:${goal}` },
+			})),
+		}),
+	)
+	scratch.write('studies/segments/profiles/local.json', JSON.stringify(profile))
+	scratch.write(
+		'studies/segments/scenarios/first.json',
+		JSON.stringify({
+			id: 'first',
+			goals: STUDY_SELECTION_GOALS.map((goal) => ({ id: goal, input: goal })),
+		}),
+	)
+	scratch.write(
+		'studies/segments/index.ts',
+		`import { appendFileSync } from 'node:fs'
+export function createStudyAdapter() { return {
+ validate() {},
+ driver(options) { return { async open(trial, signal, seed) {
+  appendFileSync(${JSON.stringify(join(scratch.path, STUDY_SELECTION_LOG))}, JSON.stringify({ trial: trial.id, seed: seed === undefined ? null : seed }) + '\\n')
+  return {
+   async execute(goal, context) {
+    const ticket = await context.meter.admit({ role: 'tool', tokens: 1, bytes: 64 })
+    const value = options.subject.prefix + goal.input
+    await context.evidence.append({ event: 'saved', goal: goal.id, value })
+    await context.evidence.append({ event: 'checkpoint', goal: goal.id, value: { trial: trial.id, goal: goal.id } })
+    ticket.finish({ role: 'tool', calls: 1, tokens: 1, bytes: 64, duration: 0 })
+    return { value, partial: false }
+   },
+   async close() {}
+  }
+ } } },
+ grade(input) { return input.manifest.schedule.flatMap(trial => input.rubric.criteria.filter(criterion => criterion.scenario === trial.scenario).map(criterion => { const rows = input.evidence[trial.id] ?? []; const index = rows.findIndex(row => row.event === 'saved' && row.goal === criterion.goal); const row = rows[index]; return { trial: trial.id, criterion: criterion.id, verdict: row === undefined ? 'unknown' : row.value === criterion.assertion.equals ? 'achieved' : 'unsuccessful', method: 'state', reason: 'Retained segment observation', references: row === undefined ? [] : ['trials/' + trial.id + '/evidence.jsonl#' + (index + 1)] } })) }
+} }
+`,
+	)
+}
+
+/** Reads the trial openings the selection consumer logged, in arrival order.
+ * @param scratch - The owned temporary consumer the selection consumer writes into.
+ * @returns Each opening's trial id and seed, the seed null when the trial opened fresh.
+ */
+export function readStudySelectionOpens(scratch: ScratchInterface): readonly unknown[] {
+	return (scratch.read(STUDY_SELECTION_LOG) ?? '')
+		.split(/\r\n|\n/)
+		.filter((line) => line !== '')
+		.map((line) => parseJSON(line))
+}
+
+/** Builds the selection consumer's refused executions, each with the code it refuses with.
+ * @param sources - The sealed seed source, its tampered and unsealed copies, and another sealed result holding trial `r1-s1-a1`.
+ * @param fingerprint - The fingerprint a check returned for a seed from `sources.sealed`.
+ * @returns The selector tokens after `execute selection`, in refusal order.
+ */
+export function buildStudySelectionRefusals(
+	sources: StudySelectionSources,
+	fingerprint: string,
+): readonly StudySelectionRefusal[] {
+	return [
+		{
+			tokens: ['--trial', 'r1-s1-a1', '--seed', `${sources.tampered}:r1-s1-a1:g2`],
+			code: 'CUSTODY',
+		},
+		{
+			tokens: ['--trial', 'r1-s1-a1', '--seed', `${sources.unsealed}:r1-s1-a1:g2`],
+			code: 'CUSTODY',
+		},
+		{ tokens: ['--trial', 'r1-s1-a1', '--seed', `${sources.sealed}:r1-s1-a1:g9`], code: 'CUSTODY' },
+		{ tokens: ['--trial', 'r1-s1-a9'], code: 'CONFIG' },
+		{ tokens: ['--seed', `${sources.sealed}:r1-s1-a1:g2`], code: 'CONFIG' },
+		{ tokens: ['--goals', 'g3..'], code: 'CONFIG' },
+		{ tokens: ['--goals', '..'], code: 'CONFIG' },
+		{ tokens: ['--goals', 'g3..g9'], code: 'CONFIG' },
+		{ tokens: ['--goals', 'g5..g3'], code: 'CONFIG' },
+		{ tokens: ['--extend', sources.sealed, '--trial', 'r1-s1-a1'], code: 'CONFIG' },
+		{
+			tokens: [
+				'--trial',
+				'r1-s1-a1',
+				'--seed',
+				`${sources.other}:r1-s1-a1:g2`,
+				'--expected',
+				fingerprint,
+			],
+			code: 'CONFIG',
+		},
+	]
+}

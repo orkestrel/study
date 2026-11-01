@@ -1,19 +1,28 @@
 import { createStudyScratch } from '../../../setupServer.js'
 import { isRunning } from '@orkestrel/test/server'
 import { requireValue } from '@orkestrel/test'
+import { parseJSON } from '@orkestrel/contract'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
 	buildStudyCLI,
 	buildStudyRecordedSessionOptions,
+	createStudyConsumer,
 	createStudyWorker,
+	readStudySelectionOpens,
 	retainStudyExchangeFixture,
+	writeStudySelectionConsumer,
 	STUDY_WORKER_IDENTITIES,
 } from '../../../setupServer.js'
 import {
 	buildStudyExchangeDeclaration,
+	computeStudyProfileDigest,
 	valueToWire,
 } from '../../../../src/server/processes/helpers.js'
+import { StudyArtifactLoader } from '../../../../src/server/processes/StudyArtifactLoader.js'
+import { StudyProcessDriver } from '../../../../src/server/processes/StudyProcessDriver.js'
+import { resolveStudyProfile } from '../../../../src/server/commands/helpers.js'
+import { parseStudyProfile } from '../../../../src/core/parsers.js'
 import { readStudyExchanges, readStudyResult } from '../../../../src/server/stores/helpers.js'
 import { hashStudyBytes } from '../../../../src/server/helpers.js'
 
@@ -144,4 +153,43 @@ describe('StudyWorker', () => {
 			scratch.destroy()
 		}
 	}, 60000)
+
+	it('hands a transported seed to the consumer driver opening and opens fresh without one', async () => {
+		const scratch = createStudyConsumer((consumer) =>
+			writeStudySelectionConsumer(consumer, ['small']),
+		)
+		try {
+			const entry = await buildStudyCLI(scratch)
+			const signal = new AbortController().signal
+			const declared = parseJSON(requireValue(scratch.read('studies/segments/profiles/local.json')))
+			const profile = resolveStudyProfile(scratch.path, parseStudyProfile(declared))
+			const adapter = join(scratch.path, 'studies', 'segments', 'index.ts')
+			const loader = new StudyArtifactLoader({ root: scratch.path, entry, profile, adapter })
+			const selected = await loader.inspect()
+			const driver = new StudyProcessDriver({
+				root: scratch.path,
+				entry,
+				profile,
+				adapter,
+				driver: 'segments',
+				directory: scratch.ensure('trials'),
+				identity: {
+					...selected,
+					fixtures: 'c'.repeat(64),
+					profile: computeStudyProfileDigest(profile),
+				},
+			})
+			const trial = { id: 'r1-s1-a1', scenario: 'first', arm: 'small', repetition: 0 }
+			const seeded = await driver.open(trial, signal, { trial: 'r1-s1-a1', goal: 'g2' })
+			await seeded.close()
+			const fresh = await driver.open(trial, signal)
+			await fresh.close()
+			expect(readStudySelectionOpens(scratch)).toEqual([
+				{ trial: 'r1-s1-a1', seed: { trial: 'r1-s1-a1', goal: 'g2' } },
+				{ trial: 'r1-s1-a1', seed: null },
+			])
+		} finally {
+			scratch.destroy()
+		}
+	}, 120000)
 })

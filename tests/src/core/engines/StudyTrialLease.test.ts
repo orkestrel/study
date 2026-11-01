@@ -1,6 +1,16 @@
-import { waitForCondition } from '@orkestrel/test'
+import type { StudyProduct, StudySessionInterface } from '../../../../src/core/types.js'
+import type { JSONValue } from '@orkestrel/contract'
+import { createRecorder, requireValue, waitForCondition } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
-import { createStudyLeaseFixture } from '../../../setupStudy.js'
+import { StudyControl } from '../../../../src/core/engines/StudyControl.js'
+import { StudyDeadline } from '../../../../src/core/engines/StudyDeadline.js'
+import { StudyScope } from '../../../../src/core/engines/StudyScope.js'
+import { StudyTrialLease } from '../../../../src/core/engines/StudyTrialLease.js'
+import {
+	buildCompactCustodyManifest,
+	createStudyLeaseFixture,
+	createStudyStoreFixture,
+} from '../../../setupStudy.js'
 
 describe('StudyTrialLease', () => {
 	it('starts custody, opens the scope and session, and closes the session without a cleanup failure', async () => {
@@ -102,5 +112,50 @@ describe('StudyTrialLease', () => {
 		} finally {
 			fixture.close()
 		}
+	})
+
+	it('hands the series seed to the driver opening and undefined without one', async () => {
+		const manifest = buildCompactCustodyManifest()
+		const trial = requireValue(manifest.schedule[0])
+		const custody = createStudyStoreFixture()
+		const opened = createRecorder<readonly [string, JSONValue | undefined]>()
+		for (const seed of [{ trial: 'r1-s1-a1', goal: 'read' }, undefined]) {
+			const control = new StudyControl()
+			const series = new StudyScope({ limit: manifest.bounds.series, control, label: 'Series' })
+			const lease = new StudyTrialLease(
+				trial,
+				{
+					manifest,
+					driver: {
+						async open(entry, _signal, value): Promise<StudySessionInterface> {
+							opened.handler(entry.id, value)
+							return {
+								async execute(goal): Promise<StudyProduct> {
+									return { value: goal.id, partial: false }
+								},
+								async close(): Promise<void> {},
+							}
+						},
+					},
+					store: custody.store,
+					signal: control.signal,
+					...(seed === undefined ? {} : { seed }),
+				},
+				control,
+				series,
+				new StudyDeadline({ duration: manifest.bounds.request.duration, label: 'Cleanup' }),
+			)
+			try {
+				await lease.open()
+				expect(await lease.close()).toBeUndefined()
+			} finally {
+				series.close()
+				control.close()
+			}
+		}
+		expect(opened.calls).toEqual([
+			[trial.id, { trial: 'r1-s1-a1', goal: 'read' }],
+			[trial.id, undefined],
+		])
 	})
 })

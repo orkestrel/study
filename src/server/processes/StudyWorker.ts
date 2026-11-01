@@ -17,7 +17,7 @@ import {
 	isStudyProduct,
 	isStudyProfile,
 } from '@src/core'
-import { canonicalStringify, isRecord } from '@orkestrel/contract'
+import { canonicalStringify, isJSONValue, isRecord } from '@orkestrel/contract'
 import { open } from 'node:fs/promises'
 import { STUDY_PROCESS_LABEL } from './constants.js'
 import {
@@ -148,6 +148,8 @@ export class StudyWorker {
 		this.#duration = value.profile.bounds.request.duration
 		if (value.closure !== undefined && !isStudyClosure(value.closure))
 			throw new StudyError('CONFIG', 'Worker closure selection is malformed')
+		if (value.seed !== undefined && !isJSONValue(value.seed))
+			throw new StudyError('CONFIG', 'Worker seed is not a JSON value')
 		const destination = isRecord(value.exchanges) ? value.exchanges[value.trial.id] : undefined
 		if (destination !== undefined) {
 			if (!isStudyExchangeDestination(destination))
@@ -273,7 +275,7 @@ export class StudyWorker {
 			...(this.#exchanges === undefined ? {} : { exchanges: this.#exchanges }),
 			...(this.#replay === undefined ? {} : { replay: this.#replay }),
 		})
-		this.#session = await driver.open(value.trial, this.#control.signal)
+		this.#session = await driver.open(value.trial, this.#control.signal, value.seed)
 		if (this.#control.failure !== undefined) throw failureToStudyError(this.#control.failure)
 		return valueToWire({ ...identity, pid: process.pid })
 	}
