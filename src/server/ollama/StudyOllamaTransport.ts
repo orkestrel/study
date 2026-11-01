@@ -598,7 +598,8 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				})
 			}
 			if (wire.terminal !== undefined) await this.#judge(wire, wire.terminal)
-			// Admission below commits the terminal synchronously; cancellation after it only joins retention.
+			// The following admission commits the terminal synchronously; cancellation after it only
+			// joins retention.
 			wire.cancellation.throwIfAborted()
 			if (wire.identity !== undefined) {
 				this.check()

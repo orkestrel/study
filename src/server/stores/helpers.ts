@@ -361,7 +361,7 @@ export async function writeStudyBytes(path: string, bytes: Uint8Array): Promise<
  * @param directory - The execution directory
  * @param manifest - The authoritative population
  * @returns Sorted exact inventory entries
- * @throws StudyError - Thrown when inventory escapes its declared tree
+ * @throws StudyError - Thrown when inventory resolves outside its declared tree
  * @example
  * ```ts
  * await scanStudyExecution(directory, manifest)

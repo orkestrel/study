@@ -509,7 +509,7 @@ export interface StudyProgressGoal {
 /**
  * Holds the listed goals of one scheduled trial and whether its terminal record exists.
  * @remarks
- * `horizon` counts the scenario's declared goals. `ended` is true once the trial's terminal attempt
+ * `horizon` counts the scenario's declared goals. `ended` is true after the trial's terminal attempt
  * parses as a valid record, and `failure` is that attempt's failure.
  */
 export interface StudyProgressTrial {

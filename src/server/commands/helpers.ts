@@ -186,7 +186,8 @@ export async function readStudyDeclaration(
  * @param directory - The selected custody or study directory
  * @param path - The slash-separated relative artifact path
  * @returns The contained absolute host path
- * @throws StudyError - Thrown when a path is malformed, reserved, absolute, or escaping
+ * @throws StudyError - Thrown when a path is malformed, reserved, absolute, or resolving outside the
+ * selected directory
  * @example
  * ```ts
  * resolveStudyPath(directory, 'profiles/local.json')
