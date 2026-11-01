@@ -398,7 +398,7 @@ Exported from `@orkestrel/scaffold/server`, and reachable from
 | `HostInventory`          | interface | `{ lookup, digests, duplicates, note, surface, unreachable? }`                                       | Represents the committed vendored-file inventory as one call's reads are decided against.         |
 | `HostManifest`           | interface | `{ entries, roots, surface, digest }`                                                                | Represents the complete vendored-host inventory.                                                  |
 | `HostManifestEntry`      | interface | `{ storage, destination, executable, digest }`                                                       | Represents one file record of the vendored host's manifest.                                       |
-| `HostStageOptions`       | interface | `{ inventory?, establish?, report? }`                                                                | Configures the committed inventory baseline and staging reports.                                  |
+| `HostStageOptions`       | interface | `{ inventory?, establish?, report?, transfers? }`                                                    | Configures the committed inventory baseline and staging reports.                                  |
 | `MaterializeResult`      | interface | `{ target, written, skipped, removed }`                                                              | Reports the outcome of one mutation of a target.                                                  |
 | `MaterializerInterface`  | interface | `{ emitter, audit(), materialize(), repair(), mirror(), catalog(), declare(), remove(), destroy() }` | Describes the mutation contract: the package's only filesystem writer.                            |
 | `MaterializerOptions`    | interface | `{ host?, on?, error? }`                                                                             | Represents the options for the materializer.                                                      |
@@ -784,10 +784,11 @@ scaffold surface ../router ../server --from . --json
 The comparison uses the bare identifier, case included, across declaration keywords and
 environments. A name claimed by distinct owners is a collision. A collision absent from the record,
 or carrying an owner absent from its recorded owner set, has `error` standing. When another guide
-claims the name, the keeper a `SURFACE_TRANSFERS` entry declares is a recorded owner of it from the
-first build after the declaration, so its claim reads `recorded` before its guide is mirrored. A collision with the
-same or fewer owners has `recorded` standing. A recorded name that no longer collides has `closed`
-standing, so a release can shrink the record.
+claims the name, the keeper a declared transfer names is a recorded owner of it from the first build
+after the declaration, so its claim reads `recorded` before its guide is mirrored. A release build
+declares the transfers in `SURFACE_TRANSFERS`. A collision with the same or fewer owners has
+`recorded` standing. A recorded name that no longer collides has `closed` standing, so a release can
+shrink the record.
 
 A name a candidate adds is one its claims hold and its owner's published guide does not. The
 published guide is read in the order the Claims row gives for any other owner: the guide on `main`,
@@ -2282,6 +2283,7 @@ The inventory contracts carry these data members.
 | `HostStageOptions.inventory` | Optional checkout-relative inventory path. Default: `HOST_INVENTORY_PATH` (`host.json`).                                                  |
 | `HostStageOptions.establish` | Optional boolean. If `true`, an absent inventory establishes the baseline; if `false`, staging refuses it. Default: `false`.              |
 | `HostStageOptions.report`    | Optional callback receiving the baseline location or its absence. Default: no reporting.                                                  |
+| `HostStageOptions.transfers` | Optional readonly `SurfaceTransfer[]` the stage admits. Default: `SURFACE_TRANSFERS`.                                                     |
 
 The vendored data root is the shared file set, staged into the published package as plain data.
 Staging walks `HOST_PATHS`, `CANON_PATHS`, and `REFERENCE_PATHS`, and a release ships what those
@@ -2459,7 +2461,8 @@ committed inventory does not already record: `stageHost` reads the baseline thro
 `readSurfaceBaseline` before the build rewrites the inventory, and refuses a name whose staged
 owner set differs from the inventory — absent from the record, or not a subset of its recorded
 owners — which is what stops a release from widening the set of names more than one package claims.
-A `SURFACE_TRANSFERS` entry that another staged guide claims admits exactly its keeper beside the
+`HostStageOptions.transfers` declares the transfers, and its default is `SURFACE_TRANSFERS`. A
+declared transfer that another staged guide claims admits exactly its keeper beside the
 recorded owners, or beside the one owner of a name the record lacks, and the stage records that
 keeper whether or not its guide is mirrored; any other added owner is still refused. A transfer
 whose keeper alone claims the name is spent, and the stage refuses it with `TARGET`, naming the
@@ -2474,8 +2477,9 @@ An absent inventory refuses staging unless `HostStageOptions.establish` is `true
 option to bootstrap a fresh checkout deliberately. An inventory whose `surface` is missing,
 malformed, or at odds with its digest is refused even during bootstrap.
 
-`npm run build` is the release path, and it passes neither `HostStageOptions.inventory` nor
-`HostStageOptions.establish`. Its `build:host` step stages
+`npm run build` is the release path, and it passes none of `HostStageOptions.inventory`,
+`HostStageOptions.establish`, and `HostStageOptions.transfers`, so it admits the transfers in
+`SURFACE_TRANSFERS`. Its `build:host` step stages
 `dist/host`, and its `build:inventory` step stages a temporary root and writes the manifest that
 run produced to `host.json`; each reads the committed inventory at the default path, refuses an
 absent one, and compares the staged collisions against what that inventory records. Deleting
@@ -2538,7 +2542,12 @@ Nothing is fixed except the manifest.
 - One template artifact, `configs/browsers.ts`, for a workspace selecting `browser` on either
   environment axis or in its setup runtime list.
   It resolves the Chromium the Playwright provider launches, and the root `vite.config.ts` calls it
-  once into `browserOptions` and passes that to every `playwright()` provider it configures. The
+  once into `browserOptions` and passes that to every `playwright()` provider it configures. Beside
+  it, the root configuration resolves one `screenshots` directory, `tmp/captures/screenshots` under
+  the workspace root, and every factory that configures a `playwright()` provider passes it as
+  `test.browser.screenshotDirectory`, so a `page.screenshot()` capture lands there rather than in a
+  `__screenshots__` directory beside its test file. Vitest writes a failure screenshot into its
+  attachments directory, `.vitest/attachments` at the workspace root. The
   precedence is `PLAYWRIGHT_EXECUTABLE_PATH`, `PLAYWRIGHT_WS_ENDPOINT`, `PLAYWRIGHT_CHANNEL`, the
   managed Playwright Chromium, the container's bundled Chromium, a verified system channel, then the
   platform default. Set `PLAYWRIGHT_SCROLLBARS=classic` only for runs that measure scrollbar
