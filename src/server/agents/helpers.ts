@@ -126,13 +126,13 @@ export function buildStudyAgentRevision(request: ProviderRequest): string | unde
 }
 
 /**
- * Builds the JSON evidence form of a Ledger result's logical classifier readings.
+ * Builds the JSON evidence form of a Ledger result's logical classifier attempts.
  * @param result - Value returned by the Ledger
- * @returns Null when the result carries no readings array, else one entry per well-formed reading in asking order, each with its duration or null
+ * @returns Null when the result carries no attempts array, else one entry per well-formed attempt in asking order, each with its duration or null
  */
-export function buildStudyAgentReadings(result: unknown): JSONValue {
-	if (!isObject(result) || !('readings' in result) || !isArray(result.readings)) return null
-	return result.readings.flatMap((entry): JSONValue[] =>
+export function buildStudyAgentAttempts(result: unknown): JSONValue {
+	if (!isObject(result) || !('attempts' in result) || !isArray(result.attempts)) return null
+	return result.attempts.flatMap((entry): JSONValue[] =>
 		!isObject(entry) ||
 		!('key' in entry) ||
 		typeof entry.key !== 'string' ||

@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
 import { StudyError } from '../../../../src/core/errors.js'
 import {
-	buildStudyAgentReadings,
+	buildStudyAgentAttempts,
 	buildStudyAgentToolResult,
 	buildStudyAgentToolDenial,
 	buildStudyAgentRevision,
@@ -293,22 +293,22 @@ describe('buildStudyAgentRevision', () => {
 	})
 })
 
-describe('buildStudyAgentReadings', () => {
-	it('returns null for a result without a readings array', () => {
-		for (const result of [undefined, null, 'text', 3, {}, { readings: 'none' }, { readings: {} }])
-			expect(buildStudyAgentReadings(result)).toBe(null)
+describe('buildStudyAgentAttempts', () => {
+	it('returns null for a result without an attempts array', () => {
+		for (const result of [undefined, null, 'text', 3, {}, { attempts: 'none' }, { attempts: {} }])
+			expect(buildStudyAgentAttempts(result)).toBe(null)
 	})
 
-	it('projects well-formed readings in asking order with a numeric duration or null', () => {
+	it('projects well-formed attempts in asking order with a numeric duration or null', () => {
 		const result = {
 			content: 'ignored',
-			readings: [
+			attempts: [
 				{ key: 'shipped', phase: 'ask', outcome: 'yes', duration: 12, extra: 'dropped' },
 				{ key: 'billed', phase: 'recheck', outcome: 'no' },
 				{ key: 'late', phase: 'ask', outcome: 'yes', duration: '5' },
 			],
 		}
-		expect(buildStudyAgentReadings(result)).toEqual([
+		expect(buildStudyAgentAttempts(result)).toEqual([
 			{ key: 'shipped', phase: 'ask', outcome: 'yes', duration: 12 },
 			{ key: 'billed', phase: 'recheck', outcome: 'no', duration: null },
 			{ key: 'late', phase: 'ask', outcome: 'yes', duration: null },
@@ -317,7 +317,7 @@ describe('buildStudyAgentReadings', () => {
 
 	it('skips an entry missing a string key, phase, or outcome and keeps the rest', () => {
 		const result = {
-			readings: [
+			attempts: [
 				null,
 				'row',
 				{ phase: 'ask', outcome: 'yes' },
@@ -326,10 +326,10 @@ describe('buildStudyAgentReadings', () => {
 				{ key: 'kept', phase: 'ask', outcome: 'yes', duration: 0 },
 			],
 		}
-		expect(buildStudyAgentReadings(result)).toEqual([
+		expect(buildStudyAgentAttempts(result)).toEqual([
 			{ key: 'kept', phase: 'ask', outcome: 'yes', duration: 0 },
 		])
-		expect(buildStudyAgentReadings({ readings: [] })).toEqual([])
+		expect(buildStudyAgentAttempts({ attempts: [] })).toEqual([])
 	})
 })
 

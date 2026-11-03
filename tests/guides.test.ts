@@ -369,7 +369,7 @@ await new GuideCommand({
 	})
 
 	it('executes the Agent helper examples against their claimed values', () => {
-		const { buildStudyAgentReadings, isStudyAgentResponse, readStudyAgentMessages } = server
+		const { buildStudyAgentAttempts, isStudyAgentResponse, readStudyAgentMessages } = server
 		expect(readStudyAgentMessages([{ id: 'm1', role: 'user', content: 'Hi' }])).toEqual([
 			{ role: 'user', content: 'Hi' },
 		])
@@ -381,10 +381,10 @@ await new GuideCommand({
 		expect(isStudyAgentResponse({ content: 'done', calls: [] })).toBe(true)
 		expect(isStudyAgentResponse({ content: '', calls: STUDY_SCRIPT_MANY_CALLS })).toBe(true)
 		expect(isStudyAgentResponse({ content: 'done', calls: [], extra: true })).toBe(false)
-		expect(buildStudyAgentReadings({})).toBeNull()
+		expect(buildStudyAgentAttempts({})).toBeNull()
 		expect(
-			buildStudyAgentReadings({
-				readings: [
+			buildStudyAgentAttempts({
+				attempts: [
 					{ key: 'a', phase: 'ask', outcome: 'ok', duration: 3 },
 					{ key: 'b', phase: 'ask', outcome: 'ok' },
 					{ key: 'c' },
