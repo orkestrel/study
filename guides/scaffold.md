@@ -517,6 +517,7 @@ Exported from `@orkestrel/scaffold/server`, and reachable from
 | `resolveHostRoot`         | function | `() => string`                                                                                                      | Resolves the bundled host root from the executing module's location.                              |
 | `resolveContainedPath`    | function | `(root: string, path: string) => string \| undefined`                                                               | Resolves a root-relative path and refuses one that leaves its root.                               |
 | `resolveRealPath`         | function | `(path: string) => string \| undefined`                                                                             | Resolves a path through the real filesystem, keeping the part that does not exist yet.            |
+| `resolveSurfaceLoader`    | function | `(roots: readonly string[]) => SurfaceLoader`                                                                       | Resolves the guide loader one surface run passes to every reader.                                 |
 | `stageBytes`              | function | `(host: Host, root: string, destinations: readonly string[]) => readonly HostManifestEntry[]`                       | Stages the named destinations of a value host into a private root.                                |
 | `stageHost`               | function | `(checkout: string, host: string, options?: HostStageOptions) => readonly HostManifestEntry[]`                      | Stages a vendored host root from a real checkout.                                                 |
 | `stageInventory`          | function | `(checkout: string, path?: string) => HostManifest`                                                                 | Stages the committed inventory of the files a vendored host carries.                              |
@@ -775,6 +776,14 @@ its `isGuideError` guard accepts, such as a `## Surface` header other than
 source, carrying the parser's message, and holding the guide error's `code` in the refusal's
 context. Any other error the parser raises propagates unchanged.
 
+One run reads every guide and barrel through one `@orkestrel/guide` module, which
+`resolveSurfaceLoader` selects. When a candidate's manifest names `@orkestrel/guide`, the run loads
+the module through that checkout's own package exports, so guide's own checkout checks its claims
+with its own build; otherwise the run loads the copy installed beside scaffold. Loading that module
+executes the guide candidate's build output inside the scaffold process. The command refuses with
+`TARGET` when two candidates name `@orkestrel/guide`, and when the guide candidate's exports do not
+resolve, naming the checkout and the `npm run build` command its exports need.
+
 Compare unpublished candidates together with this command:
 
 ```sh
@@ -848,8 +857,9 @@ a contract.
 `readSurfaceModule` loads `@orkestrel/guide` lazily and narrows it with `isSurfaceModule`, which
 requires `createGuide`, `createSource`, `extractSourceLines`, and `isGuideError` as functions, and
 refuses with `TARGET` a module that lacks one or holds another value there; every reader takes an optional `SurfaceLoader` that resolves the module, and requires the package in
-scaffold's resolution path when none is supplied. Importing the server entry alone does not load
-it.
+scaffold's resolution path when none is supplied. `resolveSurfaceLoader` returns the loader of the
+one candidate checkout whose manifest names `@orkestrel/guide`, or scaffold's own resolution when no
+candidate does. Importing the server entry alone does not load it.
 
 The executable's `SurfaceCommand` interface carries `verb: 'surface'`, positional `checkouts`,
 and the optional `offline`, `from`, `target`, and `json` members. The parser refuses other verbs'
