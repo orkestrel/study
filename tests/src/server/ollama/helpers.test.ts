@@ -5,6 +5,8 @@ import { extractTiming } from '@orkestrel/ollama'
 import { StudyError } from '../../../../src/core/errors.js'
 import { readStudyFailure } from '../../../../src/core/engines/helpers.js'
 import {
+	buildStudyOllamaKey,
+	splitStudyOllamaChunks,
 	buildStudyOllamaModels,
 	buildStudyOllamaRaw,
 	buildStudyOllamaOptions,
@@ -698,5 +700,20 @@ describe('timing and raw observations', () => {
 		expect(buildStudyOllamaRaw(JSON.stringify({ messages: [] }))).toBeUndefined()
 		expect(buildStudyOllamaRaw('{')).toBeUndefined()
 		expect(buildStudyOllamaRaw(undefined)).toBeUndefined()
+	})
+})
+
+describe('keyed replay helpers', () => {
+	it('splits a recorded body back into its chunks', () => {
+		expect(splitStudyOllamaChunks(Buffer.from('abc'), [1, 2]).map(String)).toEqual(['a', 'bc'])
+		expect(splitStudyOllamaChunks(Buffer.from(''), [])).toEqual([])
+	})
+
+	it('keys a request by path, method, and body bytes', () => {
+		const key = buildStudyOllamaKey('/api/chat', 'POST', Buffer.from('body'))
+		expect(buildStudyOllamaKey('/api/chat', 'POST', Buffer.from('body'))).toBe(key)
+		expect(buildStudyOllamaKey('/api/generate', 'POST', Buffer.from('body'))).not.toBe(key)
+		expect(buildStudyOllamaKey('/api/chat', 'GET', Buffer.from('body'))).not.toBe(key)
+		expect(buildStudyOllamaKey('/api/chat', 'POST', Buffer.from('bodz'))).not.toBe(key)
 	})
 })

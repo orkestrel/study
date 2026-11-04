@@ -1,19 +1,20 @@
 import type {
 	StudyExchangeDeclaration,
+	StudyExchangeProgress,
 	StudyExchangeRow,
 	StudyExchangeSinkInterface,
 	StudyExchangeSinkOptions,
 } from './types.js'
 import { StudyError, isStudyRecord } from '@src/core'
 import { parseJSON, cloneJSONValue, canonicalStringify } from '@orkestrel/contract'
-import { validateStudyExchangeRows } from './helpers.js'
+import { advanceStudyExchangeProgress, validateStudyExchangeRows } from './helpers.js'
 import { isStudyExchangeRow, isStudyExchangeDeclaration } from './validators.js'
 
 /** Retains ordered exchange rows under a parent-reserved serialized byte allowance. */
 export class StudyExchangeSink implements StudyExchangeSinkInterface {
 	readonly #options: StudyExchangeSinkOptions
 	readonly #writes = new Set<Promise<void>>()
-	#rows: readonly StudyExchangeRow[] = []
+	#progress: StudyExchangeProgress | undefined
 	#bytes = 0
 	#fault: { readonly error: unknown } | undefined
 	#shutdown: Promise<void> | undefined
@@ -27,13 +28,12 @@ export class StudyExchangeSink implements StudyExchangeSinkInterface {
 		this.#options = { ...options, record: { ...options.record } }
 		if (options.retained !== undefined) {
 			const rows = structuredClone(options.retained)
-			validateStudyExchangeRows(rows, false)
+			this.#progress = validateStudyExchangeRows(rows, false)
 			if (
 				rows[0]?.phase !== 'declaration' ||
 				canonicalStringify(rows[0].record) !== canonicalStringify(this.#options.record)
 			)
 				throw new StudyError('CUSTODY', 'Retained exchange bounds differ from the reservation')
-			this.#rows = rows
 			this.#bytes = rows.reduce(
 				(total, row) => total + Buffer.byteLength(JSON.stringify(row) + '\n'),
 				0,
@@ -45,13 +45,13 @@ export class StudyExchangeSink implements StudyExchangeSinkInterface {
 
 	/** Holds the next contiguous one-based HTTP ordinal, including the retained prefix. */
 	get next(): number {
-		return this.#rows.filter((row) => row.phase === 'attempt').length + 1
+		return (this.#progress?.attempts ?? 0) + 1
 	}
 
 	/** Holds the accepted opening declaration, including a retained prefix. */
 	get declaration(): StudyExchangeDeclaration | undefined {
-		const first = this.#rows[0]
-		if (first?.phase !== 'declaration') return undefined
+		const first = this.#progress?.declaration
+		if (first === undefined) return undefined
 		const snapshot = cloneJSONValue(first)
 		if (!isStudyExchangeDeclaration(snapshot))
 			throw new StudyError('CUSTODY', 'Invalid accepted declaration')
@@ -75,8 +75,10 @@ export class StudyExchangeSink implements StudyExchangeSinkInterface {
 			)
 				throw new StudyError('CUSTODY', 'Exchange declaration differs from its reserved bounds')
 			if (this.#fault !== undefined && owned.phase !== 'failure') throw this.#fault.error
-			const rows = [...this.#rows, owned]
-			validateStudyExchangeRows(rows, false)
+			const progress =
+				this.#progress === undefined
+					? validateStudyExchangeRows([owned], false)
+					: advanceStudyExchangeProgress(this.#progress, owned)
 			const bytes = Buffer.from(text)
 			const reservation =
 				owned.phase === 'attempt'
@@ -93,7 +95,7 @@ export class StudyExchangeSink implements StudyExchangeSinkInterface {
 					: 0
 			if (this.#bytes + bytes.length + reservation > this.#options.record.bytes)
 				throw new StudyError('CAPACITY', 'Serialized exchange bytes exceed the trial allowance')
-			this.#rows = rows
+			this.#progress = progress
 			this.#bytes += bytes.length
 			const pending = this.#write(bytes)
 			this.#writes.add(pending)

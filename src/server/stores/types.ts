@@ -184,6 +184,27 @@ export type StudyExchangeRow =
 	| StudyExchangeFailure
 	| StudyExchangeCompletion
 
+/**
+ * Holds what validating a journal's rows so far has derived, so the next row reads no earlier row.
+ * @remarks
+ * `prefix` counts the maintenance and preflight exchanges and `postflight` the closing verification
+ * exchanges the declaration requires. `execution` counts model attempts and `goal` holds the last
+ * one's index among the declared goals. `concluded` reports a postflight attempt, `failed` a failure
+ * terminal, and `closed` the completion row.
+ */
+export interface StudyExchangeProgress {
+	readonly declaration: StudyExchangeDeclaration
+	readonly prefix: number
+	readonly postflight: number
+	readonly previous: StudyExchangeRow
+	readonly attempts: number
+	readonly execution: number
+	readonly goal: number | undefined
+	readonly concluded: boolean
+	readonly failed: boolean
+	readonly closed: boolean
+}
+
 /** Holds a strictly verified successful request and response pair. */
 export interface StudyRecordedExchange {
 	readonly attempt: StudyExchangeAttempt

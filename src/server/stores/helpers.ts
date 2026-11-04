@@ -15,6 +15,7 @@ import type {
 	StudyExchangeDeclaration,
 	StudyExchangeHistory,
 	StudyExchangeIdentity,
+	StudyExchangeProgress,
 	StudyExchangeRow,
 	StudyRecordedExchange,
 	StudyPacketBundle,
@@ -1108,6 +1109,104 @@ export function validateStudyExchangeRequest(
 		throw new StudyError('CUSTODY', 'Metadata request differs from its declaration')
 }
 
+/** Builds the progress of a journal that holds only its declaration.
+ * @param declaration - The validated opening row.
+ * @returns The progress one row at a time extends.
+ * @example
+ * ```ts
+ * buildStudyExchangeProgress(declaration).attempts // 0
+ * ```
+ */
+export function buildStudyExchangeProgress(
+	declaration: StudyExchangeDeclaration,
+): StudyExchangeProgress {
+	const population = buildStudyExchangeSequence(declaration, 0)
+	return {
+		declaration,
+		prefix: population.filter((row) => row.stage === 'maintenance' || row.stage === 'preflight')
+			.length,
+		postflight: population.filter((row) => row.stage === 'postflight').length,
+		previous: declaration,
+		attempts: 0,
+		execution: 0,
+		goal: undefined,
+		concluded: false,
+		failed: false,
+		closed: false,
+	}
+}
+
+/** Validates the next row against the journal before it and derives the journal after it.
+ * @remarks
+ * Each row reads only the progress, so a journal costs one step per row, and a sink appends without
+ * revisiting a row it accepted.
+ * @param progress - The progress of every row before this one.
+ * @param row - The next row, itself already valid.
+ * @returns The progress including the row.
+ * @throws StudyError - Thrown with `CUSTODY` when the row does not join its preceding attempt and declared sequence.
+ * @example
+ * ```ts
+ * advanceStudyExchangeProgress(progress, row).attempts
+ * ```
+ */
+export function advanceStudyExchangeProgress(
+	progress: StudyExchangeProgress,
+	row: StudyExchangeRow,
+): StudyExchangeProgress {
+	const { declaration, previous, prefix } = progress
+	if (progress.closed) throw new StudyError('CUSTODY', 'Exchange completion is partial or failed')
+	if (row.phase === 'attempt') {
+		if (previous.phase !== 'declaration' && previous.phase !== 'response')
+			throw new StudyError('CUSTODY', 'Exchange attempt overlaps an unfinished attempt')
+		if (row.ordinal !== progress.attempts + 1)
+			throw new StudyError('CUSTODY', 'Exchange ordinals are not contiguous')
+		const execution = progress.execution + (row.stage === 'execution' ? 1 : 0)
+		const goal = row.stage === 'execution' ? declaration.goals.indexOf(row.goal) : progress.goal
+		if (
+			row.stage === 'execution' &&
+			(row.step !== execution ||
+				row.ordinal !== prefix + execution ||
+				progress.execution >= declaration.record.calls ||
+				goal === undefined ||
+				goal < 0 ||
+				(progress.goal !== undefined && goal < progress.goal) ||
+				progress.concluded)
+		)
+			throw new StudyError('CUSTODY', 'Execution differs from its horizon, calls or stage order')
+		validateStudyExchangeRequest(declaration, row, execution)
+		return {
+			...progress,
+			previous: row,
+			attempts: progress.attempts + 1,
+			execution,
+			goal,
+			concluded: progress.concluded || row.stage === 'postflight',
+		}
+	}
+	if (row.phase === 'response' || row.phase === 'failure') {
+		if (
+			previous.phase !== 'attempt' ||
+			canonicalStringify(projectStudyExchangeIdentity(previous)) !==
+				canonicalStringify(projectStudyExchangeIdentity(row))
+		)
+			throw new StudyError('CUSTODY', 'Exchange terminal has no matching attempt')
+		return { ...progress, previous: row, failed: progress.failed || row.phase === 'failure' }
+	}
+	if (row.phase === 'complete') {
+		if (
+			previous.phase !== 'response' ||
+			row.count !== progress.attempts ||
+			row.count !== prefix + progress.execution + progress.postflight ||
+			(declaration.procedure !== undefined &&
+				progress.execution !== declaration.procedure.length) ||
+			progress.failed
+		)
+			throw new StudyError('CUSTODY', 'Exchange completion is partial or failed')
+		return { ...progress, previous: row, closed: true }
+	}
+	throw new StudyError('CUSTODY', 'Exchange declaration repeats')
+}
+
 /** Validates a serialized journal prefix or its complete successful population.
  * @param rows - The owned rows in physical append order.
  * @param complete - If true, requires successful completion; if false, admits an unfinished prefix.
@@ -1116,70 +1215,17 @@ export function validateStudyExchangeRequest(
 export function validateStudyExchangeRows(
 	rows: readonly StudyExchangeRow[],
 	complete = true,
-): void {
+): StudyExchangeProgress {
 	const declaration = rows[0]
 	if (declaration?.phase !== 'declaration' || !rows.every(isStudyExchangeRow))
 		throw new StudyError('CUSTODY', 'Exchange declaration or row is invalid')
-	const attempts = rows.filter((row) => row.phase === 'attempt')
-	const execution = attempts.filter((row) => row.stage === 'execution')
-	const population = buildStudyExchangeSequence(declaration, execution.length)
-	const prefix = population.filter(
-		(row) => row.stage === 'maintenance' || row.stage === 'preflight',
-	).length
-	for (const [index, row] of rows.entries()) {
-		if (index === 0) continue
-		const previous = rows[index - 1]
-		if (row.phase === 'attempt') {
-			if (previous?.phase !== 'declaration' && previous?.phase !== 'response')
-				throw new StudyError('CUSTODY', 'Exchange attempt overlaps an unfinished attempt')
-			if (
-				row.ordinal !==
-				rows.slice(0, index).filter((entry) => entry.phase === 'attempt').length + 1
-			)
-				throw new StudyError('CUSTODY', 'Exchange ordinals are not contiguous')
-			if (row.stage === 'execution') {
-				const step = execution.findIndex((entry) => entry === row)
-				const goal = declaration.goals.indexOf(row.goal)
-				const prior = execution[step - 1]
-				if (
-					row.step !== step + 1 ||
-					row.ordinal !== prefix + step + 1 ||
-					step >= declaration.record.calls ||
-					goal < 0 ||
-					(prior !== undefined && goal < declaration.goals.indexOf(prior.goal)) ||
-					attempts.some((entry) => entry.ordinal < row.ordinal && entry.stage === 'postflight')
-				)
-					throw new StudyError(
-						'CUSTODY',
-						'Execution differs from its horizon, calls or stage order',
-					)
-			}
-			validateStudyExchangeRequest(declaration, row, execution.length)
-		} else if (row.phase === 'response' || row.phase === 'failure') {
-			if (
-				previous?.phase !== 'attempt' ||
-				canonicalStringify(projectStudyExchangeIdentity(previous)) !==
-					canonicalStringify(projectStudyExchangeIdentity(row))
-			)
-				throw new StudyError('CUSTODY', 'Exchange terminal has no matching attempt')
-		} else if (row.phase === 'complete') {
-			if (
-				index !== rows.length - 1 ||
-				previous?.phase !== 'response' ||
-				row.count !== attempts.length ||
-				row.count !==
-					prefix +
-						execution.length +
-						population.filter((entry) => entry.stage === 'postflight').length ||
-				(declaration.procedure !== undefined &&
-					execution.length !== declaration.procedure.length) ||
-				rows.some((entry) => entry.phase === 'failure')
-			)
-				throw new StudyError('CUSTODY', 'Exchange completion is partial or failed')
-		} else throw new StudyError('CUSTODY', 'Exchange declaration repeats')
-	}
-	if (complete && rows.at(-1)?.phase !== 'complete')
+	const progress = rows
+		.values()
+		.drop(1)
+		.reduce(advanceStudyExchangeProgress, buildStudyExchangeProgress(declaration))
+	if (complete && !progress.closed)
 		throw new StudyError('CUSTODY', 'Exchange history has no successful completion')
+	return progress
 }
 
 /** Reads strict complete LF-framed exchange rows with verified bodies and declaration joins.

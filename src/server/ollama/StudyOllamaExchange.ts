@@ -27,7 +27,7 @@ export class StudyOllamaExchange implements StudyOllamaWire {
 	#terminal: StudyOllamaTerminal | undefined
 	#timing: OllamaTiming | undefined
 	#settled = false
-	#chunks: readonly Uint8Array[] = []
+	readonly #chunks: Uint8Array[] = []
 	#recorded = false
 	readonly #cancellation = new AbortController()
 
@@ -131,8 +131,7 @@ export class StudyOllamaExchange implements StudyOllamaWire {
 	 * @param chunk - The native response bytes already counted under the ceiling.
 	 */
 	retain(chunk: Uint8Array): void {
-		if (this.identity !== undefined && chunk.byteLength > 0)
-			this.#chunks = [...this.#chunks, Buffer.from(chunk)]
+		if (this.identity !== undefined && chunk.byteLength > 0) this.#chunks.push(Buffer.from(chunk))
 	}
 
 	/** Marks a sidecar terminal admitted so failure cleanup cannot append another. */

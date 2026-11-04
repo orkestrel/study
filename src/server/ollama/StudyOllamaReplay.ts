@@ -7,7 +7,7 @@ import type {
 import { StudyError } from '@src/core'
 import { validateStudyExchangeHistory } from '../stores/helpers.js'
 import { isStudyOllamaMetadata } from './validators.js'
-import { describeStudyReplayDifference } from './helpers.js'
+import { describeStudyReplayDifference, splitStudyOllamaChunks } from './helpers.js'
 
 /** Answers declared HTTP prefixes from complete ordered recorded application bytes. */
 export class StudyOllamaReplay implements StudyOllamaReplayInterface {
@@ -160,11 +160,7 @@ export class StudyOllamaReplay implements StudyOllamaReplayInterface {
 			throw new StudyError('DEADLINE', 'Replay exceeds the executing duration')
 		this.#cursor += 1
 		const bytes = Buffer.from(pair.response.body, 'base64')
-		const chunks = pair.response.chunks.map((size, index, sizes) => {
-			const offset = sizes.slice(0, index).reduce((total, length) => total + length, 0)
-			return bytes.subarray(offset, offset + size)
-		})
-		const source = chunks.values()
+		const source = splitStudyOllamaChunks(bytes, pair.response.chunks).values()
 		const stream = new ReadableStream<Uint8Array>(
 			{
 				pull: (controller) => {

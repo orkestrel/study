@@ -30,6 +30,41 @@ import {
 	parseJSON,
 } from '@orkestrel/contract'
 
+/** Builds the key a keyed replay finds a recorded exchange by.
+ * @param path - The request's path, origin excluded.
+ * @param method - The request's HTTP method.
+ * @param body - The request's exact body bytes.
+ * @returns The key, equal only for an equal path, method, and body.
+ * @example
+ * ```ts
+ * buildStudyOllamaKey('/api/tags', 'GET', new Uint8Array())
+ * ```
+ */
+export function buildStudyOllamaKey(path: string, method: string, body: Uint8Array): string {
+	return `${method} ${path} ${hashStudyBytes(body)}`
+}
+
+/** Splits a recorded body back into its original chunks.
+ * @param bytes - The recorded body.
+ * @param sizes - The recorded chunk lengths, whose sum equals the body's length.
+ * @returns A view of each chunk, in order.
+ * @example
+ * ```ts
+ * splitStudyOllamaChunks(Buffer.from('abc'), [1, 2]).map(String) // ['a', 'bc']
+ * ```
+ */
+export function splitStudyOllamaChunks(
+	bytes: Buffer,
+	sizes: readonly number[],
+): readonly Uint8Array[] {
+	const records: Array<{ readonly chunk: Uint8Array; readonly end: number }> = []
+	for (const size of sizes) {
+		const start = records.at(-1)?.end ?? 0
+		records.push({ chunk: bytes.subarray(start, start + size), end: start + size })
+	}
+	return records.map(({ chunk }) => chunk)
+}
+
 /** Describes the first differing replay member within the sidecar failure allowance.
  * @param expected - The next recorded attempt, absent after the offline prefix.
  * @param actual - The request admitted by the executing transport.
