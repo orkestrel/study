@@ -461,7 +461,7 @@ export interface StudyLabels {
 export interface StudyContractOptions<T> {
 	readonly code: StudyErrorCode
 	readonly noun: string
-	readonly contract: Pick<ContractInterface<T>, 'is' | 'audit'>
+	readonly contract: Pick<ContractInterface<T>, 'is' | 'audit' | 'schema'>
 	readonly scan: (value: T) => readonly string[]
 }
 

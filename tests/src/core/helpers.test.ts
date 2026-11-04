@@ -1,9 +1,10 @@
+import { createRecorder } from '@orkestrel/test'
 import { studyStopToJSON } from '../../../src/core/helpers.js'
 import { buildStudyStop } from '../../setupStudy.js'
 import { describe, expect, it } from 'vitest'
 import {
 	describeStudyFault,
-	normalizeStudyLabels,
+	scanStudyJSONFaults,
 	buildStudySchedule,
 	computeStudyScores,
 	filterStudyCriteria,
@@ -533,13 +534,49 @@ describe('describeStudyFault', () => {
 	})
 })
 
-describe('normalizeStudyLabels', () => {
-	it('omits an absent reading and leaves a value off this form unchanged', () => {
+describe('scanStudyJSONFaults', () => {
+	it('names each member that is not plain JSON data, without reading an accessor', () => {
+		const reads = createRecorder<readonly []>()
+		const accessor = Object.defineProperty({}, 'held', {
+			enumerable: true,
+			get: () => reads.handler(),
+		})
 		expect(
-			normalizeStudyLabels({ usage: [{ role: 'tool', calls: 0, duration: 0, tokens: undefined }] }),
-		).toEqual({ usage: [{ role: 'tool', calls: 0, duration: 0 }] })
-		for (const other of [1, {}, { usage: 1 }]) expect(normalizeStudyLabels(other)).toBe(other)
-		const accessor = Object.defineProperty({}, 'usage', { enumerable: true, get: () => [] })
-		expect(normalizeStudyLabels(accessor)).toBe(accessor)
+			scanStudyJSONFaults({
+				kept: [1, 'two', true, null, { deep: 3 }],
+				absent: undefined,
+				list: [undefined],
+				nested: { number: Number.NaN },
+				accessor,
+			}),
+		).toEqual([
+			'absent: holds no JSON value',
+			'list.0: holds no JSON value',
+			'nested.number: holds no JSON value',
+			'accessor.held: is not a data property',
+		])
+		expect(reads.calls).toEqual([])
+		expect(scanStudyJSONFaults(undefined)).toEqual(['value: holds no JSON value'])
+		expect(scanStudyJSONFaults({ [Symbol.iterator]: 1 })).toEqual(['value: holds a symbol key'])
+	})
+})
+
+describe('describeStudyFault with a schema', () => {
+	it('lists the values a refused literal allows, through properties and items', () => {
+		const schema = {
+			properties: { rows: { items: { properties: { verdict: { enum: ['one', 'two'] } } } } },
+		}
+		expect(
+			describeStudyFault(
+				{ reason: 'type', path: ['rows', '0', 'verdict'], expected: 'literal', received: '"x"' },
+				schema,
+			),
+		).toBe('rows.0.verdict: expected literal among one, two, received "x"')
+		expect(
+			describeStudyFault(
+				{ reason: 'type', path: ['rows'], expected: 'array', received: '1' },
+				schema,
+			),
+		).toBe('rows: expected array, received 1')
 	})
 })

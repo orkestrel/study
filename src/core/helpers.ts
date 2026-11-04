@@ -42,18 +42,31 @@ export function omitStudyAbsent(value: object): Readonly<Record<string, unknown>
 /**
  * Renders a contract fault as the path it names and what the value broke there.
  * @param fault - One audit fault
+ * @param schema - The contract's published schema, which names a refused literal's allowed values
  * @returns The path, dotted, then the fault; a root fault names `value`
  * @example
  * ```ts
  * describeStudyFault({ reason: 'extra', path: ['judgments', '0', 'weight'] }) // 'judgments.0.weight: undeclared key'
  * ```
  */
-export function describeStudyFault(fault: AuditFault): string {
-	const path = (isString(fault.path) ? fault.path : fault.path.join('.')) || 'value'
+export function describeStudyFault(fault: AuditFault, schema?: unknown): string {
+	const steps = isString(fault.path) ? [fault.path] : fault.path
+	const path = steps.join('.') || 'value'
 	if (fault.reason === 'extra') return `${path}: undeclared key`
 	if (fault.reason === 'missing') return `${path}: missing ${fault.expected}`
-	if (fault.reason === 'type')
-		return `${path}: expected ${fault.expected}, received ${fault.received}`
+	if (fault.reason === 'type') {
+		const node = steps.reduce<unknown>(
+			(current, step) =>
+				isRecord(current)
+					? isRecord(current.properties) && Object.hasOwn(current.properties, step)
+						? current.properties[step]
+						: current.items
+					: undefined,
+			schema,
+		)
+		const allowed = isRecord(node) && isArray(node.enum) ? ` among ${node.enum.join(', ')}` : ''
+		return `${path}: expected ${fault.expected}${allowed}, received ${fault.received}`
+	}
 	if (fault.reason === 'constraint')
 		return `${path}: breaks ${fault.constraint}${fault.limit === undefined ? '' : ` ${String(fault.limit)}`}, received ${fault.received}`
 	if (fault.reason === 'variant')
@@ -126,26 +139,33 @@ export function scanStudyLabelsFaults(labels: StudyLabels): readonly string[] {
 }
 
 /**
- * Omits the undefined `tokens` and `bytes` of each usage entry, so labels written in memory hold one JSON form.
- * @param value - The unknown labels; a value off this form returns unchanged for the contract to refuse
- * @returns The value with each usage entry's absent readings removed
+ * Lists the members of a value that are not plain JSON data, by path, without reading an accessor.
+ * @param value - The unknown value
+ * @param path - The value's dotted path; the root names `value`
+ * @returns One line per member, in key order
  * @example
  * ```ts
- * normalizeStudyLabels({ usage: [{ role: 'tool', calls: 0, duration: 0, tokens: undefined }] })
- * // { usage: [{ role: 'tool', calls: 0, duration: 0 }] }
+ * scanStudyJSONFaults({ version: undefined }) // ['version: holds no JSON value']
  * ```
  */
-export function normalizeStudyLabels(value: unknown): unknown {
-	if (!isRecord(value) || !matchesStudyKeys(value, [], Object.keys(value)) || !isArray(value.usage))
-		return value
-	return {
-		...value,
-		usage: Array.from(value.usage, (entry) =>
-			isRecord(entry) && matchesStudyKeys(entry, [], Object.keys(entry))
-				? omitStudyAbsent(entry)
-				: entry,
-		),
-	}
+export function scanStudyJSONFaults(value: unknown, path = ''): readonly string[] {
+	if (
+		value === null ||
+		typeof value === 'string' ||
+		typeof value === 'boolean' ||
+		(typeof value === 'number' && Number.isFinite(value))
+	)
+		return []
+	if (typeof value !== 'object') return [`${path || 'value'}: holds no JSON value`]
+	return Reflect.ownKeys(value).flatMap((key) => {
+		if (typeof key !== 'string') return [`${path || 'value'}: holds a symbol key`]
+		if (key === 'length' && isArray(value)) return []
+		const child = path === '' ? key : `${path}.${key}`
+		const descriptor = Reflect.getOwnPropertyDescriptor(value, key)
+		return descriptor === undefined || !Object.hasOwn(descriptor, 'value')
+			? [`${child}: is not a data property`]
+			: scanStudyJSONFaults(descriptor.value, child)
+	})
 }
 
 /**

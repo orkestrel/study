@@ -412,15 +412,15 @@ export function computeStudyPartition(
 }
 
 /**
- * Groups failed records by cause, role, and layer, each group carrying its source readings.
+ * Groups failed records by cause, role, and layer, each group carrying the stops its records name.
  * @remarks
  * A group exists for each cause, role, and layer that holds at least one record. Groups follow
  * `STUDY_CAUSES`, then `STUDY_ROLES` with an absent role last, then `STUDY_LAYERS` with an absent
  * layer last. `role` and `layer` are null when absent. `executed` and `unexecuted` partition the
- * group by each record's own execution fact. `readings` lists every record of the group that carries
- * a stop, in source order, with `trial`, `goal` at the goal level only, `id`, `max`, and `consumed`
+ * group by each record's own execution fact. `stops` lists every record of the group that carries a
+ * stop, in source order, with `trial`, `goal` at the goal level only, `id`, `max`, and `consumed`
  * (null when the source reported none). A failure sealed before the `stop` member existed groups with
- * a null layer and no reading; the helper infers no layer from a message.
+ * a null layer and no stop; the helper infers no layer from a message.
  * @param sources - The failed records, in source order
  * @returns The JSON groups
  * @example

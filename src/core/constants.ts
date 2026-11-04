@@ -28,6 +28,9 @@ export const STUDY_ROLES: readonly StudyRole[] = Object.freeze([
 	'tool',
 ])
 
+/** Lists every verdict a judgment holds. */
+export const STUDY_VERDICTS = Object.freeze(['achieved', 'unsuccessful', 'unknown'] as const)
+
 /** Lists every ceiling a run can stop at in report order. */
 export const STUDY_LAYERS: readonly StudyLayer[] = Object.freeze([
 	'scope',

@@ -1,4 +1,5 @@
 import { captureError } from '@orkestrel/test'
+import { StudyError } from '../../../src/core/errors.js'
 import { describe, expect, it } from 'vitest'
 import {
 	studyJudgmentContract,
@@ -197,5 +198,52 @@ describe('study published JSON Schemas', () => {
 		expect(studyJudgmentContract.schema).toMatchObject({
 			properties: { method: { enum: ['state', 'trace', 'human', 'model'] } },
 		})
+	})
+})
+
+describe('study filled refusals without a JSON form', () => {
+	it('names an undefined member', () => {
+		expect(() => parseStudyRubric({ version: undefined, criteria: [] })).toThrow(
+			/version: holds no JSON value/,
+		)
+		expect(() =>
+			parseStudyLabels({ ...buildStudyLockstepLabels(), judgments: [{ trial: undefined }] }),
+		).toThrow(/judgments\.0\.trial: holds no JSON value/)
+	})
+
+	it('lists the values a refused literal allows', () => {
+		expect(() =>
+			parseStudyRubric({
+				version: '1',
+				criteria: [
+					{ id: 'a', scenario: 's', goal: 'g', method: 'x', critical: true, assertion: 1 },
+				],
+			}),
+		).toThrow(/criteria\.0\.method: expected literal among state, trace, semantic/)
+	})
+
+	it('refuses a hostile proxy as a coded failure at every door', () => {
+		const hostile = new Proxy(
+			{},
+			{
+				ownKeys: () => {
+					throw new Error('Hostile keys')
+				},
+				get: () => {
+					throw new Error('Hostile read')
+				},
+			},
+		)
+		for (const parse of [parseStudyRubric, parseStudyLabels])
+			expect(() => parse(hostile)).toThrow(StudyError)
+		expect(() => parseStudyJudgments([hostile])).toThrow(
+			expect.objectContaining({ code: 'FAULT', message: expect.stringContaining('0: unreadable') }),
+		)
+		const array = new Proxy([], {
+			get: () => {
+				throw new Error('Hostile read')
+			},
+		})
+		expect(() => parseStudyJudgments(array)).toThrow(expect.objectContaining({ code: 'FAULT' }))
 	})
 })

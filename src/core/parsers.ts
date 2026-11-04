@@ -8,13 +8,15 @@ import type {
 	StudyRubric,
 	StudyScenario,
 } from './types.js'
-import { attempt, cloneJSONValue, isArray, isFiniteNumber } from '@orkestrel/contract'
+import { attempt, cloneJSONValue, isArray, isFiniteNumber, isRecord } from '@orkestrel/contract'
 import { studyJudgmentContract, studyLabelsContract, studyRubricContract } from './contracts.js'
 import { StudyError } from './errors.js'
 import {
 	describeStudyFault,
-	normalizeStudyLabels,
+	matchesStudyKeys,
 	normalizeStudyProfile,
+	omitStudyAbsent,
+	scanStudyJSONFaults,
 	scanStudyJudgmentFaults,
 	scanStudyLabelsFaults,
 	scanStudyRubricFaults,
@@ -42,12 +44,21 @@ import {
 export function parseStudyContract<T>(value: unknown, options: StudyContractOptions<T>): T {
 	const { code, noun, contract, scan } = options
 	const owned = attempt((): unknown => cloneJSONValue(value))
-	if (!owned.success) throw new StudyError(code, `Invalid or unreadable ${noun}`)
+	if (!owned.success) {
+		const found = attempt(() => scanStudyJSONFaults(value))
+		throw new StudyError(
+			code,
+			`Invalid or unreadable ${noun}${found.success && found.value.length > 0 ? `: ${found.value.join('; ')}` : ''}`,
+		)
+	}
 	const snapshot = owned.value
 	if (!contract.is(snapshot))
 		throw new StudyError(
 			code,
-			`Invalid ${noun}: ${contract.audit(snapshot).map(describeStudyFault).join('; ')}`,
+			`Invalid ${noun}: ${contract
+				.audit(snapshot)
+				.map((fault) => describeStudyFault(fault, contract.schema))
+				.join('; ')}`,
 		)
 	const faults = scan(snapshot)
 	if (faults.length > 0) throw new StudyError(code, `Invalid ${noun}: ${faults.join('; ')}`)
@@ -188,7 +199,19 @@ export function parseStudyAssessment(value: unknown): StudyAssessment {
  * ```
  */
 export function parseStudyLabels(value: unknown): StudyLabels {
-	const normalized = attempt(() => normalizeStudyLabels(value))
+	// Labels written in memory can hold an undefined reading, which has no JSON form to own.
+	const normalized = attempt(() =>
+		isRecord(value) && matchesStudyKeys(value, [], Object.keys(value)) && isArray(value.usage)
+			? {
+					...value,
+					usage: Array.from(value.usage, (entry) =>
+						isRecord(entry) && matchesStudyKeys(entry, [], Object.keys(entry))
+							? omitStudyAbsent(entry)
+							: entry,
+					),
+				}
+			: value,
+	)
 	if (!normalized.success) throw new StudyError('EVIDENCE', 'Invalid or unreadable study labels')
 	return parseStudyContract(normalized.value, {
 		code: 'EVIDENCE',
@@ -211,16 +234,26 @@ export function parseStudyLabels(value: unknown): StudyLabels {
 export function parseStudyJudgments(value: unknown): readonly StudyJudgment[] {
 	if (!isArray(value))
 		throw new StudyError('FAULT', 'Grader returned invalid judgments: value: expected array')
-	const accepted = value.filter(isStudyJudgment)
-	if (accepted.length === value.length) return accepted
-	const faults = value.flatMap((entry, index) => {
-		if (isStudyJudgment(entry)) return []
-		const found = studyJudgmentContract
-			.audit(entry)
-			.map((fault) => `${String(index)}: ${describeStudyFault(fault)}`)
-		return found.length > 0 || !studyJudgmentContract.is(entry)
-			? found
-			: scanStudyJudgmentFaults(entry, String(index))
-	})
-	throw new StudyError('FAULT', `Grader returned invalid judgments: ${faults.join('; ')}`)
+	const faults = attempt(() =>
+		value.flatMap((entry, index) => {
+			if (isStudyJudgment(entry)) return []
+			const found = attempt(() =>
+				studyJudgmentContract
+					.audit(entry)
+					.map(
+						(fault) =>
+							`${String(index)}: ${describeStudyFault(fault, studyJudgmentContract.schema)}`,
+					),
+			)
+			if (!found.success) return [`${String(index)}: unreadable`]
+			return found.value.length > 0 || !studyJudgmentContract.is(entry)
+				? found.value
+				: scanStudyJudgmentFaults(entry, String(index))
+		}),
+	)
+	if (!faults.success)
+		throw new StudyError('FAULT', 'Grader returned invalid judgments: unreadable')
+	if (faults.value.length > 0)
+		throw new StudyError('FAULT', `Grader returned invalid judgments: ${faults.value.join('; ')}`)
+	return value.filter(isStudyJudgment)
 }

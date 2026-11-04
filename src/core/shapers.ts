@@ -8,7 +8,7 @@ import {
 	optionalShape,
 	stringShape,
 } from '@orkestrel/contract'
-import { STUDY_NAME, STUDY_ROLES } from './constants.js'
+import { STUDY_NAME, STUDY_ROLES, STUDY_VERDICTS } from './constants.js'
 
 /** Describes a portable bounded study identifier, the set `isStudyName` admits. */
 export const studyNameShape = stringShape({ max: 128, pattern: STUDY_NAME })
@@ -56,7 +56,7 @@ export const studyRubricShape = objectShape({
 export const studyJudgmentShape = objectShape({
 	trial: studyNameShape,
 	criterion: studyNameShape,
-	verdict: literalShape(['achieved', 'unsuccessful', 'unknown']),
+	verdict: studyVerdictShape,
 	method: literalShape(['state', 'trace', 'human', 'model']),
 	reason: studyTextShape,
 	references: arrayShape(studyTextShape),
@@ -66,7 +66,7 @@ export const studyJudgmentShape = objectShape({
 export const studyLabelJudgmentShape = objectShape({
 	trial: studyNameShape,
 	criterion: studyNameShape,
-	verdict: literalShape(['achieved', 'unsuccessful', 'unknown']),
+	verdict: studyVerdictShape,
 	method: literalShape(['human', 'model']),
 	reason: studyTextShape,
 	references: arrayShape(studyTextShape),
