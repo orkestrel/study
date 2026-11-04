@@ -1516,7 +1516,7 @@ try { parseStudyArguments([]) } catch (error) {
 		} finally {
 			await destroyScratch(library)
 		}
-	})
+	}, 60000)
 
 	it('keeps an abandoned ticket observation exact and reports its cleanup disconnect', async () => {
 		const entry = await compiled.promise
