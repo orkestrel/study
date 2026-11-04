@@ -929,7 +929,9 @@ export async function readStudyProgress(
 										role,
 										calls: values.length,
 										replayed: values.filter(
-											(value) => typeof value.ordinal === 'number' && value.ordinal <= prefix,
+											(value) =>
+												value.replayed === true ||
+												(typeof value.ordinal === 'number' && value.ordinal <= prefix),
 										).length,
 										prompt,
 										cached,
@@ -1210,7 +1212,8 @@ export function advanceStudyExchangeProgress(
 /** Validates a serialized journal prefix or its complete successful population.
  * @param rows - The owned rows in physical append order.
  * @param complete - If true, requires successful completion; if false, admits an unfinished prefix.
- * @returns Nothing when every row joins its preceding attempt and declared sequence.
+ * @returns The progress after the last row.
+ * @throws StudyError - Thrown with `CUSTODY` when a row does not join its preceding attempt and declared sequence.
  */
 export function validateStudyExchangeRows(
 	rows: readonly StudyExchangeRow[],
@@ -1357,7 +1360,8 @@ export async function readStudyTrialExchanges(
 						seal: declaration.ancestor.seal,
 						identity: declaration.ancestor.identity,
 					},
-		) !== canonicalStringify(manifest.ancestor)
+		) !== canonicalStringify(manifest.ancestor) ||
+		canonicalStringify(declaration.keyed) !== canonicalStringify(manifest.keyed)
 	)
 		throw new StudyError('CUSTODY', 'Exchange declaration differs from its trial')
 	const evidenceBytes = await readStudyBytes(

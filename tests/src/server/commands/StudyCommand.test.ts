@@ -621,6 +621,244 @@ describe('recording and replay command handoff', () => {
 		120000,
 	)
 
+	it('keyed: serves a listed role from a sealed recording and sends every other request live', async () => {
+		const fixture = await createStudyReplayFixture()
+		const signal = new AbortController().signal
+		try {
+			const { scratch, command, recorded, server } = fixture
+			const before = server.requests.length
+			const output = join(scratch.path, 'keyed')
+			const options = process.env.NODE_OPTIONS
+			// A runtime identity binds NODE_OPTIONS, so this run differs from the recording's runtime.
+			process.env.NODE_OPTIONS = '--no-warnings'
+			const executed = await command
+				.execute(
+					[
+						'execute',
+						'assessment',
+						'--out',
+						output,
+						'--replay',
+						recorded,
+						'--roles',
+						'["judge"]',
+						'--offline',
+						'false',
+					],
+					signal,
+				)
+				.finally(() => {
+					if (options === undefined) delete process.env.NODE_OPTIONS
+					else process.env.NODE_OPTIONS = options
+				})
+			expect(executed).toMatchObject({ status: 'completed' })
+			const live = server.requests.slice(before).map((request) => request.path)
+			expect(live.filter((path) => path === '/api/generate')).toEqual([])
+			expect(live.filter((path) => path === '/api/chat').length).toBeGreaterThan(0)
+			const result = await readStudyResult(output)
+			if (result.status !== 'sealed') throw new Error('Keyed replay did not seal')
+			expect(result.manifest.identity.runtime).not.toBe(fixture.result.manifest.identity.runtime)
+			expect(result.manifest.keyed).toEqual({
+				result: fixture.result.manifest.id,
+				seal: fixture.result.seal.id,
+				identity: fixture.result.manifest.identity,
+				roles: ['judge'],
+				offline: false,
+			})
+			expect(result.manifest.ancestor).toBeUndefined()
+			const trial = requireValue(result.manifest.schedule[0]).id
+			const history = await readStudyExchanges(result, trial)
+			expect(history.declaration.keyed).toEqual(result.manifest.keyed)
+			const original = fixture.history.exchanges.find(({ attempt }) => attempt.role === 'judge')
+			const served = history.exchanges.find(({ attempt }) => attempt.role === 'judge')
+			expect(served?.response.body).toBe(original?.response.body)
+			const wires = (scratch.read(`keyed/execution/trials/${trial}/evidence.jsonl`) ?? '')
+				.split('\n')
+				.filter((line) => line !== '')
+				.map((line) => parseJSON(line))
+				.flatMap((row) =>
+					isRecord(row) && row.event === 'wire' && isRecord(row.value) ? [row.value] : [],
+				)
+			expect(wires.filter((wire) => wire.replayed === true).map((wire) => wire.role)).toEqual([
+				'judge',
+			])
+			const progress = await command.execute(['progress', output, '--from', 'write'], signal)
+			const usage = JSON.stringify(progress)
+			expect(usage).toContain('"role":"judge","calls":1,"replayed":1')
+			expect(usage).toContain('"role":"agent","calls":1,"replayed":0')
+		} finally {
+			await fixture.close()
+		}
+	}, 240000)
+
+	it('keyed: offline serves a whole recording with no send and refuses a miss before send', async () => {
+		const fixture = await createStudyReplayFixture()
+		const signal = new AbortController().signal
+		try {
+			const { scratch, command, recorded, server } = fixture
+			const before = server.requests.length
+			const whole = join(scratch.path, 'whole')
+			await expect(
+				command.execute(
+					[
+						'execute',
+						'assessment',
+						'--out',
+						whole,
+						'--replay',
+						recorded,
+						'--roles',
+						'["agent","summary","judge","metadata"]',
+						'--offline',
+						'true',
+					],
+					signal,
+				),
+			).resolves.toMatchObject({ status: 'completed' })
+			expect(server.requests).toHaveLength(before)
+			await expect(
+				command.execute(
+					[
+						'execute',
+						'assessment',
+						'--out',
+						join(scratch.path, 'miss'),
+						'--replay',
+						recorded,
+						'--roles',
+						'["judge"]',
+						'--offline',
+						'true',
+					],
+					signal,
+				),
+			).rejects.toBeDefined()
+			expect(server.requests).toHaveLength(before)
+		} finally {
+			await fixture.close()
+		}
+	}, 240000)
+
+	it('keyed: a tampered recorded row refuses custody before any send or result', async () => {
+		const fixture = await createStudyReplayFixture()
+		const signal = new AbortController().signal
+		try {
+			const { scratch, command, recorded, server, result, profile } = fixture
+			const trial = requireValue(result.manifest.schedule[0]).id
+			const provider = requireValue(profile.provider)
+			const original = requireValue(scratch.read('studies/files/profiles/local.json'))
+			scratch.write(
+				'studies/files/profiles/local.json',
+				JSON.stringify({
+					...profile,
+					provider: { ...provider, digest: { ...provider.digest, model: 'c'.repeat(64) } },
+				}),
+			)
+			await expect(
+				command.execute(
+					[
+						'execute',
+						'assessment',
+						'--out',
+						join(scratch.path, 'other-models'),
+						'--replay',
+						recorded,
+						'--roles',
+						'["judge"]',
+						'--offline',
+						'false',
+					],
+					signal,
+				),
+			).rejects.toMatchObject({
+				code: 'CONFIG',
+				message: expect.stringContaining('declares other models'),
+			})
+			scratch.write('studies/files/profiles/local.json', original)
+			appendFileSync(join(recorded, 'execution', 'trials', trial, 'exchanges.jsonl'), ' ')
+			const before = server.requests.length
+			const output = join(scratch.path, 'tampered')
+			await expect(
+				command.execute(
+					[
+						'execute',
+						'assessment',
+						'--out',
+						output,
+						'--replay',
+						recorded,
+						'--roles',
+						'["judge"]',
+						'--offline',
+						'false',
+					],
+					signal,
+				),
+			).rejects.toMatchObject({ code: 'CUSTODY' })
+			expect(server.requests).toHaveLength(before)
+			expect(scratch.has('tampered')).toBe(false)
+		} finally {
+			await fixture.close()
+		}
+	}, 240000)
+
+	it('retains a worker wire cut in evidence beside the attempt and the exchange failure', async () => {
+		const scratch = createStudyConsumer()
+		const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
+		const server = await createOllamaServer([{ path: '/api/chat', body: 'x'.repeat(4096) }])
+		try {
+			const subject = await buildStudyLibrary(
+				library,
+				resolve('src/server/ollama/StudyOllamaTransport.ts'),
+			)
+			writeStudyRecordingConsumer(scratch, server.url, subject, true)
+			const profile = parseStudyProfile(
+				parseJSON(scratch.read('studies/files/profiles/local.json') ?? ''),
+			)
+			scratch.write(
+				'studies/files/profiles/local.json',
+				JSON.stringify({
+					...profile,
+					bounds: {
+						...profile.bounds,
+						request: { ...profile.bounds.request, bytes: 2048 },
+					},
+				}),
+			)
+			const entry = await buildStudyCLI(scratch)
+			const command = new StudyCommand({ root: scratch.path, entry })
+			const output = join(scratch.path, 'cut')
+			await expect(
+				command.execute(['execute', 'assessment', '--out', output], new AbortController().signal),
+			).rejects.toBeDefined()
+			const result = await readStudyResult(output)
+			const attempt = requireValue(result.attempts[0])
+			expect(attempt.failure).toMatchObject({ stop: { layer: 'scope', id: 'Wire bytes' } })
+			const folder = `cut/execution/trials/${attempt.trial.id}`
+			const rows = (scratch.read(`${folder}/evidence.jsonl`) ?? '')
+				.split('\n')
+				.filter((line) => line !== '')
+				.map((line) => parseJSON(line))
+			const events = rows.flatMap((row) => (isRecord(row) ? [row.event] : []))
+			expect(events.filter((name) => name === 'dispatch').length).toBe(
+				events.filter((name) => name === 'wire').length + 1,
+			)
+			expect(events.filter((name) => name === 'stop')).toHaveLength(1)
+			expect(events.filter((name) => name === 'failure')).toHaveLength(1)
+			const exchanges = readStudyExchangeRows(
+				Buffer.from(scratch.read(`${folder}/exchanges.jsonl`) ?? ''),
+				false,
+			)
+			expect(exchanges.some((row) => row.phase === 'failure' && row.stage === 'execution')).toBe(
+				true,
+			)
+		} finally {
+			await server.close()
+			library.destroy()
+			scratch.destroy()
+		}
+	}, 120000)
+
 	it('O1 seals unpredicted agent summary and judge bodies without a procedure and joins their ordinals', async () => {
 		const scratch = createStudyConsumer()
 		const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')

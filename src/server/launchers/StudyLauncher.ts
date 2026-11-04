@@ -90,6 +90,16 @@ export class StudyLauncher {
 							'--offline',
 							String(request.replay.offline),
 						]),
+				...(request.keyed === undefined
+					? []
+					: [
+							'--replay',
+							request.keyed.result,
+							'--roles',
+							JSON.stringify(request.keyed.roles),
+							'--offline',
+							String(request.keyed.offline),
+						]),
 				...selectors,
 				'--expected',
 				value.fingerprint,

@@ -2,6 +2,7 @@ import type {
 	StudyAttempt,
 	StudyAncestor,
 	StudyEvidence,
+	StudyKeyedSource,
 	StudyFailure,
 	StudyManifest,
 	StudyObservation,
@@ -131,6 +132,29 @@ export function isStudyExchangeAncestor(value: unknown): value is StudyExchangeA
 }
 
 /**
+ * Checks whether a value binds a keyed replay's sealed recording and listed roles.
+ * @param value - The candidate binding
+ * @returns True if its ancestor identity, unique serving roles, and offline behavior are valid; false otherwise
+ * @example
+ * ```ts
+ * isStudyKeyedSource({}) // false
+ * ```
+ */
+export function isStudyKeyedSource(value: unknown): value is StudyKeyedSource {
+	return holds(
+		() =>
+			isRecord(value) &&
+			matchesStudyKeys(value, ['result', 'seal', 'identity', 'roles', 'offline']) &&
+			isStudyAncestor({ result: value.result, seal: value.seal, identity: value.identity }) &&
+			typeof value.offline === 'boolean' &&
+			isArray(value.roles) &&
+			value.roles.length > 0 &&
+			value.roles.every((role) => isStudyRole(role)) &&
+			new Set(value.roles).size === value.roles.length,
+	)
+}
+
+/**
  * Checks whether a manifest exactly binds its declared population and identities.
  * @param value - The candidate manifest
  * @returns True if the manifest is valid; false otherwise
@@ -146,7 +170,7 @@ export function isStudyCustodyManifest(value: unknown): value is StudyManifest {
 			!matchesStudyKeys(
 				value,
 				['id', 'created', 'definition', 'scenarios', 'identity', 'schedule', 'bounds', 'host'],
-				['qualification', 'record', 'ancestor', 'selection'],
+				['qualification', 'record', 'ancestor', 'keyed', 'selection'],
 			) ||
 			!isStudyCustodyName(value.id) ||
 			!isStudyTimestamp(value.created) ||
@@ -156,6 +180,7 @@ export function isStudyCustodyManifest(value: unknown): value is StudyManifest {
 			!isStudyBounds(value.bounds) ||
 			(value.record !== undefined && !isStudyRecord(value.record)) ||
 			(value.ancestor !== undefined && !isStudyAncestor(value.ancestor)) ||
+			(value.keyed !== undefined && !isStudyKeyedSource(value.keyed)) ||
 			(value.selection !== undefined && !isStudySelection(value.selection)) ||
 			!isRecord(value.identity) ||
 			!matchesStudyKeys(
@@ -547,7 +572,7 @@ export function isStudyExchangeDeclaration(value: unknown): value is StudyExchan
 					'goals',
 					'configuration',
 				],
-				['procedure', 'ancestor'],
+				['procedure', 'ancestor', 'keyed'],
 			) ||
 			value.phase !== 'declaration' ||
 			!isStudyCustodyName(value.trial) ||
@@ -558,6 +583,7 @@ export function isStudyExchangeDeclaration(value: unknown): value is StudyExchan
 			!isStudyOllamaMetadata(value.metadata) ||
 			!isStudyRecord(value.record) ||
 			(value.ancestor !== undefined && !isStudyExchangeAncestor(value.ancestor)) ||
+			(value.keyed !== undefined && !isStudyKeyedSource(value.keyed)) ||
 			!isStudyDigest(value.configuration) ||
 			!isArray(value.goals) ||
 			value.goals.length === 0 ||

@@ -1,7 +1,13 @@
-import type { StudyAssessment, StudyDefinition, StudyManifest, StudyScenario } from '@src/core'
+import type {
+	StudyAssessment,
+	StudyDefinition,
+	StudyKeyedSource,
+	StudyManifest,
+	StudyScenario,
+} from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
 import type { StudySealedResult } from '../stores/types.js'
-import type { StudyOllamaReplaySelection } from '../ollama/types.js'
+import type { StudyOllamaKeyedSelection, StudyOllamaReplaySelection } from '../ollama/types.js'
 import type {
 	StudyCommandOptions,
 	StudyExecutionRequest,
@@ -50,6 +56,7 @@ import {
 	computeStudyInstrumentDigest,
 	computeStudyProfileDigest,
 	resolveStudyInstrument,
+	readStudyKeyedHistories,
 	readStudyReplayHistory,
 	validateStudyRuntime,
 	valueToWire,
@@ -413,6 +420,7 @@ export class StudyCommand {
 		const replay =
 			continuation?.replay ??
 			(request.replay === undefined ? undefined : await this.#replay(request, signal))
+		const keyed = await this.#keyed(request)
 		const source = replay === undefined ? undefined : await readStudyResult(replay.result)
 		if (source !== undefined && source.status !== 'sealed')
 			throw new StudyError('CUSTODY', 'Replay source is not sealed')
@@ -443,7 +451,9 @@ export class StudyCommand {
 		const scratch = await mkdtemp(join(parent, 'scratch-'))
 		try {
 			const daemon =
-				preparation.profile.provider?.daemon === undefined || replay?.offline === true
+				preparation.profile.provider?.daemon === undefined ||
+				replay?.offline === true ||
+				keyed?.offline === true
 					? undefined
 					: new StudyDaemonSession({
 							profile: preparation.profile,
@@ -460,6 +470,7 @@ export class StudyCommand {
 					scenarios: segment.scenarios,
 					identity: preparation.identity,
 					...(ancestor === undefined ? {} : { ancestor }),
+					...(keyed === undefined ? {} : { keyed: keyed.source }),
 					...(segment.selection === undefined ? {} : { selection: segment.selection }),
 					schedule: segment.schedule,
 					bounds: preparation.profile.bounds,
@@ -503,6 +514,7 @@ export class StudyCommand {
 															.file,
 														prefix,
 													},
+											keyed?.source,
 										)
 										return [trial.id, await store.exchanges(trial, declaration)] as const
 									}),
@@ -519,6 +531,7 @@ export class StudyCommand {
 					...(preparation.closure === undefined ? {} : { closure: preparation.closure }),
 					...(destinations === undefined ? {} : { exchanges: destinations }),
 					...(replay === undefined ? {} : { replay }),
+					...(keyed === undefined ? {} : { keyed: keyed.selection }),
 					...(daemon === undefined ? {} : { prepare: daemon.prepare.bind(daemon) }),
 				})
 				const attempts = await new StudySeries({
@@ -556,6 +569,38 @@ export class StudyCommand {
 		} finally {
 			await rm(scratch, { recursive: true, force: true, maxRetries: 3 })
 		}
+	}
+
+	// Resolves a keyed selection against its sealed source before any request or result directory.
+	async #keyed(request: StudyExecutionRequest): Promise<
+		| {
+				readonly selection: StudyOllamaKeyedSelection
+				readonly source: StudyKeyedSource
+				readonly offline: boolean
+		  }
+		| undefined
+	> {
+		if (request.keyed === undefined) return undefined
+		const selection = { ...request.keyed, result: this.#file(request.keyed.result) }
+		const closure = request.closure === undefined ? undefined : this.#closure(request)
+		const root = closure?.root ?? this.#root
+		const { bundle } = await readStudyDeclaration(root, request.target)
+		const profile = resolveStudyProfile(
+			root,
+			parseStudyProfile(
+				decodeStudyJSON(
+					await readStudyDeclarationBytes(
+						root,
+						resolveStudyPath(bundle, `profiles/${request.profile}.json`),
+					),
+				),
+			),
+			closure?.closure,
+		)
+		if (profile.record === undefined)
+			throw new StudyError('CONFIG', 'Keyed replay requires the profile to declare recording')
+		const { source } = await readStudyKeyedHistories(selection, profile)
+		return { selection, source, offline: selection.offline }
 	}
 
 	async #extend(

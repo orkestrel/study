@@ -10,7 +10,7 @@ export const STUDY_CHECKPOINT_EVENT = 'checkpoint'
 /** Defines the complete public CLI reference shared by help and grammar diagnostics. */
 export const STUDY_COMMAND_HELP = `study check <study> [--profile <name>] [--closure <directory>] [--extend <result>] [--trial <name>] [--goals <first>..<last>] [--seed <result>:<trial>:<goal>]
 study freeze <study> --profile <name> --to <directory>
-study execute <study> [--profile <name>] [--out <path>] [--expected <sha256>] [--closure <directory>] [--extend <result> | --replay <result> --prefix <JSON trial counts> --offline <true|false>] [--trial <name>] [--goals <first>..<last>] [--seed <result>:<trial>:<goal>]
+study execute <study> [--profile <name>] [--out <path>] [--expected <sha256>] [--closure <directory>] [--extend <result> | --replay <result> --prefix <JSON trial counts> --offline <true|false> | --replay <result> --roles <JSON roles> --offline <true|false>] [--trial <name>] [--goals <first>..<last>] [--seed <result>:<trial>:<goal>]
 study grade <result> --rubric <path>
 study label <result> --assessment <sha256> --labels <path>
 study report <result> --assessment <sha256>
@@ -25,7 +25,8 @@ Relative paths, including --out, must stay inside the consumer working directory
 Output directories must be new; existing results are never overwritten.
 --expected pins the fingerprint returned by check. --assessment selects an exact assessment.
 --rubric selects independent criteria. --labels imports caller-supplied semantic labels.
---closure selects retained artifacts. Replay requires explicit prefix counts and offline behavior.
+--closure selects retained artifacts. Replay requires explicit prefix counts or roles, and offline behavior.
+--roles serves a listed role's request whose path, method, and body bytes equal a recorded attempt's.
 --extend continues a sealed open recording with further goals and requires a declared daemon.
 check carries --extend into next and binds the ancestor seal into its fingerprint.
 check binds --trial, --goals, and --seed into its fingerprint and carries them into next.

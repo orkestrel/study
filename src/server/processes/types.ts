@@ -14,7 +14,7 @@ import type { ChildProcess } from 'node:child_process'
 import type { StudyValidation, StudyAdjudication, StudyProgressTarget } from '../adapters/types.js'
 import type { StudyClosure } from '../commands/types.js'
 import type { StudyExchangeDestination } from '../stores/types.js'
-import type { StudyOllamaReplaySelection } from '../ollama/types.js'
+import type { StudyOllamaKeyedSelection, StudyOllamaReplaySelection } from '../ollama/types.js'
 
 /** Holds a bounded adapter-only native operation. */
 export interface StudyTaskOptions {
@@ -78,6 +78,8 @@ export interface StudyProcessOptions extends StudyArtifactLoaderOptions {
 	readonly exchanges?: Readonly<Record<string, StudyExchangeDestination>>
 	/** Carries sealed source selection; each fresh worker rechecks its own trial's file. */
 	readonly replay?: StudyOllamaReplaySelection
+	/** Carries a keyed recording's selection; each fresh worker reverifies the sealed source. */
+	readonly keyed?: StudyOllamaKeyedSelection
 }
 
 /** Prepares one trial's external resources before its worker starts.

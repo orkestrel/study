@@ -228,3 +228,38 @@ describe('study selection arguments', () => {
 		}
 	})
 })
+
+describe('keyed replay arguments', () => {
+	const base = ['execute', 'files', '--replay', 'recorded']
+
+	it('parses a role list and offline behavior into a keyed selection', () => {
+		expect(
+			parseStudyArguments([...base, '--roles', '["judge","agent"]', '--offline', 'false']),
+		).toMatchObject({ keyed: { result: 'recorded', roles: ['judge', 'agent'], offline: false } })
+		const parsed = parseStudyArguments([...base, '--roles', '["judge"]', '--offline', 'true'])
+		expect(parsed).toMatchObject({ keyed: { offline: true } })
+		expect(parsed).not.toHaveProperty('replay')
+	})
+
+	it.each([
+		[['--roles', '["judge"]', '--prefix', '{"t":1}', '--offline', 'true'], 'mutually exclusive'],
+		[['--roles', '["judge"]', '--extend', 'recorded', '--offline', 'true'], 'mutually exclusive'],
+		[['--roles', '[]', '--offline', 'true'], 'distinct roles'],
+		[['--roles', '["judge","judge"]', '--offline', 'true'], 'distinct roles'],
+		[['--roles', '["tool"]', '--offline', 'true'], 'distinct roles'],
+		[['--roles', '["maintenance"]', '--offline', 'true'], 'distinct roles'],
+		[['--roles', 'judge', '--offline', 'true'], 'distinct roles'],
+		[['--roles', '["judge"]'], 'distinct roles'],
+		[['--roles', '["judge"]', '--offline', 'maybe'], 'distinct roles'],
+	])('refuses %j', (tokens, message) => {
+		expect(() => parseStudyArguments([...base, ...tokens])).toThrow(
+			expect.objectContaining({ code: 'CONFIG', message: expect.stringContaining(message) }),
+		)
+	})
+
+	it('refuses --roles with no --replay', () => {
+		expect(() =>
+			parseStudyArguments(['execute', 'files', '--roles', '["judge"]', '--offline', 'true']),
+		).toThrow(/require --replay/)
+	})
+})

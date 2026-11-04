@@ -3002,6 +3002,7 @@ export async function createOllamaExchange(bytes = 10): Promise<OllamaExchangeFi
 	try {
 		return {
 			exchange: new StudyOllamaExchange({
+				served: false,
 				slot: Symbol('exchange'),
 				identity: undefined,
 				headers: [],

@@ -1,11 +1,17 @@
-import type { StudyFailure, StudyProfile, StudyTrial, StudyScenario } from '@src/core'
+import type {
+	StudyFailure,
+	StudyKeyedSource,
+	StudyProfile,
+	StudyTrial,
+	StudyScenario,
+} from '@src/core'
 import type {
 	StudyExchangeDeclaration,
 	StudyExchangeDestination,
 	StudyExchangeHistory,
 	StudyExchangeAncestor,
 } from '../stores/types.js'
-import type { StudyOllamaReplaySelection } from '../ollama/types.js'
+import type { StudyOllamaKeyedSelection, StudyOllamaReplaySelection } from '../ollama/types.js'
 import type { JSONValue } from '@orkestrel/contract'
 import type { ChildProcess } from 'node:child_process'
 import { StudyError } from '@src/core'
@@ -21,7 +27,11 @@ import { buildStudyOllamaModels } from '../ollama/helpers.js'
 import { isStudyOllamaMetadata } from '../ollama/validators.js'
 import { readStudyExchanges, readStudyResult } from '../stores/helpers.js'
 import { isStudyExchangeDeclaration } from '../stores/validators.js'
-import { isStudyExchangeDestination, isStudyReplaySelection } from './validators.js'
+import {
+	isStudyExchangeDestination,
+	isStudyKeyedSelection,
+	isStudyReplaySelection,
+} from './validators.js'
 
 /** Builds the parent's single recording declaration from its profile, trial and scenario.
  * @param profile - The validated executing profile.
@@ -29,6 +39,7 @@ import { isStudyExchangeDestination, isStudyReplaySelection } from './validators
  * @param scenario - The trial's complete ordered goal horizon.
  * @param maintenance - If true, declares the execution-owned daemon's models; if false, declares no maintenance.
  * @param ancestor - The sealed replay source and selected exchange prefix, when replaying.
+ * @param keyed - The recording a keyed replay serves from, when one is selected.
  * @returns A validated opening row, with no inferred metadata or replay allowance.
  */
 export function buildStudyExchangeDeclaration(
@@ -37,6 +48,7 @@ export function buildStudyExchangeDeclaration(
 	scenario: StudyScenario,
 	maintenance: boolean,
 	ancestor?: StudyExchangeAncestor,
+	keyed?: StudyKeyedSource,
 ): StudyExchangeDeclaration {
 	if (profile.provider === undefined || profile.settings === undefined)
 		throw new StudyError('CONFIG', 'Recording requires provider and explicit wire declarations')
@@ -54,6 +66,7 @@ export function buildStudyExchangeDeclaration(
 		configuration: computeStudyConfigurationDigest(profile),
 		maintenance: maintenance ? (profile.provider.daemon?.models ?? []) : [],
 		...(ancestor === undefined ? {} : { ancestor }),
+		...(keyed === undefined ? {} : { keyed }),
 	}
 	if (!isStudyExchangeDeclaration(declaration))
 		throw new StudyError(
@@ -202,6 +215,49 @@ export async function readStudyReplayHistory(
 	)
 		throw new StudyError('CONFIG', 'Replay declaration differs from recorded execution')
 	return history
+}
+
+/** Reads the verified exchange histories of every trial a keyed recording retains.
+ * @param selection - The keyed selection.
+ * @param profile - The executing profile, whose serving identities the recording must declare.
+ * @returns The sealed source's binding and each trial's history.
+ * @throws StudyError - Thrown with `CUSTODY` when the source is unsealed or a row was changed, and with `CONFIG` when it holds no recording or declares other models.
+ * @example
+ * ```ts
+ * await readStudyKeyedHistories({ result, roles: ['judge'], offline: false }, profile)
+ * ```
+ */
+export async function readStudyKeyedHistories(
+	selection: StudyOllamaKeyedSelection,
+	profile: StudyProfile,
+): Promise<{
+	readonly source: StudyKeyedSource
+	readonly histories: readonly StudyExchangeHistory[]
+}> {
+	if (!isStudyKeyedSelection(selection)) throw new StudyError('CONFIG', 'Invalid keyed selection')
+	const result = await readStudyResult(selection.result)
+	if (result.status !== 'sealed')
+		throw new StudyError('CUSTODY', 'Keyed replay requires a sealed result')
+	if (result.manifest.record === undefined)
+		throw new StudyError('CONFIG', 'Keyed replay source holds no recording')
+	if (profile.provider === undefined)
+		throw new StudyError('CONFIG', 'Keyed replay requires a provider')
+	const models = canonicalStringify(buildStudyOllamaModels(profile.provider))
+	const histories: StudyExchangeHistory[] = []
+	for (const trial of result.manifest.schedule)
+		histories.push(await readStudyExchanges(result, trial.id))
+	if (histories.some((history) => canonicalStringify(history.declaration.models) !== models))
+		throw new StudyError('CONFIG', 'Keyed replay source declares other models')
+	return {
+		source: {
+			result: result.manifest.id,
+			seal: result.seal.id,
+			identity: result.manifest.identity,
+			roles: selection.roles,
+			offline: selection.offline,
+		},
+		histories,
+	}
 }
 
 /** Projects optional domain fields into the JSON wire representation.

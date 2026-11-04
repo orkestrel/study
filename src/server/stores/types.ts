@@ -1,6 +1,7 @@
 import type {
 	StudyAncestor,
 	StudyAttempt,
+	StudyKeyedSource,
 	StudyManifest,
 	StudyProduct,
 	StudySinkInterface,
@@ -114,6 +115,8 @@ export interface StudyExchangeDeclaration {
 	readonly procedure?: readonly StudyOllamaStep[]
 	readonly maintenance: readonly StudyOllamaModel[]
 	readonly ancestor?: StudyExchangeAncestor
+	/** Binds the recording a keyed replay serves from, equal to its manifest's. */
+	readonly keyed?: StudyKeyedSource
 }
 
 /** Identifies the sealed sidecar and complete exchange prefix served by replay. */

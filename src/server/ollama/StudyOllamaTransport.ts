@@ -33,6 +33,7 @@ import { isBudgetError } from '@orkestrel/budget'
 import { isFunction, isRecord, parseJSON } from '@orkestrel/contract'
 import { MAX_TIMEOUT_MS, Timeout } from '@orkestrel/timeout'
 import { buildStudyOllamaSnapshot, buildStudyOllamaTransportOptions } from './cloners.js'
+import { STUDY_OLLAMA_SERVED } from './constants.js'
 import { StudyOllamaExchange } from './StudyOllamaExchange.js'
 import { StudyOllamaGoal } from './StudyOllamaGoal.js'
 import {
@@ -796,6 +797,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				sent,
 				dispatch,
 				bytes: request.bytes,
+				served: Reflect.get(response, STUDY_OLLAMA_SERVED) === true,
 			})
 			this.#wires.add(wire)
 			return wire
@@ -956,6 +958,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				completion: terminal?.completion ?? null,
 				bytes: wire.bytes,
 				...(wire.identity === undefined ? {} : { ordinal: wire.identity.ordinal }),
+				...(wire.served ? { replayed: true } : {}),
 				...observation,
 			},
 		})

@@ -17,7 +17,7 @@ import type { StudyArtifactLoader } from '../processes/StudyArtifactLoader.js'
 import type { StudyPacketBundle } from '../stores/types.js'
 import type { StudyExchangeDestination } from '../stores/types.js'
 import type { ArtifactClosure } from '../artifacts/types.js'
-import type { StudyOllamaReplaySelection } from '../ollama/types.js'
+import type { StudyOllamaKeyedSelection, StudyOllamaReplaySelection } from '../ollama/types.js'
 
 /** Holds the trusted application entry and repository location. */
 export interface StudyCommandOptions {
@@ -51,6 +51,8 @@ export interface StudyExecutionRequest {
 	readonly closure?: string
 	/** Selects sealed exchanges and explicit trial prefixes before any dependent worker or daemon. */
 	readonly replay?: StudyOllamaReplaySelection
+	/** Serves listed roles' requests from a sealed recording by their exact bytes. */
+	readonly keyed?: StudyOllamaKeyedSelection
 	/** Extends a sealed open recording with a strict continuation of every scenario's goals. */
 	readonly extend?: string
 	/** Selects one scheduled trial by its id. */

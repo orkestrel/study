@@ -24,12 +24,14 @@ import {
 	computeStudyProfileDigest,
 	createStudyProcessFailure,
 	validateStudyCaptureDeclaration,
+	readStudyKeyedHistories,
 	readStudyReplayHistory,
 	valueToWire,
 } from './helpers.js'
 import { readStudyBytes, readStudyExchangeRows } from '../stores/helpers.js'
 import { hashStudyBytes } from '../helpers.js'
 import { StudyExchangeSink } from '../stores/StudyExchangeSink.js'
+import { StudyOllamaKeyedReplay } from '../ollama/StudyOllamaKeyedReplay.js'
 import { StudyOllamaReplay } from '../ollama/StudyOllamaReplay.js'
 import { describeStudyReplayDifference } from '../ollama/helpers.js'
 import { isStudyClosure } from '../commands/validators.js'
@@ -38,6 +40,7 @@ import { StudyChannel } from './StudyChannel.js'
 import { StudyRemoteMeter } from './StudyRemoteMeter.js'
 import {
 	isStudyExchangeDestination,
+	isStudyKeyedSelection,
 	isStudyReplaySelection,
 	isStudyIdentity,
 	isStudyProcessFailure,
@@ -191,6 +194,26 @@ export class StudyWorker {
 				},
 				signal: this.#control.signal,
 				...(value.replay.offline ? {} : { fetch: this.#forward.bind(this) }),
+			})
+		}
+		if (value.keyed !== undefined) {
+			if (
+				value.replay !== undefined ||
+				!isStudyKeyedSelection(value.keyed) ||
+				value.profile.provider === undefined
+			)
+				throw new StudyError('CONFIG', 'Worker keyed selection is invalid')
+			if (!isStudyExchangeDestination(destination))
+				throw new StudyError('CONFIG', 'Keyed replay requires a declaration')
+			const { source, histories } = await readStudyKeyedHistories(value.keyed, value.profile)
+			if (canonicalStringify(destination.declaration.keyed) !== canonicalStringify(source))
+				throw new StudyError('CONFIG', 'Worker keyed source differs from its declaration')
+			this.#replay = new StudyOllamaKeyedReplay({
+				histories,
+				roles: value.keyed.roles,
+				url: value.profile.provider.url,
+				signal: this.#control.signal,
+				...(value.keyed.offline ? {} : { fetch: this.#forward.bind(this) }),
 			})
 		}
 		if (value.profile.record === undefined && destination !== undefined)

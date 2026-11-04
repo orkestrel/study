@@ -1,7 +1,7 @@
 import type { StudyCharge, StudyEvidence, StudyFailure, StudyTrial, StudyIdentity } from '@src/core'
 import type { StudyFrame } from './types.js'
 import type { StudyExchangeDestination } from '../stores/types.js'
-import type { StudyOllamaReplaySelection } from '../ollama/types.js'
+import type { StudyOllamaKeyedSelection, StudyOllamaReplaySelection } from '../ollama/types.js'
 import {
 	isStudyCause,
 	isStudyDigest,
@@ -16,7 +16,8 @@ import {
 	isStudyCustodyName,
 	isStudyExchangeDeclaration,
 } from '../stores/validators.js'
-import { holds, isJSONValue, isRecord } from '@orkestrel/contract'
+import { holds, isArray, isJSONValue, isRecord } from '@orkestrel/contract'
+import { STUDY_OLLAMA_KEYED_ROLES } from '../ollama/constants.js'
 
 /** Checks whether a worker destination has an absolute sidecar path and finite reservation.
  * @param value - The decoded destination.
@@ -32,6 +33,29 @@ export function isStudyExchangeDestination(value: unknown): value is StudyExchan
 			basename(value.path) === 'exchanges.jsonl' &&
 			isStudyExchangeDeclaration(value.declaration) &&
 			(value.retained === undefined || isStudyCustodyFile(value.retained)),
+	)
+}
+
+/** Checks whether a keyed replay selects a sealed directory, its unique serving roles, and offline behavior.
+ * @param value - The decoded selection.
+ * @returns True if result, roles and offline are declared; false otherwise.
+ * @example
+ * ```ts
+ * isStudyKeyedSelection({ result: 'recorded', roles: ['judge'], offline: false }) // true
+ * ```
+ */
+export function isStudyKeyedSelection(value: unknown): value is StudyOllamaKeyedSelection {
+	return holds(
+		() =>
+			isRecord(value) &&
+			matchesStudyKeys(value, ['result', 'roles', 'offline']) &&
+			typeof value.result === 'string' &&
+			value.result.length > 0 &&
+			typeof value.offline === 'boolean' &&
+			isArray(value.roles) &&
+			value.roles.length > 0 &&
+			value.roles.every((role) => STUDY_OLLAMA_KEYED_ROLES.some((entry) => entry === role)) &&
+			new Set(value.roles).size === value.roles.length,
 	)
 }
 

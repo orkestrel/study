@@ -174,6 +174,18 @@ export interface StudyAncestor {
 	readonly identity: StudyIdentity
 }
 
+/**
+ * Binds the sealed recording a keyed replay serves requests from.
+ * @remarks
+ * `roles` lists the roles served. `offline`: if `true`, a request the recording cannot answer refuses
+ * before send; if `false`, it sends live. The source's identity is provenance and needs no equal
+ * runtime, because a served reply is keyed by its request's own path, method, and body bytes.
+ */
+export interface StudyKeyedSource extends StudyAncestor {
+	readonly roles: readonly StudyRole[]
+	readonly offline: boolean
+}
+
 /** Holds an inclusive goal range named by its first and last goal ids. */
 export interface StudyRange {
 	readonly first: string
@@ -221,6 +233,8 @@ export interface StudyManifest {
 	/** Copies the profile's recording declaration before any trial starts. */
 	readonly record?: StudyRecord | undefined
 	readonly ancestor?: StudyAncestor
+	/** Binds the recording a keyed replay serves from; absent without one. */
+	readonly keyed?: StudyKeyedSource
 	/** Records the selected segment; absent when no selector was given. */
 	readonly selection?: StudySelection
 }
@@ -483,7 +497,8 @@ export interface StudyScore {
  * Holds one role's request readings over the `wire` evidence rows of one goal.
  * @remarks
  * `calls` counts the role's `wire` rows. `replayed` counts those whose ordinal lies within the
- * exchange prefix the trial's sidecar declaration names as replayed, and is 0 without one.
+ * exchange prefix the trial's sidecar declaration names as replayed, and those a keyed replay marks
+ * `replayed`, and is 0 without either.
  * `prompt` and `completion` sum the token counts the rows report; `cached` sums the cached prompt
  * count each row's `timing` reports. Each of those three is undefined when any of the role's rows
  * leaves its reading unreported. `total` sums the Ollama `total_duration` each row's `timing`

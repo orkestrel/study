@@ -149,6 +149,36 @@ export interface StudyOllamaReplaySelection {
 	readonly offline: boolean
 }
 
+/** Names the roles a keyed replay can serve. */
+export type StudyOllamaKeyedRole = Extract<StudyRole, 'agent' | 'judge' | 'summary' | 'metadata'>
+
+/**
+ * Selects a sealed recording and the roles a keyed replay serves from it.
+ * @remarks
+ * A listed role's request whose path, method, and body bytes equal a recorded attempt's is served
+ * from that attempt's response, the first recorded when a request repeats. Offline true refuses every
+ * other request before send and forbids daemon startup; offline false sends it live.
+ */
+export interface StudyOllamaKeyedSelection {
+	readonly result: string
+	readonly roles: readonly StudyOllamaKeyedRole[]
+	readonly offline: boolean
+}
+
+/**
+ * Configures a keyed replay over verified histories.
+ * @remarks
+ * `histories` must come from the strict sealed sidecar reader; the constructor checks each again.
+ * `url` pins the executing origin. Without `fetch`, a request the histories cannot answer refuses.
+ */
+export interface StudyOllamaKeyedReplayOptions {
+	readonly histories: readonly StudyExchangeHistory[]
+	readonly roles: readonly StudyRole[]
+	readonly url: string
+	readonly signal: AbortSignal
+	readonly fetch?: StudyOllamaFetchFunction
+}
+
 /** Configures exact recorded replies and optional live continuation after a declared prefix.
  * @remarks
  * History must come from the strict sealed sidecar reader and be checked completely before
@@ -293,6 +323,8 @@ export interface StudyOllamaWire {
 	readonly dispatch: StudyAgentDispatch | undefined
 	/** Holds the encoded request bytes plus every response byte counted so far. */
 	readonly bytes: number
+	/** Reports whether a keyed replay served the response from a recording. */
+	readonly served: boolean
 	/** Holds the decoded response text not yet consumed as complete rows. */
 	readonly text: string
 	readonly terminal: StudyOllamaTerminal | undefined

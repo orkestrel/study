@@ -26,7 +26,12 @@ export class StudyProcessDriver implements StudyDriverInterface {
 		const { prepare, ...configuration } = options
 		if (prepare !== undefined && typeof prepare !== 'function')
 			throw new StudyError('CONFIG', 'Trial preparation must be callable')
-		if (options.replay?.offline === true && prepare !== undefined)
+		if (options.replay !== undefined && options.keyed !== undefined)
+			throw new StudyError('CONFIG', 'A prefix replay and a keyed replay are mutually exclusive')
+		if (
+			(options.replay?.offline === true || options.keyed?.offline === true) &&
+			prepare !== undefined
+		)
 			throw new StudyError('CONFIG', 'Offline replay cannot prepare external resources')
 		this.#options = structuredClone(configuration)
 		this.#prepare = prepare
@@ -56,6 +61,8 @@ export class StudyProcessDriver implements StudyDriverInterface {
 			if (destination === undefined) throw new StudyError('CONFIG', 'Replay requires a declaration')
 			await readStudyReplayHistory(this.#options.replay, this.#options.profile, owned)
 		}
+		if (this.#options.keyed !== undefined && destination === undefined)
+			throw new StudyError('CONFIG', 'Keyed replay requires a declaration')
 		const prepared =
 			this.#prepare === undefined
 				? destination

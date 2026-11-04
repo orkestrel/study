@@ -5,6 +5,7 @@ import { buildStudyManifest } from '../../../setupStudy.js'
 import { STUDY_PROCESS_GUARDS } from '../../../setupServer.js'
 import { describe, expect, it } from 'vitest'
 import {
+	isStudyKeyedSelection,
 	isStudyCharge,
 	isStudyEvidence,
 	isStudyFrame,
@@ -101,4 +102,21 @@ it('admits only capacity and deadline IPC stops with a valid owned shape', () =>
 		expect(isStudyProcessFailure({ cause, message: 'Capped', stop: buildStudyStop() })).toBe(false)
 	for (const stop of STUDY_INVALID_STOPS)
 		expect(isStudyProcessFailure({ cause: 'capacity', message: 'Capped', stop })).toBe(false)
+})
+
+describe('isStudyKeyedSelection', () => {
+	it('admits distinct serving roles and refuses every other selection', () => {
+		const selection = { result: 'recorded', roles: ['judge', 'metadata'], offline: false }
+		expect(isStudyKeyedSelection(selection)).toBe(true)
+		for (const invalid of [
+			{},
+			{ ...selection, result: '' },
+			{ ...selection, roles: [] },
+			{ ...selection, roles: ['judge', 'judge'] },
+			{ ...selection, roles: ['tool'] },
+			{ ...selection, offline: 'false' },
+			{ ...selection, prefix: {} },
+		])
+			expect(isStudyKeyedSelection(invalid)).toBe(false)
+	})
 })

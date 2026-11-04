@@ -578,6 +578,16 @@ export function computeStudyReport(
 						...(selection.seed === undefined ? {} : { seed: { ...selection.seed } }),
 					},
 				}),
+		...(result.manifest.keyed === undefined
+			? {}
+			: {
+					keyed: {
+						result: result.manifest.keyed.result,
+						seal: result.manifest.keyed.seal,
+						roles: [...result.manifest.keyed.roles],
+						offline: result.manifest.keyed.offline,
+					},
+				}),
 		...(assessment.unselected === undefined ? {} : { unselected: [...assessment.unselected] }),
 		uncertainty:
 			repetitions.length === 1

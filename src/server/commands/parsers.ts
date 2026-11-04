@@ -3,6 +3,8 @@ import { StudyError, isStudyDigest, isStudyName } from '@src/core'
 import { isRecord, parseJSON } from '@orkestrel/contract'
 import { isAbsolute, resolve } from 'node:path'
 import { isStudyCustodyName } from '../stores/validators.js'
+import { STUDY_OLLAMA_KEYED_ROLES } from '../ollama/constants.js'
+import { isStudyKeyedSelection } from '../processes/validators.js'
 import { STUDY_COMMAND_HELP } from './constants.js'
 import { resolveStudyPath } from './helpers.js'
 
@@ -53,6 +55,7 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 						'--closure',
 						'--replay',
 						'--prefix',
+						'--roles',
 						'--offline',
 						'--extend',
 						'--trial',
@@ -146,12 +149,34 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 			throw new StudyError('CONFIG', '--extend and --replay are mutually exclusive. ' + usage)
 		if (extend !== undefined && !isAbsolute(extend)) resolveStudyPath(resolve('.'), extend)
 		const prefix = flags.get('--prefix')
+		const roles = flags.get('--roles')
 		const offline = flags.get('--offline')
-		if (result === undefined && (prefix !== undefined || offline !== undefined))
-			throw new StudyError('CONFIG', '--prefix and --offline require --replay. ' + usage)
-		const replay = result === undefined ? undefined : parseJSON(prefix ?? '')
+		if (
+			result === undefined &&
+			(prefix !== undefined || roles !== undefined || offline !== undefined)
+		)
+			throw new StudyError('CONFIG', '--prefix, --roles, and --offline require --replay. ' + usage)
+		if (prefix !== undefined && roles !== undefined)
+			throw new StudyError('CONFIG', '--prefix and --roles are mutually exclusive. ' + usage)
+		const keyed =
+			result === undefined || roles === undefined
+				? undefined
+				: { result, roles: parseJSON(roles), offline: offline === 'true' }
+		if (
+			keyed !== undefined &&
+			(!isStudyKeyedSelection(keyed) || (offline !== 'true' && offline !== 'false'))
+		)
+			throw new StudyError(
+				'CONFIG',
+				'--replay with --roles requires a JSON list of distinct roles among ' +
+					STUDY_OLLAMA_KEYED_ROLES.join(', ') +
+					' and --offline true or false. ' +
+					usage,
+			)
+		const replay = result === undefined || keyed !== undefined ? undefined : parseJSON(prefix ?? '')
 		if (
 			result !== undefined &&
+			keyed === undefined &&
 			(!isRecord(replay) ||
 				Object.keys(replay).length === 0 ||
 				!Object.entries(replay).every(
@@ -165,7 +190,7 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 		)
 			throw new StudyError(
 				'CONFIG',
-				'--replay requires --prefix trial counts and --offline true or false. ' + usage,
+				'--replay requires --prefix trial counts or --roles, and --offline true or false. ' + usage,
 			)
 		const selected = flags.get('--trial')
 		const goals = flags.get('--goals')
@@ -227,6 +252,7 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 			...(seed === undefined || !isStudyName(origin) || !isStudyName(goal)
 				? {}
 				: { seed: { result: source, trial: origin, goal } }),
+			...(keyed === undefined || !isStudyKeyedSelection(keyed) ? {} : { keyed }),
 			...(result === undefined || !isRecord(replay)
 				? {}
 				: {

@@ -22,6 +22,7 @@ export class StudyOllamaExchange implements StudyOllamaWire {
 	readonly id: StudyOllamaWire['id']
 	readonly sent: StudyOllamaWire['sent']
 	readonly dispatch: StudyOllamaWire['dispatch']
+	readonly served: StudyOllamaWire['served']
 	#bytes: number
 	#text = ''
 	#terminal: StudyOllamaTerminal | undefined
@@ -54,6 +55,7 @@ export class StudyOllamaExchange implements StudyOllamaWire {
 			| 'headers'
 			| 'ceiling'
 			| 'deadline'
+			| 'served'
 		>,
 	) {
 		this.deadline = wire.deadline
@@ -72,6 +74,7 @@ export class StudyOllamaExchange implements StudyOllamaWire {
 		this.id = wire.id
 		this.sent = wire.sent
 		this.dispatch = wire.dispatch
+		this.served = wire.served
 		this.#bytes = wire.bytes
 	}
 
