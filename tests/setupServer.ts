@@ -4444,6 +4444,9 @@ export const STUDY_SELECTION_GOALS: readonly string[] = Object.freeze(
 /** Names the selection consumer's tracked rubric, relative to the consumer root. */
 export const STUDY_SELECTION_RUBRIC = 'studies/selection/rubric.json'
 
+/** Names the selection consumer's profile file. */
+export const STUDY_SELECTION_PROFILE = 'studies/segments/profiles/local.json'
+
 /** Names the numeric members of a report's score rows, which a selection never leaves unfinite. */
 export const STUDY_SELECTION_NUMBERS: readonly string[] = Object.freeze([
 	'total',

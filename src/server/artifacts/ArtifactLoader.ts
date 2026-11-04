@@ -1,3 +1,4 @@
+import type { BigIntStats } from 'node:fs'
 import type {
 	ArtifactInventory,
 	ArtifactLoaderOptions,
@@ -27,6 +28,7 @@ import { ArtifactError, isArtifactError } from './errors.js'
 import {
 	computeArtifactClosureDigest,
 	iterateArtifactEntries,
+	matchesArtifactOverlap,
 	readArtifact,
 	readArtifactPhysical,
 	relocateArtifactPath,
@@ -246,16 +248,9 @@ export class ArtifactLoader implements ArtifactLoaderInterface {
 		]
 		if (boundaries.some((path) => parse(path).root !== parse(destination).root))
 			throw new ArtifactError('Artifact closure requires one volume', 'VOLUME')
-		if (
-			boundaries.some(
-				(path) =>
-					path === destination ||
-					containsArtifact(path, destination) ||
-					containsArtifact(destination, path),
-			)
-		)
+		if (matchesArtifactOverlap(this.#options, destination))
 			throw new ArtifactError('Artifact destination overlaps a source', 'OVERLAP')
-		const parent = readArtifactPhysical(dirname(destination))
+		const parent = this.#parent(dirname(destination))
 		resolveArtifactMember(dirname(destination), relative(dirname(destination), destination))
 		if (!parent.isDirectory())
 			throw new ArtifactError('Artifact destination parent must be a directory', 'REDIRECT')
@@ -384,6 +379,17 @@ export class ArtifactLoader implements ArtifactLoaderInterface {
 		}
 		verifyArtifactClosure(closure)
 		return closure
+	}
+
+	// Reads the destination's parent, refusing an absent one by name instead of creating it.
+	#parent(path: string): BigIntStats {
+		try {
+			return readArtifactPhysical(path)
+		} catch (error) {
+			if (matchesSystemError(error, 'ENOENT'))
+				throw new ArtifactError(`Artifact destination parent is missing: ${path}`, 'PARENT')
+			throw error
+		}
 	}
 
 	#directory(destination: string, target: string): void {

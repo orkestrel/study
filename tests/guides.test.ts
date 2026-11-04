@@ -101,9 +101,9 @@ await new GuideCommand({
 			})
 			expect(scratch.read('occupied/keep.txt')).toBe('caller-owned')
 			await expect(
-				artifacts.materialize(join(scratch.path, 'subject', 'copy')),
+				artifacts.materialize(join(scratch.path, 'subject', 'dist', 'copy')),
 			).rejects.toMatchObject({ code: 'OVERLAP' })
-			expect(scratch.has('subject/copy')).toBe(false)
+			expect(scratch.has('subject/dist/copy')).toBe(false)
 			const copying = artifacts.materialize(join(scratch.path, 'copy'))
 			scratch.write('subject/studies/adapter/helper.ts', 'export const helper: number = 4\n')
 			await expect(copying).rejects.toMatchObject({ code: 'DRIFT' })

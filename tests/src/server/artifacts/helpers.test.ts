@@ -1,11 +1,12 @@
 import { DerivedArtifactError } from '../../../setupServer.js'
 import { createScratch, destroyScratch } from '@orkestrel/test/server'
 import { closeSync, openSync, opendirSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { expect, it } from 'vitest'
 import { ArtifactError, isArtifactError } from '../../../../src/server/artifacts/errors.js'
 import {
 	iterateArtifactEntries,
+	matchesArtifactOverlap,
 	readArtifact,
 	readArtifactBytes,
 	matchesArtifactCredential,
@@ -294,4 +295,31 @@ it('reads canonical bounded bytes and checks identities against an independent d
 	} finally {
 		await destroyScratch(scratch)
 	}
+})
+
+it('refuses a destination that equals, holds, or sits inside a copied path', () => {
+	const options = {
+		entries: [],
+		roots: [resolve('/work'), resolve('/work/packages/inner')],
+		source: { root: resolve('/work/studies/one'), entry: resolve('/work/studies/one/index.ts') },
+		assets: [resolve('/work/studies/rubric.json')],
+	}
+	for (const free of ['/elsewhere/copy', '/work/tmp/copy', '/work/packages/copy'])
+		expect(matchesArtifactOverlap(options, resolve(free))).toBe(false)
+	for (const copied of [
+		'/',
+		'/work',
+		'/work/packages',
+		'/work/packages/inner',
+		'/work/package.json',
+		'/work/dist',
+		'/work/dist/copy',
+		'/work/packages/inner/dist/copy',
+		'/work/studies/one',
+		'/work/studies/one/copy',
+		'/work/studies/rubric.json',
+		'/work/studies/rubric.json/copy',
+		'/work/studies',
+	])
+		expect(matchesArtifactOverlap(options, resolve(copied))).toBe(true)
 })

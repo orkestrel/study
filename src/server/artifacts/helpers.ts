@@ -5,6 +5,7 @@ import type {
 	ArtifactMember,
 	ArtifactPackage,
 	ArtifactInventory,
+	ArtifactLoaderOptions,
 } from './types.js'
 import { isRecord, parseJSON } from '@orkestrel/contract'
 import {
@@ -58,6 +59,36 @@ export function resolveArtifactMember(destination: string, key: string): string 
 	if (!containsArtifact(resolve(destination), path))
 		throw new ArtifactError('Artifact member traverses its boundary', 'TRAVERSAL')
 	return path
+}
+
+/** Checks whether a destination overlaps what a loader copies or holds a selected path.
+ * @remarks
+ * A package root contributes its `package.json` and its `dist` tree alone, so a destination elsewhere inside a root copies nothing into itself.
+ * @param options - The loader's selections.
+ * @param destination - The canonical absolute destination.
+ * @returns True if the destination equals, contains, or sits inside a copied path, or contains a selected root; false otherwise.
+ * @example
+ * ```ts
+ * matchesArtifactOverlap({ entries: [], roots: ['/work'] }, '/work/tmp/closure') // false
+ * matchesArtifactOverlap({ entries: [], roots: ['/work'] }, '/work/dist/closure') // true
+ * ```
+ */
+export function matchesArtifactOverlap(
+	options: ArtifactLoaderOptions,
+	destination: string,
+): boolean {
+	const source = options.source === undefined ? [] : [options.source.root]
+	const assets = options.assets ?? []
+	return (
+		[...options.roots, ...source, ...assets].some(
+			(path) => path === destination || containsArtifact(destination, path),
+		) ||
+		[
+			...options.roots.flatMap((root) => [join(root, 'package.json'), join(root, 'dist')]),
+			...source,
+			...assets,
+		].some((path) => path === destination || containsArtifact(path, destination))
+	)
 }
 
 /** Checks every existing physical ancestor before using a canonical absolute path.

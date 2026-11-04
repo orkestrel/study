@@ -18,6 +18,7 @@ import type {
 } from './types.js'
 import {
 	StudyError,
+	isStudyError,
 	buildStudySchedule,
 	filterStudyCriteria,
 	filterStudyGoals,
@@ -50,6 +51,7 @@ import {
 	computeStudyProfileDigest,
 	resolveStudyInstrument,
 	readStudyReplayHistory,
+	validateStudyRuntime,
 	valueToWire,
 } from '../processes/helpers.js'
 import { ArtifactLoader } from '../artifacts/ArtifactLoader.js'
@@ -778,9 +780,7 @@ export class StudyCommand {
 			: undefined
 		const evidence = await collectStudyEvidence(result)
 		signal.throwIfAborted()
-		const roots = parseJSON(result.manifest.host.roots ?? '')
-		if (!arrayOf(isString)(roots))
-			throw new StudyError('CONFIG', 'Execution does not retain adapter dependency roots')
+		const roots = this.#roots(result.manifest)
 		const evaluated = await new StudyTask({
 			root: this.#root,
 			entry: this.#entry,
@@ -928,9 +928,7 @@ export class StudyCommand {
 		const manifest = decodeStudyJSON(bytes)
 		if (!isStudyCustodyManifest(manifest))
 			throw new StudyError('CUSTODY', 'Invalid execution manifest')
-		const roots = parseJSON(manifest.host.roots ?? '')
-		if (!arrayOf(isString)(roots))
-			throw new StudyError('CONFIG', 'Execution does not retain adapter dependency roots')
+		const roots = this.#roots(manifest)
 		const options = {
 			root: this.#root,
 			entry: this.#entry,
@@ -960,6 +958,24 @@ export class StudyCommand {
 			),
 		)
 		return valueToWire({ command: 'progress', progress })
+	}
+
+	// Reads the adapter roots a result retains and refuses an entry those roots do not admit, before any child starts.
+	#roots(manifest: StudyManifest): readonly string[] {
+		const roots = parseJSON(manifest.host.roots ?? '')
+		if (!arrayOf(isString)(roots))
+			throw new StudyError('CONFIG', 'Execution does not retain adapter dependency roots')
+		const instrument = resolveStudyInstrument(this.#entry)
+		try {
+			validateStudyRuntime(instrument, [...new Set([...roots, instrument])])
+		} catch (error) {
+			if (!isStudyError(error) || error.code !== 'CONFIG') throw error
+			throw new StudyError(
+				'CONFIG',
+				`${error.message}. The result executed under other package roots, so run this command through the entry that executed it, with its root as the working directory; a result executed under --closure reads through that closure's own entry.`,
+			)
+		}
+		return roots
 	}
 
 	#location(target: string): string {

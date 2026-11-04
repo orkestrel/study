@@ -77,6 +77,28 @@ console.log('relocated:11:22')
 	}
 }, 30000)
 
+it('materializes inside a root, outside what the root copies, and copies no earlier closure', async () => {
+	const scratch = createScratch({ files: ARTIFACT_CLOSURE_FILES })
+	try {
+		scratch.ensure('subject/closures')
+		const options = buildArtifactClosureOptions(scratch)
+		const first = await new ArtifactLoader(options).materialize(
+			join(scratch.path, 'subject', 'closures', 'first'),
+		)
+		expect(first.members.some((member) => member.key.includes('closures'))).toBe(false)
+		expect(() => verifyArtifactClosure(first)).not.toThrow()
+		const second = await new ArtifactLoader(options).materialize(
+			join(scratch.path, 'subject', 'closures', 'second'),
+		)
+		expect(second.digest).toBe(first.digest)
+		expect(second.members.map((member) => member.key)).toEqual(
+			first.members.map((member) => member.key),
+		)
+	} finally {
+		await destroyScratch(scratch)
+	}
+})
+
 it('refuses occupied overlapping redirected aliased duplicate and stale selections before destination writes', async () => {
 	const scratch = createScratch({ files: ARTIFACT_CLOSURE_FILES })
 	try {
@@ -86,10 +108,29 @@ it('refuses occupied overlapping redirected aliased duplicate and stale selectio
 		const occupied = scratch.ensure('occupied')
 		await expect(artifacts.materialize(occupied)).rejects.toMatchObject({ code: 'OCCUPIED' })
 		expect(scratch.names('occupied')).toEqual([])
-		await expect(
-			artifacts.materialize(join(scratch.path, 'subject', 'copy')),
-		).rejects.toMatchObject({ code: 'OVERLAP' })
-		expect(scratch.has('subject/copy')).toBe(false)
+		for (const copied of [
+			'subject/dist/copy',
+			'subject/package.json',
+			'subject/studies/adapter/copy',
+			'subject/studies/adapter/café/é.txt/copy',
+			'subject/node_modules/provider/dist/copy',
+		]) {
+			await expect(
+				artifacts.materialize(join(scratch.path, ...copied.split('/'))),
+			).rejects.toMatchObject({ code: 'OVERLAP' })
+		}
+		expect(scratch.has('subject/dist/copy')).toBe(false)
+		await expect(artifacts.materialize(join(scratch.path, 'subject'))).rejects.toMatchObject({
+			code: 'OVERLAP',
+		})
+		await expect(artifacts.materialize(scratch.path)).rejects.toMatchObject({ code: 'OVERLAP' })
+		await expect(artifacts.materialize(join(scratch.path, 'absent', 'copy'))).rejects.toMatchObject(
+			{
+				code: 'PARENT',
+				message: `Artifact destination parent is missing: ${join(scratch.path, 'absent')}`,
+			},
+		)
+		expect(scratch.has('absent')).toBe(false)
 		const outside = scratch.ensure('outside')
 		scratch.link('redirect', outside)
 		await expect(

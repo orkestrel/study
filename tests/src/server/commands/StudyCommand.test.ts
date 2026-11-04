@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto'
 import { appendFileSync, cpSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { readStudyClosure } from '../../../../src/server/commands/helpers.js'
 import { StudyCommand } from '../../../../src/server/commands/StudyCommand.js'
 import { parseStudyArguments } from '../../../../src/server/commands/parsers.js'
 import { parseStudyProfile } from '../../../../src/core/parsers.js'
@@ -34,6 +35,7 @@ import {
 	STUDY_CONTINUATION_SOURCES,
 	STUDY_CONTINUATION_COMMANDS,
 	STUDY_SELECTION_NUMBERS,
+	STUDY_SELECTION_PROFILE,
 	STUDY_SELECTION_RUBRIC,
 	STUDY_SELECTION_ROW,
 	buildStudySelectionRefusals,
@@ -1277,6 +1279,104 @@ describe('selection', () => {
 			expect(closed.fingerprint).toBe(frozen.fingerprint)
 			expect(selected.fingerprint).not.toBe(frozen.fingerprint)
 			expect(selected).toMatchObject({ selection: { trial: 'r1-s1-a2' } })
+		} finally {
+			scratch.destroy()
+		}
+	}, 240000)
+
+	it('closure: a result executed under a closure reads through its own entry and refuses the live one', async () => {
+		const scratch = createStudyConsumer((consumer) =>
+			writeStudySelectionConsumer(consumer, ['small', 'large']),
+		)
+		const signal = new AbortController().signal
+		try {
+			const entry = await buildStudyCLI(scratch)
+			const command = new StudyCommand({ root: scratch.path, entry })
+			const destination = join(scratch.path, 'frozen')
+			const output = join(scratch.path, 'closed')
+			await command.execute(
+				['freeze', 'selection', '--profile', 'local', '--to', destination],
+				signal,
+			)
+			await expect(
+				command.execute(
+					['execute', 'selection', '--closure', destination, '--out', output],
+					signal,
+				),
+			).resolves.toMatchObject({ status: 'completed' })
+			const closure = readStudyClosure(destination)
+			const rubric = join(closure.root, 'studies', 'selection', 'rubric.json')
+			// The live runtime gains a dependency the closure's relocated roots cannot hold.
+			scratch.write(
+				'runtime/node_modules/fixture-dependency/package.json',
+				'{"name":"fixture-dependency","version":"1.0.0","type":"module"}',
+			)
+			scratch.write(
+				'runtime/package.json',
+				JSON.stringify({
+					name: '@orkestrel/study',
+					version: '0.0.0-runtime',
+					type: 'module',
+					dependencies: { 'fixture-dependency': '1.0.0' },
+				}),
+			)
+			for (const operation of [
+				['grade', output, '--rubric', rubric],
+				['progress', output],
+			]) {
+				await expect(command.execute(operation, signal)).rejects.toMatchObject({
+					code: 'CONFIG',
+					message: expect.stringContaining("through that closure's own entry"),
+				})
+			}
+			const own = new StudyCommand({ root: closure.root, entry: closure.entry })
+			await expect(own.execute(['progress', output], signal)).resolves.toMatchObject({
+				command: 'progress',
+			})
+			await expect(
+				own.execute(['grade', output, '--rubric', rubric], signal),
+			).resolves.toMatchObject({ command: 'grade' })
+		} finally {
+			scratch.destroy()
+		}
+	}, 240000)
+
+	it('closure: a freeze lands inside a consumer root outside what it copies, and refuses a missing parent', async () => {
+		const scratch = createStudyConsumer((consumer) => {
+			writeStudySelectionConsumer(consumer, ['small', 'large'])
+			consumer.write(
+				'package.json',
+				JSON.stringify({ name: 'root-consumer', version: '1.0.0', type: 'module' }),
+			)
+			consumer.write('dist/index.js', 'export const consumer = true\n')
+			const profile = parseJSON(requireValue(consumer.read(STUDY_SELECTION_PROFILE)))
+			if (!isRecord(profile) || !isArray(profile.roots)) throw new Error('Missing profile roots')
+			consumer.write(
+				STUDY_SELECTION_PROFILE,
+				JSON.stringify({ ...profile, roots: [consumer.path, ...profile.roots] }),
+			)
+		})
+		const signal = new AbortController().signal
+		try {
+			const entry = await buildStudyCLI(scratch)
+			const command = new StudyCommand({ root: scratch.path, entry })
+			const freeze = ['freeze', 'selection', '--profile', 'local', '--to']
+			const missing = join(scratch.path, 'closures', 'absent')
+			await expect(command.execute([...freeze, missing], signal)).rejects.toMatchObject({
+				code: 'PARENT',
+				message: `Artifact destination parent is missing: ${join(scratch.path, 'closures')}`,
+			})
+			await expect(
+				command.execute([...freeze, join(scratch.path, 'dist', 'frozen')], signal),
+			).rejects.toMatchObject({ code: 'OVERLAP' })
+			scratch.ensure('closures')
+			const frozen = await command.execute([...freeze, missing], signal)
+			const checked = await command.execute(['check', 'selection', '--closure', missing], signal)
+			if (!isRecord(frozen) || !isRecord(checked)) throw new Error('Missing closure check')
+			expect(checked.fingerprint).toBe(frozen.fingerprint)
+			expect(
+				readStudyClosure(missing).closure.members.some(({ key }) => key.startsWith('closures/')),
+			).toBe(false)
 		} finally {
 			scratch.destroy()
 		}

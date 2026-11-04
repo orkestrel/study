@@ -37,6 +37,7 @@ export type ArtifactErrorCode =
 	| 'DUPLICATE'
 	| 'OCCUPIED'
 	| 'OVERLAP'
+	| 'PARENT'
 	| 'STALE'
 	| 'VOLUME'
 	| 'DRIFT'

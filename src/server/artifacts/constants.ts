@@ -30,6 +30,7 @@ export const ARTIFACT_ERROR_CODES: readonly ArtifactErrorCode[] = Object.freeze(
 	'DUPLICATE',
 	'OCCUPIED',
 	'OVERLAP',
+	'PARENT',
 	'STALE',
 	'VOLUME',
 	'DRIFT',
