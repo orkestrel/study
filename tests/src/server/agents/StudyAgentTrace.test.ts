@@ -294,7 +294,7 @@ describe('StudyAgentTrace', () => {
 	it('walks the live buffer so a row appended during the flush is retained', async () => {
 		const { trace } = createStudyAgentTrace(true)
 		const sink = createStudySinkFixture({
-			during: () => {
+			hook: () => {
 				// The hook runs before each append, so the sink holds a row exactly after the first.
 				if (sink.rows.length > 0) return
 				trace.append('late', { id: 'late' })
@@ -350,7 +350,7 @@ describe('StudyAgentTrace', () => {
 	it('refuses a second flush while one is pending and leaves the pending flush and late rows intact', async () => {
 		const { trace } = createStudyAgentTrace(true)
 		const held = Promise.withResolvers<void>()
-		const sink = createStudySinkFixture({ during: () => held.promise })
+		const sink = createStudySinkFixture({ hook: () => held.promise })
 		trace.start('write')
 		trace.append('first', { id: 1 })
 		const pending = trace.flush(sink.sink)
@@ -397,7 +397,7 @@ describe('StudyAgentTrace', () => {
 		const reentries =
 			createRecorder<readonly [PromiseLike<ReadonlyArray<PromiseSettledResult<void>>>]>()
 		const sink = createStudySinkFixture({
-			during: () => {
+			hook: () => {
 				reentries.handler(Promise.allSettled([trace.flush(other.sink)]))
 			},
 		})

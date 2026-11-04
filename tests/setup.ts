@@ -60,7 +60,7 @@ export interface OllamaRowFixture {
 export interface AgentObserverFixture {
 	readonly observer: StudyAgentObserver
 	readonly inner: ProviderInterface
-	readonly readings: readonly StudyAgentMeasurement[]
+	readonly measurements: readonly StudyAgentMeasurement[]
 	/** Holds the exact pre-encoding request each reading measured, in reading order. */
 	readonly requests: readonly ProviderRequest[]
 }
@@ -122,11 +122,11 @@ export interface StudyDriverFixtureOptions {
 	/** Replaces the default goal execution after the goal id is recorded. */
 	readonly execute?: (goal: StudyGoal, context: StudyContext) => Promise<StudyProduct>
 	/** Delays each open result until the caller resolves it. */
-	readonly opening?: Promise<void>
+	readonly delay?: Promise<void>
 	/** Rejects each open with the supplied error after the call is recorded. */
 	readonly refuse?: Error
 	/** Rejects each session close with the supplied error after the call is recorded. */
-	readonly closing?: Error
+	readonly failure?: Error
 }
 
 /** Holds a driver whose every boundary call is recorded. */

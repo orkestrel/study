@@ -400,13 +400,13 @@ describe('readStudyAgentMessages', () => {
 			{ id: 'm1', role: 'user', content: 'Count', images: ['x'], thinking: 'hidden' },
 			{ id: 'm2', role: 'tool', content: 'three', call: 'call-1' },
 		]
-		const readings = readStudyAgentMessages(messages)
-		expect(readings).toEqual([
+		const messagesRead = readStudyAgentMessages(messages)
+		expect(messagesRead).toEqual([
 			{ role: 'user', content: 'Count' },
 			{ role: 'tool', content: 'three', call: 'call-1' },
 		])
-		expect(Object.keys(readings[1] ?? {})).toEqual(['role', 'content', 'call'])
-		expect(Object.isFrozen(readings)).toBe(true)
+		expect(Object.keys(messagesRead[1] ?? {})).toEqual(['role', 'content', 'call'])
+		expect(Object.isFrozen(messagesRead)).toBe(true)
 	})
 
 	it('projects only dereferenced foreign message fields and refuses malformed provider reads', () => {

@@ -39,7 +39,7 @@ export class StudyProcessSession implements StudySessionInterface {
 	#child: ChildProcess | undefined
 	#channel: StudyChannel | undefined
 	#exit: Promise<void> | undefined
-	#closing: Promise<void> | undefined
+	#shutdown: Promise<void> | undefined
 	readonly #goals = new Set<StudyProcessGoal>()
 	readonly #tickets = new Map<number, StudyParentTicket>()
 	readonly #appends = new Set<Promise<void>>()
@@ -58,7 +58,7 @@ export class StudyProcessSession implements StudySessionInterface {
 
 	/** Starts the child and verifies its artifact-bound readiness. */
 	async start(): Promise<void> {
-		if (this.#started || this.#closing !== undefined)
+		if (this.#started || this.#shutdown !== undefined)
 			throw new StudyError('FAULT', 'Study process start is single use')
 		this.#started = true
 		if (this.#control.failure !== undefined) throw failureToStudyError(this.#control.failure)
@@ -157,7 +157,7 @@ export class StudyProcessSession implements StudySessionInterface {
 	 * @returns The retained child product after every admitted operation settles.
 	 */
 	async execute(goal: StudyGoal, context: StudyContext): Promise<StudyProduct> {
-		if (this.#goals.size !== 0 || this.#closing !== undefined || this.#channel === undefined)
+		if (this.#goals.size !== 0 || this.#shutdown !== undefined || this.#channel === undefined)
 			throw new StudyError('FAULT', 'Study process cannot execute in its current state')
 		if (this.#control.failure !== undefined) throw failureToStudyError(this.#control.failure)
 		const running = new StudyProcessGoal(context)
@@ -193,8 +193,8 @@ export class StudyProcessSession implements StudySessionInterface {
 
 	/** Requests verified cleanup, then terminates only this recorded process tree. */
 	close(): Promise<void> {
-		this.#closing ??= this.#close()
-		return this.#closing
+		this.#shutdown ??= this.#close()
+		return this.#shutdown
 	}
 
 	async #handle(operation: StudyOperation, value: JSONValue): Promise<JSONValue> {
@@ -239,13 +239,13 @@ export class StudyProcessSession implements StudySessionInterface {
 		}
 		if (operation === 'evidence') {
 			if (!isStudyEvidence(value)) throw new StudyError('FAULT', 'Invalid worker evidence')
-			const appending = context.evidence.append(value)
-			this.#appends.add(appending)
+			const write = context.evidence.append(value)
+			this.#appends.add(write)
 			try {
-				await appending
+				await write
 				return true
 			} finally {
-				this.#appends.delete(appending)
+				this.#appends.delete(write)
 			}
 		}
 		throw new StudyError('FAULT', 'Worker requested a forbidden operation')

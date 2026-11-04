@@ -1,6 +1,6 @@
 import { STUDY_STOP_CAUSES, STUDY_OTHER_CAUSES } from '../../../setupStudy.js'
 import { buildStudyStop, STUDY_INVALID_STOPS } from '../../../setupStudy.js'
-import { STUDY_FINITE_READINGS } from '../../../setupStudy.js'
+import { STUDY_FINITE_MEASUREMENTS } from '../../../setupStudy.js'
 import {
 	createForeignBudgetError,
 	buildStudyExchangeHistory,
@@ -82,8 +82,8 @@ describe('custody validators', () => {
 		expect(isStudyExchangeAncestor(revoked.proxy)).toBe(false)
 	})
 	it('retains finite foreign readings unchanged through IPC and custody', () => {
-		for (const max of STUDY_FINITE_READINGS) {
-			for (const consumed of STUDY_FINITE_READINGS) {
+		for (const max of STUDY_FINITE_MEASUREMENTS) {
+			for (const consumed of STUDY_FINITE_MEASUREMENTS) {
 				const stop = buildStudyStop({ layer: 'budget', id: 'foreign', max, consumed })
 				for (const error of [
 					translateStudyAgentStop(stop),

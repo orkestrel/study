@@ -24,7 +24,7 @@ import {
 import { parseStudyProfile } from '../../../../src/core/parsers.js'
 import { computeStudyProfileDigest } from '../../../../src/server/processes/helpers.js'
 import {
-	buildCustodyGrading,
+	buildCustodyAssessment,
 	createStudyDaemonFixture,
 	createStudyConsumer,
 	buildStudyReportResult,
@@ -311,7 +311,7 @@ describe('study command helpers', () => {
 				layer: source.failure.stop?.layer ?? null,
 				executed: 1,
 				unexecuted: 0,
-				readings:
+				stops:
 					source.failure.stop === undefined
 						? []
 						: [{ trial: source.trial, id: 'num_predict', max: 8, consumed: 9 }],
@@ -335,7 +335,7 @@ describe('study command helpers', () => {
 				layer: 'model',
 				executed: 1,
 				unexecuted: 1,
-				readings: [
+				stops: [
 					{ trial: 'second', goal: 'write', id: 'num_predict', max: null, consumed: null },
 					{ trial: 'first', goal: 'read', id: 'num_predict', max: null, consumed: null },
 				],
@@ -369,7 +369,7 @@ describe('study command helpers', () => {
 		const report = computeStudyReport(
 			result,
 			buildStudyRubric(),
-			buildCustodyGrading(result, buildStudyRubric()),
+			buildCustodyAssessment(result, buildStudyRubric()),
 		)
 		expect(report).toMatchObject({
 			operations: {
@@ -382,7 +382,7 @@ describe('study command helpers', () => {
 							layer: null,
 							executed: 1,
 							unexecuted: 0,
-							readings: [],
+							stops: [],
 						},
 					],
 				},
@@ -395,7 +395,7 @@ describe('study command helpers', () => {
 							layer: null,
 							executed: 1,
 							unexecuted: 1,
-							readings: [],
+							stops: [],
 						},
 					],
 				},
@@ -542,7 +542,7 @@ describe('study command helpers', () => {
 		const report = computeStudyReport(
 			result,
 			buildStudyRubric(),
-			buildCustodyGrading(result, buildStudyRubric()),
+			buildCustodyAssessment(result, buildStudyRubric()),
 		)
 		if (!isRecord(report)) throw new Error('Missing report')
 		expect(report.operations).toMatchObject({
@@ -605,7 +605,7 @@ describe('study command helpers', () => {
 		const report = computeStudyReport(
 			result,
 			buildStudyRubric(),
-			buildCustodyGrading(result, buildStudyRubric()),
+			buildCustodyAssessment(result, buildStudyRubric()),
 		)
 		if (!isRecord(report) || !isRecord(report.operations)) throw new Error('Missing operations')
 		const { trials, goals } = report.operations
@@ -647,7 +647,7 @@ describe('study command helpers', () => {
 		const report = computeStudyReport(
 			result,
 			buildStudyRubric(),
-			buildCustodyGrading(result, buildStudyRubric()),
+			buildCustodyAssessment(result, buildStudyRubric()),
 		)
 		if (!isRecord(report) || !isRecord(report.operations)) throw new Error('Missing operations')
 		expect(report.operations).toMatchObject({
@@ -701,7 +701,7 @@ describe('study command helpers', () => {
 		try {
 			const result = await retainStudyFixture(join(scratch.path, 'result'))
 			const rubric = buildStudyRubric()
-			const assessment = buildCustodyGrading(result, rubric)
+			const assessment = buildCustodyAssessment(result, rubric)
 			const report = computeStudyReport(
 				{
 					...result,
@@ -865,7 +865,7 @@ describe('study selection helpers', () => {
 		const manifest = { ...base, schedule: [trial], selection }
 		const result = buildStudyReportResult([buildCustodyAttempt(manifest, trial)], manifest)
 		const rubric = buildStudyRubric()
-		const assessment = { ...buildCustodyGrading(result, rubric), unselected: ['second-write'] }
+		const assessment = { ...buildCustodyAssessment(result, rubric), unselected: ['second-write'] }
 		const report = computeStudyReport(result, rubric, assessment)
 		expect(report).toMatchObject({
 			population: 'Selected segment of the declared trial and criterion horizon',
@@ -891,7 +891,7 @@ describe('study selection helpers', () => {
 			base.schedule.map((entry) => buildCustodyAttempt(base, entry)),
 			base,
 		)
-		const unselected = computeStudyReport(full, rubric, buildCustodyGrading(full, rubric))
+		const unselected = computeStudyReport(full, rubric, buildCustodyAssessment(full, rubric))
 		expect(unselected).not.toHaveProperty('selection')
 		expect(unselected).not.toHaveProperty('unselected')
 		expect(unselected).toMatchObject({

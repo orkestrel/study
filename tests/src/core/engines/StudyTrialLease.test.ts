@@ -35,7 +35,7 @@ describe('StudyTrialLease', () => {
 
 	it('returns and latches the failure of a session close', async () => {
 		const closing = new Error('Close refused')
-		const fixture = createStudyLeaseFixture({ closing })
+		const fixture = createStudyLeaseFixture({ failure: closing })
 		try {
 			await fixture.lease.open()
 			const cleanup = await fixture.lease.close()
@@ -51,7 +51,7 @@ describe('StudyTrialLease', () => {
 		const parent = new AbortController()
 		const opening = Promise.withResolvers<void>()
 		const fixture = createStudyLeaseFixture(
-			{ opening: opening.promise, closing: new Error('Late close refused') },
+			{ delay: opening.promise, failure: new Error('Late close refused') },
 			parent.signal,
 		)
 		try {

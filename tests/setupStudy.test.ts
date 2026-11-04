@@ -7,7 +7,7 @@ import {
 	buildCustodyManifest,
 	buildStudyCapacityManifest,
 	buildStudyStop,
-	STUDY_FINITE_READINGS,
+	STUDY_FINITE_MEASUREMENTS,
 	buildStudyObservation,
 	buildStudyOperationAttempts,
 	buildStudyProfile,
@@ -58,8 +58,8 @@ import { StudyError } from '../src/core/errors.js'
 import { StudyAgentScript } from '../src/server/agents/StudyAgentScript.js'
 
 it('builds independently selected finite stop readings without narrowing them', () => {
-	expect(STUDY_FINITE_READINGS).toEqual([0, -0, -1, 0.5, 8])
-	expect(Object.isFrozen(STUDY_FINITE_READINGS)).toBe(true)
+	expect(STUDY_FINITE_MEASUREMENTS).toEqual([0, -0, -1, 0.5, 8])
+	expect(Object.isFrozen(STUDY_FINITE_MEASUREMENTS)).toBe(true)
 	expect(buildStudyStop({ layer: 'budget', id: 'foreign', max: -1, consumed: -0.5 })).toEqual({
 		layer: 'budget',
 		id: 'foreign',
@@ -113,7 +113,7 @@ describe('study boundary fixtures', () => {
 	it('awaits the supplied opening promise and runs the supplied execution', async () => {
 		const resolvers = Promise.withResolvers<void>()
 		const fixture = createStudyDriverFixture({
-			opening: resolvers.promise,
+			delay: resolvers.promise,
 			execute: async () => ({ value: 'custom', partial: true }),
 		})
 		const manifest = buildCompactCustodyManifest()
@@ -141,7 +141,7 @@ describe('study boundary fixtures', () => {
 	})
 	it('rejects each session close with the supplied error after recording the call', async () => {
 		const closing = new Error('Close refused')
-		const fixture = createStudyDriverFixture({ closing })
+		const fixture = createStudyDriverFixture({ failure: closing })
 		const trial = buildCompactCustodyManifest().schedule[0]
 		if (trial === undefined) throw new Error('Missing fixture trial')
 		const session = await fixture.driver.open(trial, new AbortController().signal)
@@ -149,7 +149,7 @@ describe('study boundary fixtures', () => {
 		expect(fixture.closed.calls).toEqual([[trial.id]])
 	})
 	it('leases the first scheduled trial over recording fixtures and releases its owner', async () => {
-		const fixture = createStudyLeaseFixture({ opening: Promise.resolve() })
+		const fixture = createStudyLeaseFixture({ delay: Promise.resolve() })
 		expect(fixture.trial).toEqual(buildCompactCustodyManifest().schedule[0])
 		await fixture.lease.open()
 		expect(fixture.custody.started.calls).toEqual([[fixture.trial]])
@@ -329,7 +329,7 @@ describe('study agent trace fixtures', () => {
 	it('records accepted rows in order and runs its hook before each append', async () => {
 		const seen: string[] = []
 		const fixture = createStudySinkFixture({
-			during: () => {
+			hook: () => {
 				seen.push('hook')
 			},
 		})
@@ -646,18 +646,18 @@ describe('study fixture observation views', () => {
 
 	it('shows an observer fixture reference its later readings and requests', async () => {
 		const fixture = createAgentObserver(createOllamaFetch(), undefined, false)
-		const readings = fixture.readings
+		const measurements = fixture.measurements
 		const requests = fixture.requests
-		expect([readings.length, requests.length]).toEqual([0, 0])
+		expect([measurements.length, requests.length]).toEqual([0, 0])
 		await fixture.observer.generate(
 			STUDY_AGENT_MESSAGES,
 			new AbortController().signal,
 			STUDY_AGENT_TOOLS,
 			STUDY_AGENT_OPTIONS,
 		)
-		expect([readings.length, requests.length]).toEqual([1, 1])
+		expect([measurements.length, requests.length]).toEqual([1, 1])
 		expect(requests[0]?.messages).toEqual(STUDY_AGENT_MESSAGES)
-		expect(fixture.readings).toBe(readings)
+		expect(fixture.measurements).toBe(measurements)
 		expect(fixture.requests).toBe(requests)
 	})
 

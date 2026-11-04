@@ -1,6 +1,6 @@
 import {
 	STUDY_INVALID_STOPS,
-	STUDY_FINITE_READINGS,
+	STUDY_FINITE_MEASUREMENTS,
 	buildStudyStop,
 	STUDY_RECORD_FIELDS,
 	STUDY_RECORD_INVALID_LIMITS,
@@ -37,7 +37,7 @@ import {
 	buildStudyDefinition,
 	buildStudyDaemonProvider,
 	buildStudyDaemonRefusals,
-	buildStudyGrading,
+	buildStudyAssessment,
 	buildStudyJudgment,
 	buildStudyManifest,
 	buildStudyProfile,
@@ -386,7 +386,7 @@ it('accepts exactly the declared roles and operational causes in their frozen re
 })
 
 it('carries no format counter in a grading identity', () => {
-	const assessment = buildStudyGrading([])
+	const assessment = buildStudyAssessment([])
 	expect(isStudyAssessment(assessment)).toBe(true)
 	expect(Object.hasOwn(assessment, 'version')).toBe(false)
 	expect(isStudyAssessment({ ...assessment, version: 1 })).toBe(false)
@@ -404,7 +404,7 @@ it('accepts only declared error codes, never a foreign or case-folded code', () 
 })
 
 it('requires SHA bindings, unique attempts and exact grading keys', () => {
-	const assessment = buildStudyGrading(buildStudyManifest().schedule, [
+	const assessment = buildStudyAssessment(buildStudyManifest().schedule, [
 		buildStudyJudgment('r1-s1-a1'),
 	])
 	expect(isStudyAssessment(assessment)).toBe(true)
@@ -426,7 +426,7 @@ it('requires SHA bindings, unique attempts and exact grading keys', () => {
 })
 
 it('admits a unique unselected criterion list on a grading and refuses a malformed one', () => {
-	const assessment = buildStudyGrading(buildStudyManifest().schedule)
+	const assessment = buildStudyAssessment(buildStudyManifest().schedule)
 	expect(isStudyAssessment(assessment)).toBe(true)
 	expect(isStudyAssessment({ ...assessment, unselected: ['first-read', 'second-read'] })).toBe(true)
 	expect(isStudyAssessment({ ...assessment, unselected: [] })).toBe(true)
@@ -469,7 +469,7 @@ describe('Study stop contracts', () => {
 		expect(isStudyStop({ layer: 'model', id: 'cap' })).toBe(true)
 		expect(isStudyStop(buildStudyStop({ max: 0, consumed: -0 }))).toBe(true)
 		expect(isStudyStop(buildStudyStop({ max: 0.5, consumed: 1.5 }))).toBe(true)
-		for (const reading of STUDY_FINITE_READINGS)
+		for (const reading of STUDY_FINITE_MEASUREMENTS)
 			expect(isStudyStop(buildStudyStop({ max: reading, consumed: reading }))).toBe(true)
 	})
 })

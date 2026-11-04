@@ -75,7 +75,7 @@ export function buildStudyReference(target: StudyGradeTarget, reference: StudyRe
  * sees no attempt and no evidence, and missing evidence stays whatever verdict the consumer
  * reads from it. The traversal never decides success, and it cites nothing the retained
  * evidence cannot back.
- * @throws StudyError - Thrown when the rubric, declaration, attempts, or evidence are invalid or foreign, when a criterion names an undeclared goal, or when a reading is not a valid judgment
+ * @throws StudyError - Thrown when the rubric, declaration, attempts, or evidence are invalid or foreign, when a criterion names an undeclared goal, or when a verdict is not a valid judgment
  * @example Grade retained evidence with a consumer predicate
  * ```ts
  * import type { StudyAdjudication, StudyGradeFunction } from '@orkestrel/study/server'
@@ -140,17 +140,17 @@ export function gradeStudyEvidence(
 							attempt,
 							evidence: rows,
 						})
-						const reading = grade(target)
-						if (!isRecord(reading) || !isArray(reading.references))
-							throw new StudyError('EVIDENCE', 'Grading predicate returned an invalid reading')
+						const verdict = grade(target)
+						if (!isRecord(verdict) || !isArray(verdict.references))
+							throw new StudyError('EVIDENCE', 'Grading predicate returned an invalid verdict')
 						const judgment = {
 							trial: trial.id,
 							criterion: criterion.id,
-							verdict: reading.verdict,
-							method: reading.method,
-							reason: reading.reason,
+							verdict: verdict.verdict,
+							method: verdict.method,
+							reason: verdict.reason,
 							references: Object.freeze(
-								reading.references.map((reference) => buildStudyReference(target, reference)),
+								verdict.references.map((reference) => buildStudyReference(target, reference)),
 							),
 						}
 						if (!isStudyJudgment(judgment))

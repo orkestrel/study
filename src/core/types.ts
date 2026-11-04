@@ -494,7 +494,7 @@ export interface StudyProgressUsage {
  * `rows` holds the one-based `evidence.jsonl` line numbers of the goal's first and last row.
  * `usage` holds one entry per role with at least one `wire` row, in report order. `stops` holds the
  * ceilings the goal's `stop` rows name. `events` counts every row of the goal by its event name,
- * Study's own `dispatch`, `wire`, `stop`, and `cut` rows included. `reading` holds the adapter's
+ * Study's own `dispatch`, `wire`, `stop`, and `cut` rows included. `projection` holds the adapter's
  * progress projection, and is undefined when no projection ran.
  */
 export interface StudyProgressGoal {
@@ -503,7 +503,7 @@ export interface StudyProgressGoal {
 	readonly usage: readonly StudyProgressUsage[]
 	readonly stops: readonly StudyStop[]
 	readonly events: Readonly<Record<string, number>>
-	readonly reading: JSONValue | undefined
+	readonly projection: JSONValue | undefined
 }
 
 /**

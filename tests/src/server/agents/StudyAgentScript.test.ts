@@ -8,7 +8,7 @@ import { executeStudyAgentSeries, buildCompactCustodyManifest } from '../../../s
 import { readStudyFailure } from '../../../../src/core/engines/helpers.js'
 import { createForeignBudgetError, createBudgetLookalike } from '../../../setupServer.js'
 import { createStudyMeterFixture } from '../../../setupStudy.js'
-import { buildStudyReportResult, buildCustodyGrading } from '../../../setupServer.js'
+import { buildStudyReportResult, buildCustodyAssessment } from '../../../setupServer.js'
 import { buildStudyRubric } from '../../../setupStudy.js'
 import { computeStudyReport } from '../../../../src/server/commands/helpers.js'
 import { StudyAgentScript } from '../../../../src/server/agents/StudyAgentScript.js'
@@ -64,7 +64,9 @@ describe('StudyAgentScript', () => {
 		expect(run.attempts[0]?.observations[1]).toMatchObject({ executed: false, failure: { stop } })
 		const result = buildStudyReportResult(run.attempts, buildCompactCustodyManifest())
 		const rubric = buildStudyRubric()
-		expect(computeStudyReport(result, rubric, buildCustodyGrading(result, rubric))).toMatchObject({
+		expect(
+			computeStudyReport(result, rubric, buildCustodyAssessment(result, rubric)),
+		).toMatchObject({
 			operations: {
 				trials: {
 					attributions: [
@@ -74,7 +76,7 @@ describe('StudyAgentScript', () => {
 							layer: 'meter',
 							executed: 1,
 							unexecuted: 1,
-							readings: [
+							stops: [
 								{ trial: 'r1-s1-a1', id: 'estimate', max: 1, consumed: allowance.consumed },
 								{ trial: 'r1-s2-a1', id: 'estimate', max: 1, consumed: allowance.consumed },
 							],
@@ -89,7 +91,7 @@ describe('StudyAgentScript', () => {
 							layer: 'meter',
 							executed: 1,
 							unexecuted: 3,
-							readings: [
+							stops: [
 								{
 									trial: 'r1-s1-a1',
 									goal: 'write',

@@ -56,7 +56,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 	readonly #wires = new Set<StudyOllamaExchange>()
 	readonly #finalizations = new WeakMap<StudyOllamaExchange, Promise<void>>()
 	readonly #drains = new Set<Promise<void>>()
-	#closing: Promise<void> | undefined
+	#shutdown: Promise<void> | undefined
 	#drainFailure: { readonly error: unknown } | undefined
 	readonly #requests = new Set<symbol>()
 	readonly #verifications = new Set<symbol>()
@@ -302,14 +302,14 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 	 * @throws Thrown when finalization cannot retain its terminal or evidence, or release its reader.
 	 */
 	close(): Promise<void> {
-		this.#closing ??= Promise.resolve().then(() => this.#close())
+		this.#shutdown ??= Promise.resolve().then(() => this.#close())
 		this.#abort.abort(new StudyError('FAULT', 'Ollama transport closed'))
-		return this.#closing
+		return this.#shutdown
 	}
 
 	async #close(): Promise<void> {
 		await Promise.all(
-			[...this.#sends].map((sending) => sending.catch((error: unknown) => this.fail(error))),
+			[...this.#sends].map((send) => send.catch((error: unknown) => this.fail(error))),
 		)
 		await Promise.allSettled(
 			[...this.#wires].map((wire) => this.#failWire(wire, this.#abort.signal.reason)),
@@ -426,7 +426,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 							role === 'metadata' ? (this.#passes === 0 ? 'preflight' : 'postflight') : 'execution',
 						...(role === 'metadata' ? {} : { step: this.#executions.length + 1 }),
 					}
-		const sending = this.#send(
+		const send = this.#send(
 			role,
 			goal,
 			ticket,
@@ -439,8 +439,8 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 			identity,
 			limit.bytes,
 		)
-		this.#sends.add(sending)
-		const wire = await sending.finally(() => this.#sends.delete(sending))
+		this.#sends.add(send)
+		const wire = await send.finally(() => this.#sends.delete(send))
 		if (wire.status < 200 || wire.status > 299) return await this.#refuse(wire)
 		return new Response(
 			new ReadableStream<Uint8Array>({
@@ -702,9 +702,9 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 			role !== 'metadata' && remaining <= this.#options.limit.duration
 				? new Timeout({ ms: Math.min(MAX_TIMEOUT_MS, Math.max(0, Math.ceil(remaining))), signal })
 				: undefined
-		const recording = new AbortController()
-		const bounded = AbortSignal.any([signal, recording.signal])
-		deadline?.signal.addEventListener('abort', () => recording.abort(this.#durationFailure(role)), {
+		const expiry = new AbortController()
+		const bounded = AbortSignal.any([signal, expiry.signal])
+		deadline?.signal.addEventListener('abort', () => expiry.abort(this.#durationFailure(role)), {
 			once: true,
 			signal,
 		})

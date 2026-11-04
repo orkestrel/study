@@ -162,7 +162,7 @@ describe('recording and replay command handoff', () => {
 				const ancestor = await retainStudyContinuationSource(
 					fixture,
 					row.name,
-					row.recording,
+					row.recorded,
 					row.declared,
 					row.sealed,
 				)

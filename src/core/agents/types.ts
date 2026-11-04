@@ -30,7 +30,7 @@ export interface StudyAgentMeasurement {
 
 /** Receives one reading and the exact pre-encoding request it measured. */
 export type StudyAgentRecordHandler = (
-	reading: StudyAgentMeasurement,
+	measurement: StudyAgentMeasurement,
 	request: ProviderRequest,
 ) => void
 

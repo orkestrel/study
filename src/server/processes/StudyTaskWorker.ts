@@ -169,16 +169,16 @@ export class StudyTaskWorker {
 			throw new StudyError('CONFIG', 'Adapter progress input is invalid')
 		if (adapter.progress === undefined) return []
 		return targets.map((target) => {
-			const reading = this.#project(adapter, target)
-			if (!isJSONValue(reading))
+			const projection = this.#project(adapter, target)
+			if (!isJSONValue(projection))
 				throw new StudyError(
 					'FAULT',
-					'Adapter returned an invalid progress reading for trial ' +
+					'Adapter returned an invalid progress projection for trial ' +
 						JSON.stringify(target.trial.id) +
 						' goal ' +
 						JSON.stringify(target.goal),
 				)
-			return reading
+			return projection
 		})
 	}
 

@@ -20,7 +20,7 @@ export class StudyTrialLease {
 	readonly #deadline: StudyDeadline
 	#scope: StudyScope | undefined
 	#evidence: StudySinkInterface | undefined
-	#opening: Promise<StudySessionInterface> | undefined
+	#pending: Promise<StudySessionInterface> | undefined
 	#session: StudySessionInterface | undefined
 
 	/** Binds one scheduled trial to the series' owned inputs, failure owner, series scope and cleanup deadline.
@@ -79,9 +79,9 @@ export class StudyTrialLease {
 		this.#evidence = await this.#start()
 		this.#series.check()
 		scope.check()
-		const opening = this.#launch()
-		this.#opening = opening
-		this.#session = await control.wait(opening)
+		const pending = this.#launch()
+		this.#pending = pending
+		this.#session = await control.wait(pending)
 	}
 
 	/** Closes the opened session, or a session that opened late, then the trial scope.
@@ -96,7 +96,7 @@ export class StudyTrialLease {
 	// Closes the session or awaits and closes a late opening; a session close failure is latched, a late one only reported when it differs.
 	async #release(): Promise<StudyFailure | undefined> {
 		const session = this.#session
-		const opening = this.#opening
+		const pending = this.#pending
 		if (session !== undefined) {
 			try {
 				await this.#deadline.wait(session.close())
@@ -107,9 +107,9 @@ export class StudyTrialLease {
 				return cleanup
 			}
 		}
-		if (opening === undefined) return undefined
+		if (pending === undefined) return undefined
 		try {
-			const late = await this.#deadline.wait(opening)
+			const late = await this.#deadline.wait(pending)
 			await this.#deadline.wait(late.close())
 			return undefined
 		} catch (error) {

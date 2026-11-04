@@ -86,7 +86,7 @@ export function translateStudyAgentError(
  */
 export function translateStudyAgentStop(stop: unknown): StudyError | undefined {
 	if (stop === undefined) return undefined
-	const reading = attempt((): StudyStop | undefined => {
+	const outcome = attempt((): StudyStop | undefined => {
 		if (!isObject(stop)) return undefined
 		const layer: unknown = Reflect.get(stop, 'layer')
 		const id: unknown = Reflect.get(stop, 'id')
@@ -113,7 +113,7 @@ export function translateStudyAgentStop(stop: unknown): StudyError | undefined {
 		}
 		return undefined
 	})
-	const parsed = reading.success ? reading.value : undefined
+	const parsed = outcome.success ? outcome.value : undefined
 	if (parsed === undefined) {
 		const message = 'Agent stop record is malformed'
 		return new StudyError('FAULT', message, {

@@ -13,7 +13,7 @@ export class StudyEvidenceSink implements StudyCustodySinkInterface {
 	#bytes = 0
 	// Wraps the first failed write so every later append and the close refuse with that failure.
 	#fault: { readonly error: unknown } | undefined
-	#closing: Promise<void> | undefined
+	#shutdown: Promise<void> | undefined
 
 	/**
 	 * Owns the descriptor selection and constraints while retaining the live file and budget.
@@ -31,7 +31,7 @@ export class StudyEvidenceSink implements StudyCustodySinkInterface {
 	 */
 	append(evidence: StudyEvidence): Promise<void> {
 		try {
-			if (this.#closing !== undefined)
+			if (this.#shutdown !== undefined)
 				throw new StudyError('CUSTODY', 'Evidence admission is closed')
 			if (!isStudyCustodyEvidence(evidence) || !this.#options.goals.includes(evidence.goal))
 				throw new StudyError('EVIDENCE', 'Evidence refers to an undeclared goal')
@@ -76,7 +76,7 @@ export class StudyEvidenceSink implements StudyCustodySinkInterface {
 	 * @returns Nothing when the evidence descriptor has closed
 	 */
 	close(): Promise<void> {
-		this.#closing ??= Promise.allSettled([...this.#writes])
+		this.#shutdown ??= Promise.allSettled([...this.#writes])
 			.then(async () => {
 				if (this.#fault !== undefined) throw this.#fault.error
 				await this.#options.file.sync()
@@ -84,7 +84,7 @@ export class StudyEvidenceSink implements StudyCustodySinkInterface {
 			.finally(async () => {
 				await this.#options.file.close()
 			})
-		return this.#closing
+		return this.#shutdown
 	}
 
 	// Writes after every earlier write settled, and refuses after any earlier write failed.

@@ -53,12 +53,12 @@ export class StudyLauncher {
 				...(request.extend === undefined ? [] : ['--extend', request.extend]),
 				...selectors,
 			]
-			const reading = await this.#launch(entry, check, STUDY_LAUNCH_DURATION, false)
-			if (reading.code !== 0) {
-				process.stdout.write(reading.output)
-				return reading.code
+			const outcome = await this.#launch(entry, check, STUDY_LAUNCH_DURATION, false)
+			if (outcome.code !== 0) {
+				process.stdout.write(outcome.output)
+				return outcome.code
 			}
-			const value: unknown = JSON.parse(reading.output)
+			const value: unknown = JSON.parse(outcome.output)
 			if (
 				!isRecord(value) ||
 				!isStudyBounds(value.bounds) ||

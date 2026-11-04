@@ -297,10 +297,10 @@ export async function readStudyHandle(
 	offset = 0,
 ): Promise<Buffer> {
 	if (offset >= target.length) return target
-	const reading = await handle.read(target, offset, target.length - offset, offset)
-	return reading.bytesRead === 0
+	const chunk = await handle.read(target, offset, target.length - offset, offset)
+	return chunk.bytesRead === 0
 		? target.subarray(0, offset)
-		: readStudyHandle(handle, target, offset + reading.bytesRead)
+		: readStudyHandle(handle, target, offset + chunk.bytesRead)
 }
 
 /**
@@ -401,7 +401,7 @@ export async function scanStudyTree(
 	prefix: string,
 	known: ReadonlySet<string>,
 	allowance: number,
-	recording = false,
+	recorded = false,
 ): Promise<readonly StudyFile[]> {
 	const files: StudyFile[] = []
 	const directories: string[] = []
@@ -427,7 +427,7 @@ export async function scanStudyTree(
 					known.has(names[1] ?? '') &&
 					(names[2] === 'attempt.json' ||
 						names[2] === 'evidence.jsonl' ||
-						(recording && names[2] === 'exchanges.jsonl')))
+						(recorded && names[2] === 'exchanges.jsonl')))
 			)
 		)
 			throw new StudyError('CUSTODY', 'Execution contains an unknown file')
@@ -443,7 +443,7 @@ export async function scanStudyTree(
 	const steps: Array<{ readonly found: readonly StudyFile[]; readonly left: number }> = []
 	for (const child of [...directories].reverse()) {
 		const before = steps.at(-1)?.left ?? remaining
-		const found = await scanStudyTree(directory, child, known, before, recording)
+		const found = await scanStudyTree(directory, child, known, before, recorded)
 		steps.push({ found, left: found.reduce((left, file) => left - file.bytes, before) })
 	}
 	return [...files, ...steps.flatMap((step) => step.found)]
@@ -598,9 +598,9 @@ export async function readStudyResult(directory: string): Promise<StudyResultVie
 		)
 		if (hashStudyBytes(bytes) !== terminal.digest)
 			throw new StudyError('CUSTODY', 'Attempt changed during inventory reading')
-		const reading = attempt((): unknown => decodeStudyJSON(bytes))
-		if (!reading.success && sealed) throw reading.error
-		const record: unknown = reading.success ? reading.value : undefined
+		const parsed = attempt((): unknown => decodeStudyJSON(bytes))
+		if (!parsed.success && sealed) throw parsed.error
+		const record: unknown = parsed.success ? parsed.value : undefined
 		if (!isStudyCustodyAttempt(record, manifest) || record.trial.id !== trial.id) {
 			if (sealed) throw new StudyError('CUSTODY', 'Invalid or foreign terminal attempt')
 			continue
@@ -840,7 +840,7 @@ export async function readStudyProgress(
 	)
 	const answers: Array<ReadonlyArray<JSONValue | undefined>> = []
 	if (project !== undefined) for (const batch of batches) answers.push(await project(batch))
-	const readings = new Map(
+	const projections = new Map(
 		batches.flatMap((batch, index) =>
 			batch.map((target, position) => [target, answers[index]?.[position]] as const),
 		),
@@ -914,7 +914,7 @@ export async function readStudyProgress(
 							([event, entries]) => [event, entries.length] as const,
 						),
 					),
-					reading: readings.get(target),
+					projection: projections.get(target),
 				}
 			}),
 		})),
@@ -1293,13 +1293,13 @@ export async function readStudyExchanges(
 	result: StudySealedResult,
 	trial: string,
 ): Promise<StudyExchangeHistory> {
-	const reading = await readStudyResult(result.directory)
-	if (reading.status !== 'sealed' || reading.seal.id !== result.seal.id)
+	const verified = await readStudyResult(result.directory)
+	if (verified.status !== 'sealed' || verified.seal.id !== result.seal.id)
 		throw new StudyError('CUSTODY', 'Replay result is unsealed or changed')
-	const file = reading.seal.files.find((entry) => entry.path === `trials/${trial}/exchanges.jsonl`)
+	const file = verified.seal.files.find((entry) => entry.path === `trials/${trial}/exchanges.jsonl`)
 	if (file === undefined)
 		throw new StudyError('CUSTODY', 'Recorded trial is missing its exchange sidecar')
-	const rows = await readStudyTrialExchanges(reading.directory, reading.manifest, trial, file)
+	const rows = await readStudyTrialExchanges(verified.directory, verified.manifest, trial, file)
 	const declaration = rows[0]
 	const completion = rows.at(-1)
 	if (declaration?.phase !== 'declaration' || completion?.phase !== 'complete')
@@ -1310,7 +1310,7 @@ export async function readStudyExchanges(
 			? [{ attempt: row, response }]
 			: []
 	})
-	const history = { seal: reading.seal.id, file, declaration, exchanges, completion }
+	const history = { seal: verified.seal.id, file, declaration, exchanges, completion }
 	validateStudyExchangeHistory(history)
 	return history
 }

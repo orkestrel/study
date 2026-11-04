@@ -22,7 +22,7 @@ export class StudyAgentScript implements ProviderInterface {
 	// The prepared goal; `prepare` binds it and `clear` releases it. A running stream keeps the goal it took its response from.
 	#goal: StudyAgentScriptGoal | undefined
 	// The responses being served; a response joins when its stream starts and leaves when the stream settles.
-	readonly #serving = new Set<StudyAgentResponse>()
+	readonly #responses = new Set<StudyAgentResponse>()
 
 	/**
 	 * Binds the encoded byte bound every served request and response must fit.
@@ -42,7 +42,7 @@ export class StudyAgentScript implements ProviderInterface {
 	 * @throws StudyError - Thrown with code `CONFIG` when a response is still running, a goal is already prepared, or a declared response is invalid; a prepared goal stays prepared
 	 */
 	prepare(plan: StudyAgentPlan): void {
-		if (this.#serving.size !== 0)
+		if (this.#responses.size !== 0)
 			throw new StudyError('CONFIG', 'Cannot replace a running scripted workload')
 		if (this.#goal !== undefined)
 			throw new StudyError('CONFIG', 'Scripted goal is already prepared')
@@ -93,13 +93,13 @@ export class StudyAgentScript implements ProviderInterface {
 		signal: AbortSignal,
 	): AsyncGenerator<ProviderDelta, ProviderResult> {
 		const goal = this.#goal
-		if (goal === undefined || this.#serving.size !== 0)
+		if (goal === undefined || this.#responses.size !== 0)
 			throw new StudyError('CONFIG', 'Scripted provider is unavailable')
 		const response = goal.take()
 		if (response === undefined)
 			throw new StudyError('CONFIG', 'Scripted provider response sequence is exhausted')
 		const plan = goal.plan
-		this.#serving.add(response)
+		this.#responses.add(response)
 		const started = performance.now()
 		try {
 			const request = readStudyAgentMessages(messages)
@@ -178,7 +178,7 @@ export class StudyAgentScript implements ProviderInterface {
 					)
 			}
 		} finally {
-			this.#serving.delete(response)
+			this.#responses.delete(response)
 		}
 	}
 

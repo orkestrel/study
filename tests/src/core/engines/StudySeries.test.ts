@@ -188,7 +188,7 @@ describe('StudySeries', () => {
 		const manifest = buildCompactCustodyManifest()
 		const parent = new AbortController()
 		const opening = Promise.withResolvers<void>()
-		const driver = createStudyDriverFixture({ opening: opening.promise })
+		const driver = createStudyDriverFixture({ delay: opening.promise })
 		const custody = createStudyStoreFixture()
 		const task = new StudySeries({
 			manifest,

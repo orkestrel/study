@@ -80,11 +80,11 @@ import {
 	waitForDelay,
 } from '@orkestrel/test'
 import { execFile, fork, spawn } from 'node:child_process'
-import { cpSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
+import { cpSync, mkdirSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
 import { mkdir, open as openFile, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { createRequire, isBuiltin } from 'node:module'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build } from 'vite'
 import { mergeOverride, peers, srcCore, srcServer } from '../vite.config.js'
 import binConfig from '../configs/src/vite.bin.config.js'
@@ -473,7 +473,7 @@ export function buildStudyContinuationRefusals(
 /** Retains an ancestor control through real result custody, with optional recording and completion.
  * @param fixture - The successful recording whose public evidence is copied.
  * @param name - The absent result directory beneath the fixture.
- * @param recording - If true, retains a complete sidecar; if false, declares no recording.
+ * @param recorded - If true, retains a complete sidecar; if false, declares no recording.
  * @param declared - If true, declares the recorded execution as an exact procedure; if false, keeps it open.
  * @param sealed - If true, seals the result; if false, leaves interrupted custody.
  * @returns The independently readable result directory.
@@ -481,7 +481,7 @@ export function buildStudyContinuationRefusals(
 export async function retainStudyContinuationSource(
 	fixture: StudyContinuationFixture,
 	name: string,
-	recording: boolean,
+	recorded: boolean,
 	declared: boolean,
 	sealed = true,
 ): Promise<string> {
@@ -490,7 +490,7 @@ export async function retainStudyContinuationSource(
 	const manifest = {
 		...original,
 		id: `${original.id}-${name}`,
-		...(recording ? { record: fixture.history.declaration.record } : {}),
+		...(recorded ? { record: fixture.history.declaration.record } : {}),
 	}
 	const store = new StudyResultStore({ directory, manifest })
 	await store.create()
@@ -528,7 +528,7 @@ export async function retainStudyContinuationSource(
 					}
 				: {}),
 		}
-		if (recording) await store.exchanges(trial, declaration)
+		if (recorded) await store.exchanges(trial, declaration)
 		const sink = await store.start(trial)
 		const evidence = requireValue(
 			fixture.scratch.read(`baseline/execution/trials/${trial.id}/evidence.jsonl`),
@@ -540,7 +540,7 @@ export async function retainStudyContinuationSource(
 			if (!isStudyEvidence(row)) throw new Error('Invalid continuation source evidence')
 			await sink.append(row)
 		}
-		if (recording)
+		if (recorded)
 			await writeFile(
 				join(directory, 'execution', 'trials', trial.id, 'exchanges.jsonl'),
 				[declaration, ...rows.slice(1)].map((row) => JSON.stringify(row) + '\n').join(''),
@@ -983,7 +983,7 @@ process.on('message', frame => {
 /** Retains independent complete trial evidence with a selectable sidecar refusal control.
  * @param directory - The absent owned result directory.
  * @param mutation - The sidecar mutation; Default: complete.
- * @param recording - If true, declares and reserves recording; if false, leaves the sidecar unrequested.
+ * @param recorded - If true, declares and reserves recording; if false, leaves the sidecar unrequested.
  * @param sidecar - If true, writes sidecars; if false, leaves them missing.
  * @param open - If true, retains an open sequence; if false, retains the declared control.
  * @returns The real store and manifest after every trial has terminated.
@@ -991,13 +991,13 @@ process.on('message', frame => {
 export async function retainStudyExchangeFixture(
 	directory: string,
 	mutation: StudyExchangeMutation = 'complete',
-	recording = true,
+	recorded = true,
 	sidecar = true,
 	open = false,
 ): Promise<StudyExchangeCustodyFixture> {
 	const manifest = {
 		...buildCompactCustodyManifest(),
-		...(recording ? { record: { bytes: 16384, calls: 256, duration: 15000 } } : {}),
+		...(recorded ? { record: { bytes: 16384, calls: 256, duration: 15000 } } : {}),
 	}
 	const store = new StudyResultStore({ directory, manifest })
 	await store.create()
@@ -1007,7 +1007,7 @@ export async function retainStudyExchangeFixture(
 			: buildStudyExchangeRows(trial.id, false, manifest.record)
 		const declaration = rows[0]
 		if (declaration?.phase !== 'declaration') throw new Error('Missing fixture declaration')
-		if (recording) await store.exchanges(trial, declaration)
+		if (recorded) await store.exchanges(trial, declaration)
 		const sink = await store.start(trial)
 		for (const row of rows) {
 			if (row.phase === 'attempt' || row.phase === 'response')
@@ -1313,7 +1313,7 @@ export async function createStudyDaemonFixture(
 }
 
 /** Names daemon endings whose real process-tree cleanup the staging proof observes. */
-export const STUDY_DAEMON_ENDINGS: readonly string[] = Object.freeze([
+export const STUDY_DAEMON_ENDS: readonly string[] = Object.freeze([
 	'start-failure',
 	'trial-failure',
 	'cancel',
@@ -1331,9 +1331,9 @@ export const STUDY_WORKER_IDENTITIES = Object.freeze(['runtime', 'content'] as c
 
 /** Names complete and interrupted ancestor controls with their admission outcomes. */
 export const STUDY_CONTINUATION_SOURCES: readonly StudyContinuationSource[] = Object.freeze([
-	{ name: 'unrecorded', recording: false, declared: false, sealed: true, code: 'CONFIG' },
-	{ name: 'declared', recording: true, declared: true, sealed: true, code: 'CONFIG' },
-	{ name: 'interrupted', recording: true, declared: false, sealed: false, code: 'CUSTODY' },
+	{ name: 'unrecorded', recorded: false, declared: false, sealed: true, code: 'CONFIG' },
+	{ name: 'declared', recorded: true, declared: true, sealed: true, code: 'CONFIG' },
+	{ name: 'interrupted', recorded: true, declared: false, sealed: false, code: 'CUSTODY' },
 ])
 
 /** Supplies the validation request a task sends to its adapter child. */
@@ -1992,12 +1992,12 @@ process.stdout.write(String(code) + '\\n', () => process.exit(0))
  * @param labeler - The supplied accountable labeler; Default: human-v1
  * @returns Original imported neutral labels ready for exact-byte custody
  */
-export function buildCustodyPacketLabeling(
+export function buildCustodyPacketLabels(
 	result: StudySealedResult,
 	rubric: StudyRubric,
 	labeler = 'human-v1',
 ): StudyLabels {
-	const original = buildCustodyLabeling(result, labeler)
+	const original = buildCustodyLabels(result, labeler)
 	const packet = buildStudyPacket(result, rubric, hashStudyBytes(encodeStudyJSON(rubric)))
 	const link = buildStudyPacketLinks(result, rubric).find(
 		(entry) =>
@@ -2102,7 +2102,7 @@ export function buildStudyReportResult(
  * @param labels - The optional imported semantic labels
  * @returns The complete grading bound to exact imported bytes
  */
-export function buildCustodyGrading(
+export function buildCustodyAssessment(
 	result: StudySealedResult,
 	rubric: StudyRubric = buildStudyRubric(),
 	labels?: StudyLabels,
@@ -2145,7 +2145,7 @@ export function buildCustodyGrading(
  * @param labeler - The supplied accountable labeler
  * @returns The inert labels artifact
  */
-export function buildCustodyLabeling(result: StudySealedResult, labeler = 'human-v1'): StudyLabels {
+export function buildCustodyLabels(result: StudySealedResult, labeler = 'human-v1'): StudyLabels {
 	const trial = result.manifest.schedule[0]
 	if (trial === undefined) throw new Error('Fixture has no trial')
 	return {
@@ -2469,7 +2469,7 @@ export function writeStudyAgent(
  * @param output - The check command's standard output.
  * @returns The printed agent identity and execution fingerprint.
  */
-export function readStudyCheck(output: string): StudyCheckReading {
+export function readStudyCheck(output: string): StudyCheckResult {
 	const value = parseJSON(output)
 	if (
 		!isRecord(value) ||
@@ -2692,16 +2692,16 @@ export function buildOllamaTransportOptions(
 
 /** Supplies native stream abandonment with recording disabled and enabled. */
 export const STUDY_OLLAMA_ABANDONMENT_CASES = Object.freeze([
-	{ recording: false },
-	{ recording: true },
+	{ recorded: false },
+	{ recorded: true },
 ])
 
 /** Crosses real recording with branded budget and operational EOF cancellation. */
 export const STUDY_OLLAMA_EOF_CANCELLATION_CASES = Object.freeze([
-	{ recording: false, budget: true },
-	{ recording: false, budget: false },
-	{ recording: true, budget: true },
-	{ recording: true, budget: false },
+	{ recorded: false, budget: true },
+	{ recorded: false, budget: false },
+	{ recorded: true, budget: true },
+	{ recorded: true, budget: false },
 ])
 
 /** Supplies disk sidecar pressure cases and fitting response controls. */
@@ -2907,13 +2907,13 @@ export async function createOpenOllamaRecordingFixture(
 }
 
 /** Opens a native transport with optional real disk recording and ordered, exhaustive cleanup.
- * @param recording - If true, retains an open declaration in an exclusive sidecar; if false, records no sidecar.
+ * @param recorded - If true, retains an open declaration in an exclusive sidecar; if false, records no sidecar.
  * @param replies - The loopback peer's exact queued responses.
  * @param change - Transport overrides that preserve the selected recording boundary.
  * @returns The real transport, accounting, optional descriptor and sink, and their shared cleanup.
  */
 export async function createOllamaDiskFixture(
-	recording: boolean,
+	recorded: boolean,
 	replies: readonly OllamaWireReplyFixture[] = [],
 	change: Partial<StudyOllamaTransportOptions> = {},
 ): Promise<OllamaDiskFixture> {
@@ -2923,7 +2923,7 @@ export async function createOllamaDiskFixture(
 	const path = join(scratch.path, 'exchanges.jsonl')
 	try {
 		const { procedure: _procedure, ...declaration } = buildOllamaDeclaration()
-		const file = recording ? await openFile(path, 'wx') : undefined
+		const file = recorded ? await openFile(path, 'wx') : undefined
 		if (file !== undefined) teardown.add(() => file.close())
 		const sink =
 			file === undefined ? undefined : new StudyExchangeSink({ file, record: declaration.record })
@@ -3971,12 +3971,12 @@ export interface StudyAgentSeriesResult {
 /**
  * Holds the custody refusal and the append hook a sink fixture applies.
  * @remarks
- * `refuse` throws its error on the zero-based appended row before retaining it. `during` runs at the
+ * `refuse` throws its error on the zero-based appended row before retaining it. `hook` runs at the
  * start of every append, before the refusal check.
  */
 export interface StudySinkFixtureOptions {
 	readonly refuse?: { readonly error: unknown; readonly row: number }
-	readonly during?: () => void | Promise<void>
+	readonly hook?: () => void | Promise<void>
 }
 
 /** Holds an evidence sink, the rows it accepted in order, and every row offered to it, a refused one included. */
@@ -4057,7 +4057,7 @@ export interface StudyContinuationRefusal {
 /** Describes an ancestor custody state that continuation must refuse. */
 export interface StudyContinuationSource {
 	readonly name: string
-	readonly recording: boolean
+	readonly recorded: boolean
 	readonly declared: boolean
 	readonly sealed: boolean
 	readonly code: 'CONFIG' | 'CUSTODY'
@@ -4208,7 +4208,7 @@ export interface StudyAgentFixture {
 }
 
 /** Holds the agent identity and fingerprint a supervisor check printed. */
-export interface StudyCheckReading {
+export interface StudyCheckResult {
 	readonly agent: string
 	readonly fingerprint: string
 }
@@ -4686,4 +4686,250 @@ export function buildStudySelectionRefusals(
 			code: 'CONFIG',
 		},
 	]
+}
+
+/** Holds one declared name that breaks the -ing rule of `.claude/rules/names.md`. */
+export interface StudyParticipleViolation {
+	readonly path: string
+	readonly line: number
+	readonly name: string
+	readonly word: string
+}
+
+/** Holds one source file the name guard reads. */
+export interface StudyNameSource {
+	readonly path: string
+	readonly text: string
+}
+
+/** Names the -ing words `.claude/rules/names.md` keeps, by the kind of -ing word each is; a plural reads as its singular. */
+export const STUDY_PARTICIPLES_KEPT = Object.freeze({
+	// A noun that carries no tense.
+	noun: [
+		'string',
+		'binding',
+		'finding',
+		'heading',
+		'warning',
+		'setting',
+		'mapping',
+		'padding',
+		'timing',
+		'ceiling',
+	],
+	// A name that mirrors an external field: Ollama `message.thinking` and `OllamaTiming`, the Node `encoding` option.
+	mirror: ['encoding', 'thinking'],
+	// A lifecycle state that is in progress when it is read.
+	lifecycle: ['pending', 'running', 'stopping', 'waiting'],
+	// An adjective naming a condition that holds when it is read.
+	adjective: ['blocking', 'missing', 'remaining', 'existing'],
+})
+
+/** Holds every word of `STUDY_PARTICIPLES_KEPT` in lower case. */
+export const STUDY_PARTICIPLES_ALLOWED: ReadonlySet<string> = new Set(
+	Object.values(STUDY_PARTICIPLES_KEPT).flat(),
+)
+
+/** Names the workspace root the name guard reads from. */
+export const WORKSPACE_ROOT = fileURLToPath(new URL('../', import.meta.url))
+
+const STUDY_BLANK_PATTERN = new RegExp(
+	[
+		String.raw`/\*[\s\S]*?\*/|//[^\n]*`,
+		String.raw`(?<=[=(,:?&|!;{}[]\s*|\breturn\s+)/(?![/*])(?:[^/\\\n[]|\\.|\[(?:[^\]\\\n]|\\.)*\])+/[a-z]*`,
+		String.raw`'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"`,
+		'`(?:[^`\\\\$]|\\\\[\\s\\S]|\\$(?!\\{)|\\$\\{(?:[^{}`]|`[^`]*`|\\{[^{}]*\\})*\\})*`',
+	].join('|'),
+	'g',
+)
+const STUDY_NAME_TOKEN = String.raw`[A-Za-z_$][\w$]*`
+const STUDY_NAME_EXPORT = new RegExp(
+	String.raw`^[ \t]*export\s+(?:declare\s+)?(?:abstract\s+)?(?:interface|type|class|const|let)\s+(${STUDY_NAME_TOKEN})`,
+	'gm',
+)
+const STUDY_NAME_FUNCTION = new RegExp(
+	String.raw`\bfunction\*?\s+(${STUDY_NAME_TOKEN})\s*(?:<[^()]*?>)?\s*\(`,
+	'g',
+)
+const STUDY_NAME_READONLY = new RegExp(
+	String.raw`\breadonly\s+(#?${STUDY_NAME_TOKEN})\s*[?!]?\s*[:=;]`,
+	'g',
+)
+const STUDY_NAME_FIELD = new RegExp(
+	String.raw`^[ \t]+(?:(?:static|readonly|declare|override|accessor|async|get|set)\s+)*\*?\s*(#${STUDY_NAME_TOKEN})\s*[?!]?\s*[:=;(<]`,
+	'gm',
+)
+const STUDY_NAME_METHOD = new RegExp(
+	String.raw`^\t(?:(?:static|async|get|set|override|abstract)\s+)*\*?(${STUDY_NAME_TOKEN})(?:<[^\n]*?>)?\(([^\n]*)$`,
+	'gm',
+)
+const STUDY_NAME_PARAMETER = new RegExp(
+	String.raw`^(\s*)(?:(?:readonly|override)\s+)*(?:\.\.\.)?(${STUDY_NAME_TOKEN})\s*(?:[?:=]|$)`,
+	'd',
+)
+const STUDY_NAME_LIST = String.raw`\((?:[^()]|\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\))*\)`
+
+/**
+ * Replaces comments, strings, templates, and regular expression literals with spaces, keeping every line break.
+ * @param text - TypeScript source text
+ * @returns The text with only code left at its own offsets
+ * @example
+ * ```ts
+ * blankStudySource("const a = 'x' // y") // 'const a =' followed by spaces
+ * ```
+ */
+export function blankStudySource(text: string): string {
+	return text.replace(STUDY_BLANK_PATTERN, (match) => match.replace(/[^\n]/g, ' '))
+}
+
+/**
+ * Returns the last camel-case word of an identifier, in lower case.
+ * @param name - An identifier
+ * @returns The final word, lower-cased; a leading `#`, `_`, or `$` is dropped and an upper-case constant takes its last segment
+ * @example
+ * ```ts
+ * extractStudyNameWord('STUDY_DAEMON_ENDINGS') // 'endings'
+ * ```
+ */
+export function extractStudyNameWord(name: string): string {
+	const parts = name
+		.replace(/^[#_$]+/, '')
+		.split('_')
+		.filter(Boolean)
+	const segment = parts.at(-1) ?? ''
+	return (segment.match(/[A-Z]?[a-z\d]+$|[A-Z]+$/)?.[0] ?? segment).toLowerCase()
+}
+
+/**
+ * Lists the parameter names of the parameter list that opens at a parenthesis.
+ * @param text - TypeScript source text without comments or strings
+ * @param open - The offset of the opening parenthesis
+ * @returns Each parameter name with its offset, in order; a destructured part is skipped and a list nested more than three parentheses deep yields nothing
+ * @example
+ * ```ts
+ * extractStudyParameters('(a: number, b?: string)', 0) // [{ name: 'a', index: 1 }, { name: 'b', index: 12 }]
+ * ```
+ */
+export function extractStudyParameters(
+	text: string,
+	open: number,
+): ReadonlyArray<{ readonly name: string; readonly index: number }> {
+	const matcher = new RegExp(STUDY_NAME_LIST, 'y')
+	matcher.lastIndex = open
+	const list = matcher.exec(text)?.[0] ?? ''
+	const chars = list.split('')
+	const depths: number[] = []
+	for (const [index, char] of chars.entries()) {
+		const opens = '([{<'.includes(char)
+		const closes = ')]}'.includes(char) || (char === '>' && chars[index - 1] !== '=')
+		depths.push((depths[index - 1] ?? 0) + (opens ? 1 : closes ? -1 : 0))
+	}
+	const cuts = chars.flatMap((char, index) => (char === ',' && depths[index] === 1 ? [index] : []))
+	const starts = [1, ...cuts.map((cut) => cut + 1)]
+	return starts.flatMap((start, order) => {
+		const match = STUDY_NAME_PARAMETER.exec(list.slice(start, cuts[order] ?? list.length - 1))
+		return match === null
+			? []
+			: [{ name: requireValue(match[2]), index: open + start + (match.indices?.[2]?.[0] ?? 0) }]
+	})
+}
+
+/**
+ * Lists the names a source text declares in the positions the -ing rule governs.
+ * @remarks
+ * The positions are an exported interface, type, class, or const; a function declaration and its
+ * parameters; a `readonly` member; a `#` field or method; and a method head one tab in with its
+ * parameters. A local variable is no position.
+ * @param text - TypeScript source text without comments or strings
+ * @returns Each declared name with its offset, in source order
+ * @example
+ * ```ts
+ * extractStudyDeclaredNames('export interface FrameReading {}') // [{ name: 'FrameReading', index: 17 }]
+ * ```
+ */
+export function extractStudyDeclaredNames(
+	text: string,
+): ReadonlyArray<{ readonly name: string; readonly index: number }> {
+	const names = new Map<number, string>()
+	const opens: number[] = []
+	for (const match of text.matchAll(STUDY_NAME_EXPORT)) {
+		const name = requireValue(match[1])
+		names.set(match.index + match[0].lastIndexOf(name), name)
+	}
+	for (const match of text.matchAll(STUDY_NAME_FUNCTION)) {
+		const name = requireValue(match[1])
+		names.set(match.index + match[0].indexOf(name), name)
+		opens.push(match.index + match[0].length - 1)
+	}
+	for (const pattern of [STUDY_NAME_READONLY, STUDY_NAME_FIELD]) {
+		for (const match of text.matchAll(pattern)) {
+			const name = requireValue(match[1])
+			names.set(match.index + match[0].indexOf(name), name)
+		}
+	}
+	for (const match of text.matchAll(STUDY_NAME_METHOD)) {
+		const tail = requireValue(match[2])
+		const name = requireValue(match[1])
+		if (tail.trim() !== '' && !/\{\s*$/.test(tail) && !/\)\s*:\s*\S/.test(tail)) continue
+		names.set(match.index + match[0].indexOf(name), name)
+		opens.push(match.index + match[0].length - tail.length - 1)
+	}
+	for (const open of opens) {
+		for (const parameter of extractStudyParameters(text, open)) {
+			names.set(parameter.index, parameter.name)
+		}
+	}
+	return [...names]
+		.map(([index, name]) => ({ name, index }))
+		.sort((left, right) => left.index - right.index)
+}
+
+/**
+ * Finds every declared name whose last word is an -ing word outside the allowed set.
+ * @param sources - The source files to scan
+ * @param allowed - The lower-case words the rule keeps
+ * @returns Each violating name with its path and one-based line, in source order; a plural reads as its singular, and a word of three letters or fewer is no -ing word
+ * @example
+ * ```ts
+ * scanStudyParticiples([{ path: 'a.ts', text: 'export type FoldMerging = string' }], new Set())
+ * // [{ path: 'a.ts', line: 1, name: 'FoldMerging', word: 'merging' }]
+ * ```
+ */
+export function scanStudyParticiples(
+	sources: readonly StudyNameSource[],
+	allowed: ReadonlySet<string>,
+): readonly StudyParticipleViolation[] {
+	return sources.flatMap((source) => {
+		const text = blankStudySource(source.text)
+		return extractStudyDeclaredNames(text).flatMap(({ name, index }) => {
+			const word = extractStudyNameWord(name)
+			const stem = word.endsWith('ings') ? word.slice(0, -1) : word
+			if (stem.length <= 3 || !stem.endsWith('ing') || allowed.has(stem)) return []
+			const line = text.slice(0, index).split('\n').length
+			return [{ path: source.path, line, name, word: stem }]
+		})
+	})
+}
+
+/**
+ * Reads the sources the name guard holds to the rule: `src` and the setup modules this package owns.
+ * @returns Each `.ts` file with its workspace-relative path and text
+ * @example
+ * ```ts
+ * scanStudyParticiples(readStudyNameSources(), STUDY_PARTICIPLES_ALLOWED) // []
+ * ```
+ */
+export function readStudyNameSources(): readonly StudyNameSource[] {
+	const paths = [
+		...readdirSync(join(WORKSPACE_ROOT, 'src'), { recursive: true, encoding: 'utf8' })
+			.filter((path) => path.endsWith('.ts'))
+			.map((path) => ['src', ...path.split(sep)].join('/')),
+		'tests/setup.ts',
+		'tests/setupServer.ts',
+		'tests/setupStudy.ts',
+	]
+	return paths.map((path) => ({
+		path,
+		text: readFileSync(join(WORKSPACE_ROOT, ...path.split('/')), 'utf8'),
+	}))
 }

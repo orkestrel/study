@@ -53,7 +53,7 @@ describe('StudyAgentObserver', () => {
 				mode === 'generate'
 					? watched.observer.generate(messages, signal, tools, options)
 					: readProviderStream(watched.observer.stream(messages, signal, tools, options))
-			expect(watched.readings).toHaveLength(1)
+			expect(watched.measurements).toHaveLength(1)
 			expect(watchedWire.requests).toEqual([])
 			expect(await pending).toEqual(expected)
 			expect(watchedWire.requests).toHaveLength(1)
@@ -61,7 +61,7 @@ describe('StudyAgentObserver', () => {
 			const sent = parseJSON(watchedWire.requests[0]?.body ?? '')
 			if (!isRecord(sent)) throw new Error('Invalid chat request')
 			expect(sent).toMatchObject({ model: 'model', think: false, options: STUDY_OLLAMA_OPTIONS })
-			expect(watched.readings).toEqual([
+			expect(watched.measurements).toEqual([
 				{ estimate: estimateRequest({ messages, tools, options }), projected: undefined },
 			])
 		},
@@ -117,7 +117,7 @@ describe('StudyAgentObserver', () => {
 		expect(full).toEqual({ messages, tools, options: { think: false, schema } })
 		expect(Object.keys(empty ?? {})).toEqual(['messages', 'tools'])
 		// Every reading is the actual Agent estimate of the request handed over beside it.
-		expect(watched.readings.map((reading) => reading.estimate)).toEqual(
+		expect(watched.measurements.map((measurement) => measurement.estimate)).toEqual(
 			watched.requests.map((request) => estimateRequest(request)),
 		)
 		const parts = measureRequest(full ?? { messages })
@@ -134,8 +134,8 @@ describe('StudyAgentObserver', () => {
 		await priced.observer.generate(messages, signal, tools, options)
 		await unpriced.observer.generate(messages, signal, tools, options)
 		const estimate = estimateRequest({ messages, tools, options })
-		expect(priced.readings).toEqual([{ estimate, projected: Math.ceil(2 * estimate + 5) }])
-		expect(unpriced.readings).toEqual([{ estimate, projected: undefined }])
+		expect(priced.measurements).toEqual([{ estimate, projected: Math.ceil(2 * estimate + 5) }])
+		expect(unpriced.measurements).toEqual([{ estimate, projected: undefined }])
 	})
 
 	it.each(['generate', 'stream'] as const)(
@@ -156,7 +156,7 @@ describe('StudyAgentObserver', () => {
 						? await watched.observer.generate(messages, signal, tools, options)
 						: await readProviderStream(watched.observer.stream(messages, signal, tools, options))
 				expect([row, returned]).toEqual([row, expected])
-				expect(watched.readings.map((reading) => reading.projected)).toEqual([
+				expect(watched.measurements.map((measurement) => measurement.projected)).toEqual([
 					STUDY_AGENT_PROJECTION,
 				])
 			}
@@ -191,7 +191,7 @@ describe('StudyAgentObserver', () => {
 						: await readProviderStream(passive.observer.stream(messages, signal, tools, options))
 				const content = 'result' in accepted ? accepted.result.content : accepted.content
 				expect([name, content]).toEqual([name, mode === 'generate' ? 'Receipt retained.' : 'Re'])
-				expect(passive.readings.map((reading) => reading.projected)).toEqual([
+				expect(passive.measurements.map((measurement) => measurement.projected)).toEqual([
 					STUDY_AGENT_PROJECTION,
 				])
 			}
@@ -223,7 +223,7 @@ describe('StudyAgentObserver', () => {
 					),
 				)
 			}
-			expect(watched.readings).toHaveLength(1)
+			expect(watched.measurements).toHaveLength(1)
 			for (const outcome of outcomes) {
 				expect(outcome).toMatchObject({ code: 'ABORT', partial: { content: 'par' } })
 				expect(outcome).not.toBeInstanceOf(StudyError)
@@ -238,7 +238,7 @@ describe('StudyAgentObserver', () => {
 		const watched = createAgentObserver(wire, STUDY_AGENT_GAUGE, true)
 		const controller = new AbortController()
 		const stream = watched.observer.stream(messages, controller.signal, tools, options)
-		expect(watched.readings).toHaveLength(1)
+		expect(watched.measurements).toHaveLength(1)
 		expect(wire.requests).toEqual([])
 		await stream.next()
 		controller.abort()
@@ -246,7 +246,7 @@ describe('StudyAgentObserver', () => {
 			() => undefined,
 			() => undefined,
 		)
-		expect(watched.readings).toHaveLength(1)
+		expect(watched.measurements).toHaveLength(1)
 	})
 
 	it('forwards identity and the declared replay policy, reporting none when the real provider reports none', () => {
@@ -290,9 +290,9 @@ describe('StudyAgentObserver', () => {
 			try {
 				const result = await agent.generate({ signal: new AbortController().signal })
 				expect(result.content).toBe('Receipt retained.')
-				expect(watched.readings).toHaveLength(1)
+				expect(watched.measurements).toHaveLength(1)
 				expect(measured.length).toBeGreaterThan(0)
-				expect(new Set(measured)).toEqual(new Set([watched.readings[0]?.estimate]))
+				expect(new Set(measured)).toEqual(new Set([watched.measurements[0]?.estimate]))
 				expect(wire.requests.filter((entry) => entry.path === '/api/chat')).toHaveLength(1)
 			} finally {
 				agent.emitter.destroy()
@@ -361,7 +361,7 @@ describe('StudyAgentObserver', () => {
 					const sent = wire.requests.filter((entry) => entry.path === '/api/chat')
 					expect(sent).toHaveLength(chats)
 					expect(wire.replies).toHaveLength(unsent)
-					expect(watched.readings.map((reading) => reading.projected)).toEqual(
+					expect(watched.measurements.map((measurement) => measurement.projected)).toEqual(
 						sent.map(() => STUDY_AGENT_PROJECTION),
 					)
 					// A completed tool turn feeds its receipt to the follow-up request; a stopped one never runs the tool.

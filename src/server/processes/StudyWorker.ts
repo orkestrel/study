@@ -51,8 +51,8 @@ export class StudyWorker {
 	#artifacts: StudyArtifactLoader | undefined
 	#session: StudySessionInterface | undefined
 	readonly #meters = new Set<StudyRemoteMeter>()
-	#opening = false
-	#closing = false
+	#opened = false
+	#closed = false
 	#duration = 1000
 	#executed = false
 	#exchanges: StudyExchangeSinkInterface | undefined
@@ -96,8 +96,8 @@ export class StudyWorker {
 			if (operation === 'open') return await this.#open(value)
 			if (operation === 'goal') return await this.#goal(value)
 			if (operation === 'close') {
-				if (this.#closing) throw new StudyError('FAULT', 'Worker cleanup repeated')
-				this.#closing = true
+				if (this.#closed) throw new StudyError('FAULT', 'Worker cleanup repeated')
+				this.#closed = true
 				if (this.#meters.size !== 0 || this.#control.failure !== undefined)
 					this.#control.fail({
 						cause: 'interrupted',
@@ -127,9 +127,9 @@ export class StudyWorker {
 	}
 
 	async #open(value: JSONValue): Promise<JSONValue> {
-		if (this.#opening || this.#closing || this.#control.failure !== undefined)
+		if (this.#opened || this.#closed || this.#control.failure !== undefined)
 			throw new StudyError('FAULT', 'Worker trial can open only once')
-		this.#opening = true
+		this.#opened = true
 		if (
 			!isRecord(value) ||
 			typeof value.entry !== 'string' ||
@@ -285,7 +285,7 @@ export class StudyWorker {
 			this.#session === undefined ||
 			this.#channel === undefined ||
 			this.#meters.size !== 0 ||
-			this.#closing ||
+			this.#closed ||
 			this.#control.failure !== undefined ||
 			!isStudyGoal(value)
 		)

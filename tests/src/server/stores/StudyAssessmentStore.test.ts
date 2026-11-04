@@ -4,9 +4,9 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { buildCompactCustodyManifest, buildStudyRubric, readSettled } from '../../../setupStudy.js'
 import {
-	buildCustodyGrading,
-	buildCustodyLabeling,
-	buildCustodyPacketLabeling,
+	buildCustodyAssessment,
+	buildCustodyLabels,
+	buildCustodyPacketLabels,
 	retainStudyFixture,
 } from '../../../setupServer.js'
 import { StudyAssessmentStore } from '../../../../src/server/stores/StudyAssessmentStore.js'
@@ -25,7 +25,7 @@ describe('StudyGradingStore', () => {
 				buildCompactCustodyManifest(),
 			)
 			const rubric = buildStudyRubric()
-			const base = buildCustodyGrading(result, rubric)
+			const base = buildCustodyAssessment(result, rubric)
 			const packet = buildStudyPacket(result, rubric, base.rubric)
 			if (packet === undefined) throw new Error('Missing packet fixture')
 			const assessment = { ...base, packet: computeStudyPacketDigest(packet) }
@@ -53,7 +53,7 @@ describe('StudyGradingStore', () => {
 					},
 				),
 			).rejects.toMatchObject({ code: 'CUSTODY' })
-			const labels = buildCustodyPacketLabeling(result, rubric)
+			const labels = buildCustodyPacketLabels(result, rubric)
 			const foreign = {
 				...labels,
 				judgments: labels.judgments.map((judgment) => ({ ...judgment, criterion: 'first-write' })),
@@ -85,7 +85,7 @@ describe('StudyGradingStore', () => {
 					readFile(join(result.directory, 'execution', ...file.path.split('/'))),
 				),
 			)
-			const assessment = buildCustodyGrading(result, rubric)
+			const assessment = buildCustodyAssessment(result, rubric)
 			const [id, duplicate] = await Promise.all([
 				grades.write(assessment),
 				grades.write(assessment),
@@ -122,7 +122,7 @@ describe('StudyGradingStore', () => {
 			)
 			const rubric = buildStudyRubric()
 			const grades = new StudyAssessmentStore({ result, rubric: encodeStudyJSON(rubric) })
-			const assessment = buildCustodyGrading(result, rubric)
+			const assessment = buildCustodyAssessment(result, rubric)
 			const first = grades.write(assessment)
 			// Refused after the same verification the first write needs, so it would settle first if unqueued.
 			const second = grades.write({ ...assessment, rubric: 'f'.repeat(64) })
@@ -142,11 +142,11 @@ describe('StudyGradingStore', () => {
 				buildCompactCustodyManifest(),
 			)
 			const rubric = buildStudyRubric()
-			const originalLabels = buildCustodyLabeling(result)
-			const base = buildCustodyGrading(result, rubric, originalLabels)
+			const originalLabels = buildCustodyLabels(result)
+			const base = buildCustodyAssessment(result, rubric, originalLabels)
 			const packet = buildStudyPacket(result, rubric, base.rubric)
 			if (packet === undefined) throw new Error('Missing packet fixture')
-			const labels = buildCustodyPacketLabeling(result, rubric)
+			const labels = buildCustodyPacketLabels(result, rubric)
 			const assessment = {
 				...base,
 				labels: hashStudyBytes(encodeStudyJSON(labels)),
@@ -190,7 +190,7 @@ describe('StudyGradingStore', () => {
 			)
 			const rubric = buildStudyRubric()
 			const grades = new StudyAssessmentStore({ result, rubric: encodeStudyJSON(rubric) })
-			const assessment = buildCustodyGrading(result, rubric)
+			const assessment = buildCustodyAssessment(result, rubric)
 			await expect(grades.write({ ...assessment, judgments: [] })).rejects.toMatchObject({
 				code: 'EVIDENCE',
 			})
@@ -235,7 +235,7 @@ describe('StudyGradingStore', () => {
 			)
 			const rubric = buildStudyRubric()
 			const grades = new StudyAssessmentStore({ result, rubric: encodeStudyJSON(rubric) })
-			const assessment = buildCustodyGrading(result, rubric)
+			const assessment = buildCustodyAssessment(result, rubric)
 			const id = await grades.write(assessment)
 			const artifact = join(result.directory, 'grades', id, `${assessment.rubric}.rubric.json`)
 			await appendFile(artifact, ' ')

@@ -946,14 +946,14 @@ export class StudyCommand {
 			request.from,
 			async (targets) => {
 				const evaluated = await task.execute({ operation: 'progress', input: { targets } }, signal)
-				const readings: unknown = evaluated.value
+				const projections: unknown = evaluated.value
 				if (
-					!isArray(readings) ||
-					(readings.length !== 0 && readings.length !== targets.length) ||
-					!readings.every(isJSONValue)
+					!isArray(projections) ||
+					(projections.length !== 0 && projections.length !== targets.length) ||
+					!projections.every(isJSONValue)
 				)
-					throw new StudyError('FAULT', 'Adapter returned invalid progress readings')
-				return readings
+					throw new StudyError('FAULT', 'Adapter returned invalid progress projections')
+				return projections
 			},
 			Buffer.byteLength(
 				JSON.stringify(valueToWire({ ...options, operation: 'progress', input: { targets: [] } })),

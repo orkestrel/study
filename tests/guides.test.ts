@@ -67,7 +67,7 @@ await new GuideCommand({
 	} = await import('./setupStudy.js')
 	const {
 		retainStudyFixture,
-		buildCustodyGrading,
+		buildCustodyAssessment,
 		createOllamaContext,
 		buildOllamaTransportOptions,
 		createOllamaServer,
@@ -260,13 +260,13 @@ await new GuideCommand({
 				await results.finish(attempt)
 			}
 			const seal = await results.seal()
-			const reading = await readStudyResult(directory)
-			const status = reading.status // 'sealed'
-			const sealed = reading.status === 'sealed' && reading.seal.id === seal.id // true
+			const view = await readStudyResult(directory)
+			const status = view.status // 'sealed'
+			const sealed = view.status === 'sealed' && view.seal.id === seal.id // true
 			expect(status).toBe('sealed')
 			expect(sealed).toBe(true)
-			if (reading.status !== 'sealed') throw new Error('Expected sealed custody')
-			expect(reading.seal.id).toBe(seal.id)
+			if (view.status !== 'sealed') throw new Error('Expected sealed custody')
+			expect(view.seal.id).toBe(seal.id)
 			const trial = requireValue(manifest.schedule[0])
 			await writeFile(join(directory, 'execution', 'trials', trial.id, 'evidence.jsonl'), '')
 			await expect(readStudyResult(directory)).rejects.toMatchObject({ code: 'CUSTODY' })
@@ -333,7 +333,7 @@ await new GuideCommand({
 				},
 			]),
 		).toEqual([
-			{ cause: 'capacity', role: null, layer: null, executed: 1, unexecuted: 0, readings: [] },
+			{ cause: 'capacity', role: null, layer: null, executed: 1, unexecuted: 0, stops: [] },
 		])
 		expect(server.isStudyAgentResponse({ content: 'done', calls: [], truncated: true })).toBe(true)
 	})
@@ -556,7 +556,7 @@ await new GuideCommand({
 		try {
 			const result = await retainStudyFixture(join(scratch.path, 'result'))
 			const rubric = buildStudyRubric()
-			const assessment = buildCustodyGrading(result, rubric)
+			const assessment = buildCustodyAssessment(result, rubric)
 			const versions = new server.StudyAssessmentStore({
 				result,
 				rubric: server.encodeStudyJSON(rubric),

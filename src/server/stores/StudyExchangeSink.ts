@@ -16,7 +16,7 @@ export class StudyExchangeSink implements StudyExchangeSinkInterface {
 	#rows: readonly StudyExchangeRow[] = []
 	#bytes = 0
 	#fault: { readonly error: unknown } | undefined
-	#closing: Promise<void> | undefined
+	#shutdown: Promise<void> | undefined
 
 	/** Owns the descriptor and restores a verified prefix without rewriting it.
 	 * @param options - The exclusive descriptor, byte bound and optional retained rows.
@@ -64,7 +64,7 @@ export class StudyExchangeSink implements StudyExchangeSinkInterface {
 	 */
 	append(row: StudyExchangeRow): Promise<void> {
 		try {
-			if (this.#closing !== undefined || this.#writes.size !== 0)
+			if (this.#shutdown !== undefined || this.#writes.size !== 0)
 				throw new StudyError('CUSTODY', 'Exchange append requires drained open admission')
 			const text = JSON.stringify(row) + '\n'
 			const owned = parseJSON(text)
@@ -112,7 +112,7 @@ export class StudyExchangeSink implements StudyExchangeSinkInterface {
 	 * @returns Completion after descriptor release, with a retained refusal propagated.
 	 */
 	close(): Promise<void> {
-		this.#closing ??= Promise.allSettled([...this.#writes])
+		this.#shutdown ??= Promise.allSettled([...this.#writes])
 			.then(async () => {
 				await this.#options.file.sync()
 				if (this.#fault !== undefined) throw this.#fault.error
@@ -120,7 +120,7 @@ export class StudyExchangeSink implements StudyExchangeSinkInterface {
 			.finally(async () => {
 				await this.#options.file.close()
 			})
-		return this.#closing
+		return this.#shutdown
 	}
 
 	async #write(bytes: Uint8Array): Promise<void> {

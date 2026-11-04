@@ -445,7 +445,7 @@ export function computeStudyAttributions(sources: readonly StudyAttributionSourc
 						role: role ?? null,
 						layer: layer ?? null,
 						...computeStudyPartition(group),
-						readings: group.flatMap((source) => {
+						stops: group.flatMap((source) => {
 							const stop = source.failure.stop
 							return stop === undefined
 								? []

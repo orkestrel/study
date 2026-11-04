@@ -21,7 +21,7 @@ import {
 import { STUDY_CUSTODY_BYTES } from '../../../../src/server/stores/constants.js'
 import {
 	STUDY_PROGRESS_SCALE,
-	buildCustodyPacketLabeling,
+	buildCustodyPacketLabels,
 	buildOllamaDeclaration,
 	buildStudyProgressManifest,
 	buildStudyProgressRows,
@@ -113,7 +113,7 @@ describe('study custody helpers', () => {
 			expect(computeStudyPacketDigest({ ...packet, mapping: encodeStudyJSON({}) })).not.toBe(
 				computeStudyPacketDigest(packet),
 			)
-			const labels = buildCustodyPacketLabeling(result, rubric)
+			const labels = buildCustodyPacketLabels(result, rubric)
 			expect(translateStudyPacketLabels(result, rubric, digest, labels)).toMatchObject([
 				{
 					trial: result.manifest.schedule[0]?.id,
@@ -473,7 +473,7 @@ describe('readStudyProgress', () => {
 									usage: [],
 									stops: [],
 									events: { saved: 2 },
-									reading: undefined,
+									projection: undefined,
 								},
 								{
 									goal: 'read',
@@ -481,7 +481,7 @@ describe('readStudyProgress', () => {
 									usage: [],
 									stops: [],
 									events: { saved: 1 },
-									reading: undefined,
+									projection: undefined,
 								},
 							],
 						},
@@ -538,7 +538,7 @@ describe('readStudyProgress', () => {
 							usage: [],
 							stops: [],
 							events: { saved: 1 },
-							reading: undefined,
+							projection: undefined,
 						},
 					],
 				})),
@@ -734,7 +734,7 @@ describe('readStudyProgress', () => {
 				],
 				stops: [{ layer: 'scope', id: 'Goal tokens', max: 100, consumed: undefined }],
 				events: { dispatch: 1, wire: 6, stop: 1, cut: 1 },
-				reading: undefined,
+				projection: undefined,
 			}
 			const read = {
 				goal: 'read',
@@ -753,7 +753,7 @@ describe('readStudyProgress', () => {
 				],
 				stops: [],
 				events: { wire: 2 },
-				reading: undefined,
+				projection: undefined,
 			}
 			for (const [manifest, replayed] of [
 				[recorded, 2],
@@ -890,14 +890,14 @@ describe('readStudyProgress', () => {
 			])
 			expect(
 				progress.trials.map(({ goals }) =>
-					goals.map(({ goal, rows: range, reading }) => ({ goal, range, reading })),
+					goals.map(({ goal, rows: range, projection }) => ({ goal, range, projection })),
 				),
 			).toEqual([
 				[
-					{ goal: 'write', range: { first: 1, last: 3 }, reading: { goal: 'write', count: 2 } },
-					{ goal: 'read', range: { first: 2, last: 2 }, reading: { goal: 'read', count: 1 } },
+					{ goal: 'write', range: { first: 1, last: 3 }, projection: { goal: 'write', count: 2 } },
+					{ goal: 'read', range: { first: 2, last: 2 }, projection: { goal: 'read', count: 1 } },
 				],
-				[{ goal: 'write', range: { first: 1, last: 1 }, reading: { goal: 'write', count: 1 } }],
+				[{ goal: 'write', range: { first: 1, last: 1 }, projection: { goal: 'write', count: 1 } }],
 				...manifest.schedule.slice(2).map(() => []),
 			])
 			// Without a projection, and with one that answers no readings, every reading is undefined.
@@ -905,11 +905,9 @@ describe('readStudyProgress', () => {
 				await readStudyProgress(scratch.path, 'write'),
 				await readStudyProgress(scratch.path, 'write', async () => []),
 			])
-				expect(unread.trials.flatMap(({ goals }) => goals.map(({ reading }) => reading))).toEqual([
-					undefined,
-					undefined,
-					undefined,
-				])
+				expect(
+					unread.trials.flatMap(({ goals }) => goals.map(({ projection }) => projection)),
+				).toEqual([undefined, undefined, undefined])
 		} finally {
 			scratch.destroy()
 		}
@@ -958,9 +956,9 @@ describe('readStudyProgress', () => {
 			expect(sizes.at(-1)).toBeGreaterThan(STUDY_FRAME_BYTES)
 			for (const size of sizes.slice(0, -1)) expect(size).toBeLessThanOrEqual(STUDY_FRAME_BYTES)
 			expect(batches.flat().map(({ goal }) => goal)).toEqual(goals)
-			expect(progress.trials[0]?.goals.map(({ goal, reading }) => ({ goal, reading }))).toEqual(
-				goals.map((goal) => ({ goal, reading: goal })),
-			)
+			expect(
+				progress.trials[0]?.goals.map(({ goal, projection }) => ({ goal, projection })),
+			).toEqual(goals.map((goal) => ({ goal, projection: goal })))
 		} finally {
 			scratch.destroy()
 		}

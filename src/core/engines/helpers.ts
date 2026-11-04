@@ -41,7 +41,7 @@ export function readStudyFailure(error: unknown): StudyFailure {
 		if (code === 'DEADLINE') return { cause: 'deadline', message, role: undefined, stop: undefined }
 	}
 	if (isBudgetError(error)) {
-		const reading = attempt(() => {
+		const outcome = attempt(() => {
 			const context = error.context
 			return {
 				id: context.id,
@@ -50,16 +50,16 @@ export function readStudyFailure(error: unknown): StudyFailure {
 				message: error.message,
 			}
 		})
-		if (reading.success)
+		if (outcome.success)
 			return {
 				cause: 'capacity',
-				message: reading.value.message,
+				message: outcome.value.message,
 				role: undefined,
 				stop: {
 					layer: 'budget',
-					id: isNonEmptyString(reading.value.id) ? reading.value.id : 'Agent budget',
-					max: parseStudyMeasurement(reading.value.max),
-					consumed: parseStudyMeasurement(reading.value.consumed),
+					id: isNonEmptyString(outcome.value.id) ? outcome.value.id : 'Agent budget',
+					max: parseStudyMeasurement(outcome.value.max),
+					consumed: parseStudyMeasurement(outcome.value.consumed),
 				},
 			}
 	}

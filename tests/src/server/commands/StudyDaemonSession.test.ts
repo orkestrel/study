@@ -17,7 +17,7 @@ import {
 } from '../../../../src/server/stores/helpers.js'
 import {
 	buildStudyCLI,
-	STUDY_DAEMON_ENDINGS,
+	STUDY_DAEMON_ENDS,
 	buildStudyLibrary,
 	collectStudyRoots,
 	createArtifactWorker,
@@ -324,7 +324,7 @@ console.log('captured-server-loaded')`,
 		}
 	}, 180000)
 
-	it.each(STUDY_DAEMON_ENDINGS)(
+	it.each(STUDY_DAEMON_ENDS)(
 		'stops and joins after %s while an unrelated sentinel survives',
 		async (mode) => {
 			const subject = await buildStudyLibrary(

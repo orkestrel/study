@@ -445,7 +445,7 @@ export function buildStudyManifest(): StudyManifest {
 }
 
 /** Returns independently attributed grading over the supplied scheduled attempts. */
-export function buildStudyGrading(
+export function buildStudyAssessment(
 	schedule: readonly StudyTrial[],
 	judgments: readonly StudyJudgment[] = [],
 ): StudyAssessment {
@@ -525,7 +525,7 @@ export function createStudyDriverFixture(
 			async open(trial: StudyTrial): Promise<StudySessionInterface> {
 				opened.handler(trial)
 				if (options.refuse !== undefined) throw options.refuse
-				if (options.opening !== undefined) await options.opening
+				if (options.delay !== undefined) await options.delay
 				return {
 					async execute(goal, context): Promise<StudyProduct> {
 						executed.handler(goal.id)
@@ -535,7 +535,7 @@ export function createStudyDriverFixture(
 					},
 					async close(): Promise<void> {
 						closed.handler(trial.id)
-						if (options.closing !== undefined) throw options.closing
+						if (options.failure !== undefined) throw options.failure
 					},
 				}
 			},
@@ -796,10 +796,10 @@ export const STUDY_STOP_QUANTITIES = Object.freeze(['calls', 'tokens', 'bytes'] 
 export const STUDY_STOP_CALLS: readonly number[] = Object.freeze([1, 4])
 
 /** Supplies finite foreign readings without narrowing them to nonnegative integers. */
-export const STUDY_FINITE_READINGS: readonly number[] = Object.freeze([0, -0, -1, 0.5, 8])
+export const STUDY_FINITE_MEASUREMENTS: readonly number[] = Object.freeze([0, -0, -1, 0.5, 8])
 
 /** Supplies values a foreign finite-number reading cannot retain. */
-export const STUDY_UNKNOWN_READINGS: readonly unknown[] = Object.freeze([
+export const STUDY_UNKNOWN_MEASUREMENTS: readonly unknown[] = Object.freeze([
 	undefined,
 	null,
 	NaN,
@@ -1638,7 +1638,7 @@ export function createAgentObserver(
 		...(replay === undefined ? {} : { replay }),
 		options: STUDY_OLLAMA_OPTIONS,
 	})
-	const readings = new StudyLog<StudyAgentMeasurement>()
+	const measurements = new StudyLog<StudyAgentMeasurement>()
 	const requests = new StudyLog<ProviderRequest>()
 	const observer = new StudyAgentObserver({
 		provider: inner,
@@ -1646,11 +1646,11 @@ export function createAgentObserver(
 		gauge,
 		enforced,
 		record: (reading, request) => {
-			readings.append(reading)
+			measurements.append(reading)
 			requests.append(request)
 		},
 	})
-	return { observer, inner, readings: readings.entries, requests: requests.entries }
+	return { observer, inner, measurements: measurements.entries, requests: requests.entries }
 }
 
 /** Supplies the exact Ollama `options` a one-token judge fixture sends. */
@@ -1736,7 +1736,7 @@ export function createStudySinkFixture(options: StudySinkFixtureOptions = {}): S
 	return {
 		sink: {
 			async append(evidence): Promise<void> {
-				await options.during?.()
+				await options.hook?.()
 				const row = received.entries.length
 				received.append(evidence)
 				if (options.refuse !== undefined && options.refuse.row === row) throw options.refuse.error

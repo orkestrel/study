@@ -1,4 +1,4 @@
-import { STUDY_FINITE_READINGS, STUDY_UNKNOWN_READINGS } from '../../setupStudy.js'
+import { STUDY_FINITE_MEASUREMENTS, STUDY_UNKNOWN_MEASUREMENTS } from '../../setupStudy.js'
 import { parseStudyMeasurement } from '../../../src/core/parsers.js'
 import { expect, it } from 'vitest'
 import {
@@ -22,7 +22,7 @@ import {
 	buildStudyDefinition,
 	buildStudyDaemonProvider,
 	buildStudyDaemonRefusals,
-	buildStudyGrading,
+	buildStudyAssessment,
 	buildStudyJudgment,
 	buildStudyManifest,
 	buildStudyProfile,
@@ -144,7 +144,7 @@ it('keeps an undeclared recap and judge off the owned profile and round-trips de
 })
 
 it('parses real JSON grading and labels without coercion and preserves unknown token usage', () => {
-	const assessment = buildStudyGrading(buildStudyManifest().schedule, [
+	const assessment = buildStudyAssessment(buildStudyManifest().schedule, [
 		buildStudyJudgment('r1-s1-a1'),
 	])
 	const parsed = parseStudyAssessment(JSON.parse(JSON.stringify(assessment)))
@@ -202,8 +202,9 @@ it('rejects unknown keys, unsafe limits, malformed JSON shapes and hostile reads
 })
 
 it('keeps finite foreign readings and leaves absent or non-finite readings unknown', () => {
-	for (const value of STUDY_FINITE_READINGS) expect(parseStudyMeasurement(value)).toBe(value)
-	for (const value of STUDY_UNKNOWN_READINGS) expect(parseStudyMeasurement(value)).toBeUndefined()
+	for (const value of STUDY_FINITE_MEASUREMENTS) expect(parseStudyMeasurement(value)).toBe(value)
+	for (const value of STUDY_UNKNOWN_MEASUREMENTS)
+		expect(parseStudyMeasurement(value)).toBeUndefined()
 })
 
 it('owns daemon declarations at profile load and rejects missing model digests and relative executables', () => {
@@ -230,7 +231,7 @@ it('owns daemon declarations at profile load and rejects missing model digests a
 })
 
 it('owns an unselected criterion list on a grading and leaves it out when absent', () => {
-	const assessment = buildStudyGrading(buildStudyManifest().schedule)
+	const assessment = buildStudyAssessment(buildStudyManifest().schedule)
 	expect(parseStudyAssessment(assessment)).not.toHaveProperty('unselected')
 	const selected = parseStudyAssessment({ ...assessment, unselected: ['first-read'] })
 	expect(selected.unselected).toEqual(['first-read'])

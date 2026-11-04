@@ -285,41 +285,41 @@ describe('gradeStudyEvidence', () => {
 				]),
 			),
 		)
-		const reading = {
+		const verdict = {
 			verdict: 'achieved',
 			method: 'state',
 			reason: 'Matches',
 			references: [],
 		} as const
-		expect(() => gradeStudyEvidence(base, () => reading)).toThrow(/invalid judgment/)
+		expect(() => gradeStudyEvidence(base, () => verdict)).toThrow(/invalid judgment/)
 		expect(() =>
-			gradeStudyEvidence(base, () => ({ ...reading, verdict: 'unknown', reason: '  ' })),
+			gradeStudyEvidence(base, () => ({ ...verdict, verdict: 'unknown', reason: '  ' })),
 		).toThrow(/invalid judgment/)
 		expect(() =>
 			gradeStudyEvidence(base, () => ({
-				...reading,
+				...verdict,
 				references: [{ file: 'attempt' }, { file: 'attempt' }],
 			})),
 		).toThrow(/invalid judgment/)
 		for (const hostile of [
 			null,
 			'unknown',
-			{ ...reading, references: 'attempt' },
-			{ ...reading, references: [{ file: 'rows' }] },
+			{ ...verdict, references: 'attempt' },
+			{ ...verdict, references: [{ file: 'rows' }] },
 		])
 			expect(() => Reflect.apply(gradeStudyEvidence, undefined, [base, () => hostile])).toThrow(
-				/invalid reading|unknown retained file/,
+				/invalid verdict|unknown retained file/,
 			)
 		for (const row of [1, -1, 0.5, Number.NaN, Number.POSITIVE_INFINITY])
 			expect(() =>
-				gradeStudyEvidence(base, () => ({ ...reading, references: [{ file: 'evidence', row }] })),
+				gradeStudyEvidence(base, () => ({ ...verdict, references: [{ file: 'evidence', row }] })),
 			).toThrow(/row that does not exist/)
 		expect(() =>
-			gradeStudyEvidence(base, () => ({ ...reading, references: [{ file: 'attempt', row: 0 }] })),
+			gradeStudyEvidence(base, () => ({ ...verdict, references: [{ file: 'attempt', row: 0 }] })),
 		).toThrow(/row that does not exist/)
 		const partial = buildStudyAdjudication(undefined, base.attempts.slice(0, 1), base.evidence)
 		expect(() =>
-			gradeStudyEvidence(partial, () => ({ ...reading, references: [{ file: 'attempt' }] })),
+			gradeStudyEvidence(partial, () => ({ ...verdict, references: [{ file: 'attempt' }] })),
 		).toThrow(/not retained/)
 	})
 
@@ -491,14 +491,14 @@ describe('gradeStudyEvidence sparse evidence', () => {
 	it('refuses non-record references from a predicate with a study refusal', () => {
 		const base = buildStudyAdjudication()
 		for (const hostile of STUDY_HOSTILE_REFERENCES) {
-			const reading = {
+			const verdict = {
 				verdict: 'unknown',
 				method: 'state',
 				reason: 'Hostile',
 				references: [hostile],
 			}
 			const caught = captureError(() =>
-				Reflect.apply(gradeStudyEvidence, undefined, [base, () => reading]),
+				Reflect.apply(gradeStudyEvidence, undefined, [base, () => verdict]),
 			)
 			expect(isStudyError(caught)).toBe(true)
 			expect(caught).toMatchObject({ code: 'EVIDENCE' })

@@ -37,7 +37,7 @@ export class StudyResultStore implements StudyResultStoreInterface {
 	readonly #directory: string
 	readonly #manifest: StudyManifest
 	readonly #trials = new Map<string, StudyTrialCustody>()
-	readonly #starting = new Set<string>()
+	readonly #admissions = new Set<string>()
 	readonly #exchanges = new Map<string, StudyExchangeDestination>()
 	#phase: StudyCustodyPhase = 'new'
 	#bytes = 0
@@ -106,7 +106,7 @@ export class StudyResultStore implements StudyResultStoreInterface {
 			canonicalStringify(scheduled) !== canonicalStringify(trial) ||
 			this.#exchanges.has(trial.id) ||
 			this.#trials.has(trial.id) ||
-			this.#starting.has(trial.id)
+			this.#admissions.has(trial.id)
 		)
 			throw new StudyError('CUSTODY', 'Trial sidecar cannot be reserved')
 		this.#reserve(this.#manifest.record.bytes)
@@ -129,7 +129,7 @@ export class StudyResultStore implements StudyResultStoreInterface {
 			this.#phase !== 'ready' ||
 			!isStudyCustodyTrial(trial) ||
 			this.#trials.has(trial.id) ||
-			this.#starting.has(trial.id)
+			this.#admissions.has(trial.id)
 		)
 			throw new StudyError('CUSTODY', 'Trial cannot start in the current state')
 		const scheduled = this.#manifest.schedule.find((entry) => entry.id === trial.id)
@@ -141,7 +141,7 @@ export class StudyResultStore implements StudyResultStoreInterface {
 			canonicalStringify(scheduled) !== canonicalStringify(trial)
 		)
 			throw new StudyError('CUSTODY', 'Trial differs from the execution schedule')
-		this.#starting.add(scheduled.id)
+		this.#admissions.add(scheduled.id)
 		try {
 			const directory = join(this.#directory, 'execution', 'trials', scheduled.id)
 			await checkStudyDirectory(dirname(directory))
@@ -160,7 +160,7 @@ export class StudyResultStore implements StudyResultStoreInterface {
 			this.#phase = 'failed'
 			throw error
 		} finally {
-			this.#starting.delete(scheduled.id)
+			this.#admissions.delete(scheduled.id)
 		}
 	}
 
@@ -197,7 +197,7 @@ export class StudyResultStore implements StudyResultStoreInterface {
 	async seal(): Promise<StudySeal> {
 		if (
 			this.#phase !== 'ready' ||
-			this.#starting.size !== 0 ||
+			this.#admissions.size !== 0 ||
 			this.#trials.size !== this.#manifest.schedule.length ||
 			[...this.#trials.values()].some((trial) => trial.terminal === undefined)
 		)

@@ -23,7 +23,7 @@ import {
 	writeStudyAgent,
 	writeStudyConsumer,
 	writeStudyProgressResult,
-	buildCustodyPacketLabeling,
+	buildCustodyPacketLabels,
 } from '../../setupServer.js'
 import { parseStudyRubric } from '../../../src/core/parsers.js'
 import { STUDY_COMMAND_INVALID_ARGUMENTS, STUDY_MISSING_DECLARATIONS } from '../../setupStudy.js'
@@ -442,7 +442,7 @@ try { parseStudyArguments([]) } catch (error) {
 			const rubric = parseStudyRubric(
 				parseJSON(scratch.read('studies/assessment/rubric.json') ?? ''),
 			)
-			const labels = buildCustodyPacketLabeling(sealed, rubric)
+			const labels = buildCustodyPacketLabels(sealed, rubric)
 			const path = scratch.write('labels.json', JSON.stringify(labels))
 			const labeled = await executeStudyCLI(entry, scratch.path, [
 				'label',
@@ -510,7 +510,7 @@ try { parseStudyArguments([]) } catch (error) {
 		const executed = Promise.withResolvers<{ readonly path: string; readonly source: string }>()
 		// Each variant inserts one progress method before the adapter's grade method.
 		const projections = {
-			reading: 'progress(target) { return {goal: target.goal, rows: target.evidence.length} },',
+			projection: 'progress(target) { return {goal: target.goal, rows: target.evidence.length} },',
 			thrown: "progress(target) { throw new Error('Projection broke on '+target.goal) },",
 			callable: 'progress() { return () => 1 },',
 		}
@@ -570,7 +570,7 @@ try { parseStudyArguments([]) } catch (error) {
 			})
 			consumer.write(
 				'studies/files/index.ts',
-				source.replace(' grade(input) {', ' ' + projections.reading + '\n grade(input) {'),
+				source.replace(' grade(input) {', ' ' + projections.projection + '\n grade(input) {'),
 			)
 			const projected = await executeStudyCLI(entry, consumer.path, [
 				'progress',
@@ -587,8 +587,8 @@ try { parseStudyArguments([]) } catch (error) {
 					trials: [
 						{
 							goals: [
-								{ goal: 'write', reading: { goal: 'write', rows: 1 } },
-								{ goal: 'read', reading: { goal: 'read', rows: 1 } },
+								{ goal: 'write', projection: { goal: 'write', rows: 1 } },
+								{ goal: 'read', projection: { goal: 'read', rows: 1 } },
 							],
 						},
 					],
@@ -601,7 +601,7 @@ try { parseStudyArguments([]) } catch (error) {
 			const { path, source } = await executed.promise
 			for (const [projection, message] of [
 				[projections.thrown, 'Projection broke on read'],
-				[projections.callable, 'Adapter returned an invalid progress reading'],
+				[projections.callable, 'Adapter returned an invalid progress projection'],
 			]) {
 				consumer.write(
 					'studies/files/index.ts',
@@ -648,7 +648,7 @@ try { parseStudyArguments([]) } catch (error) {
 			const { path, source } = await executed.promise
 			consumer.write(
 				'studies/files/index.ts',
-				source.replace(' grade(input) {', ' ' + projections.reading + '\n grade(input) {'),
+				source.replace(' grade(input) {', ' ' + projections.projection + '\n grade(input) {'),
 			)
 			const base = parseJSON(readFileSync(join(path, 'execution', 'manifest.json'), 'utf8'))
 			if (!isStudyCustodyManifest(base)) throw new Error('Missing executed manifest')
@@ -688,7 +688,7 @@ try { parseStudyArguments([]) } catch (error) {
 								usage: [],
 								stops: [],
 								events: { note: 7 },
-								reading: { goal, rows: 7 },
+								projection: { goal, rows: 7 },
 							})),
 						},
 						{ trial: manifest.schedule[1], horizon: 3, ended: false, goals: [] },
@@ -1286,7 +1286,7 @@ try { parseStudyArguments([]) } catch (error) {
 			)
 			const labels = scratch.write(
 				'labels.json',
-				JSON.stringify(buildCustodyPacketLabeling(sealed, rubric)),
+				JSON.stringify(buildCustodyPacketLabels(sealed, rubric)),
 			)
 			const tokens = [
 				'label',
@@ -1352,7 +1352,7 @@ try { parseStudyArguments([]) } catch (error) {
 			)
 			const labels = scratch.write(
 				'labels.json',
-				JSON.stringify(buildCustodyPacketLabeling(sealed, rubric)),
+				JSON.stringify(buildCustodyPacketLabels(sealed, rubric)),
 			)
 			const labeled: string[] = []
 			for (const assessment of [first.assessment, second.assessment]) {

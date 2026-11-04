@@ -91,17 +91,17 @@ export class StudyAgentTrace {
 		return projected
 	}
 
-	/** Retains a dispatching agent request's reading, names it for the wire request that follows, and records its estimate.
-	 * @param reading - The explicit size reading.
+	/** Retains a dispatching agent request's measurement, names it for the wire request that follows, and records its estimate.
+	 * @param measurement - The explicit size measurement.
 	 * @param request - The exact pre-encoding request.
 	 */
-	record(reading: StudyAgentMeasurement, request: ProviderRequest): void {
+	record(measurement: StudyAgentMeasurement, request: ProviderRequest): void {
 		const goal = this.#observed()
 		if (goal === undefined) return
-		const dispatch = this.#number('agent', request, reading)
+		const dispatch = this.#number('agent', request, measurement)
 		goal.append('estimate', {
-			estimate: reading.estimate,
-			projected: reading.projected ?? null,
+			estimate: measurement.estimate,
+			projected: measurement.projected ?? null,
 			revision: dispatch.revision ?? null,
 			dispatch: dispatch.id,
 		})
@@ -111,7 +111,7 @@ export class StudyAgentTrace {
 	 * @param stage - Where the measurement was taken.
 	 * @param role - The responsibility whose request was measured.
 	 * @param request - The exact pre-encoding request.
-	 * @param reading - The explicit size reading.
+	 * @param measurement - The explicit size measurement.
 	 * @param dispatch - The dispatch number the request received; undefined for an admission.
 	 * @returns The ordinal and revision; undefined when not observing.
 	 */
@@ -119,7 +119,7 @@ export class StudyAgentTrace {
 		stage: StudyAgentStage,
 		role: StudyAgentRole,
 		request: ProviderRequest,
-		reading: StudyAgentMeasurement,
+		measurement: StudyAgentMeasurement,
 		dispatch: number | undefined,
 	): StudyAgentStamp | undefined {
 		const goal = this.#observed()
@@ -131,8 +131,8 @@ export class StudyAgentTrace {
 			role,
 			ordinal,
 			revision,
-			estimate: reading.estimate,
-			projected: reading.projected ?? null,
+			estimate: measurement.estimate,
+			projected: measurement.projected ?? null,
 			...(dispatch === undefined ? {} : { dispatch }),
 			parts: buildStudyAgentParts(this.#options.runtime.measureRequest(request)),
 			origins: this.#options.origins(request.messages),
@@ -143,11 +143,15 @@ export class StudyAgentTrace {
 	/** Numbers a request about to be dispatched and retains it as its role's current dispatch; does nothing unless observing.
 	 * @param role - The responsibility dispatching.
 	 * @param request - The exact pre-encoding request.
-	 * @param reading - The explicit size reading.
+	 * @param measurement - The explicit size measurement.
 	 */
-	dispatch(role: StudyAgentRole, request: ProviderRequest, reading: StudyAgentMeasurement): void {
+	dispatch(
+		role: StudyAgentRole,
+		request: ProviderRequest,
+		measurement: StudyAgentMeasurement,
+	): void {
 		if (this.#observed() === undefined) return
-		this.#number(role, request, reading)
+		this.#number(role, request, measurement)
 	}
 
 	/** Reads the role's current dispatch identity for the wire request that follows it.
@@ -158,7 +162,7 @@ export class StudyAgentTrace {
 		return this.#slots.get(role)
 	}
 
-	/** Latches the study-level reading of a failure before an enclosing runtime can swallow it and retains one refusal row per refused identity in a goal.
+	/** Latches the study-level record of a failure before an enclosing runtime can swallow it and retains one refusal row per refused identity in a goal.
 	 * @param error - The caught or reported value.
 	 * @returns The translated failure, or the same value when it is not an Agent window refusal.
 	 */
@@ -178,10 +182,10 @@ export class StudyAgentTrace {
 	#number(
 		role: StudyAgentRole,
 		request: ProviderRequest,
-		reading: StudyAgentMeasurement,
+		measurement: StudyAgentMeasurement,
 	): StudyAgentDispatch {
 		const id = ++this.#dispatches
-		const stamp = this.measure('dispatch', role, request, reading, id)
+		const stamp = this.measure('dispatch', role, request, measurement, id)
 		const dispatch = Object.freeze({ id, revision: stamp?.revision ?? undefined })
 		this.#slots = new Map([...this.#slots, [role, dispatch]])
 		return dispatch

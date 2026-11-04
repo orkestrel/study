@@ -49,11 +49,11 @@ export class StudyAgentSummary {
 		const request: ProviderRequest = { messages: canonical }
 		const estimate = runtime.estimateRequest(request)
 		const projected = projectStudyAgentRequest(gauge, estimate)
-		const reading = { estimate, projected }
+		const measurement = { estimate, projected }
 		if (projected >= limit) {
 			const message = 'Summary request projection reaches the summary room'
 			// The refusal keeps its own admission, so the Agent's admission stays the one a later window refusal names.
-			const stamp = trace.measure('admission', 'summary', request, reading, undefined)
+			const stamp = trace.measure('admission', 'summary', request, measurement, undefined)
 			if (stamp !== undefined)
 				trace.append('refusal', {
 					cause: 'capacity',
@@ -70,7 +70,7 @@ export class StudyAgentSummary {
 				stop: { layer: 'window', id: 'Summary room', max: limit, consumed: projected },
 			})
 		}
-		trace.dispatch('summary', request, reading)
+		trace.dispatch('summary', request, measurement)
 		const result = await provider.generate(canonical, bound)
 		if (!bound.aborted) validateStudyAgentUsage(result.usage, 'summary')
 		latch.check()

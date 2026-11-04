@@ -43,9 +43,15 @@ import {
 	resolveStudyEntry,
 	resolveStudyPackage,
 	sumStudyCalls,
-	buildCustodyGrading,
-	buildCustodyLabeling,
-	buildCustodyPacketLabeling,
+	blankStudySource,
+	extractStudyNameWord,
+	extractStudyParameters,
+	readStudyNameSources,
+	scanStudyParticiples,
+	STUDY_PARTICIPLES_ALLOWED,
+	buildCustodyAssessment,
+	buildCustodyLabels,
+	buildCustodyPacketLabels,
 	buildStudyCheckReply,
 	buildStudyCLI,
 	buildStudyLibrary,
@@ -703,8 +709,8 @@ describe('study server fixtures', () => {
 		try {
 			const result = await retainStudyFixture(join(scratch.path, 'result'))
 			const rubric = buildStudyRubric()
-			const assessment = buildCustodyGrading(result, rubric)
-			const neutral = buildCustodyPacketLabeling(result, rubric)
+			const assessment = buildCustodyAssessment(result, rubric)
+			const neutral = buildCustodyPacketLabels(result, rubric)
 			expect(neutral.packet).not.toBe(result.seal.id)
 			expect(neutral.judgments[0]?.trial).not.toBe(result.manifest.schedule[0]?.id)
 			expect(neutral.judgments[0]?.criterion).not.toBe('first-read')
@@ -714,10 +720,10 @@ describe('study server fixtures', () => {
 					.filter((judgment) => judgment.method === 'human')
 					.every((judgment) => judgment.verdict === 'unknown'),
 			).toBe(true)
-			const labels = buildCustodyLabeling(result, 'supplied-human')
+			const labels = buildCustodyLabels(result, 'supplied-human')
 			expect(labels.labeler).toBe('supplied-human')
 			expect(labels.created).toBe('2026-10-14T12:00:00.000Z')
-			expect(buildCustodyGrading(result, rubric, labels).judgments).toEqual(
+			expect(buildCustodyAssessment(result, rubric, labels).judgments).toEqual(
 				expect.arrayContaining([...labels.judgments]),
 			)
 		} finally {
@@ -1120,4 +1126,86 @@ it('writes a selection consumer whose arms set the schedule and builds its refus
 	} finally {
 		scratch.destroy()
 	}
+})
+
+describe('scanStudyParticiples', () => {
+	it('blanks comments and strings and keeps offsets', () => {
+		expect(blankStudySource("const a = 'x' // y")).toBe('const a = '.padEnd(18))
+		expect(blankStudySource('`${`inner`} x`; y')).toBe(' '.repeat(14) + '; y')
+		expect(blankStudySource("x = /['`]/g; y")).toBe('x = ' + ' '.repeat(7) + '; y')
+	})
+
+	it('takes the last word of a camel-case, constant, or prefixed name', () => {
+		expect(
+			['FrameReading', 'STUDY_DAEMON_ENDINGS', '#closing', 'readValue'].map(extractStudyNameWord),
+		).toEqual(['reading', 'endings', 'closing', 'value'])
+	})
+
+	it('lists a parameter list and skips a destructured part', () => {
+		expect(extractStudyParameters('(a: number, b?: string)', 0)).toEqual([
+			{ name: 'a', index: 1 },
+			{ name: 'b', index: 12 },
+		])
+		expect(extractStudyParameters('({ a }: B)', 0)).toEqual([])
+	})
+
+	it('reports every governed position with its line, a plural as its singular', () => {
+		const text = [
+			'export interface FrameReading {',
+			'\treadonly readings: readonly string[]',
+			'}',
+			'export const CLOSINGS = 1',
+			'export function readPacing(framing: string): void {}',
+			'export class Box {',
+			'\t#firing = false',
+			'\tsampling(input: string): void {',
+			'\t}',
+			'}',
+		].join('\n')
+		expect(
+			scanStudyParticiples([{ path: 'a.ts', text }], new Set()).map(({ line, name, word }) => [
+				line,
+				name,
+				word,
+			]),
+		).toEqual([
+			[1, 'FrameReading', 'reading'],
+			[2, 'readings', 'reading'],
+			[4, 'CLOSINGS', 'closing'],
+			[5, 'readPacing', 'pacing'],
+			[5, 'framing', 'framing'],
+			[7, '#firing', 'firing'],
+			[8, 'sampling', 'sampling'],
+		])
+	})
+
+	it('reads no local, comment, or string, and keeps an allowed or short word', () => {
+		const text = [
+			"const reading = 'closing' // framing",
+			'export type Thing = string',
+			'export interface Frame {',
+			'\treadonly timing: number',
+			'\treadonly ceilings: number',
+			'}',
+		].join('\n')
+		expect(scanStudyParticiples([{ path: 'b.ts', text }], STUDY_PARTICIPLES_ALLOWED)).toEqual([
+			{ path: 'b.ts', line: 2, name: 'Thing', word: 'thing' },
+		])
+		expect(
+			scanStudyParticiples([{ path: 'c.ts', text: 'export const ING = 1' }], new Set()),
+		).toEqual([])
+	})
+
+	it('holds the real source and owned setup modules to the rule', () => {
+		const sources = readStudyNameSources()
+		expect(sources.map(({ path }) => path)).toEqual(
+			expect.arrayContaining([
+				'src/core/types.ts',
+				'src/server/stores/helpers.ts',
+				'tests/setupServer.ts',
+				'tests/setupStudy.ts',
+			]),
+		)
+		expect(scanStudyParticiples(sources, STUDY_PARTICIPLES_ALLOWED)).toEqual([])
+	})
 })

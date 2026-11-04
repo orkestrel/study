@@ -17,7 +17,7 @@ import {
 	STUDY_UNQUALIFIED_PURPOSES,
 	buildStudyDefinition,
 	buildStudyDaemonProvider,
-	buildStudyGrading,
+	buildStudyAssessment,
 	buildStudyJudgment,
 	buildStudyManifest,
 	buildStudyProfile,
@@ -237,7 +237,7 @@ it('binds rubric paths independently of versioned regrading over the same execut
 	const original = buildStudyManifest()
 	const manifest = { ...original, definition: { ...original.definition, rubric: 'rubric.json' } }
 	const rubric = buildStudyRubric()
-	const assessment = buildStudyGrading(manifest.schedule)
+	const assessment = buildStudyAssessment(manifest.schedule)
 	expect(() =>
 		validateStudyInputs(manifest.definition, manifest.scenarios, rubric, {
 			...buildStudyProfile(),
@@ -310,7 +310,7 @@ it('requires a capacity qualification for quality after existing room and covera
 it('retains unserved and missing judgments in each complete horizon', () => {
 	const manifest = buildStudyManifest()
 	const rubric = buildStudyRubric()
-	const assessment = buildStudyGrading(manifest.schedule)
+	const assessment = buildStudyAssessment(manifest.schedule)
 	expect(computeStudyScores(manifest, rubric, assessment)).toEqual(
 		['small', 'large'].map((arm) => ({
 			arm,
@@ -361,7 +361,7 @@ it('retains unserved and missing judgments in each complete horizon', () => {
 it('rejects incomplete schedules, mismatched attempts, foreign or duplicate judgments and methods', () => {
 	const manifest = buildStudyManifest()
 	const rubric = buildStudyRubric()
-	const assessment = buildStudyGrading(manifest.schedule)
+	const assessment = buildStudyAssessment(manifest.schedule)
 	const judgment = buildStudyJudgment('r1-s1-a1')
 	expect(() =>
 		computeStudyScores({ ...manifest, schedule: manifest.schedule.slice(1) }, rubric, assessment),
@@ -467,7 +467,7 @@ it('keeps the criteria whose scenario and goal the scenarios declare, in rubric 
 it('scores a selected manifest over its scheduled arms and leaves an unselected manifest unchanged', () => {
 	const manifest = buildStudyManifest()
 	const rubric = buildStudyRubric()
-	const unselected = computeStudyScores(manifest, rubric, buildStudyGrading(manifest.schedule))
+	const unselected = computeStudyScores(manifest, rubric, buildStudyAssessment(manifest.schedule))
 	expect(unselected.map((score) => score.arm)).toEqual(['small', 'large'])
 	const schedule = manifest.schedule.filter((trial) => trial.id === 'r2-s1-a2')
 	const selection = { trial: 'r2-s1-a2', goals: undefined, seed: undefined }
@@ -475,7 +475,7 @@ it('scores a selected manifest over its scheduled arms and leaves an unselected 
 	const scores = computeStudyScores(
 		selected,
 		rubric,
-		buildStudyGrading(schedule, [buildStudyJudgment('r2-s1-a2')]),
+		buildStudyAssessment(schedule, [buildStudyJudgment('r2-s1-a2')]),
 	)
 	expect(scores).toEqual([
 		{
@@ -494,9 +494,9 @@ it('scores a selected manifest over its scheduled arms and leaves an unselected 
 		scores.flatMap((score) => [score.lower, score.upper, score.coverage]).every(Number.isFinite),
 	).toBe(true)
 	expect(() =>
-		computeStudyScores({ ...manifest, selection }, rubric, buildStudyGrading(manifest.schedule)),
+		computeStudyScores({ ...manifest, selection }, rubric, buildStudyAssessment(manifest.schedule)),
 	).toThrow(/Manifest schedule differs/)
 	expect(() =>
-		computeStudyScores({ ...manifest, schedule }, rubric, buildStudyGrading(schedule)),
+		computeStudyScores({ ...manifest, schedule }, rubric, buildStudyAssessment(schedule)),
 	).toThrow(/Manifest schedule differs/)
 })

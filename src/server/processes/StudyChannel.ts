@@ -12,7 +12,7 @@ export class StudyChannel {
 	readonly #pending = new Map<number, StudyResponse>()
 	#next = 0
 	#received = 0
-	readonly #working = new Set<symbol>()
+	readonly #requests = new Set<symbol>()
 	#message: (value: unknown) => void
 	#disconnect: () => void
 	#error: (error: Error) => void
@@ -120,7 +120,7 @@ export class StudyChannel {
 			this.#pending.delete(value.id)
 			return
 		}
-		if (value.id !== this.#received + 1 || this.#working.size >= STUDY_PENDING_LIMIT)
+		if (value.id !== this.#received + 1 || this.#requests.size >= STUDY_PENDING_LIMIT)
 			throw failureToStudyError(
 				createStudyProcessFailure('Out-of-order or excessive study IPC request'),
 			)
@@ -128,8 +128,8 @@ export class StudyChannel {
 		this.#received = id
 		// The request joins the registry before its handler can run, so a request the handler admits
 		// on its synchronous path meets the limit.
-		const working = Symbol('request')
-		this.#working.add(working)
+		const request = Symbol('request')
+		this.#requests.add(request)
 		try {
 			const result = await this.#options.handle(value.operation, value.value)
 			// The admitted id answers both outcomes: another listener on the shared endpoint may edit
@@ -142,7 +142,7 @@ export class StudyChannel {
 				value: valueToWire(readStudyFailure(error)),
 			})
 		} finally {
-			this.#working.delete(working)
+			this.#requests.delete(request)
 		}
 	}
 }

@@ -71,13 +71,13 @@ const encoder = new TextEncoder()
 describe('StudyOllamaTransport', () => {
 	describe.each(STUDY_OLLAMA_ABANDONMENT_CASES)(
 		'native abandonment recording=$recording',
-		({ recording }) => {
+		({ recorded }) => {
 			it('retains one terminal when a native stream is abandoned', async () => {
-				const fixture = await createOllamaDiskFixture(recording, [
+				const fixture = await createOllamaDiskFixture(recorded, [
 					{ path: '/api/chat', body: STUDY_OLLAMA_PARTIAL_ROW, open: true },
 				])
 				try {
-					expect(fixture.sink?.declaration?.phase).toBe(recording ? 'declaration' : undefined)
+					expect(fixture.sink?.declaration?.phase).toBe(recorded ? 'declaration' : undefined)
 					expect(fixture.sink?.declaration ?? {}).not.toHaveProperty('procedure')
 					await fixture.transport.verify()
 					const provider = createOllamaTransportProvider(fixture.transport, fixture.server.url)
@@ -107,7 +107,7 @@ describe('StudyOllamaTransport', () => {
 					).toHaveLength(1)
 					await fixture.transport.close()
 					await expect(Promise.resolve(fixture.sink?.close())).resolves.toBeUndefined()
-					const rows = recording ? readStudyExchangeRows(await readFile(fixture.path), false) : []
+					const rows = recorded ? readStudyExchangeRows(await readFile(fixture.path), false) : []
 					const identity = {
 						ordinal: 5,
 						goal: 'first',
@@ -118,11 +118,11 @@ describe('StudyOllamaTransport', () => {
 					}
 					expect(
 						rows.filter((row) => row.phase === 'attempt' && row.stage === 'execution'),
-					).toMatchObject(recording ? [identity] : [])
+					).toMatchObject(recorded ? [identity] : [])
 					expect(
 						rows.filter((row) => row.phase === 'failure' && row.stage === 'execution'),
 					).toMatchObject(
-						recording
+						recorded
 							? [
 									{
 										...identity,
@@ -145,7 +145,7 @@ describe('StudyOllamaTransport', () => {
 						rows.flatMap((row) =>
 							row.phase === 'attempt' && row.stage === 'preflight' ? [row.path] : [],
 						),
-					).toEqual(recording ? ['/api/version', '/api/tags', '/api/show', '/api/show'] : [])
+					).toEqual(recorded ? ['/api/version', '/api/tags', '/api/show', '/api/show'] : [])
 				} finally {
 					await fixture.close()
 				}
@@ -307,11 +307,11 @@ describe('StudyOllamaTransport', () => {
 
 	it.each(STUDY_OLLAMA_EOF_CANCELLATION_CASES)(
 		'preserves EOF consumer cancellation recording=$recording budget=$budget',
-		async ({ recording, budget }) => {
+		async ({ recorded, budget }) => {
 			const entered = Promise.withResolvers<void>()
 			const release = Promise.withResolvers<void>()
 			const body = buildOllamaRow({ prompt: 7, completion: 2 })
-			const fixture = await createOllamaDiskFixture(recording, [{ path: '/api/chat', body }])
+			const fixture = await createOllamaDiskFixture(recorded, [{ path: '/api/chat', body }])
 			const reason = budget
 				? createForeignBudgetError()
 				: new Error('Consumer cancelled during EOF evidence')
@@ -348,17 +348,17 @@ describe('StudyOllamaTransport', () => {
 				await expect(cancelling).resolves.toBeUndefined()
 				// Close must not supply the cancellation this owner was required to observe.
 				expect(captureError(() => fixture.transport.check())).toBe(
-					!recording && budget ? undefined : reason,
+					!recorded && budget ? undefined : reason,
 				)
 				expect(fixture.goal.usage()).toEqual([{ role: 'agent', calls: 1, tokens: 9, bytes: 265 }])
-				const rows = recording ? readStudyExchangeRows(await readFile(fixture.path), false) : []
+				const rows = recorded ? readStudyExchangeRows(await readFile(fixture.path), false) : []
 				expect(
 					rows.filter((row) => row.phase === 'attempt' && row.stage === 'execution'),
-				).toHaveLength(recording ? 1 : 0)
+				).toHaveLength(recorded ? 1 : 0)
 				expect(
 					rows.filter((row) => row.phase === 'failure' && row.stage === 'execution'),
 				).toMatchObject(
-					recording
+					recorded
 						? [
 								{
 									ordinal: 5,
