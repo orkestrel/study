@@ -710,10 +710,11 @@ describe('keyed replay helpers', () => {
 	})
 
 	it('keys a request by path, method, and body bytes', () => {
-		const key = buildStudyOllamaKey('/api/chat', 'POST', Buffer.from('body'))
-		expect(buildStudyOllamaKey('/api/chat', 'POST', Buffer.from('body'))).toBe(key)
-		expect(buildStudyOllamaKey('/api/generate', 'POST', Buffer.from('body'))).not.toBe(key)
-		expect(buildStudyOllamaKey('/api/chat', 'GET', Buffer.from('body'))).not.toBe(key)
-		expect(buildStudyOllamaKey('/api/chat', 'POST', Buffer.from('bodz'))).not.toBe(key)
+		const key = buildStudyOllamaKey('agent', '/api/chat', 'POST', Buffer.from('body'))
+		expect(buildStudyOllamaKey('agent', '/api/chat', 'POST', Buffer.from('body'))).toBe(key)
+		expect(buildStudyOllamaKey('agent', '/api/generate', 'POST', Buffer.from('body'))).not.toBe(key)
+		expect(buildStudyOllamaKey('agent', '/api/chat', 'GET', Buffer.from('body'))).not.toBe(key)
+		expect(buildStudyOllamaKey('agent', '/api/chat', 'POST', Buffer.from('bodz'))).not.toBe(key)
+		expect(buildStudyOllamaKey('judge', '/api/chat', 'POST', Buffer.from('body'))).not.toBe(key)
 	})
 })

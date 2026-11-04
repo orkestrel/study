@@ -31,17 +31,23 @@ import {
 } from '@orkestrel/contract'
 
 /** Builds the key a keyed replay finds a recorded exchange by.
+ * @param role - The request's Study role.
  * @param path - The request's path, origin excluded.
  * @param method - The request's HTTP method.
  * @param body - The request's exact body bytes.
- * @returns The key, equal only for an equal path, method, and body.
+ * @returns The key, equal only for an equal role, path, method, and body.
  * @example
  * ```ts
- * buildStudyOllamaKey('/api/tags', 'GET', new Uint8Array())
+ * buildStudyOllamaKey('metadata', '/api/tags', 'GET', new Uint8Array())
  * ```
  */
-export function buildStudyOllamaKey(path: string, method: string, body: Uint8Array): string {
-	return `${method} ${path} ${hashStudyBytes(body)}`
+export function buildStudyOllamaKey(
+	role: StudyRole,
+	path: string,
+	method: string,
+	body: Uint8Array,
+): string {
+	return `${role} ${method} ${path} ${hashStudyBytes(body)}`
 }
 
 /** Splits a recorded body back into its original chunks.

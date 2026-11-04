@@ -802,6 +802,77 @@ describe('recording and replay command handoff', () => {
 		}
 	}, 240000)
 
+	it('keyed: refuses a profile that declares no recording, before any result', async () => {
+		const scratch = createStudyConsumer((consumer) =>
+			writeStudySelectionConsumer(consumer, ['small', 'large']),
+		)
+		const signal = new AbortController().signal
+		try {
+			const entry = await buildStudyCLI(scratch)
+			const command = new StudyCommand({ root: scratch.path, entry })
+			const source = join(scratch.path, 'source')
+			await command.execute(['execute', 'selection', '--out', source], signal)
+			await expect(
+				command.execute(
+					[
+						'execute',
+						'selection',
+						'--out',
+						join(scratch.path, 'keyed'),
+						'--replay',
+						source,
+						'--roles',
+						'["judge"]',
+						'--offline',
+						'false',
+					],
+					signal,
+				),
+			).rejects.toMatchObject({
+				code: 'CONFIG',
+				message: 'Keyed replay requires the profile to declare recording',
+			})
+			expect(scratch.has('keyed')).toBe(false)
+		} finally {
+			scratch.destroy()
+		}
+	}, 240000)
+
+	it('keyed: an adapter that ignores an offline replay cannot complete as offline', async () => {
+		const fixture = await createStudyReplayFixture()
+		const signal = new AbortController().signal
+		try {
+			const { scratch, command, recorded, server } = fixture
+			const source = requireValue(scratch.read('studies/files/index.ts'))
+			expect(source).toContain('{ replay }')
+			scratch.write('studies/files/index.ts', source.replace('{ replay }', '{}'))
+			const before = server.requests.length
+			const output = await command
+				.execute(
+					[
+						'execute',
+						'assessment',
+						'--out',
+						join(scratch.path, 'ignored'),
+						'--replay',
+						recorded,
+						'--roles',
+						'["agent","summary","judge","metadata"]',
+						'--offline',
+						'true',
+					],
+					signal,
+				)
+				.catch((error: unknown) => error)
+			expect(output).not.toMatchObject({ status: 'completed' })
+			expect(server.requests.length).toBeGreaterThan(before)
+			const attempts = (await readStudyResult(join(scratch.path, 'ignored'))).attempts
+			expect(JSON.stringify(attempts)).toContain('never reached')
+		} finally {
+			await fixture.close()
+		}
+	}, 240000)
+
 	it('retains a worker wire cut in evidence beside the attempt and the exchange failure', async () => {
 		const scratch = createStudyConsumer()
 		const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')

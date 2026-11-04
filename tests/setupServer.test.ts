@@ -285,7 +285,7 @@ describe('sealed exchange fixtures', () => {
 				record: { bytes: 32768, calls: 256, duration: 15000 },
 				settings: { version: 'fixture-version' },
 			})
-			expect(scratch.read('studies/files/index.ts')).toContain('fetch: replay.fetch')
+			expect(scratch.read('studies/files/index.ts')).toContain('{ replay }')
 			expect(scratch.read('studies/files/index.ts')).toContain('exchanges.declaration.goals')
 			expect(writeStudyPreparationPeer(scratch)).toBe(join(scratch.path, 'preparation-peer.cjs'))
 			const fixture = await retainStudyExchangeFixture(join(scratch.path, 'recorded'))

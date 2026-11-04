@@ -106,8 +106,9 @@ it('admits only capacity and deadline IPC stops with a valid owned shape', () =>
 
 describe('isStudyKeyedSelection', () => {
 	it('admits distinct serving roles and refuses every other selection', () => {
-		const selection = { result: 'recorded', roles: ['judge', 'metadata'], offline: false }
+		const selection = { result: 'recorded', roles: ['judge', 'agent'], offline: false }
 		expect(isStudyKeyedSelection(selection)).toBe(true)
+		expect(isStudyKeyedSelection({ ...selection, roles: ['metadata'], offline: true })).toBe(true)
 		for (const invalid of [
 			{},
 			{ ...selection, result: '' },
@@ -116,6 +117,7 @@ describe('isStudyKeyedSelection', () => {
 			{ ...selection, roles: ['tool'] },
 			{ ...selection, offline: 'false' },
 			{ ...selection, prefix: {} },
+			{ ...selection, roles: ['metadata', 'judge'], offline: false },
 		])
 			expect(isStudyKeyedSelection(invalid)).toBe(false)
 	})

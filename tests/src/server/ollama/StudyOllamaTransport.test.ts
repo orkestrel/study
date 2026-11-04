@@ -3325,3 +3325,22 @@ describe('transport stop chain', () => {
 		}
 	})
 })
+
+describe('transport replay option', () => {
+	it('refuses a replay beside a fetch collaborator', async () => {
+		await expect(
+			createOllamaTransportFixture([], {
+				fetch: (_role, input, init) => globalThis.fetch(input, init),
+				replay: {
+					fetch: (_role, input, init) => globalThis.fetch(input, init),
+					served: () => false,
+					check: () => undefined,
+					close: () => Promise.resolve(),
+				},
+			}),
+		).rejects.toMatchObject({
+			code: 'CONFIG',
+			message: expect.stringContaining('mutually exclusive'),
+		})
+	})
+})

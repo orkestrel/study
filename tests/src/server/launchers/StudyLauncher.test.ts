@@ -89,6 +89,29 @@ describe('StudyLauncher', () => {
 			scratch.destroy()
 		}
 	})
+	it('forwards a keyed replay selection to execute', async () => {
+		const scratch = createScratch()
+		try {
+			const entry = writeStudyCheckEntry(scratch, 60000)
+			const code = await new StudyLauncher({ root: scratch.path, entry }).execute([
+				'execute',
+				'files',
+				'--replay',
+				'recorded',
+				'--roles',
+				'["judge","agent"]',
+				'--offline',
+				'false',
+			])
+			expect(code).toBe(0)
+			expect(readStudyCommands(scratch)[1]).toContain(
+				'--replay recorded --roles ["judge","agent"] --offline false',
+			)
+		} finally {
+			scratch.destroy()
+		}
+	})
+
 	it('terminates a held command at the public default duration and returns 124', async () => {
 		const scratch = createScratch()
 		const launcher = new StudyLauncher({

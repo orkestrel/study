@@ -170,7 +170,7 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 				'CONFIG',
 				'--replay with --roles requires a JSON list of distinct roles among ' +
 					STUDY_OLLAMA_KEYED_ROLES.join(', ') +
-					' and --offline true or false. ' +
+					' and --offline true or false; metadata needs --offline true, because served inventory verifies the recording, not the daemon. ' +
 					usage,
 			)
 		const replay = result === undefined || keyed !== undefined ? undefined : parseJSON(prefix ?? '')

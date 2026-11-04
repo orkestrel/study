@@ -1,5 +1,9 @@
 import * as ollama from '../../../../src/server/ollama/index.js'
-import { buildReversedStudyHistory, buildStudyExchangeHistory } from '../../../setupServer.js'
+import {
+	buildReversedStudyHistory,
+	buildStudyExchangeHistory,
+	createForeignBudgetError,
+} from '../../../setupServer.js'
 import { buildStudyOllamaBytes } from '../../../../src/server/ollama/helpers.js'
 import { createRecorder } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
@@ -266,6 +270,40 @@ describe('StudyOllamaReplay', () => {
 						signal: new AbortController().signal,
 					}),
 			).toThrow(/\S/)
+		}
+	})
+})
+
+describe('StudyOllamaReplay after its prefix', () => {
+	it('leaves a budget cut unlatched and marks only the replies it served', async () => {
+		const budget = createForeignBudgetError()
+		const history = buildStudyExchangeHistory()
+		const replay = new ollama.StudyOllamaReplay({
+			history,
+			url: 'http://127.0.0.1:1',
+			prefix: history.exchanges.findIndex(({ attempt }) => attempt.stage === 'execution'),
+			limit: { calls: 20, bytes: 65536, duration: 5000 },
+			signal: new AbortController().signal,
+			fetch: () => Promise.reject(budget),
+		})
+		try {
+			for (const { attempt } of history.exchanges.filter(
+				(pair) => pair.attempt.stage === 'preflight',
+			)) {
+				const response = await replay.fetch(attempt.role, `http://127.0.0.1:1${attempt.path}`, {
+					method: attempt.method,
+					...(attempt.size === 0 ? {} : { body: Buffer.from(attempt.body, 'base64').toString() }),
+				})
+				expect(replay.served(response)).toBe(true)
+				await response.text()
+			}
+			expect(replay.served(new Response('live'))).toBe(false)
+			await expect(
+				replay.fetch('judge', 'http://127.0.0.1:1/api/generate', { method: 'POST', body: '{}' }),
+			).rejects.toBe(budget)
+			expect(() => replay.check()).not.toThrow()
+		} finally {
+			await replay.close()
 		}
 	})
 })

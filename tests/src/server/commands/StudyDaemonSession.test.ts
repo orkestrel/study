@@ -65,6 +65,50 @@ describe('execution-owned daemon staging', () => {
 		}
 	}, 60000)
 
+	it('keyed: an offline replay of a daemon recording starts no daemon and sends nothing', async () => {
+		const subject = await buildStudyLibrary(
+			library,
+			resolve('src/server/ollama/StudyOllamaTransport.ts'),
+		)
+		const fixture = await createStudyDaemonFixture(subject, 'normal', true)
+		try {
+			const entry = await buildStudyCLI(fixture.scratch)
+			const command = new StudyCommand({ root: fixture.scratch.path, entry })
+			const recorded = join(fixture.scratch.path, 'recorded')
+			await command.execute(
+				['execute', 'assessment', '--out', recorded],
+				new AbortController().signal,
+			)
+			const traffic = fixture.scratch.read('daemon-requests.jsonl')
+			const pid = fixture.scratch.read('daemon.pid')
+			await expect(
+				command.execute(
+					[
+						'execute',
+						'assessment',
+						'--out',
+						join(fixture.scratch.path, 'keyed'),
+						'--replay',
+						recorded,
+						'--roles',
+						'["agent","summary","judge","metadata"]',
+						'--offline',
+						'true',
+					],
+					new AbortController().signal,
+				),
+			).resolves.toMatchObject({ status: 'completed' })
+			expect(fixture.scratch.read('daemon-requests.jsonl')).toBe(traffic)
+			expect(fixture.scratch.read('daemon.pid')).toBe(pid)
+			const result = await readStudyResult(join(fixture.scratch.path, 'keyed'))
+			if (result.status !== 'sealed') throw new Error('Keyed daemon replay did not seal')
+			const history = await readStudyExchanges(result, requireValue(result.manifest.schedule[0]).id)
+			expect(history.declaration.maintenance).toEqual([])
+		} finally {
+			await fixture.close()
+		}
+	}, 240000)
+
 	it('O1 joins open agent and summary maintenance to goals[0] and postflight to the last goal', async () => {
 		const subject = await buildStudyLibrary(
 			library,

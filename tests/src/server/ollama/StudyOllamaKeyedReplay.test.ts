@@ -1,9 +1,12 @@
 import type { StudyRole } from '../../../../src/core/types.js'
 import { createRecorder, requireValue } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
-import { STUDY_OLLAMA_SERVED } from '../../../../src/server/ollama/constants.js'
 import { StudyOllamaKeyedReplay } from '../../../../src/server/ollama/StudyOllamaKeyedReplay.js'
-import { buildStudyExchangeHistory } from '../../../setupServer.js'
+import {
+	buildStudyExchangeHistory,
+	buildStudyKeyedHistory,
+	createForeignBudgetError,
+} from '../../../setupServer.js'
 
 const URL_ORIGIN = 'http://127.0.0.1:1'
 
@@ -30,7 +33,7 @@ describe('StudyOllamaKeyedReplay', () => {
 				method: attempt.method,
 				body,
 			})
-			expect(Reflect.get(served, STUDY_OLLAMA_SERVED)).toBe(true)
+			expect(replay.served(served)).toBe(true)
 			expect(served.status).toBe(response.status)
 			const text = await served.text()
 			expect(Buffer.from(text).toString('base64')).toBe(response.body)
@@ -46,60 +49,128 @@ describe('StudyOllamaKeyedReplay', () => {
 		}
 	})
 
-	it('sends a miss live, a changed body, method, and path included, and an unlisted role never serves', async () => {
+	it('sends a miss live when the body, the method, or the path differs', async () => {
 		const history = buildStudyExchangeHistory()
 		const { attempt } = requireValue(
 			history.exchanges.find((pair) => pair.attempt.stage === 'execution'),
 		)
-		const sent = createRecorder<readonly [StudyRole]>()
+		const sent = createRecorder<readonly [string]>()
 		const replay = new StudyOllamaKeyedReplay({
 			histories: [history],
 			roles: [attempt.role],
 			url: URL_ORIGIN,
 			signal: new AbortController().signal,
-			fetch: async (role) => {
-				sent.handler(role)
+			fetch: async (_role, input) => {
+				sent.handler(new URL(input).pathname)
 				return new Response('live')
 			},
 		})
 		try {
 			const body = Buffer.from(attempt.body, 'base64').toString()
-			const other: StudyRole = attempt.role === 'agent' ? 'judge' : 'agent'
 			const misses = [
-				{ role: attempt.role, path: attempt.path, init: { method: 'POST', body: `${body} ` } },
-				{ role: attempt.role, path: '/api/other', init: { method: 'POST', body } },
-				{ role: other, path: attempt.path, init: { method: 'POST', body } },
-			] as const
-			for (const { role, path, init } of misses) {
-				const answer = await replay.fetch(role, `${URL_ORIGIN}${path}`, init)
-				expect(Reflect.get(answer, STUDY_OLLAMA_SERVED)).toBeUndefined()
+				{ path: attempt.path, init: { method: attempt.method, body: `${body} ` } },
+				{ path: attempt.path, init: { method: 'PUT', body } },
+				{ path: '/api/other', init: { method: attempt.method, body } },
+			]
+			for (const { path, init } of misses) {
+				const answer = await replay.fetch(attempt.role, `${URL_ORIGIN}${path}`, init)
+				expect(replay.served(answer)).toBe(false)
 				expect(await answer.text()).toBe('live')
 			}
-			expect(sent.calls.map(([role]) => role)).toEqual([attempt.role, attempt.role, other])
+			expect(sent.calls.map(([path]) => path)).toEqual([attempt.path, attempt.path, '/api/other'])
+		} finally {
+			await replay.close()
+		}
+	})
+
+	it('never serves an unlisted role, though its recorded attempt equals the request', async () => {
+		const history = buildStudyExchangeHistory()
+		const { attempt } = requireValue(
+			history.exchanges.find((pair) => pair.attempt.stage === 'execution'),
+		)
+		const listed: StudyRole = attempt.role === 'judge' ? 'agent' : 'judge'
+		const replay = new StudyOllamaKeyedReplay({
+			histories: [history],
+			roles: [listed],
+			url: URL_ORIGIN,
+			signal: new AbortController().signal,
+			fetch: async () => new Response('live'),
+		})
+		try {
+			const answer = await replay.fetch(attempt.role, `${URL_ORIGIN}${attempt.path}`, {
+				method: attempt.method,
+				body: Buffer.from(attempt.body, 'base64').toString(),
+			})
+			expect(replay.served(answer)).toBe(false)
+			expect(await answer.text()).toBe('live')
+		} finally {
+			await replay.close()
+		}
+	})
+
+	it('keys the role, so an earlier attempt of another role hides no later one', async () => {
+		const history = buildStudyKeyedHistory(['agent', 'summary'], ['first', 'second'])
+		const { attempt } = requireValue(
+			history.exchanges.find((pair) => pair.attempt.stage === 'execution'),
+		)
+		const replay = new StudyOllamaKeyedReplay({
+			histories: [history],
+			roles: ['agent', 'summary'],
+			url: URL_ORIGIN,
+			signal: new AbortController().signal,
+		})
+		try {
+			const body = Buffer.from(attempt.body, 'base64').toString()
+			const init = { method: attempt.method, body }
+			const url = `${URL_ORIGIN}${attempt.path}`
+			expect(await (await replay.fetch('agent', url, init)).text()).toBe('first')
+			expect(await (await replay.fetch('summary', url, init)).text()).toBe('second')
 		} finally {
 			await replay.close()
 		}
 	})
 
 	it('treats a recorded attempt of another role as a miss, though both roles are listed', async () => {
-		const history = buildStudyExchangeHistory()
+		const history = buildStudyKeyedHistory(['agent'], ['first'])
 		const { attempt } = requireValue(
 			history.exchanges.find((pair) => pair.attempt.stage === 'execution'),
 		)
-		const other: StudyRole = attempt.role === 'agent' ? 'judge' : 'agent'
 		const replay = new StudyOllamaKeyedReplay({
 			histories: [history],
-			roles: [attempt.role, other],
+			roles: ['agent', 'judge'],
 			url: URL_ORIGIN,
 			signal: new AbortController().signal,
 		})
 		try {
 			await expect(
-				replay.fetch(other, `${URL_ORIGIN}${attempt.path}`, {
+				replay.fetch('judge', `${URL_ORIGIN}${attempt.path}`, {
 					method: attempt.method,
 					body: Buffer.from(attempt.body, 'base64').toString(),
 				}),
-			).rejects.toMatchObject({ code: 'FAULT' })
+			).rejects.toMatchObject({ code: 'FAULT', message: expect.stringContaining('member=none') })
+		} finally {
+			await replay.close()
+		}
+	})
+
+	it('serves the first recorded reply of a repeated request, across histories', async () => {
+		const first = buildStudyKeyedHistory(['agent'], ['first'])
+		const second = buildStudyKeyedHistory(['agent'], ['second'])
+		const { attempt } = requireValue(
+			first.exchanges.find((pair) => pair.attempt.stage === 'execution'),
+		)
+		const replay = new StudyOllamaKeyedReplay({
+			histories: [first, second],
+			roles: ['agent'],
+			url: URL_ORIGIN,
+			signal: new AbortController().signal,
+		})
+		try {
+			const answer = await replay.fetch('agent', `${URL_ORIGIN}${attempt.path}`, {
+				method: attempt.method,
+				body: Buffer.from(attempt.body, 'base64').toString(),
+			})
+			expect(await answer.text()).toBe('first')
 		} finally {
 			await replay.close()
 		}
@@ -124,6 +195,36 @@ describe('StudyOllamaKeyedReplay', () => {
 		} finally {
 			await replay.close()
 		}
+	})
+
+	it('leaves a budget cut unlatched, as the transport does, and latches any other sender failure', async () => {
+		const budget = createForeignBudgetError()
+		const history = buildStudyExchangeHistory()
+		const cut = new StudyOllamaKeyedReplay({
+			histories: [history],
+			roles: ['judge'],
+			url: URL_ORIGIN,
+			signal: new AbortController().signal,
+			fetch: () => Promise.reject(budget),
+		})
+		await expect(cut.fetch('agent', `${URL_ORIGIN}/api/chat`, { method: 'GET' })).rejects.toBe(
+			budget,
+		)
+		expect(() => cut.check()).not.toThrow()
+		await cut.close()
+		const failure = new Error('Broken wire')
+		const broken = new StudyOllamaKeyedReplay({
+			histories: [history],
+			roles: ['judge'],
+			url: URL_ORIGIN,
+			signal: new AbortController().signal,
+			fetch: () => Promise.reject(failure),
+		})
+		await expect(broken.fetch('agent', `${URL_ORIGIN}/api/chat`, { method: 'GET' })).rejects.toBe(
+			failure,
+		)
+		expect(() => broken.check()).toThrow(failure)
+		await broken.close()
 	})
 
 	it('refuses a request from another origin rather than serving it', async () => {
@@ -173,6 +274,52 @@ describe('StudyOllamaKeyedReplay', () => {
 		).toThrow(expect.objectContaining({ code: 'CUSTODY' }))
 	})
 
+	it('refuses at close an offline replay no adapter reached, and only that one', async () => {
+		const history = buildStudyExchangeHistory()
+		const signal = new AbortController().signal
+		const unreached = new StudyOllamaKeyedReplay({
+			histories: [history],
+			roles: ['agent'],
+			url: URL_ORIGIN,
+			signal,
+		})
+		await expect(unreached.close()).rejects.toMatchObject({
+			code: 'FAULT',
+			message: 'Offline keyed replay was never reached by the adapter',
+		})
+		await expect(unreached.close()).resolves.toBeUndefined()
+		const live = new StudyOllamaKeyedReplay({
+			histories: [history],
+			roles: ['agent'],
+			url: URL_ORIGIN,
+			signal,
+			fetch: async () => new Response('live'),
+		})
+		await expect(live.close()).resolves.toBeUndefined()
+		const cancelled = new AbortController()
+		const aborted = new StudyOllamaKeyedReplay({
+			histories: [history],
+			roles: ['agent'],
+			url: URL_ORIGIN,
+			signal: cancelled.signal,
+		})
+		cancelled.abort(new Error('Cancelled'))
+		await expect(aborted.close()).resolves.toBeUndefined()
+		const { attempt } = requireValue(
+			history.exchanges.find((pair) => pair.attempt.stage === 'preflight'),
+		)
+		const reached = new StudyOllamaKeyedReplay({
+			histories: [history],
+			roles: ['metadata'],
+			url: URL_ORIGIN,
+			signal,
+		})
+		await (
+			await reached.fetch('metadata', `${URL_ORIGIN}${attempt.path}`, { method: 'GET' })
+		).text()
+		await expect(reached.close()).resolves.toBeUndefined()
+	})
+
 	it('refuses no roles, a pathful origin, and a closed replay', async () => {
 		const history = buildStudyExchangeHistory()
 		const signal = new AbortController().signal
@@ -194,6 +341,7 @@ describe('StudyOllamaKeyedReplay', () => {
 			roles: ['agent'],
 			url: URL_ORIGIN,
 			signal,
+			fetch: async () => new Response('live'),
 		})
 		await replay.close()
 		await expect(

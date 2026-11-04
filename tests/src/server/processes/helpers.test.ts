@@ -1,3 +1,6 @@
+import { join } from 'node:path'
+import { retainStudyFixture } from '../../../setupServer.js'
+import { readStudyKeyedHistories } from '../../../../src/server/processes/helpers.js'
 import {
 	buildStudyProfile,
 	buildStudyScenario,
@@ -440,5 +443,57 @@ describe('collectStudyAncestors', () => {
 		expect(ancestors.indexOf(resolve('tmp', 'units'))).toBe(1)
 		expect(new Set(ancestors).size).toBe(ancestors.length)
 		expect(collectStudyAncestors(parse(start).root)).toEqual([parse(start).root])
+	})
+})
+
+describe('readStudyKeyedHistories', () => {
+	it('refuses an invalid selection, an unsealed or unrecorded source, no provider, and other models', async () => {
+		const scratch = createScratch()
+		try {
+			const profile = buildStudyProfile()
+			const retained = await retainStudyExchangeFixture(
+				join(scratch.path, 'recorded'),
+				'complete',
+				true,
+				true,
+				true,
+			)
+			const selection = { result: retained.directory, roles: ['judge'], offline: false } as const
+			await expect(
+				Reflect.apply(readStudyKeyedHistories, undefined, [
+					{ ...selection, roles: ['tool'] },
+					profile,
+				]),
+			).rejects.toMatchObject({ code: 'CONFIG', message: 'Invalid keyed selection' })
+			await expect(readStudyKeyedHistories(selection, profile)).rejects.toMatchObject({
+				code: 'CUSTODY',
+				message: 'Keyed replay requires a sealed result',
+			})
+			await retained.store.seal()
+			await expect(
+				readStudyKeyedHistories(selection, { ...profile, provider: undefined }),
+			).rejects.toMatchObject({ code: 'CONFIG', message: 'Keyed replay requires a provider' })
+			await expect(
+				readStudyKeyedHistories(selection, {
+					...profile,
+					provider: {
+						entry: 'entry',
+						url: 'http://127.0.0.1:1',
+						model: 'other',
+						judge: undefined,
+						digest: { model: 'c'.repeat(64), judge: undefined },
+					},
+				}),
+			).rejects.toMatchObject({
+				code: 'CONFIG',
+				message: 'Keyed replay source declares other models',
+			})
+			const unrecorded = await retainStudyFixture(join(scratch.path, 'plain'))
+			await expect(
+				readStudyKeyedHistories({ ...selection, result: unrecorded.directory }, profile),
+			).rejects.toMatchObject({ code: 'CONFIG', message: 'Keyed replay source holds no recording' })
+		} finally {
+			scratch.destroy()
+		}
 	})
 })

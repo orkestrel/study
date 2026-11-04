@@ -20,6 +20,57 @@ import { createRecorder, requireValue } from '@orkestrel/test'
 import { parseJSON } from '@orkestrel/contract'
 
 describe('StudyProcessDriver', () => {
+	it('refuses a keyed selection beside a prefix replay, offline beside preparation, and no declaration', async () => {
+		const scratch = createScratch()
+		try {
+			const { trial, signal, exchanges, ...options } = buildStudyRecordedSessionOptions(
+				scratch,
+				writeStudyPreparationPeer(scratch),
+				new AbortController().signal,
+			)
+			const keyed = { result: 'recorded', roles: ['judge'], offline: true } as const
+			expect(
+				() =>
+					new StudyProcessDriver({
+						...options,
+						keyed,
+						replay: { result: 'recorded', prefix: { [trial.id]: 1 }, offline: false },
+					}),
+			).toThrow(
+				expect.objectContaining({
+					code: 'CONFIG',
+					message: expect.stringContaining('mutually exclusive'),
+				}),
+			)
+			expect(
+				() => new StudyProcessDriver({ ...options, keyed, prepare: async () => undefined }),
+			).toThrow(
+				expect.objectContaining({
+					code: 'CONFIG',
+					message: expect.stringContaining('Offline replay'),
+				}),
+			)
+			expect(
+				() =>
+					new StudyProcessDriver({
+						...options,
+						keyed: { ...keyed, offline: false },
+						prepare: async () => undefined,
+					}),
+			).not.toThrow()
+			await expect(
+				new StudyProcessDriver({
+					...options,
+					profile: { ...options.profile, record: undefined },
+					keyed,
+				}).open(trial, signal),
+			).rejects.toMatchObject({ message: 'Keyed replay requires a declaration' })
+			expect(exchanges).toBeDefined()
+		} finally {
+			scratch.destroy()
+		}
+	})
+
 	it('F2 refuses a profile-mismatched declaration before parent preparation', async () => {
 		const scratch = createScratch()
 		const prepared = createRecorder<readonly []>()

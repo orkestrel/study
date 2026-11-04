@@ -20,8 +20,20 @@ import { StudyError } from '@src/core'
 export function buildStudyOllamaTransportOptions(
 	options: StudyOllamaTransportOptions,
 ): StudyOllamaTransportOptions {
-	const { url, room, limit, models, roles, signal, observe, timing, fetch, metadata, exchanges } =
-		options
+	const {
+		url,
+		room,
+		limit,
+		models,
+		roles,
+		signal,
+		observe,
+		timing,
+		fetch,
+		replay,
+		metadata,
+		exchanges,
+	} = options
 	if (Object.hasOwn(roles, 'maintenance'))
 		throw new StudyError('CONFIG', 'Maintenance cannot declare a generation policy')
 	const owned: Record<string, StudyOllamaModel> = Object.fromEntries(
@@ -57,6 +69,7 @@ export function buildStudyOllamaTransportOptions(
 		metadata: Object.freeze({ ...metadata }),
 		...(exchanges === undefined ? {} : { exchanges }),
 		...(fetch === undefined ? {} : { fetch }),
+		...(replay === undefined ? {} : { replay }),
 	})
 }
 

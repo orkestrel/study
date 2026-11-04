@@ -155,9 +155,10 @@ export type StudyOllamaKeyedRole = Extract<StudyRole, 'agent' | 'judge' | 'summa
 /**
  * Selects a sealed recording and the roles a keyed replay serves from it.
  * @remarks
- * A listed role's request whose path, method, and body bytes equal a recorded attempt's is served
- * from that attempt's response, the first recorded when a request repeats. Offline true refuses every
- * other request before send and forbids daemon startup; offline false sends it live.
+ * A listed role's request whose path, method, and body bytes equal a recorded attempt of that role is
+ * served from that attempt's response, the first recorded when a request repeats. Offline true refuses
+ * every other request before send and forbids daemon startup; offline false sends it live and cannot
+ * list `metadata`, because serving recorded inventory would verify the recording, not the daemon.
  */
 export interface StudyOllamaKeyedSelection {
 	readonly result: string
@@ -210,6 +211,8 @@ export interface StudyOllamaReplayRequest {
 export interface StudyOllamaReplayInterface {
 	/** Supplies native responses over retained bytes without settling a Study ticket. */
 	readonly fetch: StudyOllamaFetchFunction
+	/** Reports whether this replay answered a response its `fetch` returned from the recording. */
+	readonly served: (response: Response) => boolean
 	/** Refuses a latched mismatch, an unread response, or an incompletely consumed prefix.
 	 * @returns Nothing after the complete declared prefix has been consumed.
 	 */
@@ -232,6 +235,8 @@ export interface StudyOllamaReplayInterface {
  * ordinals and raw bytes independently of observation. `timing` extracts daemon timing; the selected Ollama runtime supplies the extractor and the transport imports none.
  * `fetch` optionally sends the validated request under its role. Default: native fetch. Study keeps
  * response validation and accounting; the collaborator returns a native response and settles no ticket.
+ * `replay` sends through a replay instead, which also tells the transport which replies a recording
+ * served; it is exclusive with `fetch`.
  */
 export interface StudyOllamaTransportOptions {
 	readonly url: string
@@ -246,6 +251,7 @@ export interface StudyOllamaTransportOptions {
 	readonly observe: boolean
 	readonly timing: typeof extractTiming
 	readonly fetch?: StudyOllamaFetchFunction | undefined
+	readonly replay?: StudyOllamaReplayInterface | undefined
 	/** Bounds both metadata passes independently of every model quota. */
 	readonly metadata: StudyOllamaMetadata
 	/** Supplies the parent-composed declaration and retains exact bytes independently of observation. */

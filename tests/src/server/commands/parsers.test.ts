@@ -251,6 +251,7 @@ describe('keyed replay arguments', () => {
 		[['--roles', 'judge', '--offline', 'true'], 'distinct roles'],
 		[['--roles', '["judge"]'], 'distinct roles'],
 		[['--roles', '["judge"]', '--offline', 'maybe'], 'distinct roles'],
+		[['--roles', '["metadata","judge"]', '--offline', 'false'], 'metadata needs --offline true'],
 	])('refuses %j', (tokens, message) => {
 		expect(() => parseStudyArguments([...base, ...tokens])).toThrow(
 			expect.objectContaining({ code: 'CONFIG', message: expect.stringContaining(message) }),

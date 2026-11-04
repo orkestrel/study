@@ -1190,7 +1190,7 @@ export function createStudyAdapter() { return {
  validate() { appendFileSync(${JSON.stringify(join(scratch.path, 'validations.log'))}, String(process.pid) + '\\n') },
  driver({ subject, provider, profile, exchanges, replay }) { return { async open(trial, signal) {
   appendFileSync(${JSON.stringify(join(scratch.path, 'workers.log'))}, String(process.pid) + '\\n')
-  const transport = new subject.StudyOllamaTransport({ url: profile.provider.url, room: profile.room, limit: profile.bounds.request, models: { model: { name: profile.provider.model, digest: profile.provider.digest.model }, ...(profile.provider.judge === undefined ? {} : { judge: { name: profile.provider.judge, digest: profile.provider.digest.judge } }) }, roles: profile.settings.roles ?? { agent: profile.settings.procedure[0].policy }, metadata: profile.settings.metadata, exchanges, signal, observe: false, timing: provider.extractTiming, ...(replay === undefined ? {} : { fetch: replay.fetch }) })
+  const transport = new subject.StudyOllamaTransport({ url: profile.provider.url, room: profile.room, limit: profile.bounds.request, models: { model: { name: profile.provider.model, digest: profile.provider.digest.model }, ...(profile.provider.judge === undefined ? {} : { judge: { name: profile.provider.judge, digest: profile.provider.digest.judge } }) }, roles: profile.settings.roles ?? { agent: profile.settings.procedure[0].policy }, metadata: profile.settings.metadata, exchanges, signal, observe: false, timing: provider.extractTiming, ...(replay === undefined ? {} : { replay }) })
   return {
    async execute(goal, context) {
     transport.prepare({ goal: goal.id, context })
@@ -5056,4 +5056,69 @@ export interface StudyLabelFixture {
 	readonly rubric: StudyRubric
 	readonly digest: string
 	readonly segment: StudyLabelSegment
+}
+
+/**
+ * Builds a sealed-reader history whose execution attempts hold one request under each listed role.
+ * @param roles - The role of each execution attempt
+ * @param replies - The reply text of each attempt
+ * @returns A history the keyed replay's constructor accepts
+ */
+export function buildStudyKeyedHistory(
+	roles: readonly StudyRole[],
+	replies: readonly string[],
+): StudyExchangeHistory {
+	const rows = buildOpenStudyExchangeRows(
+		'r1-first-small',
+		{ bytes: 1048576, calls: 256, duration: 15000 },
+		roles.length,
+	)
+	const executions = rows.flatMap((row) =>
+		row.phase === 'attempt' && row.stage === 'execution' ? [row] : [],
+	)
+	const body = requireValue(executions[0]).body
+	const keyed = rows.map((row): StudyExchangeRow => {
+		if ((row.phase !== 'attempt' && row.phase !== 'response') || row.stage !== 'execution')
+			return row
+		const step = requireValue(row.step) - 1
+		const role = requireValue(roles[step])
+		if (row.phase === 'attempt')
+			return {
+				...row,
+				role,
+				goal: 'write',
+				body,
+				digest: requireValue(executions[0]).digest,
+				size: requireValue(executions[0]).size,
+			}
+		const reply = Buffer.from(requireValue(replies[step]))
+		return {
+			...row,
+			role,
+			goal: 'write',
+			...buildStudyOllamaBytes(reply),
+			chunks: [reply.length],
+		}
+	})
+	const declaration = requireValue(keyed[0])
+	const completion = requireValue(keyed.at(-1))
+	if (declaration.phase !== 'declaration' || completion.phase !== 'complete')
+		throw new Error('Invalid keyed fixture boundary')
+	const bytes = Buffer.from(keyed.map((row) => JSON.stringify(row) + '\n').join(''))
+	return {
+		seal: 'b'.repeat(64),
+		file: {
+			path: `trials/${declaration.trial}/exchanges.jsonl`,
+			bytes: bytes.length,
+			digest: hashStudyBytes(bytes),
+		},
+		declaration,
+		completion,
+		exchanges: keyed.flatMap((row, index) => {
+			const response = keyed[index + 1]
+			return row.phase === 'attempt' && response?.phase === 'response'
+				? [{ attempt: row, response }]
+				: []
+		}),
+	}
 }

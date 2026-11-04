@@ -1,3 +1,4 @@
+import { matchesStudyKeyedRoles } from '../../../../src/server/ollama/validators.js'
 import { describe, expect, it } from 'vitest'
 import {
 	isStudyOllamaMetadata,
@@ -53,5 +54,16 @@ describe('Ollama declaration guards', () => {
 		expect(isStudyOllamaMetadata(proxy.proxy)).toBe(false)
 		expect(isStudyOllamaModel(proxy.proxy)).toBe(false)
 		expect(isStudyOllamaPolicy(proxy.proxy)).toBe(false)
+	})
+})
+
+describe('matchesStudyKeyedRoles', () => {
+	it('admits metadata only offline and refuses a role with no recorded request', () => {
+		expect(matchesStudyKeyedRoles(['judge', 'agent', 'summary'], false)).toBe(true)
+		expect(matchesStudyKeyedRoles(['metadata', 'judge'], true)).toBe(true)
+		for (const roles of [['metadata'], ['metadata', 'judge']])
+			expect(matchesStudyKeyedRoles(roles, false)).toBe(false)
+		for (const roles of [[], ['tool'], ['maintenance'], ['judge', 'judge'], 'judge', undefined])
+			expect(matchesStudyKeyedRoles(roles, true)).toBe(false)
 	})
 })

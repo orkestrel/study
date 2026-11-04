@@ -1,3 +1,4 @@
+import { isStudyKeyedSource } from '../../../../src/server/stores/validators.js'
 import { STUDY_STOP_CAUSES, STUDY_OTHER_CAUSES } from '../../../setupStudy.js'
 import { buildStudyStop, STUDY_INVALID_STOPS } from '../../../setupStudy.js'
 import { STUDY_FINITE_MEASUREMENTS } from '../../../setupStudy.js'
@@ -382,5 +383,24 @@ describe('custody selection', () => {
 				selection: { ...narrowed.selection, goals: { first: 'write', last: 'read' } },
 			}),
 		).toBe(false)
+	})
+})
+
+describe('isStudyKeyedSource', () => {
+	it('holds a sealed source to the keyed role rule', () => {
+		const { identity } = buildCustodyManifest()
+		const source = { result: 'r', seal: 'd'.repeat(64), identity, roles: ['judge'], offline: false }
+		expect(isStudyKeyedSource(source)).toBe(true)
+		expect(isStudyKeyedSource({ ...source, roles: ['metadata'], offline: true })).toBe(true)
+		for (const invalid of [
+			{},
+			{ ...source, seal: 'short' },
+			{ ...source, roles: ['tool'] },
+			{ ...source, roles: ['maintenance'] },
+			{ ...source, roles: ['metadata'] },
+			{ ...source, offline: 'false' },
+			{ ...source, extra: 1 },
+		])
+			expect(isStudyKeyedSource(invalid)).toBe(false)
 	})
 })

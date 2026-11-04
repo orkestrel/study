@@ -5,6 +5,7 @@ import type {
 	StudyOllamaReplayOptions,
 } from './types.js'
 import { StudyError } from '@src/core'
+import { isBudgetError } from '@orkestrel/budget'
 import { validateStudyExchangeHistory } from '../stores/helpers.js'
 import { isStudyOllamaMetadata } from './validators.js'
 import { describeStudyReplayDifference, splitStudyOllamaChunks } from './helpers.js'
@@ -14,6 +15,7 @@ export class StudyOllamaReplay implements StudyOllamaReplayInterface {
 	readonly #options: StudyOllamaReplayOptions
 	readonly #readers = new Set<ReadableStream<Uint8Array>>()
 	readonly #pending = new Set<Promise<Response>>()
+	readonly #served = new WeakSet<Response>()
 	readonly #started = performance.now()
 	#cursor: number
 	#bytes = 0
@@ -86,7 +88,8 @@ export class StudyOllamaReplay implements StudyOllamaReplayInterface {
 			return Promise.reject(error)
 		}
 		const pending = this.#fetch(role, input, init).catch((error: unknown) => {
-			this.#fault ??= { error }
+			// An Agent budget's cut is reported by Agent's own result, so nothing is retained to re-raise.
+			if (!isBudgetError(error)) this.#fault ??= { error }
 			throw error
 		})
 		this.#pending.add(pending)
@@ -96,6 +99,12 @@ export class StudyOllamaReplay implements StudyOllamaReplayInterface {
 		)
 		return pending
 	}
+
+	/** Reports whether this replay answered a response from the recording.
+	 * @param response - The response its `fetch` returned.
+	 * @returns True if the response came from the recorded prefix; false otherwise.
+	 */
+	readonly served = (response: Response): boolean => this.#served.has(response)
 
 	/** Refuses a mismatch, an unread response or an incompletely consumed prefix. */
 	check(): void {
@@ -188,11 +197,13 @@ export class StudyOllamaReplay implements StudyOllamaReplayInterface {
 			{ highWaterMark: 0 },
 		)
 		this.#readers.add(stream)
-		return new Response(stream, {
+		const served = new Response(stream, {
 			status: pair.response.status,
 			headers: pair.response.headers
 				.filter(([name]) => name !== 'content-encoding')
 				.map(([name, value]): [string, string] => [name, value]),
 		})
+		this.#served.add(served)
+		return served
 	}
 }

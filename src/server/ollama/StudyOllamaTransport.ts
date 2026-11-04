@@ -33,7 +33,6 @@ import { isBudgetError } from '@orkestrel/budget'
 import { isFunction, isRecord, parseJSON } from '@orkestrel/contract'
 import { MAX_TIMEOUT_MS, Timeout } from '@orkestrel/timeout'
 import { buildStudyOllamaSnapshot, buildStudyOllamaTransportOptions } from './cloners.js'
-import { STUDY_OLLAMA_SERVED } from './constants.js'
 import { StudyOllamaExchange } from './StudyOllamaExchange.js'
 import { StudyOllamaGoal } from './StudyOllamaGoal.js'
 import {
@@ -57,6 +56,7 @@ import {
 export class StudyOllamaTransport implements StudyLatchInterface {
 	readonly #options: StudyOllamaTransportOptions
 	readonly #declaration: StudyExchangeDeclaration | undefined
+	readonly #sender: StudyOllamaFetchFunction | undefined
 	#executions: ReadonlyArray<{ readonly goal: string; readonly duration: number }> = []
 	readonly #abort = new AbortController()
 	readonly #sends = new Set<Promise<StudyOllamaExchange>>()
@@ -86,6 +86,9 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		const owned = buildStudyOllamaTransportOptions(options)
 		if (owned.fetch !== undefined && !isFunction(owned.fetch))
 			throw new StudyError('CONFIG', 'Ollama fetch collaborator must be callable')
+		if (owned.fetch !== undefined && owned.replay !== undefined)
+			throw new StudyError('CONFIG', 'Ollama fetch and replay are mutually exclusive')
+		this.#sender = owned.replay?.fetch ?? owned.fetch
 		validateStudyOllamaRoles(owned.roles, owned.models)
 		this.#declaration = structuredClone(validateStudyOllamaCapture(owned))
 		this.#options = owned
@@ -768,9 +771,9 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 			const sent = performance.now()
 			deadline?.start()
 			const response =
-				this.#options.fetch === undefined
+				this.#sender === undefined
 					? await globalThis.fetch(url, { ...settings, signal: bounded, redirect: 'error' })
-					: await this.#fetch(this.#options.fetch, role, url, settings, bounded)
+					: await this.#fetch(this.#sender, role, url, settings, bounded)
 			if (bounded.aborted) {
 				void response.body?.cancel(bounded.reason).catch(() => undefined)
 				bounded.throwIfAborted()
@@ -797,7 +800,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				sent,
 				dispatch,
 				bytes: request.bytes,
-				served: Reflect.get(response, STUDY_OLLAMA_SERVED) === true,
+				served: this.#options.replay?.served(response) === true,
 			})
 			this.#wires.add(wire)
 			return wire

@@ -154,6 +154,79 @@ describe('StudyWorker', () => {
 		}
 	}, 60000)
 
+	it('refuses a keyed declaration that binds another source, before opening its sidecar', async () => {
+		const scratch = createStudyConsumer()
+		try {
+			const entry = await buildStudyCLI(scratch)
+			const retained = await retainStudyExchangeFixture(
+				join(scratch.path, 'ancestor'),
+				'complete',
+				true,
+				true,
+				true,
+			)
+			await retained.store.seal()
+			const result = await readStudyResult(retained.directory)
+			if (result.status !== 'sealed') throw new Error('Missing sealed keyed source')
+			const trial = requireValue(result.manifest.schedule[0])
+			const history = await readStudyExchanges(result, trial.id)
+			const options = buildStudyRecordedSessionOptions(scratch, entry, new AbortController().signal)
+			const profile = {
+				...options.profile,
+				settings: {
+					version: history.declaration.version,
+					metadata: { ...history.declaration.metadata },
+				},
+			}
+			const scenario = requireValue(
+				result.manifest.scenarios.find((candidate) => candidate.id === trial.scenario),
+			)
+			const keyed = { result: retained.directory, roles: ['judge'], offline: false } as const
+			const source = {
+				result: result.manifest.id,
+				seal: 'e'.repeat(64),
+				identity: result.manifest.identity,
+				roles: keyed.roles,
+				offline: keyed.offline,
+			}
+			const declaration = buildStudyExchangeDeclaration(
+				profile,
+				trial,
+				scenario,
+				false,
+				undefined,
+				source,
+			)
+			const worker = createStudyWorker(entry)
+			try {
+				await expect(
+					worker.channel.request(
+						'open',
+						valueToWire({
+							...options,
+							signal: undefined,
+							trial,
+							profile,
+							identity: result.manifest.identity,
+							exchanges: {
+								[trial.id]: { path: join(scratch.path, 'exchanges.jsonl'), declaration },
+							},
+							keyed,
+						}),
+					),
+				).rejects.toMatchObject({
+					code: 'FAULT',
+					message: 'Worker keyed source differs from its declaration',
+				})
+				expect(scratch.has('exchanges.jsonl')).toBe(false)
+			} finally {
+				await worker.close()
+			}
+		} finally {
+			scratch.destroy()
+		}
+	}, 60000)
+
 	it('hands a transported seed to the consumer driver opening and opens fresh without one', async () => {
 		const scratch = createStudyConsumer((consumer) =>
 			writeStudySelectionConsumer(consumer, ['small']),

@@ -4,9 +4,31 @@ import type {
 	StudyOllamaPolicy,
 	StudyOllamaStep,
 } from './types.js'
-import { holds, isRecord } from '@orkestrel/contract'
+import { holds, isArray, isRecord } from '@orkestrel/contract'
 import { STUDY_NAME } from '@src/core'
 import { hashStudyBytes } from '../helpers.js'
+import { STUDY_OLLAMA_KEYED_ROLES } from './constants.js'
+
+/** Checks whether a list holds distinct roles a keyed replay can serve under its offline behavior.
+ * @remarks
+ * `metadata` is admitted only offline: served inventory verifies the recording, not a live daemon.
+ * @param roles - The candidate list.
+ * @param offline - If `true`, no request sends live; if `false`, a miss sends live.
+ * @returns True if the list is nonempty, distinct, and admitted under `offline`; false otherwise.
+ * @example
+ * ```ts
+ * matchesStudyKeyedRoles(['metadata', 'judge'], false) // false
+ * ```
+ */
+export function matchesStudyKeyedRoles(roles: unknown, offline: boolean): boolean {
+	return (
+		isArray(roles) &&
+		roles.length > 0 &&
+		roles.every((role) => STUDY_OLLAMA_KEYED_ROLES.some((entry) => entry === role)) &&
+		new Set(roles).size === roles.length &&
+		(offline || !roles.includes('metadata'))
+	)
+}
 
 /** Checks whether a value declares independent positive metadata allowances.
  * @param value - The untrusted metadata declaration.

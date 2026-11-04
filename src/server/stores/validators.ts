@@ -48,6 +48,7 @@ import { STUDY_RESERVED_NAME } from './constants.js'
 import { hashStudyBytes } from '../helpers.js'
 import { isStudyIdentity } from '../processes/validators.js'
 import {
+	matchesStudyKeyedRoles,
 	isStudyOllamaMetadata,
 	isStudyOllamaModel,
 	isStudyOllamaStep,
@@ -134,7 +135,7 @@ export function isStudyExchangeAncestor(value: unknown): value is StudyExchangeA
 /**
  * Checks whether a value binds a keyed replay's sealed recording and listed roles.
  * @param value - The candidate binding
- * @returns True if its ancestor identity, unique serving roles, and offline behavior are valid; false otherwise
+ * @returns True if its ancestor identity, its roles under the keyed rule, and its offline behavior are valid; false otherwise
  * @example
  * ```ts
  * isStudyKeyedSource({}) // false
@@ -147,10 +148,7 @@ export function isStudyKeyedSource(value: unknown): value is StudyKeyedSource {
 			matchesStudyKeys(value, ['result', 'seal', 'identity', 'roles', 'offline']) &&
 			isStudyAncestor({ result: value.result, seal: value.seal, identity: value.identity }) &&
 			typeof value.offline === 'boolean' &&
-			isArray(value.roles) &&
-			value.roles.length > 0 &&
-			value.roles.every((role) => isStudyRole(role)) &&
-			new Set(value.roles).size === value.roles.length,
+			matchesStudyKeyedRoles(value.roles, value.offline),
 	)
 }
 
