@@ -9,8 +9,8 @@ import { STUDY_LABEL_CONTROLS, buildStudyLabelMap } from '../../../setupServer.j
 describe('parseStudyLabelLane', () => {
 	it('owns one labeler answer under its accountable name', () => {
 		const rows = [{ row: 1, verdict: 'achieved', reason: 'Cites row', revealed: true }]
-		const lane = parseStudyLabelLane({ rows }, 'first')
-		expect(lane).toEqual({ labeler: 'first', rows })
+		const lane = parseStudyLabelLane({ rows }, { labeler: 'first', method: 'human' })
+		expect(lane).toEqual({ labeler: 'first', method: 'human', rows })
 		expect(Object.isFrozen(lane.rows)).toBe(true)
 	})
 
@@ -27,7 +27,7 @@ describe('parseStudyLabelLane', () => {
 			],
 		] as const
 		for (const [value, path] of refusals) {
-			expect(() => parseStudyLabelLane(value, 'first')).toThrow(
+			expect(() => parseStudyLabelLane(value, { labeler: 'first', method: 'model' })).toThrow(
 				expect.objectContaining({ code: 'EVIDENCE', message: expect.stringContaining(path) }),
 			)
 		}

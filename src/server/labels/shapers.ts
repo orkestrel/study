@@ -3,26 +3,21 @@ import {
 	booleanShape,
 	integerShape,
 	jsonShape,
-	literalShape,
 	objectShape,
 	optionalShape,
 	stringShape,
 } from '@orkestrel/contract'
-import { studyDigestShape, studyTextShape } from '@src/core'
-
-/** Describes a verdict a labeler answers. */
-export const studyLabelVerdictShape = literalShape(['achieved', 'unsuccessful', 'unknown'])
-
-/** Describes a one-based neutral row number. */
-export const studyLabelNumberShape = integerShape({ min: 1, max: Number.MAX_SAFE_INTEGER })
-
-/** Describes a zero-based request index. */
-export const studyLabelIndexShape = integerShape({ min: 0, max: Number.MAX_SAFE_INTEGER })
+import {
+	studyDigestShape,
+	studyMeasurementShape,
+	studyTextShape,
+	studyVerdictShape,
+} from '@src/core'
 
 /** Describes one row a labeler returns; the pattern on `reason` refuses a blank reason at the tool call. */
 export const studyLabelAnswerShape = objectShape({
-	row: studyLabelNumberShape,
-	verdict: studyLabelVerdictShape,
+	row: integerShape({ min: 1, max: Number.MAX_SAFE_INTEGER }),
+	verdict: studyVerdictShape,
 	reason: studyTextShape,
 	revealed: optionalShape(booleanShape()),
 })
@@ -36,7 +31,7 @@ export const studyLabelPoolShape = objectShape({
 		objectShape({
 			rows: arrayShape(
 				objectShape({
-					row: studyLabelNumberShape,
+					row: integerShape({ min: 1, max: Number.MAX_SAFE_INTEGER }),
 					input: jsonShape(),
 					product: optionalShape(jsonShape()),
 					assertion: jsonShape(),
@@ -47,8 +42,8 @@ export const studyLabelPoolShape = objectShape({
 	map: objectShape({
 		links: arrayShape(
 			objectShape({
-				row: studyLabelNumberShape,
-				request: studyLabelIndexShape,
+				row: integerShape({ min: 1, max: Number.MAX_SAFE_INTEGER }),
+				request: studyMeasurementShape,
 				packet: studyDigestShape,
 				result: stringShape({ min: 1 }),
 				arm: stringShape({ min: 1 }),
@@ -64,9 +59,9 @@ export const studyLabelPoolShape = objectShape({
 		),
 		checks: arrayShape(
 			objectShape({
-				row: studyLabelNumberShape,
-				request: studyLabelIndexShape,
-				verdict: studyLabelVerdictShape,
+				row: integerShape({ min: 1, max: Number.MAX_SAFE_INTEGER }),
+				request: studyMeasurementShape,
+				verdict: studyVerdictShape,
 			}),
 		),
 	}),

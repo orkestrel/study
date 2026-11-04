@@ -101,22 +101,6 @@ export interface StudyLabelPool {
 	readonly map: StudyLabelMap
 }
 
-/** Holds one packet entry's pooling group, row text, and identities. */
-export interface StudyLabelMember {
-	readonly group: string
-	readonly text: Omit<StudyLabelRow, 'row'>
-	readonly link: Omit<StudyLabelLink, 'row' | 'request'>
-}
-
-/** Holds one row before its number: a packet entry holds a `link`, and a control holds a `verdict`. */
-export interface StudyLabelSeat {
-	readonly rank: string
-	readonly request: number
-	readonly text: Omit<StudyLabelRow, 'row'>
-	readonly link?: Omit<StudyLabelLink, 'row' | 'request'>
-	readonly verdict?: StudyJudgment['verdict']
-}
-
 /** Holds one public evidence row a prompt shows beside its request. */
 export interface StudyLabelReceipt {
 	readonly event: string
@@ -135,6 +119,8 @@ export interface StudyLabelAnswer {
 /** Holds what one labeler returned across its requests. */
 export interface StudyLabelLane {
 	readonly labeler: string
+	/** Names who answered, which each judgment this lane settles carries. */
+	readonly method: Extract<StudyJudgment['method'], 'human' | 'model'>
 	readonly rows: readonly StudyLabelAnswer[]
 }
 
@@ -143,6 +129,8 @@ export interface StudyLabelImportOptions {
 	readonly created: string
 	readonly version: string
 	readonly third?: StudyLabelLane
+	/** If `true`, admits a row a lane left unanswered, counted under `omitted`; otherwise it refuses. */
+	readonly partial?: boolean
 }
 
 /** Holds the labels files of a pool and what their rows came to. */
