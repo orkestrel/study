@@ -908,15 +908,20 @@ export async function readStudyProgress(
 					rows,
 					usage: STUDY_ROLES.flatMap((role): StudyProgressUsage[] => {
 						const values = wires.filter((value) => value.role === role)
-						const timings = values.map((value) =>
+						const spent = values.filter(
+							(value) =>
+								value.replayed !== true &&
+								!(typeof value.ordinal === 'number' && value.ordinal <= prefix),
+						)
+						const timings = spent.map((value) =>
 							isRecord(value.timing) ? value.timing : undefined,
 						)
 						const [prompt, cached, completion] = [
-							values.map((value) => parseStudyMeasurement(value.prompt)),
+							spent.map((value) => parseStudyMeasurement(value.prompt)),
 							timings.map((timing) =>
 								isRecord(timing?.counts) ? parseStudyMeasurement(timing.counts.cached) : undefined,
 							),
-							values.map((value) => parseStudyMeasurement(value.completion)),
+							spent.map((value) => parseStudyMeasurement(value.completion)),
 						].map((measurements) =>
 							measurements.every((measurement) => measurement !== undefined)
 								? measurements.reduce<number>((total, measurement) => total + (measurement ?? 0), 0)
@@ -928,11 +933,7 @@ export async function readStudyProgress(
 									{
 										role,
 										calls: values.length,
-										replayed: values.filter(
-											(value) =>
-												value.replayed === true ||
-												(typeof value.ordinal === 'number' && value.ordinal <= prefix),
-										).length,
+										replayed: values.length - spent.length,
 										prompt,
 										cached,
 										completion,

@@ -478,7 +478,8 @@ export function computeStudyAttributions(sources: readonly StudyAttributionSourc
  * Operations count affected trial and goal records, not independent failure events, and the
  * trial and goal counts overlap and are never added. Completion is operational: a goal is
  * completed when it holds a non-partial product and no failure, and a trial when it holds no
- * failure and every goal completed. It is neither task success nor a qualification gate.
+ * failure and every goal completed. It is neither task success nor a qualification gate. Costs
+ * state what this execution spent, so a request a recording served counts under `replayed` alone.
  * @example
  * ```ts
  * computeStudyReport(result, rubric, assessment)
@@ -492,6 +493,7 @@ export function computeStudyReport(
 	const scores = computeStudyScores(result.manifest, rubric, assessment)
 	const observations = result.attempts.flatMap((attempt) => attempt.observations)
 	const usage = observations.flatMap((observation) => observation.usage)
+	const spent = usage.filter((entry) => entry.replayed !== true)
 	const completed = new Set(
 		observations.filter(
 			(observation) =>
@@ -659,9 +661,10 @@ export function computeStudyReport(
 		costs: {
 			duration: result.attempts.reduce((total, attempt) => total + attempt.duration, 0),
 			roles: STUDY_ROLES.map((role) => {
-				const charges = usage.filter((entry) => entry.role === role)
+				const charges = spent.filter((entry) => entry.role === role)
 				return {
 					role,
+					replayed: usage.filter((entry) => entry.role === role && entry.replayed === true).length,
 					measurements: charges.length,
 					calls: charges.reduce((total, entry) => total + entry.calls, 0),
 					duration: charges.reduce((total, entry) => total + entry.duration, 0),

@@ -290,6 +290,8 @@ export interface StudyUsage {
 	readonly tokens?: number | undefined
 	readonly bytes?: number | undefined
 	readonly duration: number
+	/** Marks a request a recording served, which spends no model time; absent for a live request. */
+	readonly replayed?: true | undefined
 }
 
 /** Holds one admitted request until its actual charge is recorded. */
@@ -497,8 +499,9 @@ export interface StudyScore {
  * Holds one role's request readings over the `wire` evidence rows of one goal.
  * @remarks
  * `calls` counts the role's `wire` rows. `replayed` counts those whose ordinal lies within the
- * exchange prefix the trial's sidecar declaration names as replayed, and those a keyed replay marks
- * `replayed`, and is 0 without either.
+ * exchange prefix the trial's sidecar declaration names as replayed, and those a replay marks
+ * `replayed`, and is 0 without either. `prompt`, `cached`, `completion`, and `total` read the rows
+ * no recording served, so they state what this execution spent.
  * `prompt` and `completion` sum the token counts the rows report; `cached` sums the cached prompt
  * count each row's `timing` reports. Each of those three is undefined when any of the role's rows
  * leaves its reading unreported. `total` sums the Ollama `total_duration` each row's `timing`

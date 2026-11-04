@@ -728,6 +728,7 @@ describe('study command helpers', () => {
 					roles: expect.arrayContaining([
 						{
 							role: 'agent',
+							replayed: 0,
 							measurements: 16,
 							calls: 16,
 							duration: 0,
@@ -901,5 +902,74 @@ describe('study selection helpers', () => {
 				{ repetition: 1, arms: [{ arm: 'small' }, { arm: 'large' }] },
 			],
 		})
+	})
+})
+
+describe('computeStudyReport over a keyed replay', () => {
+	it('reads a served request as replayed, not as spent, and names the keyed source', () => {
+		const base = buildCustodyManifest()
+		const keyed = {
+			result: 'source',
+			seal: 'd'.repeat(64),
+			identity: base.identity,
+			roles: ['judge'],
+			offline: false,
+		} as const
+		const manifest = { ...base, keyed }
+		const attempts = manifest.schedule.map((trial) => {
+			const attempt = buildCustodyAttempt(manifest, trial)
+			return {
+				...attempt,
+				observations: attempt.observations.map((observation, index) =>
+					index === 0
+						? {
+								...observation,
+								usage: [
+									{ role: 'judge', calls: 1, tokens: 11, bytes: 7, duration: 3, replayed: true },
+									{ role: 'judge', calls: 1, tokens: 5, bytes: 2, duration: 1 },
+								] as const,
+							}
+						: { ...observation, usage: [] },
+				),
+			}
+		})
+		const result = buildStudyReportResult(attempts, manifest)
+		const report = computeStudyReport(
+			result,
+			buildStudyRubric(),
+			buildCustodyAssessment(result, buildStudyRubric()),
+		)
+		const count = manifest.schedule.length
+		expect(report).toMatchObject({
+			keyed: { result: 'source', seal: 'd'.repeat(64), roles: ['judge'], offline: false },
+			costs: {
+				roles: expect.arrayContaining([
+					{
+						role: 'judge',
+						replayed: count,
+						measurements: count,
+						calls: count,
+						duration: count,
+						tokens: { known: 5 * count, unknown: 0 },
+						bytes: { known: 2 * count, unknown: 0 },
+					},
+				]),
+			},
+		})
+	})
+
+	it('holds no keyed block without a keyed source', () => {
+		const manifest = buildCustodyManifest()
+		const result = buildStudyReportResult(
+			manifest.schedule.map((trial) => buildCustodyAttempt(manifest, trial)),
+			manifest,
+		)
+		expect(
+			computeStudyReport(
+				result,
+				buildStudyRubric(),
+				buildCustodyAssessment(result, buildStudyRubric()),
+			),
+		).not.toHaveProperty('keyed')
 	})
 })

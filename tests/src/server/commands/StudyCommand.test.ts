@@ -684,6 +684,12 @@ describe('recording and replay command handoff', () => {
 			])
 			const progress = await command.execute(['progress', output, '--from', 'write'], signal)
 			const usage = JSON.stringify(progress)
+			const charges = result.attempts.flatMap((attempt) =>
+				attempt.observations.flatMap((observation) => observation.usage),
+			)
+			expect(charges.filter((entry) => entry.replayed === true).map(({ role }) => role)).toEqual([
+				'judge',
+			])
 			expect(usage).toContain('"role":"judge","calls":1,"replayed":1')
 			expect(usage).toContain('"role":"agent","calls":1,"replayed":0')
 		} finally {

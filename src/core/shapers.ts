@@ -27,13 +27,17 @@ export const studyTimestampShape = stringShape({
 /** Describes a nonnegative safe measurement. */
 export const studyMeasurementShape = integerShape({ min: 0, max: Number.MAX_SAFE_INTEGER })
 
-/** Describes one role's measured request usage; absent `tokens` and `bytes` stay unknown. */
+/** Describes a verdict a judgment holds. */
+export const studyVerdictShape = literalShape(STUDY_VERDICTS)
+
+/** Describes one role's measured request usage; absent `tokens` and `bytes` stay unknown, and `replayed` marks a request served from a recording. */
 export const studyUsageShape = objectShape({
 	role: literalShape(STUDY_ROLES),
 	calls: studyMeasurementShape,
 	duration: studyMeasurementShape,
 	tokens: optionalShape(studyMeasurementShape),
 	bytes: optionalShape(studyMeasurementShape),
+	replayed: optionalShape(literalShape([true])),
 })
 
 /** Describes a grader-owned criterion an author fills. */

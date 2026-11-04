@@ -776,7 +776,14 @@ describe('readStudyProgress', () => {
 					{
 						...write,
 						usage: write.usage.map((usage) =>
-							usage.role === 'agent' ? { ...usage, replayed } : usage,
+							// Ordinals 1 and 2 replay, so only ordinal 3's 30, 9, and 300 are spent.
+							usage.role === 'agent'
+								? {
+										...usage,
+										replayed,
+										...(replayed === 0 ? {} : { prompt: 30, completion: 9, total: 300 }),
+									}
+								: usage,
 						),
 					},
 					read,

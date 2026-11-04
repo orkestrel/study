@@ -978,6 +978,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 							: undefined,
 				bytes: wire.bytes,
 				duration: Math.ceil(performance.now() - wire.started),
+				...(wire.served ? { replayed: true } : {}),
 			})
 		} finally {
 			this.#wires.delete(wire)

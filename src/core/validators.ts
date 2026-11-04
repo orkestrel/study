@@ -523,7 +523,8 @@ export function isStudyUsage(value: unknown): value is StudyUsage {
 	return holds(() => {
 		return (
 			isRecord(value) &&
-			matchesStudyKeys(value, ['role', 'calls', 'duration'], ['tokens', 'bytes']) &&
+			matchesStudyKeys(value, ['role', 'calls', 'duration'], ['tokens', 'bytes', 'replayed']) &&
+			(value.replayed === undefined || value.replayed === true) &&
 			isStudyRole(value.role) &&
 			['calls', 'duration'].every(
 				(key) =>
