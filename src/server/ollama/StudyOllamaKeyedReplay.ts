@@ -27,7 +27,8 @@ export class StudyOllamaKeyedReplay implements StudyOllamaReplayInterface {
 	 * @param options - Verified histories, listed roles, executing origin, and the optional live sender.
 	 */
 	constructor(options: StudyOllamaKeyedReplayOptions) {
-		const { histories, signal, fetch, roles, url } = options
+		const { signal, fetch, ...configuration } = options
+		const { histories, roles, url } = structuredClone(configuration)
 		for (const history of histories) validateStudyExchangeHistory(history)
 		const location = new URL(url)
 		if (
@@ -43,7 +44,7 @@ export class StudyOllamaKeyedReplay implements StudyOllamaReplayInterface {
 			throw new StudyError('CONFIG', 'Keyed replay requires listed roles and an explicit origin')
 		signal.throwIfAborted()
 		this.#options = {
-			roles: [...roles],
+			roles,
 			url,
 			signal,
 			...(fetch === undefined ? {} : { fetch }),

@@ -2,6 +2,7 @@ import type { StudyRole } from '../../../../src/core/types.js'
 import { createRecorder, requireValue } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import { StudyOllamaKeyedReplay } from '../../../../src/server/ollama/StudyOllamaKeyedReplay.js'
+import { buildStudyOllamaBytes } from '../../../../src/server/ollama/helpers.js'
 import {
 	buildStudyExchangeHistory,
 	buildStudyKeyedHistory,
@@ -44,6 +45,62 @@ describe('StudyOllamaKeyedReplay', () => {
 			expect(await again.text()).toBe(text)
 			expect(sent.calls).toEqual([])
 			replay.check()
+		} finally {
+			await replay.close()
+		}
+	})
+
+	it('serves its own copy, so a later change to the record it was given reaches no reply', async () => {
+		const history = buildStudyKeyedHistory(['agent'], ['original'])
+		const { attempt, response } = requireValue(
+			history.exchanges.find((pair) => pair.attempt.stage === 'execution'),
+		)
+		const replay = new StudyOllamaKeyedReplay({
+			histories: [history],
+			roles: ['agent'],
+			url: URL_ORIGIN,
+			signal: new AbortController().signal,
+		})
+		try {
+			Object.assign(response, buildStudyOllamaBytes(Buffer.from('modified')), { chunks: [8] })
+			const served = await replay.fetch('agent', `${URL_ORIGIN}${attempt.path}`, {
+				method: attempt.method,
+				body: Buffer.from(attempt.body, 'base64').toString(),
+			})
+			expect(replay.served(served)).toBe(true)
+			expect(await served.text()).toBe('original')
+		} finally {
+			await replay.close()
+		}
+	})
+
+	it('validates and indexes one read of each history, so a value that shifts between reads serves nothing else', async () => {
+		const history = buildStudyKeyedHistory(['agent'], ['original'])
+		const { attempt } = requireValue(
+			history.exchanges.find((pair) => pair.attempt.stage === 'execution'),
+		)
+		const tampered = buildStudyKeyedHistory(['agent'], ['tampered']).exchanges
+		const reads = createRecorder<readonly []>()
+		const shifting = Object.defineProperty({ ...history }, 'exchanges', {
+			enumerable: true,
+			get: () => {
+				reads.handler()
+				return reads.calls.length === 1 ? history.exchanges : tampered
+			},
+		})
+		const replay = new StudyOllamaKeyedReplay({
+			histories: [shifting],
+			roles: ['agent'],
+			url: URL_ORIGIN,
+			signal: new AbortController().signal,
+		})
+		try {
+			const served = await replay.fetch('agent', `${URL_ORIGIN}${attempt.path}`, {
+				method: attempt.method,
+				body: Buffer.from(attempt.body, 'base64').toString(),
+			})
+			expect(await served.text()).toBe('original')
+			expect(reads.calls).toHaveLength(1)
 		} finally {
 			await replay.close()
 		}
