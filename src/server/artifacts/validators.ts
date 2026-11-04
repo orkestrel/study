@@ -38,16 +38,20 @@ export function isArtifactLoaderOptions(value: unknown): value is ArtifactLoader
 	return holds(
 		() =>
 			isRecord(value) &&
-			arrayOf(isString)(value.entries) &&
-			arrayOf(isString)(value.roots) &&
+			isArray(value.entries) &&
 			value.entries.length <= ARTIFACT_FILES &&
+			arrayOf(isString)(value.entries) &&
+			isArray(value.roots) &&
 			value.roots.length <= ARTIFACT_ROOTS &&
+			arrayOf(isString)(value.roots) &&
 			(value.source === undefined ||
 				(isRecord(value.source) && isString(value.source.root) && isString(value.source.entry))) &&
 			(value.instrument === undefined || isString(value.instrument)) &&
 			(value.excluded === undefined || arrayOf(isString)(value.excluded)) &&
 			(value.assets === undefined ||
-				(arrayOf(isString)(value.assets) && value.assets.length <= ARTIFACT_FILES)),
+				(isArray(value.assets) &&
+					value.assets.length <= ARTIFACT_FILES &&
+					arrayOf(isString)(value.assets))),
 	)
 }
 

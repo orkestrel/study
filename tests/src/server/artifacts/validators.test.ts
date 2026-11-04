@@ -1,6 +1,8 @@
+import { createRecorder } from '@orkestrel/test'
 import { createScratch, destroyScratch } from '@orkestrel/test/server'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
+import { ARTIFACT_FILES, ARTIFACT_ROOTS } from '../../../../src/server/artifacts/constants.js'
 import { ArtifactLoader } from '../../../../src/server/artifacts/ArtifactLoader.js'
 import {
 	isArtifactClosure,
@@ -14,6 +16,21 @@ import {
 	ARTIFACT_REFUSED_KEYS,
 	buildArtifactClosureOptions,
 } from '../../../setupServer.js'
+
+it.each(['entries', 'roots', 'assets'])(
+	'refuses an oversized %s selection before reading any of its elements',
+	(group) => {
+		const limit = group === 'roots' ? ARTIFACT_ROOTS : ARTIFACT_FILES
+		const reads = createRecorder<readonly []>()
+		const selection = Object.defineProperty(
+			Array.from({ length: limit + 1 }, () => 'path'),
+			0,
+			{ enumerable: true, get: () => (reads.handler(), 'path') },
+		)
+		expect(isArtifactLoaderOptions({ entries: [], roots: [], [group]: selection })).toBe(false)
+		expect(reads.calls).toEqual([])
+	},
+)
 
 it('narrows closure shapes and refuses malformed and unreadable records without throwing', async () => {
 	const scratch = createScratch({ files: ARTIFACT_CLOSURE_FILES })
