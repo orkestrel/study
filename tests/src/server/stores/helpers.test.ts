@@ -1,3 +1,5 @@
+import { retainStudyExchangeFixture } from '../../../setupServer.js'
+import { STUDY_ATTEMPT_PART, STUDY_CUSTODY_BYTES } from '../../../../src/server/stores/constants.js'
 import type { StudyProgressTarget } from '../../../../src/server/adapters/types.js'
 import type { Socket } from 'node:net'
 import { parseJSON } from '@orkestrel/contract'
@@ -19,7 +21,6 @@ import {
 	buildStudyRubric,
 	buildStudySparse,
 } from '../../../setupStudy.js'
-import { STUDY_CUSTODY_BYTES } from '../../../../src/server/stores/constants.js'
 import {
 	STUDY_PROGRESS_SCALE,
 	buildCustodyPacketLabels,
@@ -48,6 +49,9 @@ import {
 	advanceStudyExchangeProgress,
 	buildStudyExchangeProgress,
 	validateStudyExchangeRows,
+	publishStudyBytes,
+	projectStudyExchangeIdentity,
+	readStudyTrialExchanges,
 	readStudyProgress,
 	readStudyProgressAttempt,
 	readStudyProgressPrefix,
@@ -1190,6 +1194,223 @@ describe('readStudyProgressAttempt and readStudyProgressPrefix', () => {
 				readStudyProgressAttempt(scratch.path, manifest, trial, false),
 			).resolves.toBeUndefined()
 			await expect(readStudyProgressPrefix(scratch.path, trial)).resolves.toBe(0)
+		} finally {
+			scratch.destroy()
+		}
+	})
+})
+
+describe('exchange journal checks a row alone reaches', () => {
+	const record = { bytes: 1048576, calls: 256, duration: 15000 }
+	const journal = buildOpenStudyExchangeRows('r1-first-small', record, 3)
+	const firstExecution = journal.findIndex(
+		(row) => (row.phase === 'attempt' || row.phase === 'response') && row.stage === 'execution',
+	)
+	const lastPreflight = firstExecution - 2
+
+	it('refuses a step off its execution count', () => {
+		const rows = journal.map((row) =>
+			(row.phase === 'attempt' || row.phase === 'response') &&
+			row.stage === 'execution' &&
+			row.ordinal === 4
+				? { ...row, step: 2 }
+				: row,
+		)
+		expect(() => validateStudyExchangeRows(rows, false)).toThrow(/horizon, calls or stage order/)
+	})
+
+	it('refuses an execution past the declared calls', () => {
+		const rows = journal.map((row) =>
+			row.phase === 'declaration' ? { ...row, record: { ...record, calls: 2 } } : row,
+		)
+		expect(() => validateStudyExchangeRows(rows, false)).toThrow(/horizon, calls or stage order/)
+		expect(() => validateStudyExchangeRows(rows.slice(0, firstExecution + 4), false)).not.toThrow()
+	})
+
+	it('refuses an ordinal that skips a dropped preflight exchange', () => {
+		const rows = journal.filter(
+			(_row, index) => index !== lastPreflight && index !== lastPreflight + 1,
+		)
+		expect(() => validateStudyExchangeRows(rows, false)).toThrow(/not contiguous/)
+	})
+
+	it('refuses a contiguous execution before preflight has finished', () => {
+		const rows = journal
+			.filter((_row, index) => index !== lastPreflight && index !== lastPreflight + 1)
+			.map((row) =>
+				(row.phase === 'attempt' || row.phase === 'response') && row.ordinal > 3
+					? { ...row, ordinal: row.ordinal - 1 }
+					: row,
+			)
+		expect(() => validateStudyExchangeRows(rows, false)).toThrow(/horizon, calls or stage order/)
+	})
+
+	it('refuses a model attempt after a postflight attempt', () => {
+		const postflight = journal.findIndex(
+			(row) => (row.phase === 'attempt' || row.phase === 'response') && row.stage === 'postflight',
+		)
+		const execution = requireValue(journal[firstExecution])
+		if (execution.phase !== 'attempt') throw new Error('Missing execution attempt')
+		const rows = [...journal.slice(0, postflight + 2), { ...execution, ordinal: 8, step: 4 }]
+		expect(() => validateStudyExchangeRows(rows, false)).toThrow(/horizon, calls or stage order/)
+	})
+
+	it('refuses a completion whose count differs, and one short of the closing verification', () => {
+		const counted = journal.map((row) =>
+			row.phase === 'complete' ? { ...row, count: row.count + 1 } : row,
+		)
+		expect(() => validateStudyExchangeRows(counted)).toThrow(/partial or failed/)
+		const complete = requireValue(journal.at(-1))
+		if (complete.phase !== 'complete') throw new Error('Missing completion')
+		const short = [...journal.slice(0, -3), { ...complete, count: complete.count - 1 }]
+		expect(() => validateStudyExchangeRows(short)).toThrow(/partial or failed/)
+		const uncounted = [...journal.slice(0, -3), complete]
+		expect(() => validateStudyExchangeRows(uncounted)).toThrow(/partial or failed/)
+	})
+
+	it('refuses a completion after a failure terminal', () => {
+		const response = requireValue(journal.at(-2))
+		const complete = requireValue(journal.at(-1))
+		if (response.phase !== 'response') throw new Error('Missing response')
+		const failed = [
+			...journal.slice(0, -2),
+			{ ...projectStudyExchangeIdentity(response), phase: 'failure', reason: 'Broken' } as const,
+			complete,
+		]
+		expect(() => validateStudyExchangeRows(failed)).toThrow(/partial or failed/)
+	})
+})
+
+describe('readStudyProgressPrefix refusals', () => {
+	it('refuses a first line past the custody allowance and a sidecar it cannot open', async () => {
+		const scratch = createScratch()
+		try {
+			await writeFile(
+				join(scratch.path, 'exchanges.jsonl'),
+				Buffer.alloc(STUDY_CUSTODY_BYTES, 0x20),
+			)
+			await expect(readStudyProgressPrefix(scratch.path, 'r1')).rejects.toMatchObject({
+				code: 'CUSTODY',
+				message: 'Exchange declaration of trial r1 is invalid',
+			})
+			await expect(readStudyProgressPrefix(`${scratch.path}\0`, 'r1')).rejects.toMatchObject({
+				code: 'CUSTODY',
+			})
+		} finally {
+			scratch.destroy()
+		}
+	})
+})
+
+describe('publishStudyBytes', () => {
+	it('leaves the path absent until the bytes are complete, then holds them with no staged file', async () => {
+		const scratch = createScratch()
+		try {
+			const path = join(scratch.path, 'attempt.json')
+			const part = join(scratch.path, 'attempt.part')
+			await publishStudyBytes(path, Buffer.from('{}'), part)
+			expect(await readFile(path, 'utf8')).toBe('{}')
+			expect(readdirSync(scratch.path)).toEqual(['attempt.json'])
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('refuses an occupied path and a leftover staged file, and leaves the path alone', async () => {
+		const scratch = createScratch()
+		try {
+			const path = join(scratch.path, 'attempt.json')
+			const part = join(scratch.path, 'attempt.part')
+			await writeFile(part, 'partial')
+			await expect(publishStudyBytes(path, Buffer.from('{}'), part)).rejects.toMatchObject({
+				code: 'EEXIST',
+			})
+			expect(readdirSync(scratch.path)).toEqual(['attempt.part'])
+			await writeFile(path, 'kept')
+			await rm(part)
+			await expect(publishStudyBytes(path, Buffer.from('{}'), part)).rejects.toMatchObject({
+				code: 'CUSTODY',
+			})
+			expect(await readFile(path, 'utf8')).toBe('kept')
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('reads a staged attempt in a live result as a running trial, and refuses it in a seal', async () => {
+		const scratch = createScratch()
+		try {
+			const manifest = buildCustodyManifest()
+			const trial = requireValue(manifest.schedule[0])
+			const directory = join(scratch.path, 'live')
+			await writeStudyProgressResult(directory, manifest, {
+				[trial.id]: [{ event: 'saved', goal: 'write', value: 1 }],
+			})
+			await writeFile(
+				join(directory, 'execution', 'trials', trial.id, STUDY_ATTEMPT_PART),
+				'{"partial":',
+			)
+			expect((await readStudyProgress(directory)).trials[0]?.ended).toBe(false)
+			await expect(readStudyResult(directory)).resolves.toMatchObject({ status: 'interrupted' })
+			const sealed = await retainStudyFixture(join(scratch.path, 'sealed'))
+			await writeFile(
+				join(
+					sealed.directory,
+					'execution',
+					'trials',
+					requireValue(sealed.manifest.schedule[0]).id,
+					STUDY_ATTEMPT_PART,
+				),
+				'{}',
+			)
+			await expect(readStudyResult(sealed.directory)).rejects.toMatchObject({ code: 'CUSTODY' })
+		} finally {
+			scratch.destroy()
+		}
+	})
+})
+
+describe('readStudyTrialExchanges keyed binding', () => {
+	it('refuses a manifest whose keyed source its sidecar does not declare', async () => {
+		const scratch = createScratch()
+		try {
+			const retained = await retainStudyExchangeFixture(
+				join(scratch.path, 'recorded'),
+				'complete',
+				true,
+				true,
+				true,
+			)
+			await retained.store.seal()
+			const result = await readStudyResult(retained.directory)
+			if (result.status !== 'sealed') throw new Error('Missing sealed recording')
+			const trial = requireValue(result.manifest.schedule[0]).id
+			const file = requireValue(
+				result.seal.files.find((entry) => entry.path === `trials/${trial}/exchanges.jsonl`),
+			)
+			await expect(
+				readStudyTrialExchanges(result.directory, result.manifest, trial, file),
+			).resolves.toBeDefined()
+			await expect(
+				readStudyTrialExchanges(
+					result.directory,
+					{
+						...result.manifest,
+						keyed: {
+							result: 'source',
+							seal: 'd'.repeat(64),
+							identity: result.manifest.identity,
+							roles: ['judge'],
+							offline: false,
+						},
+					},
+					trial,
+					file,
+				),
+			).rejects.toMatchObject({
+				code: 'CUSTODY',
+				message: 'Exchange declaration differs from its trial',
+			})
 		} finally {
 			scratch.destroy()
 		}

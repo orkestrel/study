@@ -192,8 +192,9 @@ export type StudyExchangeRow =
  * @remarks
  * `prefix` counts the maintenance and preflight exchanges and `postflight` the closing verification
  * exchanges the declaration requires. `execution` counts model attempts and `goal` holds the last
- * one's index among the declared goals. `concluded` reports a postflight attempt, `failed` a failure
- * terminal, and `closed` the completion row.
+ * one's index among the declared goals. `closed` reports the completion row. A failure terminal needs
+ * no flag, because no attempt or completion can follow one, and a model attempt after a postflight
+ * attempt cannot equal both its contiguous ordinal and its prefix ordinal.
  */
 export interface StudyExchangeProgress {
 	readonly declaration: StudyExchangeDeclaration
@@ -203,8 +204,6 @@ export interface StudyExchangeProgress {
 	readonly attempts: number
 	readonly execution: number
 	readonly goal: number | undefined
-	readonly concluded: boolean
-	readonly failed: boolean
 	readonly closed: boolean
 }
 

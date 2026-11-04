@@ -1163,8 +1163,6 @@ export function buildStudyExchangeProgress(
 		attempts: 0,
 		execution: 0,
 		goal: undefined,
-		concluded: false,
-		failed: false,
 		closed: false,
 	}
 }
@@ -1202,8 +1200,7 @@ export function advanceStudyExchangeProgress(
 				progress.execution >= declaration.record.calls ||
 				goal === undefined ||
 				goal < 0 ||
-				(progress.goal !== undefined && goal < progress.goal) ||
-				progress.concluded)
+				(progress.goal !== undefined && goal < progress.goal))
 		)
 			throw new StudyError('CUSTODY', 'Execution differs from its horizon, calls or stage order')
 		validateStudyExchangeRequest(declaration, row, execution)
@@ -1213,7 +1210,6 @@ export function advanceStudyExchangeProgress(
 			attempts: progress.attempts + 1,
 			execution,
 			goal,
-			concluded: progress.concluded || row.stage === 'postflight',
 		}
 	}
 	if (row.phase === 'response' || row.phase === 'failure') {
@@ -1223,16 +1219,14 @@ export function advanceStudyExchangeProgress(
 				canonicalStringify(projectStudyExchangeIdentity(row))
 		)
 			throw new StudyError('CUSTODY', 'Exchange terminal has no matching attempt')
-		return { ...progress, previous: row, failed: progress.failed || row.phase === 'failure' }
+		return { ...progress, previous: row }
 	}
 	if (row.phase === 'complete') {
 		if (
 			previous.phase !== 'response' ||
 			row.count !== progress.attempts ||
 			row.count !== prefix + progress.execution + progress.postflight ||
-			(declaration.procedure !== undefined &&
-				progress.execution !== declaration.procedure.length) ||
-			progress.failed
+			(declaration.procedure !== undefined && progress.execution !== declaration.procedure.length)
 		)
 			throw new StudyError('CUSTODY', 'Exchange completion is partial or failed')
 		return { ...progress, previous: row, closed: true }
