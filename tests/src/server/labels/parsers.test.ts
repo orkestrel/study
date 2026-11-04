@@ -19,12 +19,12 @@ describe('parseStudyLabelLane', () => {
 			[{}, 'rows: missing; expected array'],
 			[
 				{ rows: [{ row: 0, verdict: 'achieved', reason: 'Why' }] },
-				'rows.0.row: constraint; expected integer; received "0"; constraint min; limit 1',
+				'rows.0.row: constraint; expected integer; received 0; constraint min; limit 1',
 			],
 			[{ rows: [{ row: 1, verdict: 'maybe', reason: 'Why' }] }, 'rows.0.verdict'],
 			[
 				{ rows: [{ row: 1, verdict: 'unknown', reason: ' ' }] },
-				'rows.0.reason: constraint; expected string; received "\\" \\""; constraint pattern',
+				'rows.0.reason: constraint; expected string; received " "; constraint pattern',
 			],
 			[{ rows: [{ row: 1, verdict: 'unknown' }] }, 'rows.0.reason: missing; expected string'],
 			[
