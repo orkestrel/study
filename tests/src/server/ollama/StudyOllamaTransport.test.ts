@@ -1,7 +1,13 @@
 import { createRejectedStudyJudge } from '../../../setupStudy.js'
 import type { StudyOllamaFetchFunction } from '../../../../src/server/ollama/types.js'
 import { STUDY_STOP_SWITCHES, StudyLog, readSettled } from '../../../setupStudy.js'
-import { createForeignBudgetError, createBudgetLookalike } from '../../../setupServer.js'
+import {
+	buildStudyKeyedHistory,
+	createForeignBudgetError,
+	createBudgetLookalike,
+} from '../../../setupServer.js'
+import { BudgetError } from '@orkestrel/budget'
+import { StudyOllamaKeyedReplay } from '../../../../src/server/ollama/StudyOllamaKeyedReplay.js'
 import { describe, expect, it } from 'vitest'
 import { parseJSON, isRecord } from '@orkestrel/contract'
 import { createScratch } from '@orkestrel/test/server'
@@ -3212,6 +3218,8 @@ describe('transport stop chain', () => {
 				budget: { id: 'foreign', max: 1, consumed: 2 },
 				id: 1,
 			})
+			expect(fixture.goal.evidence[1]?.value).not.toHaveProperty('replayed')
+			expect(fixture.goal.meter.meter.usage[0]).not.toHaveProperty('replayed')
 			expect(() => fixture.transport.check()).not.toThrow()
 			fixture.transport.clear()
 			expect(() =>
@@ -3327,6 +3335,60 @@ describe('transport stop chain', () => {
 })
 
 describe('transport replay option', () => {
+	it('keeps the served mark through a budget cut, in the cut row and the usage', async () => {
+		const origin = 'http://127.0.0.1:1'
+		const history = buildStudyKeyedHistory(['agent'], [STUDY_OLLAMA_PARTIAL_ROW])
+		const { attempt } = requireValue(
+			history.exchanges.find((pair) => pair.attempt.stage === 'execution'),
+		)
+		const replay = new StudyOllamaKeyedReplay({
+			histories: [history],
+			roles: ['agent'],
+			url: origin,
+			signal: new AbortController().signal,
+		})
+		const transport = new StudyOllamaTransport(
+			buildOllamaTransportOptions(origin, {
+				replay,
+				roles: {
+					agent: {
+						model: 'model',
+						options: { num_ctx: 32, num_predict: 8 },
+						think: false,
+						strict: false,
+						length: false,
+					},
+				},
+			}),
+		)
+		const goal = createOllamaContext()
+		try {
+			transport.prepare({ goal: 'first', context: goal.context, checkpoint: undefined })
+			const response = await transport.fetch('agent', `${origin}${attempt.path}`, {
+				method: attempt.method,
+				body: Buffer.from(attempt.body, 'base64').toString(),
+			})
+			await requireValue(response.body).cancel(
+				new BudgetError({ id: 'budget', max: 1, consumed: 2 }),
+			)
+			expect(goal.evidence.map((row) => row.event)).toEqual(['dispatch', 'cut'])
+			expect(goal.evidence[1]?.value).toMatchObject({
+				role: 'agent',
+				status: 200,
+				budget: { id: 'budget', max: 1, consumed: 2 },
+				replayed: true,
+			})
+			expect(goal.meter.meter.usage).toMatchObject([
+				{ role: 'agent', calls: 1, tokens: undefined, replayed: true },
+			])
+			expect(() => transport.check()).not.toThrow()
+		} finally {
+			await transport.close()
+			await replay.close()
+			goal.close()
+		}
+	})
+
 	it('refuses a replay beside a fetch collaborator', async () => {
 		await expect(
 			createOllamaTransportFixture([], {

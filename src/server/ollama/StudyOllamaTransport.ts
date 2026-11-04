@@ -1010,6 +1010,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 						stop === undefined
 							? null
 							: { id: stop.id, max: stop.max ?? null, consumed: stop.consumed ?? null },
+					...(wire.served ? { replayed: true } : {}),
 					...observation,
 				},
 			})
@@ -1020,6 +1021,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 					tokens: undefined,
 					bytes: wire.bytes,
 					duration: Math.ceil(performance.now() - wire.started),
+					...(wire.served ? { replayed: true } : {}),
 				})
 		} catch (failure) {
 			this.fail(failure)
