@@ -1,22 +1,58 @@
 import type {
+	StudyContractOptions,
 	StudyDefinition,
 	StudyAssessment,
+	StudyJudgment,
 	StudyLabels,
 	StudyProfile,
 	StudyRubric,
 	StudyScenario,
 } from './types.js'
-import { cloneJSONValue, isFiniteNumber } from '@orkestrel/contract'
+import { attempt, cloneJSONValue, isArray, isFiniteNumber } from '@orkestrel/contract'
+import { studyJudgmentContract, studyLabelsContract, studyRubricContract } from './contracts.js'
 import { StudyError } from './errors.js'
-import { normalizeStudyProfile } from './helpers.js'
+import {
+	describeStudyFault,
+	normalizeStudyLabels,
+	normalizeStudyProfile,
+	scanStudyJudgmentFaults,
+	scanStudyLabelsFaults,
+	scanStudyRubricFaults,
+} from './helpers.js'
 import {
 	isStudyDefinition,
 	isStudyAssessment,
-	isStudyLabels,
+	isStudyJudgment,
 	isStudyProfile,
-	isStudyRubric,
 	isStudyScenario,
 } from './validators.js'
+
+/**
+ * Parses a filled value into an owned frozen snapshot through one contract validation.
+ * @param value - The unknown value
+ * @param options - The refusal code, the value's name, the contract, and what its shape cannot express
+ * @returns The owned value
+ * @throws StudyError - Thrown with `options.code`, naming each refused field's path, or stating the value is unreadable when it holds a read that is not plain JSON data
+ * @example
+ * ```ts
+ * parseStudyContract({}, { code: 'CONFIG', noun: 'study rubric', contract: studyRubricContract, scan: scanStudyRubricFaults })
+ * // throws a StudyError naming version and criteria
+ * ```
+ */
+export function parseStudyContract<T>(value: unknown, options: StudyContractOptions<T>): T {
+	const { code, noun, contract, scan } = options
+	const owned = attempt((): unknown => cloneJSONValue(value))
+	if (!owned.success) throw new StudyError(code, `Invalid or unreadable ${noun}`)
+	const snapshot = owned.value
+	if (!contract.is(snapshot))
+		throw new StudyError(
+			code,
+			`Invalid ${noun}: ${contract.audit(snapshot).map(describeStudyFault).join('; ')}`,
+		)
+	const faults = scan(snapshot)
+	if (faults.length > 0) throw new StudyError(code, `Invalid ${noun}: ${faults.join('; ')}`)
+	return snapshot
+}
 
 /**
  * Parses a foreign reading into a number a stop can retain.
@@ -106,14 +142,12 @@ export function parseStudyProfile(value: unknown): StudyProfile {
  * ```
  */
 export function parseStudyRubric(value: unknown): StudyRubric {
-	try {
-		if (!isStudyRubric(value)) throw new StudyError('CONFIG', 'Invalid study rubric')
-		const snapshot = cloneJSONValue(value)
-		if (isStudyRubric(snapshot)) return snapshot
-	} catch {
-		throw new StudyError('CONFIG', 'Invalid or unreadable study rubric')
-	}
-	throw new StudyError('CONFIG', 'Invalid study rubric snapshot')
+	return parseStudyContract(value, {
+		code: 'CONFIG',
+		noun: 'study rubric',
+		contract: studyRubricContract,
+		scan: scanStudyRubricFaults,
+	})
 }
 
 /**
@@ -154,19 +188,39 @@ export function parseStudyAssessment(value: unknown): StudyAssessment {
  * ```
  */
 export function parseStudyLabels(value: unknown): StudyLabels {
-	try {
-		if (!isStudyLabels(value)) throw new StudyError('EVIDENCE', 'Invalid study labels')
-		const snapshot = cloneJSONValue({
-			...value,
-			usage: value.usage.map(({ tokens, bytes, ...usage }) => ({
-				...usage,
-				...(tokens === undefined ? {} : { tokens }),
-				...(bytes === undefined ? {} : { bytes }),
-			})),
-		})
-		if (isStudyLabels(snapshot)) return snapshot
-	} catch {
-		throw new StudyError('EVIDENCE', 'Invalid or unreadable study labels')
-	}
-	throw new StudyError('EVIDENCE', 'Invalid study labels snapshot')
+	const normalized = attempt(() => normalizeStudyLabels(value))
+	if (!normalized.success) throw new StudyError('EVIDENCE', 'Invalid or unreadable study labels')
+	return parseStudyContract(normalized.value, {
+		code: 'EVIDENCE',
+		noun: 'study labels',
+		contract: studyLabelsContract,
+		scan: scanStudyLabelsFaults,
+	})
+}
+
+/**
+ * Parses a grader's returned judgments, checking each element with the hand guard and naming a refused one's fields by the contract.
+ * @param value - The unknown returned list
+ * @returns The list, each element a judgment
+ * @throws StudyError - Thrown with `FAULT` naming the refused element's fields
+ * @example
+ * ```ts
+ * parseStudyJudgments([]) // []
+ * ```
+ */
+export function parseStudyJudgments(value: unknown): readonly StudyJudgment[] {
+	if (!isArray(value))
+		throw new StudyError('FAULT', 'Grader returned invalid judgments: value: expected array')
+	const accepted = value.filter(isStudyJudgment)
+	if (accepted.length === value.length) return accepted
+	const faults = value.flatMap((entry, index) => {
+		if (isStudyJudgment(entry)) return []
+		const found = studyJudgmentContract
+			.audit(entry)
+			.map((fault) => `${String(index)}: ${describeStudyFault(fault)}`)
+		return found.length > 0 || !studyJudgmentContract.is(entry)
+			? found
+			: scanStudyJudgmentFaults(entry, String(index))
+	})
+	throw new StudyError('FAULT', `Grader returned invalid judgments: ${faults.join('; ')}`)
 }

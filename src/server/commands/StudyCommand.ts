@@ -29,7 +29,7 @@ import {
 	parseStudyProfile,
 	parseStudyRubric,
 	StudySeries,
-	isStudyJudgment,
+	parseStudyJudgments,
 } from '@src/core'
 import {
 	arrayOf,
@@ -796,9 +796,7 @@ export class StudyCommand {
 			},
 			signal,
 		)
-		const judgments: unknown = evaluated.value
-		if (!isArray(judgments) || !judgments.every(isStudyJudgment))
-			throw new StudyError('FAULT', 'Grader returned invalid judgments')
+		const judgments = parseStudyJudgments(evaluated.value)
 		const digest = hashStudyBytes(bytes)
 		const packet = buildStudyPacket(result, rubric, digest)
 		const assessment: StudyAssessment = {

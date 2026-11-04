@@ -3,6 +3,8 @@ import type {
 	StudyAssessment,
 	StudyCriterion,
 	StudyGoal,
+	StudyJudgment,
+	StudyLabels,
 	StudyManifest,
 	StudyProfile,
 	StudyRange,
@@ -12,8 +14,8 @@ import type {
 	StudyStop,
 	StudyTrial,
 } from './types.js'
-import type { JSONValue } from '@orkestrel/contract'
-import { holds, canonicalStringify, isRecord } from '@orkestrel/contract'
+import type { AuditFault, JSONValue } from '@orkestrel/contract'
+import { holds, canonicalStringify, isArray, isRecord, isString } from '@orkestrel/contract'
 import { StudyError } from './errors.js'
 import {
 	isStudyDefinition,
@@ -21,6 +23,7 @@ import {
 	isStudyProfile,
 	isStudyRubric,
 	isStudyScenario,
+	isStudyTimestamp,
 } from './validators.js'
 
 /**
@@ -34,6 +37,115 @@ import {
  */
 export function omitStudyAbsent(value: object): Readonly<Record<string, unknown>> {
 	return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined))
+}
+
+/**
+ * Renders a contract fault as the path it names and what the value broke there.
+ * @param fault - One audit fault
+ * @returns The path, dotted, then the fault; a root fault names `value`
+ * @example
+ * ```ts
+ * describeStudyFault({ reason: 'extra', path: ['judgments', '0', 'weight'] }) // 'judgments.0.weight: undeclared key'
+ * ```
+ */
+export function describeStudyFault(fault: AuditFault): string {
+	const path = (isString(fault.path) ? fault.path : fault.path.join('.')) || 'value'
+	if (fault.reason === 'extra') return `${path}: undeclared key`
+	if (fault.reason === 'missing') return `${path}: missing ${fault.expected}`
+	if (fault.reason === 'type')
+		return `${path}: expected ${fault.expected}, received ${fault.received}`
+	if (fault.reason === 'constraint')
+		return `${path}: breaks ${fault.constraint}${fault.limit === undefined ? '' : ` ${String(fault.limit)}`}, received ${fault.received}`
+	if (fault.reason === 'variant')
+		return `${path}: matches none of ${String(fault.variants)} variants`
+	return `${path}: matches ${String(fault.matched)} variants, not one`
+}
+
+/**
+ * Lists what a judgment's shape cannot express: unique references and evidence behind a verdict.
+ * @param judgment - A judgment its contract accepted
+ * @param path - The judgment's dotted path in its document
+ * @returns One line per fault, each naming its path
+ * @example
+ * ```ts
+ * scanStudyJudgmentFaults({ trial: 't', criterion: 'c', verdict: 'achieved', method: 'state', reason: 'Saw it', references: [] }, 'judgments.0')
+ * // ['judgments.0.references: a verdict needs evidence']
+ * ```
+ */
+export function scanStudyJudgmentFaults(judgment: StudyJudgment, path: string): readonly string[] {
+	return [
+		...(new Set(judgment.references).size === judgment.references.length
+			? []
+			: [`${path}.references: repeats a reference`]),
+		...(judgment.verdict === 'unknown' || judgment.references.length > 0
+			? []
+			: [`${path}.references: a verdict needs evidence`]),
+	]
+}
+
+/**
+ * Lists what a rubric's shape cannot express: unique criterion ids.
+ * @param rubric - A rubric its contract accepted
+ * @returns One line per repeated id, naming its path
+ * @example
+ * ```ts
+ * scanStudyRubricFaults({ version: '1', criteria: [] }) // []
+ * ```
+ */
+export function scanStudyRubricFaults(rubric: StudyRubric): readonly string[] {
+	return rubric.criteria.flatMap((criterion, index) =>
+		rubric.criteria.findIndex((entry) => entry.id === criterion.id) === index
+			? []
+			: [`criteria.${String(index)}.id: repeats ${criterion.id}`],
+	)
+}
+
+/**
+ * Lists what a labels file's shape cannot express: a real instant, one judgment per pair, and each judgment's own faults.
+ * @param labels - Labels their contract accepted
+ * @returns One line per fault, each naming its path
+ * @example
+ * ```ts
+ * scanStudyLabelsFaults({ packet: 'a'.repeat(64), labeler: 'first', version: '1', created: '2026-02-30T00:00:00.000Z', usage: [], judgments: [] })
+ * // ['created: names no real instant']
+ * ```
+ */
+export function scanStudyLabelsFaults(labels: StudyLabels): readonly string[] {
+	const pairs = labels.judgments.map((judgment) =>
+		canonicalStringify([judgment.trial, judgment.criterion]),
+	)
+	return [
+		...(isStudyTimestamp(labels.created) ? [] : ['created: names no real instant']),
+		...labels.judgments.flatMap((judgment, index) => [
+			...(pairs.indexOf(pairs[index]) === index
+				? []
+				: [`judgments.${String(index)}: repeats its trial and criterion`]),
+			...scanStudyJudgmentFaults(judgment, `judgments.${String(index)}`),
+		]),
+	]
+}
+
+/**
+ * Omits the undefined `tokens` and `bytes` of each usage entry, so labels written in memory hold one JSON form.
+ * @param value - The unknown labels; a value off this form returns unchanged for the contract to refuse
+ * @returns The value with each usage entry's absent readings removed
+ * @example
+ * ```ts
+ * normalizeStudyLabels({ usage: [{ role: 'tool', calls: 0, duration: 0, tokens: undefined }] })
+ * // { usage: [{ role: 'tool', calls: 0, duration: 0 }] }
+ * ```
+ */
+export function normalizeStudyLabels(value: unknown): unknown {
+	if (!isRecord(value) || !matchesStudyKeys(value, [], Object.keys(value)) || !isArray(value.usage))
+		return value
+	return {
+		...value,
+		usage: Array.from(value.usage, (entry) =>
+			isRecord(entry) && matchesStudyKeys(entry, [], Object.keys(entry))
+				? omitStudyAbsent(entry)
+				: entry,
+		),
+	}
 }
 
 /**

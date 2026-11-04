@@ -2126,3 +2126,219 @@ export class StudyAccessorCeiling implements StudyStop {
 		return 101
 	}
 }
+
+/** Holds one value a filled type's hand guard and its contract must answer alike. */
+export interface StudyLockstepCase {
+	readonly name: string
+	readonly value: unknown
+	readonly accepted: boolean
+}
+
+/**
+ * Builds labels holding one judgment with evidence.
+ * @returns The JSON labels
+ */
+export function buildStudyLockstepLabels(): {
+	readonly packet: string
+	readonly labeler: string
+	readonly version: string
+	readonly created: string
+	readonly usage: readonly unknown[]
+	readonly judgments: ReadonlyArray<Readonly<Record<string, unknown>>>
+} {
+	return {
+		packet: 'a'.repeat(64),
+		labeler: 'first',
+		version: '1',
+		created: '2026-11-02T00:00:00.000Z',
+		usage: [{ role: 'tool', calls: 0, duration: 0 }],
+		judgments: [
+			{
+				trial: 't-1',
+				criterion: 'c-1',
+				verdict: 'achieved',
+				method: 'model',
+				reason: 'Cites the product',
+				references: ['evidence'],
+			},
+		],
+	}
+}
+
+/** Supplies a valid criterion the rubric cases vary. */
+export const STUDY_LOCKSTEP_CRITERION = Object.freeze({
+	id: 'saved',
+	scenario: 'shift',
+	goal: 'write',
+	method: 'state',
+	critical: true,
+	assertion: { equals: 'remember' },
+})
+
+/** Supplies a valid judgment the judgment cases vary. */
+export const STUDY_LOCKSTEP_JUDGMENT = Object.freeze({
+	trial: 'r1-s1-a1',
+	criterion: 'saved',
+	verdict: 'achieved',
+	method: 'state',
+	reason: 'Saw it',
+	references: ['evidence'],
+})
+
+/** Supplies rubrics both doors accept or both refuse, one per clause the two state. */
+export const STUDY_RUBRIC_LOCKSTEP: readonly StudyLockstepCase[] = Object.freeze([
+	{ name: 'valid', accepted: true, value: { version: '1', criteria: [STUDY_LOCKSTEP_CRITERION] } },
+	{ name: 'not a record', accepted: false, value: [] },
+	{ name: 'no criteria key', accepted: false, value: { version: '1' } },
+	{ name: 'empty criteria', accepted: false, value: { version: '1', criteria: [] } },
+	{
+		name: 'blank version',
+		accepted: false,
+		value: { version: ' \n', criteria: [STUDY_LOCKSTEP_CRITERION] },
+	},
+	{
+		name: 'undeclared key',
+		accepted: false,
+		value: { version: '1', criteria: [STUDY_LOCKSTEP_CRITERION], extra: 1 },
+	},
+	{
+		name: 'repeated id',
+		accepted: false,
+		value: { version: '1', criteria: [STUDY_LOCKSTEP_CRITERION, STUDY_LOCKSTEP_CRITERION] },
+	},
+	{
+		name: 'unportable id',
+		accepted: false,
+		value: { version: '1', criteria: [{ ...STUDY_LOCKSTEP_CRITERION, id: 'Saved Row' }] },
+	},
+	{
+		name: 'overlong id',
+		accepted: false,
+		value: { version: '1', criteria: [{ ...STUDY_LOCKSTEP_CRITERION, id: 'a'.repeat(129) }] },
+	},
+	{
+		name: 'longest id',
+		accepted: true,
+		value: { version: '1', criteria: [{ ...STUDY_LOCKSTEP_CRITERION, id: 'a'.repeat(128) }] },
+	},
+	{
+		name: 'unknown method',
+		accepted: false,
+		value: { version: '1', criteria: [{ ...STUDY_LOCKSTEP_CRITERION, method: 'human' }] },
+	},
+	{
+		name: 'text critical',
+		accepted: false,
+		value: { version: '1', criteria: [{ ...STUDY_LOCKSTEP_CRITERION, critical: 'yes' }] },
+	},
+])
+
+/** Supplies judgments both doors accept or both refuse, one per clause the two state. */
+export const STUDY_JUDGMENT_LOCKSTEP: readonly StudyLockstepCase[] = Object.freeze([
+	{ name: 'valid', accepted: true, value: STUDY_LOCKSTEP_JUDGMENT },
+	{
+		name: 'unknown holds no reference',
+		accepted: true,
+		value: { ...STUDY_LOCKSTEP_JUDGMENT, verdict: 'unknown', references: [] },
+	},
+	{
+		name: 'verdict holds no reference',
+		accepted: false,
+		value: { ...STUDY_LOCKSTEP_JUDGMENT, references: [] },
+	},
+	{
+		name: 'repeated reference',
+		accepted: false,
+		value: { ...STUDY_LOCKSTEP_JUDGMENT, references: ['evidence', 'evidence'] },
+	},
+	{
+		name: 'blank reference',
+		accepted: false,
+		value: { ...STUDY_LOCKSTEP_JUDGMENT, references: [' '] },
+	},
+	{ name: 'blank reason', accepted: false, value: { ...STUDY_LOCKSTEP_JUDGMENT, reason: '\t' } },
+	{
+		name: 'unknown verdict',
+		accepted: false,
+		value: { ...STUDY_LOCKSTEP_JUDGMENT, verdict: 'maybe' },
+	},
+	{
+		name: 'unknown method',
+		accepted: false,
+		value: { ...STUDY_LOCKSTEP_JUDGMENT, method: 'semantic' },
+	},
+	{ name: 'undeclared key', accepted: false, value: { ...STUDY_LOCKSTEP_JUDGMENT, weight: 1 } },
+	{ name: 'unportable trial', accepted: false, value: { ...STUDY_LOCKSTEP_JUDGMENT, trial: 'R1' } },
+])
+
+/** Supplies labels both doors accept or both refuse, one per clause the two state. */
+export const STUDY_LABELS_LOCKSTEP: readonly StudyLockstepCase[] = Object.freeze([
+	{ name: 'valid', accepted: true, value: buildStudyLockstepLabels() },
+	{
+		name: 'no judgments',
+		accepted: true,
+		value: { ...buildStudyLockstepLabels(), judgments: [], usage: [] },
+	},
+	{
+		name: 'known usage',
+		accepted: true,
+		value: {
+			...buildStudyLockstepLabels(),
+			usage: [{ role: 'agent', calls: 1, duration: 2, tokens: 3, bytes: 4 }],
+		},
+	},
+	{
+		name: 'short packet',
+		accepted: false,
+		value: { ...buildStudyLockstepLabels(), packet: 'abc' },
+	},
+	{
+		name: 'blank labeler',
+		accepted: false,
+		value: { ...buildStudyLockstepLabels(), labeler: ' ' },
+	},
+	{ name: 'blank version', accepted: false, value: { ...buildStudyLockstepLabels(), version: '' } },
+	{
+		name: 'offset timestamp',
+		accepted: false,
+		value: { ...buildStudyLockstepLabels(), created: '2026-11-02T00:00:00.000+01:00' },
+	},
+	{
+		name: 'no such day',
+		accepted: false,
+		value: { ...buildStudyLockstepLabels(), created: '2026-02-30T00:00:00.000Z' },
+	},
+	{
+		name: 'negative usage',
+		accepted: false,
+		value: { ...buildStudyLockstepLabels(), usage: [{ role: 'tool', calls: -1, duration: 0 }] },
+	},
+	{
+		name: 'unsafe usage',
+		accepted: false,
+		value: {
+			...buildStudyLockstepLabels(),
+			usage: [{ role: 'tool', calls: Number.MAX_SAFE_INTEGER + 2, duration: 0 }],
+		},
+	},
+	{
+		name: 'state method',
+		accepted: false,
+		value: {
+			...buildStudyLockstepLabels(),
+			judgments: [{ ...buildStudyLockstepLabels().judgments[0], method: 'state' }],
+		},
+	},
+	{
+		name: 'repeated pair',
+		accepted: false,
+		value: {
+			...buildStudyLockstepLabels(),
+			judgments: [
+				buildStudyLockstepLabels().judgments[0],
+				{ ...buildStudyLockstepLabels().judgments[0], reason: 'Another reason' },
+			],
+		},
+	},
+	{ name: 'undeclared key', accepted: false, value: { ...buildStudyLockstepLabels(), extra: 1 } },
+])

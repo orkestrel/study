@@ -1,7 +1,9 @@
 import { studyStopToJSON } from '../../../src/core/helpers.js'
 import { buildStudyStop } from '../../setupStudy.js'
-import { expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
+	describeStudyFault,
+	normalizeStudyLabels,
 	buildStudySchedule,
 	computeStudyScores,
 	filterStudyCriteria,
@@ -499,4 +501,45 @@ it('scores a selected manifest over its scheduled arms and leaves an unselected 
 	expect(() =>
 		computeStudyScores({ ...manifest, schedule }, rubric, buildStudyAssessment(schedule)),
 	).toThrow(/Manifest schedule differs/)
+})
+
+describe('describeStudyFault', () => {
+	it('names the dotted path and what broke there', () => {
+		expect(describeStudyFault({ reason: 'extra', path: ['judgments', '0', 'weight'] })).toBe(
+			'judgments.0.weight: undeclared key',
+		)
+		expect(describeStudyFault({ reason: 'missing', path: ['version'], expected: 'string' })).toBe(
+			'version: missing string',
+		)
+		expect(
+			describeStudyFault({ reason: 'type', path: [], expected: 'object', received: '1' }),
+		).toBe('value: expected object, received 1')
+		expect(
+			describeStudyFault({
+				reason: 'constraint',
+				path: 'criteria',
+				expected: 'array',
+				constraint: 'min',
+				limit: 1,
+				received: '[]',
+			}),
+		).toBe('criteria: breaks min 1, received []')
+		expect(describeStudyFault({ reason: 'variant', path: ['a'], variants: 2 })).toBe(
+			'a: matches none of 2 variants',
+		)
+		expect(describeStudyFault({ reason: 'oneOf', path: ['a'], matched: 2 })).toBe(
+			'a: matches 2 variants, not one',
+		)
+	})
+})
+
+describe('normalizeStudyLabels', () => {
+	it('omits an absent reading and leaves a value off this form unchanged', () => {
+		expect(
+			normalizeStudyLabels({ usage: [{ role: 'tool', calls: 0, duration: 0, tokens: undefined }] }),
+		).toEqual({ usage: [{ role: 'tool', calls: 0, duration: 0 }] })
+		for (const other of [1, {}, { usage: 1 }]) expect(normalizeStudyLabels(other)).toBe(other)
+		const accessor = Object.defineProperty({}, 'usage', { enumerable: true, get: () => [] })
+		expect(normalizeStudyLabels(accessor)).toBe(accessor)
+	})
 })

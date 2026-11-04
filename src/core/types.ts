@@ -1,4 +1,4 @@
-import type { JSONValue } from '@orkestrel/contract'
+import type { ContractInterface, JSONValue } from '@orkestrel/contract'
 
 /** Names the evidence a study can establish. */
 export type StudyPurpose = 'mechanism' | 'quality' | 'capacity'
@@ -273,8 +273,8 @@ export interface StudyCharge {
 export interface StudyUsage {
 	readonly role: StudyRole
 	readonly calls: number
-	readonly tokens: number | undefined
-	readonly bytes: number | undefined
+	readonly tokens?: number | undefined
+	readonly bytes?: number | undefined
 	readonly duration: number
 }
 
@@ -436,6 +436,19 @@ export interface StudyLabels {
 	readonly created: string
 	readonly usage: readonly StudyUsage[]
 	readonly judgments: readonly StudyJudgment[]
+}
+
+/**
+ * Configures one contract-backed parse of a value an author, a labeler, or an adapter filled.
+ * @remarks
+ * `noun` names the value in a refusal. `scan` lists, by path, what the contract's shape cannot
+ * express; it reads a value the contract accepted.
+ */
+export interface StudyContractOptions<T> {
+	readonly code: StudyErrorCode
+	readonly noun: string
+	readonly contract: Pick<ContractInterface<T>, 'is' | 'audit'>
+	readonly scan: (value: T) => readonly string[]
 }
 
 /** Holds a grading identity that cannot replace or mutate execution bytes. */
