@@ -1,6 +1,6 @@
 import { createRejectedStudyJudge } from '../../../setupStudy.js'
 import type { StudyOllamaFetchFunction } from '../../../../src/server/ollama/types.js'
-import { STUDY_STOP_SWITCHES, readSettled } from '../../../setupStudy.js'
+import { STUDY_STOP_SWITCHES, StudyLog, readSettled } from '../../../setupStudy.js'
 import { createForeignBudgetError, createBudgetLookalike } from '../../../setupServer.js'
 import { describe, expect, it } from 'vitest'
 import { parseJSON, isRecord } from '@orkestrel/contract'
@@ -1722,7 +1722,11 @@ describe('StudyOllamaTransport', () => {
 				const failure = await response.text().catch((error: unknown) => error)
 				expect(readStudyFailure(failure).message).toContain(message)
 				expect(captureError(() => fixture.transport.check())).toBe(failure)
-				expect(fixture.goal.evidence.map(({ event }) => event)).toEqual(['dispatch', 'failure'])
+				expect(fixture.goal.evidence.map(({ event }) => event)).toEqual(
+					readStudyFailure(failure).stop === undefined
+						? ['dispatch', 'failure']
+						: ['dispatch', 'stop', 'failure'],
+				)
 				expect(fixture.goal.usage()).toEqual([
 					{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
 				])
@@ -3008,6 +3012,70 @@ describe('StudyOllamaTransport', () => {
 })
 
 describe('transport stop chain', () => {
+	it('retains a wire cut as stop and failure rows before its ticket fails the goal', async () => {
+		const fixture = await createOllamaTransportFixture(
+			[{ path: '/api/chat', body: 'x'.repeat(4096) }],
+			{ limit: { duration: 2000, bytes: 2048 } },
+		)
+		try {
+			const { goal, transport, server } = fixture
+			const seen = new StudyLog<readonly [string, boolean]>()
+			transport.clear()
+			transport.prepare({
+				goal: 'first',
+				checkpoint: undefined,
+				context: {
+					...goal.context,
+					evidence: {
+						append: (row) => {
+							seen.append([row.event, goal.context.meter.signal.aborted])
+							return goal.context.evidence.append(row)
+						},
+					},
+				},
+			})
+			await expect(
+				transport
+					.fetch('agent', `${server.url}/api/chat`, {
+						method: 'POST',
+						body: STUDY_OLLAMA_CHAT_BODY,
+					})
+					.then((response) => response.text()),
+			).rejects.toMatchObject({ failure: { stop: { id: 'Wire bytes', max: 2048 } } })
+			expect(seen.entries).toEqual([
+				['dispatch', false],
+				['stop', false],
+				['failure', false],
+			])
+			expect(goal.evidence.find((row) => row.event === 'stop')?.value).toMatchObject({
+				role: 'agent',
+				path: '/api/chat',
+				finish: null,
+				prompt: null,
+				completion: null,
+				stop: { layer: 'scope', id: 'Wire bytes', max: 2048 },
+			})
+			expect(goal.context.meter.signal.aborted).toBe(true)
+		} finally {
+			await fixture.close()
+		}
+	})
+
+	it('retains an encoded request refusal as one stop row with no dispatch', async () => {
+		const fixture = await createOllamaTransportFixture([], { limit: { duration: 2000, bytes: 1 } })
+		try {
+			await expect(
+				fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+					method: 'POST',
+					body: STUDY_OLLAMA_CHAT_BODY,
+				}),
+			).rejects.toMatchObject({ failure: { stop: { id: 'Wire bytes' } } })
+			expect(fixture.goal.evidence.map((row) => row.event)).toEqual(['stop'])
+		} finally {
+			await fixture.close()
+		}
+	})
+
 	it('names the encoded request byte refusal before any admission', async () => {
 		const fixture = await createOllamaTransportFixture([], { limit: { duration: 2000, bytes: 1 } })
 		try {

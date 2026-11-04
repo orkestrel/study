@@ -1,4 +1,10 @@
-import type { StudyRole, StudyTicket, StudyAgentDispatch, StudyLatchInterface } from '@src/core'
+import type {
+	StudyRole,
+	StudyStop,
+	StudyTicket,
+	StudyAgentDispatch,
+	StudyLatchInterface,
+} from '@src/core'
 import type { BudgetError } from '@orkestrel/budget'
 import type { JSONValue } from '@orkestrel/contract'
 import type { OllamaTiming } from '@orkestrel/ollama'
@@ -381,12 +387,14 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		}
 		if (request.bytes >= limit.bytes) {
 			const message = 'Encoded request consumes the response byte allowance'
-			throw new StudyError('CAPACITY', message, {
-				cause: 'capacity',
-				message,
-				role,
-				stop: { layer: 'scope', id: 'Wire bytes', max: limit.bytes, consumed: request.bytes },
-			})
+			const stop: StudyStop = {
+				layer: 'scope',
+				id: 'Wire bytes',
+				max: limit.bytes,
+				consumed: request.bytes,
+			}
+			await this.#stop(activity, request, stop)
+			throw new StudyError('CAPACITY', message, { cause: 'capacity', message, role, stop })
 		}
 		const ticket = await (metadata ? this.#metadataMeter : activity.context.meter).admit({
 			role,
@@ -657,6 +665,28 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				})
 			throw error
 		}
+	}
+
+	// Retains one ceiling a request crossed before it holds a terminal, as the `stop` row a completion refusal writes.
+	#stop(
+		activity: StudyOllamaActivity,
+		request: StudyOllamaRequest,
+		stop: StudyStop,
+		observation: Readonly<Record<string, JSONValue>> = {},
+	): Promise<void> {
+		return activity.context.evidence.append({
+			event: 'stop',
+			goal: activity.goal,
+			value: {
+				role: request.role,
+				path: request.path,
+				finish: null,
+				prompt: null,
+				completion: null,
+				stop: studyStopToJSON(stop),
+				...observation,
+			},
+		})
 	}
 
 	// Consumes the complete rows of the wire's text; each row after the terminal is refused.
@@ -1008,8 +1038,10 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		const observation = this.#options.observe ? this.#timeline(wire) : {}
 		const failure = readStudyFailure(this.#fault?.error)
 		try {
-			if (!wire.ticket.signal.aborted) wire.ticket.fail({ ...failure, role: wire.request.role })
+			// The rows land before the ticket fails, because failing it ends the goal's evidence admission.
 			await this.#recordFailure(wire, error)
+			if (failure.stop !== undefined)
+				await this.#stop(wire.activity, wire.request, failure.stop, observation)
 			await wire.activity.context.evidence.append({
 				event: 'failure',
 				goal: wire.activity.goal,
@@ -1024,6 +1056,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				},
 			})
 		} finally {
+			if (!wire.ticket.signal.aborted) wire.ticket.fail({ ...failure, role: wire.request.role })
 			this.#requests.delete(wire.slot)
 			this.#wires.delete(wire)
 			await wire.reader.cancel(error).catch(() => undefined)
