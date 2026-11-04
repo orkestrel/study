@@ -648,6 +648,87 @@ export async function readStudyResult(directory: string): Promise<StudyResultVie
 }
 
 /**
+ * Reads the terminal record of one trial for a progress read.
+ * @remarks
+ * An absent file is a trial still running, and so is an empty file before the result seals, which
+ * the writer holds between its exclusive open and its single write. Anything else that is not this
+ * trial's valid record reads as a corrupt record, as the sealed readers read it.
+ * @param folder - The trial's execution folder
+ * @param manifest - The result's manifest
+ * @param trial - The scheduled trial id
+ * @param sealed - If `true`, an empty file is corrupt; if `false`, it reads as still running
+ * @returns The trial's terminal attempt, or undefined while it runs
+ * @throws StudyError - Thrown with `CUSTODY` naming the trial when the record is unreadable, invalid, or another trial's
+ * @example
+ * ```ts
+ * await readStudyProgressAttempt(folder, manifest, 'r1-s1-a1', false)
+ * ```
+ */
+export async function readStudyProgressAttempt(
+	folder: string,
+	manifest: StudyManifest,
+	trial: string,
+	sealed: boolean,
+): Promise<StudyAttempt | undefined> {
+	const refusal = new StudyError('CUSTODY', `Terminal attempt of trial ${trial} is invalid`)
+	const bytes = await readStudyBytes(join(folder, 'attempt.json'), STUDY_CUSTODY_BYTES).catch(
+		(error: unknown) => {
+			if (matchesSystemError(error, 'ENOENT')) return undefined
+			throw refusal
+		},
+	)
+	if (bytes === undefined || (bytes.byteLength === 0 && !sealed)) return undefined
+	const record = attempt((): unknown => decodeStudyJSON(bytes))
+	if (
+		!record.success ||
+		!isStudyCustodyAttempt(record.value, manifest) ||
+		record.value.trial.id !== trial
+	)
+		throw refusal
+	return record.value
+}
+
+/**
+ * Reads how many exchanges a continuation's trial replays, from its sidecar's declaration.
+ * @remarks
+ * An absent sidecar, or one whose first line the writer has not finished, declares nothing yet.
+ * A complete first line that is not a valid declaration, or a first line past the custody
+ * allowance, reads as a corrupt record. A valid declaration with no ancestor replays nothing.
+ * @param folder - The trial's execution folder
+ * @param trial - The scheduled trial id
+ * @returns The declared replay prefix, or 0 when nothing is declared
+ * @throws StudyError - Thrown with `CUSTODY` naming the trial when the sidecar is unreadable or its declaration is invalid
+ * @example
+ * ```ts
+ * await readStudyProgressPrefix(folder, 'r1-s1-a1') // 0
+ * ```
+ */
+export async function readStudyProgressPrefix(folder: string, trial: string): Promise<number> {
+	const refusal = new StudyError('CUSTODY', `Exchange declaration of trial ${trial} is invalid`)
+	const flags = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)
+	const handle = await open(join(folder, 'exchanges.jsonl'), flags).catch((error: unknown) => {
+		if (matchesSystemError(error, 'ENOENT')) return undefined
+		throw refusal
+	})
+	if (handle === undefined) return 0
+	const bytes = await handle
+		.stat()
+		.then((stat) => {
+			if (!stat.isFile()) throw refusal
+			return readStudyHandle(handle, Buffer.alloc(Math.min(stat.size, STUDY_CUSTODY_BYTES)))
+		})
+		.finally(() => handle.close())
+	const end = bytes.indexOf(0x0a)
+	if (end === -1) {
+		if (bytes.length >= STUDY_CUSTODY_BYTES) throw refusal
+		return 0
+	}
+	const declaration = attempt((): unknown => decodeStudyJSON(bytes.subarray(0, end)))
+	if (!declaration.success || !isStudyExchangeDeclaration(declaration.value)) throw refusal
+	return declaration.value.ancestor?.prefix ?? 0
+}
+
+/**
  * Reads what the complete evidence rows of a live or sealed result show, without verifying it.
  * @remarks
  * The read takes the manifest, each scheduled trial's `evidence.jsonl` and `attempt.json`, and,
@@ -664,8 +745,9 @@ export async function readStudyResult(directory: string): Promise<StudyResultVie
  * @param envelope - The encoded bytes of the adapter request that carries an empty batch; Default: 0
  * @returns The trials in schedule order with their listed goals
  * @throws StudyError - Thrown with `CUSTODY` when the manifest is absent or invalid, an evidence
- *   file is linked or exceeds its trial allowance, or a complete row is invalid; with `CONFIG`
- *   when some scheduled scenario declares no `from` goal
+ *   file is linked or exceeds its trial allowance, a complete row is invalid, or a terminal record
+ *   or sidecar declaration is unreadable or invalid; with `CONFIG` when some scheduled scenario
+ *   declares no `from` goal
  * @example
  * ```ts
  * await readStudyProgress(directory, 'read')
@@ -758,45 +840,11 @@ export async function readStudyProgress(
 					)
 				return row.value
 			})
-			// An absent, unreadable, or unfinished terminal record reads as a trial still running.
-			const terminal = await readStudyBytes(join(folder, 'attempt.json'), STUDY_CUSTODY_BYTES)
-				.then((retained) => decodeStudyJSON(retained))
-				.catch(() => undefined)
-			const record =
-				isStudyCustodyAttempt(terminal, manifest) && terminal.trial.id === trial.id
-					? terminal
-					: undefined
-			const sidecar =
-				manifest.record === undefined || manifest.ancestor === undefined
-					? undefined
-					: await open(join(folder, 'exchanges.jsonl'), flags).then(
-							(handle) =>
-								handle
-									.stat()
-									.then((stat) =>
-										stat.isFile()
-											? readStudyHandle(
-													handle,
-													Buffer.alloc(Math.min(stat.size, STUDY_CUSTODY_BYTES)),
-												)
-											: undefined,
-									)
-									.finally(() => handle.close()),
-							(error: unknown) => {
-								if (matchesSystemError(error, 'ENOENT')) return undefined
-								throw error
-							},
-						)
-			const declaration =
-				sidecar === undefined || sidecar.indexOf(0x0a) === -1
-					? undefined
-					: attempt((): unknown => decodeStudyJSON(sidecar.subarray(0, sidecar.indexOf(0x0a))))
+			const record = await readStudyProgressAttempt(folder, manifest, trial.id, sealed)
 			const prefix =
-				declaration?.success === true &&
-				isStudyExchangeDeclaration(declaration.value) &&
-				declaration.value.ancestor !== undefined
-					? declaration.value.ancestor.prefix
-					: 0
+				manifest.record === undefined || manifest.ancestor === undefined
+					? 0
+					: await readStudyProgressPrefix(folder, trial.id)
 			const groups = Map.groupBy(
 				rows.map((row, index) => ({ row, line: index + 1 })),
 				({ row }) => row.goal,

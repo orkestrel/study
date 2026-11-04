@@ -45,6 +45,8 @@ import {
 	readStudyBytes,
 	readStudyHandle,
 	readStudyProgress,
+	readStudyProgressAttempt,
+	readStudyProgressPrefix,
 	readStudyResult,
 	scanStudyExecution,
 	scanStudyTree,
@@ -781,6 +783,72 @@ describe('readStudyProgress', () => {
 		}
 	})
 
+	it('terminal: an absent or unwritten attempt runs, and a corrupt one refuses custody naming its trial', async () => {
+		const scratch = createScratch()
+		try {
+			const manifest = buildCustodyManifest()
+			const trial = requireValue(manifest.schedule[0])
+			const directory = join(scratch.path, 'attempt')
+			const rows = [{ event: 'saved', goal: 'write', value: 1 }]
+			await writeStudyProgressResult(directory, manifest, { [trial.id]: rows })
+			const path = join(directory, 'execution', 'trials', trial.id, 'attempt.json')
+			const running = await readStudyProgress(directory)
+			expect(running.trials[0]).toMatchObject({ ended: false, failure: undefined })
+			await writeFile(path, '')
+			expect((await readStudyProgress(directory)).trials[0]?.ended).toBe(false)
+			const foreign = buildCustodyAttempt(manifest, requireValue(manifest.schedule[1]))
+			for (const bytes of ['{"partial":', '{"trial":{}}', JSON.stringify(foreign)]) {
+				await writeFile(path, bytes)
+				await expect(readStudyProgress(directory)).rejects.toMatchObject({
+					code: 'CUSTODY',
+					message: `Terminal attempt of trial ${trial.id} is invalid`,
+				})
+			}
+			await rm(path)
+			await mkdir(path)
+			await expect(readStudyProgress(directory)).rejects.toMatchObject({ code: 'CUSTODY' })
+			await rm(path, { recursive: true })
+			await writeFile(path, JSON.stringify(buildCustodyAttempt(manifest, trial)))
+			expect((await readStudyProgress(directory)).trials[0]?.ended).toBe(true)
+			await writeFile(path, '')
+			await writeFile(join(directory, 'seal.json'), '{}')
+			await expect(readStudyProgress(directory)).rejects.toMatchObject({ code: 'CUSTODY' })
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('sidecar: an absent or unfinished declaration replays nothing, and a corrupt one refuses custody', async () => {
+		const scratch = createScratch()
+		try {
+			const base = buildCustodyManifest()
+			const trial = requireValue(base.schedule[0])
+			const manifest = buildCustodyManifest({
+				record: { bytes: 32768, calls: 256, duration: 15000 },
+				ancestor: { result: 'ancestor', seal: 'd'.repeat(64), identity: base.identity },
+			})
+			const directory = join(scratch.path, 'sidecar')
+			const rows = [{ event: 'wire', goal: 'write', value: { role: 'agent', ordinal: 1 } }]
+			await writeStudyProgressResult(directory, manifest, { [trial.id]: rows })
+			const path = join(directory, 'execution', 'trials', trial.id, 'exchanges.jsonl')
+			expect((await readStudyProgress(directory)).trials[0]?.goals[0]?.usage[0]?.replayed).toBe(0)
+			await writeFile(path, '{"phase":"declaration"')
+			expect((await readStudyProgress(directory)).trials[0]?.goals[0]?.usage[0]?.replayed).toBe(0)
+			for (const line of ['{"partial":', '{"phase":"declaration"}', '[]']) {
+				await writeFile(path, `${line}\n`)
+				await expect(readStudyProgress(directory)).rejects.toMatchObject({
+					code: 'CUSTODY',
+					message: `Exchange declaration of trial ${trial.id} is invalid`,
+				})
+			}
+			await rm(path)
+			await mkdir(path)
+			await expect(readStudyProgress(directory)).rejects.toMatchObject({ code: 'CUSTODY' })
+		} finally {
+			scratch.destroy()
+		}
+	})
+
 	it('from: lists from the named goal onward, else each trial last goal, and refuses an unknown goal', async () => {
 		const scratch = createScratch()
 		try {
@@ -1055,5 +1123,64 @@ describe('strict exchange rows', () => {
 				mutateStudyExchangeRows(buildStudyExchangeRows(), mutation),
 			),
 		).toThrow(/\S/)
+	})
+})
+
+describe('validateStudyExchangeRows', () => {
+	it('reads each row a fixed number of times, so doubling a journal doubles its reads', () => {
+		const record = { bytes: 1e12, calls: 100000, duration: 1e9 }
+		const [small, large] = [100, 200].map((count) => {
+			const reads = createRecorder<readonly []>()
+			const rows = buildOpenStudyExchangeRows('r1-first-small', record, count)
+			const progress = validateStudyExchangeRows(
+				new Proxy(rows, {
+					get: (target, key, receiver) => {
+						if (typeof key === 'string' && /^\d+$/.test(key)) reads.handler()
+						return Reflect.get(target, key, receiver)
+					},
+				}),
+			)
+			expect(progress).toMatchObject({ execution: count, closed: true })
+			return { rows: rows.length, reads: reads.count }
+		})
+		expect(requireValue(large).reads / requireValue(large).rows).toBeLessThanOrEqual(
+			requireValue(small).reads / requireValue(small).rows + 0.1,
+		)
+	})
+
+	it('derives the same progress one row at a time as over the whole journal', () => {
+		const rows = buildOpenStudyExchangeRows()
+		const declaration = requireValue(rows[0])
+		if (declaration.phase !== 'declaration') throw new Error('Missing declaration')
+		expect(
+			rows.slice(1).reduce(advanceStudyExchangeProgress, buildStudyExchangeProgress(declaration)),
+		).toEqual(validateStudyExchangeRows(rows))
+		expect(buildStudyExchangeProgress(declaration)).toMatchObject({
+			attempts: 0,
+			execution: 0,
+			goal: undefined,
+			closed: false,
+		})
+		const closed = validateStudyExchangeRows(rows)
+		expect(() => advanceStudyExchangeProgress(closed, requireValue(rows[1]))).toThrow(
+			/partial or failed/,
+		)
+		expect(() => advanceStudyExchangeProgress(closed, declaration)).toThrow(/partial or failed/)
+	})
+})
+
+describe('readStudyProgressAttempt and readStudyProgressPrefix', () => {
+	it('read an absent record as running and no declaration', async () => {
+		const scratch = createScratch()
+		try {
+			const manifest = buildCustodyManifest()
+			const trial = requireValue(manifest.schedule[0]).id
+			await expect(
+				readStudyProgressAttempt(scratch.path, manifest, trial, false),
+			).resolves.toBeUndefined()
+			await expect(readStudyProgressPrefix(scratch.path, trial)).resolves.toBe(0)
+		} finally {
+			scratch.destroy()
+		}
 	})
 })
