@@ -1,6 +1,13 @@
 /** Limits untrusted metadata before JSON parsing or file allocation. */
 export const STUDY_CUSTODY_BYTES = 16 * 1024 * 1024
 
+/**
+ * Names the file that holds a trial's terminal attempt until it is synchronized and renamed.
+ * @remarks
+ * An interrupted result can hold it; a seal cannot, because the seal's census holds only the final names.
+ */
+export const STUDY_ATTEMPT_PART = 'attempt.part'
+
 /** Rejects names that Windows reserves even on other hosts. */
 export const STUDY_RESERVED_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i
 

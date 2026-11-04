@@ -30,11 +30,11 @@ import type { StudyProgressFunction, StudyProgressTarget } from '../adapters/typ
 import { STUDY_ROLES, StudyError, isStudyStop, parseStudyMeasurement } from '@src/core'
 import { attempt, canonicalStringify, isRecord, parseJSON } from '@orkestrel/contract'
 import { constants } from 'node:fs'
-import { lstat, open, readdir } from 'node:fs/promises'
+import { lstat, open, readdir, rename } from 'node:fs/promises'
 import { dirname, join, parse, relative, resolve, sep } from 'node:path'
 import { decodeStudyJSON, encodeStudyJSON, hashStudyBytes, matchesSystemError } from '../helpers.js'
 import { STUDY_FRAME_BYTES } from '../processes/constants.js'
-import { STUDY_CUSTODY_BYTES, STUDY_PACKET_DISCLOSURE } from './constants.js'
+import { STUDY_ATTEMPT_PART, STUDY_CUSTODY_BYTES, STUDY_PACKET_DISCLOSURE } from './constants.js'
 import {
 	isStudyCustodyAttempt,
 	isStudyCustodyEvidence,
@@ -358,6 +358,35 @@ export async function writeStudyBytes(path: string, bytes: Uint8Array): Promise<
 }
 
 /**
+ * Publishes a record by writing it beside its path and renaming it there, so a reader of the path sees no partial bytes.
+ * @param path - The destination custody path
+ * @param bytes - The exact encoded record
+ * @param part - The neighboring path that holds the bytes until they are synchronized
+ * @returns Nothing after the record is at its path
+ * @throws StudyError - Thrown with `CUSTODY` when the path is already occupied; a staged file left by an interrupted write stays and refuses the next one
+ * @example
+ * ```ts
+ * await publishStudyBytes(path, bytes, `${path}.part`)
+ * ```
+ */
+export async function publishStudyBytes(
+	path: string,
+	bytes: Uint8Array,
+	part: string,
+): Promise<void> {
+	await writeStudyBytes(part, bytes)
+	const occupied = await lstat(path).then(
+		() => true,
+		(error: unknown) => {
+			if (matchesSystemError(error, 'ENOENT')) return false
+			throw error
+		},
+	)
+	if (occupied) throw new StudyError('CUSTODY', 'Custody record already exists')
+	await rename(part, path)
+}
+
+/**
  * Scans regular execution files while refusing unknown directories and linked paths.
  * @param directory - The execution directory
  * @param manifest - The authoritative population
@@ -427,6 +456,7 @@ export async function scanStudyTree(
 					names[0] === 'trials' &&
 					known.has(names[1] ?? '') &&
 					(names[2] === 'attempt.json' ||
+						names[2] === STUDY_ATTEMPT_PART ||
 						names[2] === 'evidence.jsonl' ||
 						(recorded && names[2] === 'exchanges.jsonl')))
 			)

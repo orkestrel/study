@@ -1,7 +1,9 @@
 import { retainStudyExchangeFixture, retainStudyFixture } from '../../../setupServer.js'
 import { createScratch } from '@orkestrel/test/server'
 import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { STUDY_ATTEMPT_PART } from '../../../../src/server/stores/constants.js'
 import { describe, expect, it } from 'vitest'
 import { StudySeries } from '../../../../src/core/engines/index.js'
 import type { StudyProduct } from '../../../../src/core/types.js'
@@ -141,6 +143,35 @@ describe('StudyResultStore', () => {
 			expect(scratch.has('result/execution/trials/mutated')).toBe(false)
 		} finally {
 			await Promise.allSettled(sinks.map((sink) => sink.close()))
+			scratch.destroy()
+		}
+	})
+
+	it('publishes a terminal attempt through its part file, leaving none behind', async () => {
+		const scratch = createScratch()
+		try {
+			const manifest = buildCompactCustodyManifest()
+			const trial = manifest.schedule[0]
+			if (trial === undefined) throw new Error('Missing fixture trial')
+			const directory = join(scratch.path, 'result')
+			const results = new StudyResultStore({ directory, manifest })
+			await results.create()
+			await results.start(trial)
+			const folder = join(directory, 'execution', 'trials', trial.id)
+			await writeFile(join(folder, STUDY_ATTEMPT_PART), 'partial')
+			await expect(results.finish(buildCustodyAttempt(manifest, trial))).rejects.toMatchObject({
+				code: 'EEXIST',
+			})
+			await expect(readFile(join(folder, 'attempt.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+			const clean = join(scratch.path, 'clean')
+			const store = new StudyResultStore({ directory: clean, manifest })
+			await store.create()
+			await store.start(trial)
+			await store.finish(buildCustodyAttempt(manifest, trial))
+			const names = readdirSync(join(clean, 'execution', 'trials', trial.id))
+			expect(names).toContain('attempt.json')
+			expect(names).not.toContain(STUDY_ATTEMPT_PART)
+		} finally {
 			scratch.destroy()
 		}
 	})

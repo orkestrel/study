@@ -13,7 +13,7 @@ import { canonicalStringify } from '@orkestrel/contract'
 import { mkdir, open } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { decodeStudyJSON, encodeStudyJSON } from '../helpers.js'
-import { STUDY_CUSTODY_BYTES } from './constants.js'
+import { STUDY_ATTEMPT_PART, STUDY_CUSTODY_BYTES } from './constants.js'
 import {
 	checkStudyDirectory,
 	computeStudySealId,
@@ -22,6 +22,7 @@ import {
 	readStudyTrialExchanges,
 	scanStudyExecution,
 	validateStudyEvidenceBytes,
+	publishStudyBytes,
 	writeStudyBytes,
 } from './helpers.js'
 import { StudyEvidenceSink } from './StudyEvidenceSink.js'
@@ -271,10 +272,8 @@ export class StudyResultStore implements StudyResultStoreInterface {
 		try {
 			await drained
 			this.#reserve(bytes.byteLength)
-			await writeStudyBytes(
-				join(this.#directory, 'execution', 'trials', trial, 'attempt.json'),
-				bytes,
-			)
+			const folder = join(this.#directory, 'execution', 'trials', trial)
+			await publishStudyBytes(join(folder, 'attempt.json'), bytes, join(folder, STUDY_ATTEMPT_PART))
 		} catch (error) {
 			this.#phase = 'failed'
 			throw error
