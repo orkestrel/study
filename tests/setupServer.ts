@@ -19,6 +19,14 @@ import type { StudyLaunchResult } from '../src/server/launchers/types.js'
 import type { ScratchInterface } from '@orkestrel/test/server'
 import type { ArtifactLoaderOptions } from '../src/server/artifacts/types.js'
 import type { ChildProcess } from 'node:child_process'
+import type {
+	StudyLabelAnswer,
+	StudyLabelControl,
+	StudyLabelMap,
+	StudyLabelPartition,
+	StudyLabelSegment,
+	StudyLabelSource,
+} from '../src/server/labels/types.js'
 
 import type {
 	StudyAttempt,
@@ -4935,4 +4943,116 @@ export function readStudyNameSources(): readonly StudyNameSource[] {
 		path,
 		text: readFileSync(join(WORKSPACE_ROOT, ...path.split('/')), 'utf8'),
 	}))
+}
+
+/** Names the instant labels fixtures state. */
+export const STUDY_LABEL_CREATED = '2026-11-02T00:00:00.000Z'
+
+/** Supplies fictional controls whose product plainly meets or misses its assertion. */
+export const STUDY_LABEL_CONTROLS: readonly StudyLabelControl[] = Object.freeze([
+	Object.freeze({
+		input: { prompt: 'State the shelf that holds the blue lantern.' },
+		product: { value: { content: 'The blue lantern sits on shelf 14.' }, partial: false },
+		assertion: { criterion: 'The reply names shelf 14 as the blue lantern shelf.' },
+		verdict: 'achieved',
+	}),
+	Object.freeze({
+		input: { prompt: 'State the ferry that leaves at dawn.' },
+		product: { value: { content: 'No ferry is recorded.' }, partial: false },
+		assertion: { criterion: 'The reply names the dawn ferry.' },
+		verdict: 'unsuccessful',
+	}),
+])
+
+/**
+ * Reads a fixture criterion's goal and class from an id that ends in `-<goal>-<class>`.
+ * @param source - The source pair
+ * @returns The partition, or undefined when the id holds neither
+ */
+export function partitionStudyLabel(source: StudyLabelSource): StudyLabelPartition | undefined {
+	const parts = source.criterion.split('-')
+	const [goal, label] = parts.slice(-2)
+	return parts.length < 2 || goal === undefined || label === undefined
+		? undefined
+		: { goal, class: label }
+}
+
+/**
+ * Retains a sealed population and builds the real packet bytes over it.
+ * @param scratch - The owned temporary resource
+ * @returns The sealed value, its rubric and digest, and the segment a pool reads
+ */
+export async function createStudyLabelFixture(
+	scratch: ScratchInterface,
+): Promise<StudyLabelFixture> {
+	const result = await retainStudyFixture(join(scratch.path, 'labeled'))
+	const rubric: StudyRubric = {
+		version: '1',
+		criteria: ['first', 'second'].flatMap((scenario) =>
+			['work', 'completion'].map((label): StudyCriterion => ({
+				id: `${scenario}-read-${label}`,
+				scenario,
+				goal: 'read',
+				method: 'semantic',
+				critical: false,
+				assertion: { criterion: `Fictional assertion of ${scenario} ${label}` },
+			})),
+		),
+	}
+	const digest = hashStudyBytes(encodeStudyJSON(rubric))
+	const packet = buildStudyPacket(result, rubric, digest)
+	if (packet === undefined) throw new Error('The rubric holds no semantic criterion')
+	return {
+		result,
+		rubric,
+		digest,
+		segment: {
+			result: result.seal.id,
+			arm: 'full',
+			packet: packet.content,
+			mapping: packet.mapping,
+		},
+	}
+}
+
+/**
+ * Builds inert links, one per listed class, numbered from row 1.
+ * @param classes - Each row's class
+ * @returns The map, which holds no check
+ */
+export function buildStudyLabelMap(classes: readonly string[]): StudyLabelMap {
+	return {
+		checks: [],
+		links: classes.map((entry, index) => ({
+			row: index + 1,
+			request: index,
+			packet: 'a'.repeat(64),
+			result: 'fixture-seal',
+			arm: 'full',
+			trial: `t-${String(index + 1)}`,
+			criterion: `c-${String(index + 1)}`,
+			source: { trial: 'trial-full', criterion: `read-${String(index + 1)}-${entry}` },
+			goal: `read-${String(index + 1)}`,
+			class: entry,
+		})),
+	}
+}
+
+/**
+ * Builds a labeler's answers from its verdicts, numbered from row 1.
+ * @param verdicts - Each row's verdict
+ * @returns The answers, each with a reason
+ */
+export function buildStudyLabelAnswers(
+	verdicts: ReadonlyArray<StudyLabelAnswer['verdict']>,
+): readonly StudyLabelAnswer[] {
+	return verdicts.map((verdict, index) => ({ row: index + 1, verdict, reason: 'A reason' }))
+}
+
+/** Holds a sealed population and the real packet bytes built over it. */
+export interface StudyLabelFixture {
+	readonly result: StudySealedResult
+	readonly rubric: StudyRubric
+	readonly digest: string
+	readonly segment: StudyLabelSegment
 }
