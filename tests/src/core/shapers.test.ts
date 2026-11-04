@@ -52,9 +52,9 @@ describe('study filled shapes in lockstep with their hand guards', () => {
 
 describe('study filled refusals name the field', () => {
 	it.each([
-		[{}, 'version: missing string'],
-		[{ version: ' ', criteria: [] }, 'version: breaks pattern'],
-		[{ version: '1', criteria: [] }, 'criteria: breaks min 1'],
+		[{}, 'version: missing; expected string'],
+		[{ version: ' ', criteria: [] }, 'version: constraint; expected string'],
+		[{ version: '1', criteria: [] }, 'criteria: constraint; expected array'],
 		[
 			{
 				version: '1',
@@ -79,7 +79,7 @@ describe('study filled refusals name the field', () => {
 					},
 				],
 			},
-			'criteria.0.weight: undeclared key',
+			'criteria.0.weight: extra; this key is not declared',
 		],
 		[
 			{
@@ -98,7 +98,7 @@ describe('study filled refusals name the field', () => {
 	})
 
 	it.each([
-		[{ ...buildStudyLockstepLabels(), packet: 'short' }, 'packet: breaks pattern'],
+		[{ ...buildStudyLockstepLabels(), packet: 'short' }, 'packet: constraint; expected string'],
 		[
 			{ ...buildStudyLockstepLabels(), created: '2026-02-30T00:00:00.000Z' },
 			'created: names no real instant',
@@ -219,7 +219,9 @@ describe('study filled refusals without a JSON form', () => {
 					{ id: 'a', scenario: 's', goal: 'g', method: 'x', critical: true, assertion: 1 },
 				],
 			}),
-		).toThrow(/criteria\.0\.method: expected literal among state, trace, semantic/)
+		).toThrow(
+			/criteria\.0\.method: type; expected literal;.*send one of "state", "trace", "semantic"/,
+		)
 	})
 
 	it('refuses a hostile proxy as a coded failure at every door', () => {

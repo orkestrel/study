@@ -6,6 +6,19 @@ import type {
 	ProviderResult,
 } from '@orkestrel/agent'
 import type { JSONValue } from '@orkestrel/contract'
+import type { ContractInterface } from '@orkestrel/contract'
+
+/** Declares a wire admission beside its domain guard and snapshot restoration. */
+export interface StudyContractCase {
+	readonly name: string
+	readonly wire: ContractInterface<unknown>
+	readonly guard: (value: unknown) => boolean
+	readonly positive: unknown
+	readonly negative: unknown
+	readonly direction: string
+	readonly project: undefined
+	readonly restore: ((value: unknown) => unknown) | undefined
+}
 import type { StudyAgentObserver } from '../src/core/agents/StudyAgentObserver.js'
 import type { StudyAgentMeasurement } from '../src/core/agents/types.js'
 import type { StudyControl, StudyMeter, StudyScope } from '../src/core/engines/index.js'

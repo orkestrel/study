@@ -3,7 +3,6 @@ import { studyStopToJSON } from '../../../src/core/helpers.js'
 import { buildStudyStop } from '../../setupStudy.js'
 import { describe, expect, it } from 'vitest'
 import {
-	describeStudyFault,
 	scanStudyJSONFaults,
 	buildStudySchedule,
 	computeStudyScores,
@@ -504,36 +503,6 @@ it('scores a selected manifest over its scheduled arms and leaves an unselected 
 	).toThrow(/Manifest schedule differs/)
 })
 
-describe('describeStudyFault', () => {
-	it('names the dotted path and what broke there', () => {
-		expect(describeStudyFault({ reason: 'extra', path: ['judgments', '0', 'weight'] })).toBe(
-			'judgments.0.weight: undeclared key',
-		)
-		expect(describeStudyFault({ reason: 'missing', path: ['version'], expected: 'string' })).toBe(
-			'version: missing string',
-		)
-		expect(
-			describeStudyFault({ reason: 'type', path: [], expected: 'object', received: '1' }),
-		).toBe('value: expected object, received 1')
-		expect(
-			describeStudyFault({
-				reason: 'constraint',
-				path: 'criteria',
-				expected: 'array',
-				constraint: 'min',
-				limit: 1,
-				received: '[]',
-			}),
-		).toBe('criteria: breaks min 1, received []')
-		expect(describeStudyFault({ reason: 'variant', path: ['a'], variants: 2 })).toBe(
-			'a: matches none of 2 variants',
-		)
-		expect(describeStudyFault({ reason: 'oneOf', path: ['a'], matched: 2 })).toBe(
-			'a: matches 2 variants, not one',
-		)
-	})
-})
-
 describe('scanStudyJSONFaults', () => {
 	it('names each member that is not plain JSON data, without reading an accessor', () => {
 		const reads = createRecorder<readonly []>()
@@ -558,25 +527,5 @@ describe('scanStudyJSONFaults', () => {
 		expect(reads.calls).toEqual([])
 		expect(scanStudyJSONFaults(undefined)).toEqual(['value: holds no JSON value'])
 		expect(scanStudyJSONFaults({ [Symbol.iterator]: 1 })).toEqual(['value: holds a symbol key'])
-	})
-})
-
-describe('describeStudyFault with a schema', () => {
-	it('lists the values a refused literal allows, through properties and items', () => {
-		const schema = {
-			properties: { rows: { items: { properties: { verdict: { enum: ['one', 'two'] } } } } },
-		}
-		expect(
-			describeStudyFault(
-				{ reason: 'type', path: ['rows', '0', 'verdict'], expected: 'literal', received: '"x"' },
-				schema,
-			),
-		).toBe('rows.0.verdict: expected literal among one, two, received "x"')
-		expect(
-			describeStudyFault(
-				{ reason: 'type', path: ['rows'], expected: 'array', received: '1' },
-				schema,
-			),
-		).toBe('rows: expected array, received 1')
 	})
 })

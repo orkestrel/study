@@ -14,8 +14,8 @@ import type {
 	StudyStop,
 	StudyTrial,
 } from './types.js'
-import type { AuditFault, JSONValue } from '@orkestrel/contract'
-import { holds, canonicalStringify, isArray, isRecord, isString } from '@orkestrel/contract'
+import type { JSONValue } from '@orkestrel/contract'
+import { holds, canonicalStringify, isArray, isRecord } from '@orkestrel/contract'
 import { StudyError } from './errors.js'
 import {
 	isStudyDefinition,
@@ -37,41 +37,6 @@ import {
  */
 export function omitStudyAbsent(value: object): Readonly<Record<string, unknown>> {
 	return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined))
-}
-
-/**
- * Renders a contract fault as the path it names and what the value broke there.
- * @param fault - One audit fault
- * @param schema - The contract's published schema, which names a refused literal's allowed values
- * @returns The path, dotted, then the fault; a root fault names `value`
- * @example
- * ```ts
- * describeStudyFault({ reason: 'extra', path: ['judgments', '0', 'weight'] }) // 'judgments.0.weight: undeclared key'
- * ```
- */
-export function describeStudyFault(fault: AuditFault, schema?: unknown): string {
-	const steps = isString(fault.path) ? [fault.path] : fault.path
-	const path = steps.join('.') || 'value'
-	if (fault.reason === 'extra') return `${path}: undeclared key`
-	if (fault.reason === 'missing') return `${path}: missing ${fault.expected}`
-	if (fault.reason === 'type') {
-		const node = steps.reduce<unknown>(
-			(current, step) =>
-				isRecord(current)
-					? isRecord(current.properties) && Object.hasOwn(current.properties, step)
-						? current.properties[step]
-						: current.items
-					: undefined,
-			schema,
-		)
-		const allowed = isRecord(node) && isArray(node.enum) ? ` among ${node.enum.join(', ')}` : ''
-		return `${path}: expected ${fault.expected}${allowed}, received ${fault.received}`
-	}
-	if (fault.reason === 'constraint')
-		return `${path}: breaks ${fault.constraint}${fault.limit === undefined ? '' : ` ${String(fault.limit)}`}, received ${fault.received}`
-	if (fault.reason === 'variant')
-		return `${path}: matches none of ${String(fault.variants)} variants`
-	return `${path}: matches ${String(fault.matched)} variants, not one`
 }
 
 /**

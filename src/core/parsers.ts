@@ -8,11 +8,17 @@ import type {
 	StudyRubric,
 	StudyScenario,
 } from './types.js'
-import { attempt, cloneJSONValue, isArray, isFiniteNumber, isRecord } from '@orkestrel/contract'
+import {
+	attempt,
+	describeFaults,
+	cloneJSONValue,
+	isArray,
+	isFiniteNumber,
+	isRecord,
+} from '@orkestrel/contract'
 import { studyJudgmentContract, studyLabelsContract, studyRubricContract } from './contracts.js'
 import { StudyError } from './errors.js'
 import {
-	describeStudyFault,
 	matchesStudyKeys,
 	normalizeStudyProfile,
 	omitStudyAbsent,
@@ -55,10 +61,7 @@ export function parseStudyContract<T>(value: unknown, options: StudyContractOpti
 	if (!contract.is(snapshot))
 		throw new StudyError(
 			code,
-			`Invalid ${noun}: ${contract
-				.audit(snapshot)
-				.map((fault) => describeStudyFault(fault, contract.schema))
-				.join('; ')}`,
+			`Invalid ${noun}: ${describeFaults(contract.audit(snapshot), contract.schema)}`,
 		)
 	const faults = scan(snapshot)
 	if (faults.length > 0) throw new StudyError(code, `Invalid ${noun}: ${faults.join('; ')}`)
@@ -241,8 +244,7 @@ export function parseStudyJudgments(value: unknown): readonly StudyJudgment[] {
 				studyJudgmentContract
 					.audit(entry)
 					.map(
-						(fault) =>
-							`${String(index)}: ${describeStudyFault(fault, studyJudgmentContract.schema)}`,
+						(fault) => `${String(index)}: ${describeFaults([fault], studyJudgmentContract.schema)}`,
 					),
 			)
 			if (!found.success) return [`${String(index)}: unreadable`]

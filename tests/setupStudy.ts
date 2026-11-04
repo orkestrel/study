@@ -1,4 +1,10 @@
 import { StudyError } from '../src/core/errors.js'
+import type { StudyContractCase } from './setup.js'
+import { createContract } from '@orkestrel/contract'
+import * as shapes from '../src/core/shapers.js'
+import * as guards from '../src/core/validators.js'
+import { parseStudyRubric, parseStudyLabels } from '../src/core/parsers.js'
+
 import type { JSONValue } from '@orkestrel/contract'
 import type {
 	StudyAttempt,
@@ -2342,3 +2348,105 @@ export const STUDY_LABELS_LOCKSTEP: readonly StudyLockstepCase[] = Object.freeze
 	},
 	{ name: 'undeclared key', accepted: false, value: { ...buildStudyLockstepLabels(), extra: 1 } },
 ])
+
+/** Builds the standing wire and guard table, retaining domain semantics separately. */
+export function buildStudyContractCases(): readonly StudyContractCase[] {
+	const judgment = buildStudyJudgment('trial')
+	const label = { ...judgment, method: 'human' }
+	const labels = {
+		packet: 'a'.repeat(64),
+		labeler: 'reader',
+		version: '1',
+		created: '2026-10-14T12:00:00.000Z',
+		usage: [],
+		judgments: [label],
+	}
+	return Array.from(
+		[
+			{
+				name: 'name',
+				wire: createContract(shapes.studyNameShape),
+				guard: guards.isStudyName,
+				positive: 'trial',
+			},
+			{
+				name: 'text',
+				wire: createContract(shapes.studyTextShape),
+				guard: (value: unknown) => typeof value === 'string' && /\S/.test(value),
+				positive: 'Recorded evidence',
+			},
+			{
+				name: 'digest',
+				wire: createContract(shapes.studyDigestShape),
+				guard: guards.isStudyDigest,
+				positive: 'a'.repeat(64),
+			},
+			{
+				name: 'timestamp',
+				wire: createContract(shapes.studyTimestampShape),
+				guard: guards.isStudyTimestamp,
+				positive: labels.created,
+			},
+			{
+				name: 'measurement',
+				wire: createContract(shapes.studyMeasurementShape),
+				guard: (value: unknown) =>
+					typeof value === 'number' && Number.isSafeInteger(value) && value >= 0,
+				positive: 0,
+			},
+			{
+				name: 'verdict',
+				wire: createContract(shapes.studyVerdictShape),
+				guard: (value: unknown) =>
+					value === 'achieved' || value === 'unsuccessful' || value === 'unknown',
+				positive: 'achieved',
+			},
+			{
+				name: 'usage',
+				wire: createContract(shapes.studyUsageShape),
+				guard: guards.isStudyUsage,
+				positive: { role: 'tool', calls: 0, duration: 0 },
+			},
+			{
+				name: 'criterion',
+				wire: createContract(shapes.studyCriterionShape),
+				guard: guards.isStudyCriterion,
+				positive: buildStudyRubric().criteria[0],
+			},
+			{
+				name: 'rubric',
+				wire: createContract(shapes.studyRubricShape),
+				guard: guards.isStudyRubric,
+				positive: buildStudyRubric(),
+				restore: parseStudyRubric,
+			},
+			{
+				name: 'judgment',
+				wire: createContract(shapes.studyJudgmentShape),
+				guard: guards.isStudyJudgment,
+				positive: judgment,
+			},
+			{
+				name: 'label judgment',
+				wire: createContract(shapes.studyLabelJudgmentShape),
+				guard: (value: unknown) =>
+					guards.isStudyJudgment(value) && (value.method === 'human' || value.method === 'model'),
+				positive: label,
+			},
+			{
+				name: 'labels',
+				wire: createContract(shapes.studyLabelsShape),
+				guard: guards.isStudyLabels,
+				positive: labels,
+				restore: parseStudyLabels,
+			},
+		],
+		(row) => ({
+			negative: null,
+			direction: 'is implies structural guard; domain semantics may refuse',
+			project: undefined,
+			restore: undefined,
+			...row,
+		}),
+	)
+}
