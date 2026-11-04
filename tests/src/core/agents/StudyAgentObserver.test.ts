@@ -1,6 +1,12 @@
 import type { ProviderRequest } from '@orkestrel/agent'
 import { describe, expect, it } from 'vitest'
-import { Agent, createConversationManager, estimateRequest, measureRequest } from '@orkestrel/agent'
+import {
+	Agent,
+	createAuthority,
+	createConversationManager,
+	estimateRequest,
+	measureRequest,
+} from '@orkestrel/agent'
 import { createBudget } from '@orkestrel/budget'
 import { isRecord, parseJSON } from '@orkestrel/contract'
 import { createOllama } from '@orkestrel/ollama'
@@ -346,6 +352,7 @@ describe('StudyAgentObserver', () => {
 			try {
 				const watched = createAgentObserver(wire, STUDY_AGENT_GAUGE, true)
 				const agent = new Agent(watched.observer, {
+					authority: createAuthority({ fallback: { zone: 'default', verdict: 'allow' } }),
 					conversations: manager,
 					tools: toolbox,
 					strict: true,

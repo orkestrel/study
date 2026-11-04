@@ -1392,7 +1392,7 @@ export const STUDY_AGENT_USAGE_FAILURE = Object.freeze({
 /** Supplies one classification request a real judge answers. */
 export const STUDY_JUDGE_REQUEST: JudgeRequest = Object.freeze<JudgeRequest>({
 	state: 'Order 1 shipped on Monday',
-	questions: { shipped: { form: 'noul' } },
+	questions: { shipped: { form: 'noul', instructions: 'Did order 1 ship?' } },
 })
 
 /** Builds one inert Ollama chat terminal row consumed by the real provider.

@@ -16,14 +16,20 @@ describe('parseStudyLabelLane', () => {
 
 	it('refuses by the refused field path, a blank reason and an undeclared key included', () => {
 		const refusals = [
-			[{}, 'rows: missing array'],
-			[{ rows: [{ row: 0, verdict: 'achieved', reason: 'Why' }] }, 'rows.0.row: breaks min 1'],
+			[{}, 'rows: missing; expected array'],
+			[
+				{ rows: [{ row: 0, verdict: 'achieved', reason: 'Why' }] },
+				'rows.0.row: constraint; expected integer; received "0"; constraint min; limit 1',
+			],
 			[{ rows: [{ row: 1, verdict: 'maybe', reason: 'Why' }] }, 'rows.0.verdict'],
-			[{ rows: [{ row: 1, verdict: 'unknown', reason: ' ' }] }, 'rows.0.reason: breaks pattern'],
-			[{ rows: [{ row: 1, verdict: 'unknown' }] }, 'rows.0.reason: missing string'],
+			[
+				{ rows: [{ row: 1, verdict: 'unknown', reason: ' ' }] },
+				'rows.0.reason: constraint; expected string; received "\\" \\""; constraint pattern',
+			],
+			[{ rows: [{ row: 1, verdict: 'unknown' }] }, 'rows.0.reason: missing; expected string'],
 			[
 				{ rows: [{ row: 1, verdict: 'unknown', reason: 'Why', extra: 1 }] },
-				'rows.0.extra: undeclared key',
+				'rows.0.extra: extra; this key is not declared',
 			],
 		] as const
 		for (const [value, path] of refusals) {
@@ -77,7 +83,7 @@ describe('parseStudyLabelPool', () => {
 		expect(parseStudyLabelPool(JSON.parse(JSON.stringify(pool)))).toEqual(pool)
 		expect(studyLabelPoolContract.is(pool)).toBe(true)
 		expect(() => parseStudyLabelPool({ ...pool, map: { links: [{}], checks: [] } })).toThrow(
-			/map\.links\.0\.row: missing integer/,
+			/map\.links\.0\.row: missing; expected integer/,
 		)
 	})
 })

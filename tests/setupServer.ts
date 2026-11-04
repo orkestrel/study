@@ -3612,7 +3612,7 @@ export function createStudyAdapter() { return {
     return { value: new Response(text, { status: response.status }), tokens: counts.prompt_eval_count + counts.eval_count, bytes: Buffer.byteLength(text) }
    })
    const client = subject.createMCPClient({ transport: new subject.HTTPClientTransport({ url: profile.settings.endpoint, timeout: 4000 }), timeout: 4000 })
-   const runner = agent.createAgent(provider.createOllama({ model: profile.provider.model, url: profile.provider.url, think: false, timeout: 4000, fetch: wire, options: { num_ctx: profile.room.context, num_predict: profile.room.output, temperature: 0, seed: 0 } }), { limit: 4, timeout: 8000, signal })
+   const runner = agent.createAgent(provider.createOllama({ model: profile.provider.model, url: profile.provider.url, think: false, timeout: 4000, fetch: wire, options: { num_ctx: profile.room.context, num_predict: profile.room.output, temperature: 0, seed: 0 } }), { authority: agent.createAuthority({ fallback: { zone: 'default', verdict: 'allow' } }), limit: 4, timeout: 8000, signal })
    try {
     await client.connect()
     for (const remote of await client.tools())
