@@ -44,7 +44,8 @@ import {
 	resolveStudyPackage,
 	sumStudyCalls,
 	blankStudySource,
-	extractStudyNameWord,
+	extractStudyLiterals,
+	extractStudyNameWords,
 	extractStudyParameters,
 	readStudyNameSources,
 	scanStudyParticiples,
@@ -1135,10 +1136,51 @@ describe('scanStudyParticiples', () => {
 		expect(blankStudySource("x = /['`]/g; y")).toBe('x = ' + ' '.repeat(7) + '; y')
 	})
 
-	it('takes the last word of a camel-case, constant, or prefixed name', () => {
+	it('splits a camel-case, constant, prefixed, or kebab-case name into its words', () => {
 		expect(
-			['FrameReading', 'STUDY_DAEMON_ENDINGS', '#closing', 'readValue'].map(extractStudyNameWord),
-		).toEqual(['reading', 'endings', 'closing', 'value'])
+			['FrameReading', 'STUDY_READINGS_LIMIT', '#closing', 'framingMode', 'start-failure'].map(
+				(name) => extractStudyNameWords(name),
+			),
+		).toEqual([
+			['frame', 'reading'],
+			['study', 'readings', 'limit'],
+			['closing'],
+			['framing', 'mode'],
+			['start', 'failure'],
+		])
+	})
+
+	it('reads every word of a name, a member key, an event literal, and a union literal', () => {
+		const text = [
+			'export const framingMode = 1',
+			'export const STUDY_READINGS_LIMIT = 2',
+			'export interface ReadingResult {}',
+			"const row = { event: 'closing', value: { samplingKey: 1 } }",
+			"export type Phase = 'new' | 'sealing'",
+			'export type Mixed =',
+			"\t| 'ready'",
+			"\t| 'merging'",
+			"// event: 'hidden'",
+			"const quoted = { event: 'kept' }",
+		].join('\n')
+		expect(
+			scanStudyParticiples([{ path: 'd.ts', text }], new Set()).map(({ name, word }) => [
+				name,
+				word,
+			]),
+		).toEqual([
+			['framingMode', 'framing'],
+			['STUDY_READINGS_LIMIT', 'reading'],
+			['ReadingResult', 'reading'],
+			['samplingKey', 'sampling'],
+			['closing', 'closing'],
+			['sealing', 'sealing'],
+			['merging', 'merging'],
+		])
+		expect(extractStudyLiterals("type Phase = 'new' | 'sealing'").map(({ name }) => name)).toEqual([
+			'new',
+			'sealing',
+		])
 	})
 
 	it('lists a parameter list and skips a destructured part', () => {

@@ -4728,11 +4728,14 @@ export const STUDY_PARTICIPLES_KEPT = Object.freeze({
 		'padding',
 		'timing',
 		'ceiling',
+		'recording',
+		'accounting',
+		'sibling',
 	],
 	// A name that mirrors an external field: Ollama `message.thinking` and `OllamaTiming`, the Node `encoding` option.
 	mirror: ['encoding', 'thinking'],
 	// A lifecycle state that is in progress when it is read.
-	lifecycle: ['pending', 'running', 'stopping', 'waiting'],
+	lifecycle: ['pending', 'running', 'stopping', 'waiting', 'creating', 'sealing'],
 	// An adjective naming a condition that holds when it is read.
 	adjective: ['blocking', 'missing', 'remaining', 'existing'],
 })
@@ -4745,7 +4748,7 @@ export const STUDY_PARTICIPLES_ALLOWED: ReadonlySet<string> = new Set(
 /** Names the workspace root the name guard reads from. */
 export const WORKSPACE_ROOT = fileURLToPath(new URL('../', import.meta.url))
 
-const STUDY_BLANK_PATTERN = new RegExp(
+export const STUDY_BLANK_PATTERN = new RegExp(
 	[
 		String.raw`/\*[\s\S]*?\*/|//[^\n]*`,
 		String.raw`(?<=[=(,:?&|!;{}[]\s*|\breturn\s+)/(?![/*])(?:[^/\\\n[]|\\.|\[(?:[^\]\\\n]|\\.)*\])+/[a-z]*`,
@@ -4754,32 +4757,47 @@ const STUDY_BLANK_PATTERN = new RegExp(
 	].join('|'),
 	'g',
 )
-const STUDY_NAME_TOKEN = String.raw`[A-Za-z_$][\w$]*`
-const STUDY_NAME_EXPORT = new RegExp(
+export const STUDY_NAME_TOKEN = String.raw`[A-Za-z_$][\w$]*`
+export const STUDY_NAME_EXPORT = new RegExp(
 	String.raw`^[ \t]*export\s+(?:declare\s+)?(?:abstract\s+)?(?:interface|type|class|const|let)\s+(${STUDY_NAME_TOKEN})`,
 	'gm',
 )
-const STUDY_NAME_FUNCTION = new RegExp(
+export const STUDY_NAME_FUNCTION = new RegExp(
 	String.raw`\bfunction\*?\s+(${STUDY_NAME_TOKEN})\s*(?:<[^()]*?>)?\s*\(`,
 	'g',
 )
-const STUDY_NAME_READONLY = new RegExp(
+export const STUDY_NAME_READONLY = new RegExp(
 	String.raw`\breadonly\s+(#?${STUDY_NAME_TOKEN})\s*[?!]?\s*[:=;]`,
 	'g',
 )
-const STUDY_NAME_FIELD = new RegExp(
+export const STUDY_NAME_FIELD = new RegExp(
 	String.raw`^[ \t]+(?:(?:static|readonly|declare|override|accessor|async|get|set)\s+)*\*?\s*(#${STUDY_NAME_TOKEN})\s*[?!]?\s*[:=;(<]`,
 	'gm',
 )
-const STUDY_NAME_METHOD = new RegExp(
+export const STUDY_NAME_METHOD = new RegExp(
 	String.raw`^\t(?:(?:static|async|get|set|override|abstract)\s+)*\*?(${STUDY_NAME_TOKEN})(?:<[^\n]*?>)?\(([^\n]*)$`,
 	'gm',
 )
-const STUDY_NAME_PARAMETER = new RegExp(
+export const STUDY_NAME_PARAMETER = new RegExp(
 	String.raw`^(\s*)(?:(?:readonly|override)\s+)*(?:\.\.\.)?(${STUDY_NAME_TOKEN})\s*(?:[?:=]|$)`,
 	'd',
 )
-const STUDY_NAME_LIST = String.raw`\((?:[^()]|\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\))*\)`
+/** Matches an object-literal or type member key at the start of a line or after an opening brace or comma. */
+export const STUDY_NAME_KEY = new RegExp(
+	String.raw`(?:^[ \t]*|[{,][ \t]*)(${STUDY_NAME_TOKEN})\??:[ \t\n]`,
+	'gm',
+)
+
+/** Matches a comment, so a literal scan reads code alone. */
+export const STUDY_COMMENT_PATTERN = /\/\*[\s\S]*?\*\/|(?<![:'"`])\/\/[^\n]*/g
+
+/** Matches an `event` key's string literal. */
+export const STUDY_EVENT_LITERAL = /\bevent:[ \t]*'([^'\n]+)'/g
+
+/** Matches a type alias that is a union of string literals. */
+export const STUDY_UNION_LITERAL = /\btype[ \t]+\w+(?:<[^=\n]*>)?[ \t]*=((?:\s*\|?\s*'[^'\n]*')+)/g
+
+export const STUDY_NAME_LIST = String.raw`\((?:[^()]|\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\))*\)`
 
 /**
  * Replaces comments, strings, templates, and regular expression literals with spaces, keeping every line break.
@@ -4795,21 +4813,19 @@ export function blankStudySource(text: string): string {
 }
 
 /**
- * Returns the last camel-case word of an identifier, in lower case.
- * @param name - An identifier
- * @returns The final word, lower-cased; a leading `#`, `_`, or `$` is dropped and an upper-case constant takes its last segment
+ * Splits an identifier into its words, in lower case.
+ * @param name - An identifier, a constant, or a kebab-case literal
+ * @returns Each word, lower-cased; a leading `#`, `_`, or `$` is dropped
  * @example
  * ```ts
- * extractStudyNameWord('STUDY_DAEMON_ENDINGS') // 'endings'
+ * extractStudyNameWords('STUDY_READINGS_LIMIT') // ['study', 'readings', 'limit']
+ * extractStudyNameWords('framingMode') // ['framing', 'mode']
  * ```
  */
-export function extractStudyNameWord(name: string): string {
-	const parts = name
-		.replace(/^[#_$]+/, '')
-		.split('_')
-		.filter(Boolean)
-	const segment = parts.at(-1) ?? ''
-	return (segment.match(/[A-Z]?[a-z\d]+$|[A-Z]+$/)?.[0] ?? segment).toLowerCase()
+export function extractStudyNameWords(name: string): readonly string[] {
+	return (name.replace(/^[#_$]+/, '').match(/[A-Z]+(?![a-z])|[A-Z]?[a-z\d]+/g) ?? []).map((word) =>
+		word.toLowerCase(),
+	)
 }
 
 /**
@@ -4850,8 +4866,9 @@ export function extractStudyParameters(
  * Lists the names a source text declares in the positions the -ing rule governs.
  * @remarks
  * The positions are an exported interface, type, class, or const; a function declaration and its
- * parameters; a `readonly` member; a `#` field or method; and a method head one tab in with its
- * parameters. A local variable is no position.
+ * parameters; a `readonly` member; a `#` field or method; an object-literal or type member key,
+ * evidence keys included; and a method head one tab in with its parameters. A local variable is no
+ * position.
  * @param text - TypeScript source text without comments or strings
  * @returns Each declared name with its offset, in source order
  * @example
@@ -4873,7 +4890,7 @@ export function extractStudyDeclaredNames(
 		names.set(match.index + match[0].indexOf(name), name)
 		opens.push(match.index + match[0].length - 1)
 	}
-	for (const pattern of [STUDY_NAME_READONLY, STUDY_NAME_FIELD]) {
+	for (const pattern of [STUDY_NAME_READONLY, STUDY_NAME_FIELD, STUDY_NAME_KEY]) {
 		for (const match of text.matchAll(pattern)) {
 			const name = requireValue(match[1])
 			names.set(match.index + match[0].indexOf(name), name)
@@ -4897,10 +4914,37 @@ export function extractStudyDeclaredNames(
 }
 
 /**
- * Finds every declared name whose last word is an -ing word outside the allowed set.
+ * Lists the string literals a source text gives an `event` key or a union type, words the rule governs too.
+ * @param text - TypeScript source text with its strings
+ * @returns Each literal with its offset, in source order
+ * @example
+ * ```ts
+ * extractStudyLiterals("type Phase = 'new' | 'sealing'").map(({ name }) => name) // ['new', 'sealing']
+ * ```
+ */
+export function extractStudyLiterals(
+	text: string,
+): ReadonlyArray<{ readonly name: string; readonly index: number }> {
+	const code = text.replace(STUDY_COMMENT_PATTERN, (match) => match.replace(/[^\n]/g, ' '))
+	return [
+		...[...code.matchAll(STUDY_EVENT_LITERAL)].map((match) => ({
+			name: requireValue(match[1]),
+			index: match.index,
+		})),
+		...[...code.matchAll(STUDY_UNION_LITERAL)].flatMap((match) =>
+			[...requireValue(match[1]).matchAll(/'([^'\n]*)'/g)].map((literal) => ({
+				name: requireValue(literal[1]),
+				index: match.index,
+			})),
+		),
+	].sort((left, right) => left.index - right.index)
+}
+
+/**
+ * Finds every declared name or literal holding an -ing word outside the allowed set.
  * @param sources - The source files to scan
  * @param allowed - The lower-case words the rule keeps
- * @returns Each violating name with its path and one-based line, in source order; a plural reads as its singular, and a word of three letters or fewer is no -ing word
+ * @returns Each violating name with the word it holds, its path, and its one-based line, in source order; every word of a name is read, a plural reads as its singular, and a word of three letters or fewer is no -ing word
  * @example
  * ```ts
  * scanStudyParticiples([{ path: 'a.ts', text: 'export type FoldMerging = string' }], new Set())
@@ -4913,13 +4957,17 @@ export function scanStudyParticiples(
 ): readonly StudyParticipleViolation[] {
 	return sources.flatMap((source) => {
 		const text = blankStudySource(source.text)
-		return extractStudyDeclaredNames(text).flatMap(({ name, index }) => {
-			const word = extractStudyNameWord(name)
-			const stem = word.endsWith('ings') ? word.slice(0, -1) : word
-			if (stem.length <= 3 || !stem.endsWith('ing') || allowed.has(stem)) return []
-			const line = text.slice(0, index).split('\n').length
-			return [{ path: source.path, line, name, word: stem }]
-		})
+		return [...extractStudyDeclaredNames(text), ...extractStudyLiterals(source.text)].flatMap(
+			({ name, index }) => {
+				const line = text.slice(0, index).split('\n').length
+				return extractStudyNameWords(name).flatMap((word) => {
+					const stem = word.endsWith('ings') ? word.slice(0, -1) : word
+					return stem.length <= 3 || !stem.endsWith('ing') || allowed.has(stem)
+						? []
+						: [{ path: source.path, line, name, word: stem }]
+				})
+			},
+		)
 	})
 }
 
