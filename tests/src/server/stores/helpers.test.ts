@@ -798,7 +798,7 @@ describe('readStudyProgress', () => {
 		}
 	})
 
-	it('terminal: an absent or unwritten attempt runs, and a corrupt one refuses custody naming its trial', async () => {
+	it('terminal: an absent attempt or an unfinished part runs, and an empty or corrupt one refuses custody naming its trial', async () => {
 		const scratch = createScratch()
 		try {
 			const manifest = buildCustodyManifest()
@@ -809,10 +809,12 @@ describe('readStudyProgress', () => {
 			const path = join(directory, 'execution', 'trials', trial.id, 'attempt.json')
 			const running = await readStudyProgress(directory)
 			expect(running.trials[0]).toMatchObject({ ended: false, failure: undefined })
-			await writeFile(path, '')
+			const part = join(directory, 'execution', 'trials', trial.id, STUDY_ATTEMPT_PART)
+			await writeFile(part, '{"partial":')
 			expect((await readStudyProgress(directory)).trials[0]?.ended).toBe(false)
+			await rm(part)
 			const foreign = buildCustodyAttempt(manifest, requireValue(manifest.schedule[1]))
-			for (const bytes of ['{"partial":', '{"trial":{}}', JSON.stringify(foreign)]) {
+			for (const bytes of ['', '{"partial":', '{"trial":{}}', JSON.stringify(foreign)]) {
 				await writeFile(path, bytes)
 				await expect(readStudyProgress(directory)).rejects.toMatchObject({
 					code: 'CUSTODY',
@@ -1190,9 +1192,7 @@ describe('readStudyProgressAttempt and readStudyProgressPrefix', () => {
 		try {
 			const manifest = buildCustodyManifest()
 			const trial = requireValue(manifest.schedule[0]).id
-			await expect(
-				readStudyProgressAttempt(scratch.path, manifest, trial, false),
-			).resolves.toBeUndefined()
+			await expect(readStudyProgressAttempt(scratch.path, manifest, trial)).resolves.toBeUndefined()
 			await expect(readStudyProgressPrefix(scratch.path, trial)).resolves.toBe(0)
 		} finally {
 			scratch.destroy()

@@ -681,25 +681,23 @@ export async function readStudyResult(directory: string): Promise<StudyResultVie
 /**
  * Reads the terminal record of one trial for a progress read.
  * @remarks
- * An absent file is a trial still running, and so is an empty file before the result seals, which
- * the writer holds between its exclusive open and its single write. Anything else that is not this
- * trial's valid record reads as a corrupt record, as the sealed readers read it.
+ * An absent file is a trial still running. The writer publishes through a part file and a rename,
+ * so an empty file is corrupt too: anything present that is not this trial's valid record reads as a
+ * corrupt record, as the sealed readers read it.
  * @param folder - The trial's execution folder
  * @param manifest - The result's manifest
  * @param trial - The scheduled trial id
- * @param sealed - If `true`, an empty file is corrupt; if `false`, it reads as still running
  * @returns The trial's terminal attempt, or undefined while it runs
  * @throws StudyError - Thrown with `CUSTODY` naming the trial when the record is unreadable, invalid, or another trial's
  * @example
  * ```ts
- * await readStudyProgressAttempt(folder, manifest, 'r1-s1-a1', false)
+ * await readStudyProgressAttempt(folder, manifest, 'r1-s1-a1')
  * ```
  */
 export async function readStudyProgressAttempt(
 	folder: string,
 	manifest: StudyManifest,
 	trial: string,
-	sealed: boolean,
 ): Promise<StudyAttempt | undefined> {
 	const refusal = new StudyError('CUSTODY', `Terminal attempt of trial ${trial} is invalid`)
 	const bytes = await readStudyBytes(join(folder, 'attempt.json'), STUDY_CUSTODY_BYTES).catch(
@@ -708,7 +706,7 @@ export async function readStudyProgressAttempt(
 			throw refusal
 		},
 	)
-	if (bytes === undefined || (bytes.byteLength === 0 && !sealed)) return undefined
+	if (bytes === undefined) return undefined
 	const record = attempt((): unknown => decodeStudyJSON(bytes))
 	if (
 		!record.success ||
@@ -871,7 +869,7 @@ export async function readStudyProgress(
 					)
 				return row.value
 			})
-			const record = await readStudyProgressAttempt(folder, manifest, trial.id, sealed)
+			const record = await readStudyProgressAttempt(folder, manifest, trial.id)
 			const prefix =
 				manifest.record === undefined || manifest.ancestor === undefined
 					? 0
