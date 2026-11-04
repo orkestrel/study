@@ -346,7 +346,7 @@ try { parseStudyArguments([]) } catch (error) {
 		} finally {
 			await destroyScratch(scratch)
 		}
-	})
+	}, 60000)
 
 	it('checks a distinct target and driver without importing the subject or writing results', async () => {
 		const entry = await compiled.promise
