@@ -290,8 +290,9 @@ claim this server does not implement the revision it does implement.
 its errors in band, byte-identically to what a `2025-06-18` client already expects. A
 modern result maps to real statuses: `202` for a notification, `400` for `-32020` /
 `-32021` / `-32022` / `-32602`, `404` for `-32601`, and `200` otherwise. A
-transport-level failure — malformed JSON or a body that is not a JSON-RPC request — is
-`400` under both eras, because no era was ever established. See
+transport-level failure — malformed JSON or an invalid request body — is
+`400` under both eras, because no era was ever established. A response or a malformed
+notification is accepted with `202` and no body, using the same classification as `handle`. See
 [Route a request by era and build a modern result](#route-a-request-by-era-and-build-a-modern-result)
 for the inferers this rides on.
 
@@ -305,7 +306,17 @@ import { createMCPServer } from '@orkestrel/mcp'
 import { createTool, createToolManager } from '@orkestrel/tool'
 
 const tools = createToolManager()
-tools.add(createTool({ name: 'add', execute: (a) => Number(a.x) + Number(a.y) }))
+tools.add(
+	createTool({
+		name: 'add',
+		parameters: {
+			type: 'object',
+			properties: { x: { type: 'number' }, y: { type: 'number' } },
+			required: ['x', 'y'],
+		},
+		execute: (a) => Number(a.x) + Number(a.y),
+	}),
+)
 
 const server = createMCPServer({ identity: { name: 'calculator', version: '1.0.0' }, tools })
 server.emitter.on('request', (method, id, era) => log(method, id, era))
@@ -314,12 +325,12 @@ server.emitter.on('request', (method, id, era) => log(method, id, era))
 const reply = await server.handle(
 	'{"jsonrpc":"2.0","method":"tools/list","id":1,"params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}',
 )
-// reply → '{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"add","inputSchema":{"type":"object"}}]}}'
+// reply → '{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"add","inputSchema":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"}},"required":["x","y"]}}]}}'
 
 const out = await server.handle(
 	'{"jsonrpc":"2.0","method":"tools/call","id":2,"params":{"name":"add","arguments":{"x":2,"y":5},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}',
 )
-// out → '…"result":{"content":[{"type":"text","text":"7"}],"structuredContent":7}}'
+// out → '…"result":{"content":[{"type":"text","text":"7"}],"resultType":"complete",…}}'
 ```
 
 `dispatch` is the typed core; `handle` wraps it with the `JSON.parse` ↔
@@ -330,11 +341,18 @@ graph. A call with no `id` is a **notification** — a type of its own, handled
 (the `request` event still fires) but yielding no response (`dispatch` resolves
 `undefined`, `handle` returns `undefined`), whatever its method. The error
 envelopes carry `id: null` for the id they could not read, as JSON-RPC 2.0 § 5
-requires. Tool errors
+requires, and a malformed request's `-32600` carries the id it could read. A stray response and
+a malformed notification are not answered, and reach the `error` event. Tool errors
 are not protocol errors: the `ToolManager` (`@orkestrel/tool`) isolates a
 thrown tool into a `success: false` result, which `tools/call` maps to an
 `isError: true` tool result carrying its `error` text — so the server wraps
-no tool-domain failure as a protocol error. A rejected execution provider or
+no tool-domain failure as a protocol error. An unknown tool is one: `tools/call` answers
+`-32602` with `Unknown tool:`, the name, and at most `REFUSAL_LIST_LIMIT` of the available names,
+before any input policy or `execution` port runs. A refused argument record is one of those
+failures: the specification, revision 2025-11-25, Tools § Error Handling, reports input
+validation in a tool result so a model can correct and retry, and the text `Tool` refuses with
+says what to send. An in-process caller reads the same report from a `ToolError`'s
+`context.faults`. A rejected execution provider or
 malformed runtime result instead becomes a detail-free `-32603` response, and the
 value that was caught is reported on the server's `error` event — the one place it
 is legible, and never the wire.
@@ -363,8 +381,8 @@ invalid input carries `id: null`.
 **A JSON-RPC result is any value, and an MCP result is an object.** The `result` member of
 `@orkestrel/jsonrpc`'s `JSONRPCResultResponse` type is `unknown`, so narrow it with
 `isMCPResult` or `isMCPLegacyResult` before reading it. `HTTPClientTransport` delivers an
-`application/json` reply whose `result` is a primitive, and `MCPClient` reports that reply on
-`error` as a malformed message. When a legacy peer answers a correlated request with a primitive
+`application/json` reply whose `result` is a primitive, and `MCPClient` rejects the request it
+answers with an `MCPError`, and reports one that answers no pending request on `error`. When a legacy peer answers a correlated request with a primitive
 `result`, `MCPLegacyClientTransport` answers that request with a `-32603` error response.
 
 ```ts
@@ -641,6 +659,7 @@ result shape for them. See
 | `MCP_SENTINEL_SUFFIX`                | const | `"?="`                                                                                                                      | Names the closing marker of the Base64 sentinel a standard MCP header value travels in.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `MCP_PARAM_PREFIX`                   | const | `"Mcp-Param-"`                                                                                                              | Names the request-header prefix an `x-mcp-header` annotation projects a tool argument onto.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `MCP_HEADER_ANNOTATION`              | const | `"x-mcp-header"`                                                                                                            | Identifies the tool-schema annotation key naming the header one parameter projects into.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `MCP_LIST_PAGES`                     | const | `64`                                                                                                                        | Bounds the `tools/list` pages a client reads into one listing.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `MCP_LOOKUP_PAGES`                   | const | `8`                                                                                                                         | Bounds the `tools/list` pages one modern `tools/call` walks to reach its own annotations.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `MCP_HEADER_MISMATCH`                | const | `-32020`                                                                                                                    | Names the MCP reserved error for required HTTP metadata that does not match the request body.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `MCP_MISSING_CAPABILITY`             | const | `-32021`                                                                                                                    | Names the MCP reserved error for an operation needing a client capability that was not declared.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
@@ -749,10 +768,10 @@ result shape for them. See
 | `buildToolDescriptors`             | function | `(manager: ToolManagerInterface) => readonly MCPToolDescriptor[]`                                                                                                                                                                                                                                                                                                                                   | Maps a `ToolManagerInterface`'s definitions to MCP `tools/list` descriptors — renaming `parameters` to the wire's `inputSchema`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `toolAnnotationsToMCP`             | function | `(annotations: ToolAnnotations) => MCPToolAnnotations`                                                                                                                                                                                                                                                                                                                                              | Projects domain tool annotations onto MCP wire hints without inventing defaults.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `mcpAnnotationsToTool`             | function | `(annotations: MCPToolAnnotations) => ToolAnnotations`                                                                                                                                                                                                                                                                                                                                              | Projects MCP wire hints onto domain tool annotations without inventing defaults.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `buildToolCall`                    | function | `(request: JSONRPCRequest, args?: Readonly<Record<string, unknown>>) => ToolCall \| undefined`                                                                                                                                                                                                                                                                                                      | Builds the canonical Tool call for one validated MCP `tools/call` request.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `buildToolCall`                    | function | `(request: JSONRPCRequest, args: Readonly<Record<string, unknown>>) => ToolCall \| undefined`                                                                                                                                                                                                                                                                                                       | Builds the canonical Tool call for one validated MCP `tools/call` request.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `buildProgressNotification`        | function | `(token: string \| number, progress: MCPProgress) => JSONRPCNotification`                                                                                                                                                                                                                                                                                                                           | Builds one official progress notification for the original request stream.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `buildCancelledNotification`       | function | `(id: JSONRPCId, reason?: string) => JSONRPCNotification`                                                                                                                                                                                                                                                                                                                                           | Builds one official cancellation notification for a request already sent.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `buildCallOutcome`                 | function | `(name: string, result: unknown) => MCPCallOutcome`                                                                                                                                                                                                                                                                                                                                                 | Narrows one `tools/call` answer to the arm the peer chose.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `buildCallOutcome`                 | function | `(name: string, result: unknown, output?: ContractInterface<unknown>) => MCPCallOutcome`                                                                                                                                                                                                                                                                                                            | Narrows one `tools/call` answer to the arm the peer chose.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `extractContentText`               | function | `(result: unknown) => string`                                                                                                                                                                                                                                                                                                                                                                       | Concatenates an MCP tool-call result's text content blocks into one string.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `matchesResultType`                | function | `(method: string, resultType: unknown) => boolean`                                                                                                                                                                                                                                                                                                                                                  | Determines whether one method may answer with a given modern `resultType`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `snapshotJSON`                     | function | `(value: unknown, limits: MCPJSONLimitOptions) => readonly [value: JSONValue, text: string] \| undefined`                                                                                                                                                                                                                                                                                           | Snapshots one bounded exact JSON value together with its canonical wire serialization. The returned value is an owned, deeply frozen graph reconstructed from the canonical text; the frozen tuple shares no mutable structure with the input. Invalid exact-JSON shapes, hostile reflection, serialization failures, and values outside the byte, key, or depth limits return `undefined`.                                                                                                                                                                                                                                                                                                                                      |
@@ -774,6 +793,12 @@ result shape for them. See
 | `decodeBoundedMessage`             | function | `(message: string, limits: MCPJSONLimitOptions) => JSONRPCMessage \| undefined`                                                                                                                                                                                                                                                                                                                     | Decodes one raw inbound message within an explicit bound — the decode a binder performs before it hands the string on.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `deliverMessage`                   | function | `(emitter: EmitterInterface<MCPMessageTransportEventMap>, text: string, fault: string) => void`                                                                                                                                                                                                                                                                                                     | Decodes one inbound frame and delivers it onto a transport emitter as `message` or `error`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `readCancelledId`                  | function | `(message: JSONRPCMessage) => JSONRPCId \| undefined`                                                                                                                                                                                                                                                                                                                                               | Reads the request id an inbound `notifications/cancelled` names — the inverse of `buildCancelledNotification`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `readToolPage`                     | function | `(result: unknown) => MCPToolPage`                                                                                                                                                                                                                                                                                                                                                                  | Reads one `tools/list` answer as a page of tools, refusing a listing it cannot read.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `extractMessageId`                 | function | `(value: unknown) => JSONRPCId \| undefined`                                                                                                                                                                                                                                                                                                                                                        | Extracts the JSON-RPC id one unread message carries, when it carries a valid one.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `extractInvalidRequestId`          | function | `(value: unknown) => JSONRPCId \| null \| undefined`                                                                                                                                                                                                                                                                                                                                                | Extracts the id a `-32600` answer to one parsed value that is not an invocation goes under.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `buildParseFault`                  | function | `(message: string) => MCPError`                                                                                                                                                                                                                                                                                                                                                                     | Builds the transport fault for one inbound frame that is not JSON, which answers under `null`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `buildInboundAnswer`               | function | `(fault: unknown) => JSONRPCErrorResponse \| undefined`                                                                                                                                                                                                                                                                                                                                             | Builds the JSON-RPC error a server transport writes for one fault its carrier reported.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `buildInboundFault`                | function | `(value: unknown, fault: string) => MCPError`                                                                                                                                                                                                                                                                                                                                                       | Builds the transport fault for one inbound value that is not the message its receiver takes.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `decodeSentinel`                   | function | `(value: string) => string \| undefined`                                                                                                                                                                                                                                                                                                                                                            | Reads the value one standard MCP request header carries, decoding the Base64 sentinel.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `encodeSentinel`                   | function | `(value: string) => string`                                                                                                                                                                                                                                                                                                                                                                         | Builds the wire form one standard MCP request header value must travel as.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `isFieldToken`                     | function | `(value: unknown) => value is string`                                                                                                                                                                                                                                                                                                                                                               | Determines whether a value is one RFC 9110 field token.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
@@ -832,7 +857,7 @@ isMCPToolAnnotations({ readOnlyHint: false }) // true
 | `MCPBlobResource`                  | interface | `{ uri, mimeType?, _meta?, blob }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Represents embedded base64-encoded resource contents.                                                                                                                                                       |
 | `MCPEmbeddedResource`              | interface | `{ type, resource, annotations?, _meta? }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Represents an MCP content block carrying embedded text or blob resource contents.                                                                                                                           |
 | `MCPContent`                       | type      | `MCPTextContent \| MCPImageContent \| MCPAudioContent \| MCPResourceLink \| MCPEmbeddedResource`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Represents one exact dated-schema tool content block.                                                                                                                                                       |
-| `MCPUnstampedCallResult`           | type      | `{ readonly content: readonly MCPContent[]; readonly structuredContent?: JSONValue; readonly isError?: boolean; readonly _meta?: MCPResultMetaObject; }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Represents a `tools/call` result before the modern stamp — the executed tool's output as `content` blocks, with `isError` flagging a tool failure.                                                          |
+| `MCPUnstampedCallResult`           | type      | `{ readonly content: readonly MCPContent[]; readonly structuredContent?: Readonly<Record<string, JSONValue>>; readonly isError?: boolean; readonly _meta?: MCPResultMetaObject; }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Represents a `tools/call` result before the modern stamp — the executed tool's output as `content` blocks, with `isError` flagging a tool failure.                                                          |
 | `MCPCallResult`                    | type      | `MCPUnstampedCallResult & { readonly resultType: 'complete'; }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Represents a required complete modern `tools/call` result.                                                                                                                                                  |
 | `MCPPaginationParams`              | interface | `{ cursor? }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Represents the cursor parameters shared by every paginated modern list method.                                                                                                                              |
 | `MCPPaginationResult`              | interface | `{ nextCursor? }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Represents the cursor result fields shared by every paginated modern list method.                                                                                                                           |
@@ -909,6 +934,8 @@ isMCPToolAnnotations({ readOnlyHint: false }) // true
 | `MCPListResult`                    | type      | `{ readonly tools: readonly MCPToolDescriptor[]; readonly resultType: 'complete'; readonly ttlMs: number; readonly cacheScope: 'public' \| 'private'; readonly _meta?: MCPResultMetaObject; }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Represents the MCP `tools/list` result — tool descriptors plus optional modern result stamps.                                                                                                               |
 | `MCPToolAnnotations`               | interface | `{ title?, readOnlyHint?, destructiveHint?, idempotentHint?, openWorldHint? }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Describes tool hints using the MCP 2026-07-28 specification's wire field names.                                                                                                                             |
 | `MCPToolDescriptor`                | interface | `{ name, title?, description?, inputSchema, annotations? }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Represents one entry of the MCP `tools/list` result with its display metadata and JSON-Schema input.                                                                                                        |
+| `MCPListedTool`                    | type      | `Readonly<Record<string, unknown>> & Pick<MCPToolDescriptor, 'name' \| 'inputSchema'>`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Holds one `tools/list` entry past the members a client refuses a listing without.                                                                                                                           |
+| `MCPToolPage`                      | interface | `{ tools, nextCursor? }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Holds one `tools/list` page a client has read.                                                                                                                                                              |
 | `MCPHeaderPrimitive`               | type      | `'boolean' \| 'integer' \| 'string'`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Names the JSON Schema types an `x-mcp-header` annotation may sit on.                                                                                                                                        |
 | `MCPHeaderParameter`               | interface | `{ name, path, primitive }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Represents one `x-mcp-header` projection a tool's `inputSchema` declares.                                                                                                                                   |
 | `MCPIdentity`                      | type      | `MCPMetaObject & { readonly name: string; readonly version: string; readonly title?: string; readonly description?: string; readonly websiteUrl?: string; readonly icons?: readonly MCPIcon[]; }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Represents the complete dated identity of an MCP server or client.                                                                                                                                          |
@@ -1048,9 +1075,12 @@ so `caller` stays an HTTP-face seam.
 request body through `mcp.dispatch`. For a streamed response,
 `MCPDispatchOptions.signal` composes the fetch-standard request signal with
 response-stream cancellation; the optional session middleware preserves the request
-signal when it rebuilds a buffered POST. A malformed JSON body, or a parsed value
-that is not a JSON-RPC request, is an HTTP `400` carrying a JSON-RPC error
-body (`-32700` / `-32600`, with `id: null`). Legacy dispatch results retain uniform
+signal when it rebuilds a buffered POST. A malformed JSON body or an invalid request
+is an HTTP `400` carrying a JSON-RPC error body (`-32700` / `-32600`). The error
+carries `id: null` unless a malformed request has a readable id. An object with neither
+invocation nor response members, including `{}`, receives `-32600` under `null`.
+A response or a malformed notification receives HTTP `202` with no body, matching
+the silence of `handle` and stdio. Legacy dispatch results retain uniform
 HTTP `200` with in-band errors. Modern responses use `202` for notifications,
 `400` for `-32020` / `-32021` / `-32022` / `-32602`, `404` for `-32601`, and
 `200` otherwise. A unary reply is framed as one `@orkestrel/server` `createStream`
@@ -2156,7 +2186,8 @@ The `tasks` data member is the stable Tasks extension's client half — see
 `tools()` returns a snapshot. The wire preserves `title`, the advertised `description`,
 `inputSchema` (wrapped as `parameters`), and the mapped `annotations`. The server maps
 `pure` to `readOnlyHint` and `consequential` to `destructiveHint`; the client applies the
-inverse projection. For a schema-less tool, the wire adds `inputSchema: { type: 'object' }`.
+inverse projection. A tool that declares nothing advertises the closed empty object
+`CLOSED_PARAMETERS` from `@orkestrel/tool`, so a call that sends it a key is refused.
 `untrusted` has no MCP counterpart. Unmapped hints remain absent from
 the wrapped tool, and omitted hints receive no invented defaults. These hints do not authorize
 execution. The wire loses `summary` as a separate field and, when a summary was authored,
@@ -2164,6 +2195,36 @@ the full description: the registry advertises that summary as `description`.
 The wrapped tool forwards `context.signal` into `call`, so agent-side abort reaches the
 remote request. Refresh snapshots explicitly between agent runs; see
 [Refresh the tools an agent holds](#refresh-the-tools-an-agent-holds).
+
+**A listing is complete or refused.** `tools()` follows `nextCursor` for up to `MCP_LIST_PAGES`
+pages and throws an `MCPError` when an answer is not an object, `tools` is not an array, an entry
+lacks a non-empty `name` with no surrounding space or a record `inputSchema`, a present
+`outputSchema` is not a record, a `nextCursor` is neither a string nor `null`, a cursor repeats, or
+a cursor is present on the last page it reads, because a cut listing would read as complete. A
+`null` or empty cursor reads as the end of the listing. The refusal names the entry's index.
+
+**A wrapped tool enforces the remote `inputSchema` before it calls.** The schema enters through the
+lenient `schemaToShape` conversion on the wrapped tool's first `execute`, which widens what it
+cannot read and never narrows, so the remote server stays the authority on what remains. A
+refusal throws a `ToolError` with code `ARGUMENTS` and writes nothing to the transport.
+
+**A tool's own error always reaches the caller.** `isError: true` throws `MCPToolError` before any
+block is validated, carrying the text of whichever blocks read, or a bare string `content`, because
+that message is what a model corrects from.
+
+**A complete answer must be readable.** On a success, `call` throws an `MCPError` for a non-boolean
+`isError`, a `content` that is not a list of valid blocks, and a result carrying neither `content`
+nor an object `structuredContent`. `content: []` reads as a value of `undefined`. The specification,
+revision 2025-11-25, defines `structuredContent` as a JSON object, so `MCPServer` sets it only for a
+record value, the text carrying every other value, and `call` reads any other value there as absent
+and falls back to the text, because refusing it would lose a real answer from a sloppy server.
+
+**A declared `outputSchema` binds the answer.** After `tools()` has read this connection's listing,
+a tool declaring an `outputSchema` must answer an object `structuredContent` the `is` guard of that
+schema's lenient conversion accepts. A miss throws an `MCPError` whose `context.faults` holds the
+audit, and its message says when the result carried no `structuredContent` object at all. A failure owes no value, so `isError: true` still throws
+`MCPToolError`. A `call` made before any listing knows no schema and checks none, and a new
+connection starts with none.
 
 **Every session-bound request refuses at once while the client holds no connection.** `call`,
 `tools`, each `tasks/*` method reached through `client.tasks`, and a `listen` stream all carry
@@ -2640,10 +2701,13 @@ The `adopt` method excludes a tool carrying `annotations.debugging: true` unless
 `adopt({ debug: true })`. A false or omitted hint leaves the tool included either way;
 the `origins` option continues to filter which registrations the registry returns.
 
-**An adopted tool validates nothing.** It advertises the foreign `inputSchema` as its
-`parameters` and forwards the arguments it is given. Compiling that schema into a contract
-would let one page's unreadable or hostile schema refuse the whole `adopt` call, and the
-arguments reach a handler in another document that has to validate them anyway.
+**An adopted tool enforces the foreign schema.** It advertises the foreign `inputSchema` as its
+`parameters` and enforces it through the lenient `schemaToShape` conversion on its first `execute`,
+so a schema record it cannot read refuses that tool's calls rather than the whole `adopt` call. A
+foreign tool with no `inputSchema` declares nothing and takes nothing. A tool no local `Tool` can be
+built from, a non-record `inputSchema` or a name with surrounding space, rejects the whole `adopt`
+call with a `ToolError`. The handler in the other document stays the authority on whatever the
+conversion widens.
 
 The bridge exposes these methods.
 
@@ -2736,10 +2800,25 @@ tools.add(
 	createTool({
 		name: 'search',
 		description: 'Search the docs',
+		parameters: {
+			type: 'object',
+			properties: { query: { type: 'string' } },
+			required: ['query'],
+		},
 		execute: (a) => find(String(a.query)),
 	}),
 )
-tools.add(createTool({ name: 'add', execute: (a) => Number(a.x) + Number(a.y) }))
+tools.add(
+	createTool({
+		name: 'add',
+		parameters: {
+			type: 'object',
+			properties: { x: { type: 'number' }, y: { type: 'number' } },
+			required: ['x', 'y'],
+		},
+		execute: (a) => Number(a.x) + Number(a.y),
+	}),
+)
 
 const server = createMCPServer({ identity: { name: 'docs', version: '1.0.0' }, tools })
 server.emitter.on('request', (method, id) => log(method, id))
@@ -2754,7 +2833,7 @@ for await (const message of transport) {
 const listed = await server.handle(
 	'{"jsonrpc":"2.0","method":"tools/list","id":1,"params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}',
 )
-// listed → '{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"search","inputSchema":{"type":"object"},"description":"Search the docs"},{"name":"add","inputSchema":{"type":"object"}}],"resultType":"complete","ttlMs":60000,"cacheScope":"private","_meta":{"io.modelcontextprotocol/serverInfo":{"name":"docs","version":"1.0.0"}}}}'
+// listed → '{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"search","inputSchema":{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]},"description":"Search the docs"},{"name":"add","inputSchema":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"}},"required":["x","y"]}}],"resultType":"complete","ttlMs":60000,"cacheScope":"private","_meta":{"io.modelcontextprotocol/serverInfo":{"name":"docs","version":"1.0.0"}}}}'
 ```
 
 ### Refresh the tools an agent holds
@@ -3144,7 +3223,17 @@ import { createScopeServer } from '@orkestrel/mcp/browser'
 import { createTool, createToolManager } from '@orkestrel/tool'
 
 const tools = createToolManager()
-tools.add(createTool({ name: 'add', execute: (a) => Number(a.x) + Number(a.y) }))
+tools.add(
+	createTool({
+		name: 'add',
+		parameters: {
+			type: 'object',
+			properties: { x: { type: 'number' }, y: { type: 'number' } },
+			required: ['x', 'y'],
+		},
+		execute: (a) => Number(a.x) + Number(a.y),
+	}),
+)
 const worker = createScopeServer({ tools, name: 'worker-mcp', version: '1.0.0' })
 // ... on teardown:
 worker.stop()
@@ -3205,7 +3294,17 @@ const scope = {
 }
 
 const tools = createToolManager()
-tools.add(createTool({ name: 'add', execute: (a) => Number(a.x) + Number(a.y) }))
+tools.add(
+	createTool({
+		name: 'add',
+		parameters: {
+			type: 'object',
+			properties: { x: { type: 'number' }, y: { type: 'number' } },
+			required: ['x', 'y'],
+		},
+		execute: (a) => Number(a.x) + Number(a.y),
+	}),
+)
 const worker = createScopeServer({ tools, name: 'worker-mcp', version: '1.0.0' }, scope)
 
 const { port1, port2 } = new MessageChannel()
@@ -3219,7 +3318,7 @@ port2.postMessage(
 	'{"jsonrpc":"2.0","method":"tools/list","id":1,"params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}',
 )
 
-log(await reply) // '{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"add","inputSchema":{"type":"object"}}]}}'
+log(await reply) // '{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"add","inputSchema":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"}},"required":["x","y"]}}]}}'
 worker.stop() // unbinds every binding, closes every accepted MessagePort
 ```
 
@@ -3884,12 +3983,12 @@ digesting, or execution. Whichever it is, one reference then reaches the argumen
 the input selector, the canonical `ToolCall`, and the executor — no step re-snapshots, so no
 step can be looking at a different value from another.
 
-That record is shared and frozen, which is worth knowing before it surprises you: a tool
-that writes to its own `arguments` now throws, and because the registry isolates a thrown tool
-into a `success: false` result, the client sees an ordinary `isError: true` tool result with
-no protocol change to point at. Refusing a mutation of server-owned input is a tool-domain
-failure rather than a protocol fault, so that is where it is reported. A tool that needs a
-mutable bag copies first: `const working = { ...args }`.
+A `Tool` hands its handler `contract.parse(args)`, an owned copy, so only a tool built with
+`strict: false` sees that record. It is shared and frozen, which is worth knowing before it
+surprises you: a raw tool that writes to its own `arguments` throws, and the client sees an
+ordinary `isError: true` tool result with no protocol change to point at. Refusing a mutation of
+server-owned input is a tool-domain failure rather than a protocol fault, so that is where it is
+reported. A raw tool that needs a mutable bag copies first: `const working = { ...args }`.
 
 The reporter exists only when `_meta.progressToken` is a string or integer.
 `report` requires a bounded payload with finite, strictly increasing values and awaits
@@ -3935,7 +4034,7 @@ const server = createMCPServer({
 				{ type: 'text', text: 'Preview' },
 				{ type: 'image', data: 'iVBORw0KGgo=', mimeType: 'image/png' },
 			],
-			structuredContent: ['preview', 1],
+			structuredContent: { slides: 1 },
 		}
 	},
 })
@@ -3992,12 +4091,15 @@ import {
 
 const limits = { bytes: 4096, keys: 64, depth: 16 }
 const parameters = { prompt: 'owl' }
-const call = buildToolCall({
-	jsonrpc: '2.0',
-	id: 1,
-	method: 'tools/call',
-	params: { name: 'render', arguments: parameters },
-})
+const call = buildToolCall(
+	{
+		jsonrpc: '2.0',
+		id: 1,
+		method: 'tools/call',
+		params: { name: 'render', arguments: parameters },
+	},
+	parameters,
+)
 const canonical = serializeJSON(parameters, limits)
 const digest = await digestJSON(parameters, limits)
 const notification = buildProgressNotification('render-1', { progress: 1, total: 2 })
@@ -4120,7 +4222,7 @@ import { createMCPContinuation } from '@orkestrel/mcp/server'
 import { createTool, createToolManager } from '@orkestrel/tool'
 
 const tools = createToolManager()
-tools.add(createTool({ name: 'reply', execute: (input) => input }))
+tools.add(createTool({ name: 'reply', parameters: { type: 'object' }, execute: (input) => input }))
 
 const server = createMCPServer({
 	identity: { name: 'supervisor', version: '1.0.0' },
@@ -4386,7 +4488,7 @@ import {
 import { createTool, createToolManager } from '@orkestrel/tool'
 
 const tools = createToolManager()
-tools.add(createTool({ name: 'render', execute: (input) => input }))
+tools.add(createTool({ name: 'render', parameters: { type: 'object' }, execute: (input) => input }))
 
 const server = createMCPServer({
 	identity: { name: 'supervisor', version: '1.0.0' },
@@ -4655,7 +4757,17 @@ serverSide.connect(clientSide)
 clientSide.connect(serverSide)
 
 const tools = createToolManager()
-tools.add(createTool({ name: 'add', execute: (a) => Number(a.x) + Number(a.y) }))
+tools.add(
+	createTool({
+		name: 'add',
+		parameters: {
+			type: 'object',
+			properties: { x: { type: 'number' }, y: { type: 'number' } },
+			required: ['x', 'y'],
+		},
+		execute: (a) => Number(a.x) + Number(a.y),
+	}),
+)
 const server = createMCPServer({ identity: { name: 'calculator', version: '1.0.0' }, tools })
 bindServer(server, serverSide)
 
@@ -4984,7 +5096,7 @@ consumer can plan around it instead of discovering it.
 | A built-in resource or prompt store                                     | The `resources` / `prompts` / `completion` capabilities ship as ports, exactly as tools and durable tasks do. What backs one — a workspace, a database, a template registry, a plain object — is the host's decision, and a default store here would be product policy wearing a framework's clothes.                                                                                                                                                                              |
 | Server-initiated `elicitation/create` requests                          | 2026-07-28 removes server-initiated requests entirely. Input requests survive only inside a modern `tools/call` `input_required` result — see [Ask the client for input during the call in hand](#ask-the-client-for-input-during-the-call-in-hand).                                                                                                                                                                                                                               |
 | Durable task or session storage                                         | Task state outlives the request that created it and this package owns no persistence. The store arrives injected as `MCPTaskOptions.tasks`, exactly as `ToolManagerInterface` does — the extension's protocol ships here, its durability does not.                                                                                                                                                                                                                                 |
-| `outputSchema` on tool descriptors                                      | `ToolResult.value` (`@orkestrel/tool`) is `unknown`; the contract that owns the value owns its schema. `structuredContent` is produced without one, which no clause gates.                                                                                                                                                                                                                                                                                                         |
+| `outputSchema` on this server's tool descriptors                        | `ToolResult.value` (`@orkestrel/tool`) is `unknown`; the contract that owns the value owns its schema. `structuredContent` is produced without one, which no clause gates. `MCPClient` does enforce one a remote server declares.                                                                                                                                                                                                                                                  |
 | Icons (2025-11-25)                                                      | Installed `@orkestrel/tool` definitions carry no icon field, so an MCP-only wrapper would have no originating consumer.                                                                                                                                                                                                                                                                                                                                                            |
 | Withholding a consumer's own invalidly annotated tool from `tools/list` | The annotation is read and enforced on both sides; see [Protocol](#protocol) for the rules. The exclusion MUST binds an HTTP client, and this package's client transports honour it. A server that also dropped the definition would hide a consumer's tool from every peer over a mistake in one property, so this one serves it, recognizes no `Mcp-Param-*` name for it, and lets each conformant client exclude it.                                                            |
 | `_meta['io.modelcontextprotocol/logLevel']`                             | The deprecated canonical value is validated as request metadata, but no consumer opts a request into server log emission.                                                                                                                                                                                                                                                                                                                                                          |
@@ -5556,25 +5668,26 @@ the exact statement:
    client asking to `initialize` at `'2026-07-28'` is asking to negotiate a
    revision that defines no negotiation, and the client decides what to do with
    the legacy answer it gets. `ping` → `{}`. `tools/list` → `{ tools }`, each tool a
-   `MCPToolDescriptor` (its `parameters` renamed to `inputSchema`,
-   defaulting to `{ type: 'object' }`). `tools/call` → the executed
+   `MCPToolDescriptor` (its `parameters` renamed to `inputSchema`, a tool
+   that declares none advertising the closed empty object). `tools/call` → the executed
    tool's `MCPCallResult`.
 5. **Tool errors are tool results, not protocol errors.** `tools/call` reads
    `params.name` (a string) + `params.arguments` (a record; the modern path defaults an
    absent one to the shared frozen `EMPTY_MCP_ARGUMENTS`),
    narrowed with `@orkestrel/contract`'s guards (no `as`); a missing /
-   non-string `name` → a `-32602` invalid-params error. Otherwise it runs
+   non-string `name` → a `-32602` invalid-params error, and so does a name `tools.tool(name)` does
+   not hold, naming the tool and the available names. Otherwise it runs
    `tools.execute(call, context)` under the modern and legacy wire eras. The call carries
    `{ id, name, arguments }`; the context carries the request's `signal` and the optional
    `caller` from `options.caller`, omitted when absent. The tool body receives that context.
    Because the `ToolManager`
-   (`@orkestrel/tool`) already isolates a thrown tool (and an unknown name)
-   into a `success: false` result, the server adds no try/catch: that branch's
+   (`@orkestrel/tool`) already isolates a thrown tool and a refused argument
+   record into a `success: false` result, the server adds no try/catch: that branch's
    `error` maps to `{ content: [{ type: 'text', text: <error> }], isError: true }`;
    a valued `success: true` branch maps to `{ content: [{ type: 'text', text:
-   JSON.stringify(value) }], structuredContent: value }`, carrying the value unchanged
-   alongside the backwards-compatible text. A value-less success retains the required
-   empty text block and omits `structuredContent`.
+   JSON.stringify(value) }] }`, and a record value also travels unchanged as
+   `structuredContent` alongside the backwards-compatible text. A value-less success retains the
+   required empty text block and omits `structuredContent`.
 6. **One modern seam, subscriptions included, and `-32601` for anything off it.**
    `server/discover`, `tools/list`, `tools/call`, and `subscriptions/listen` are registered on `server.methods` at
    construction — unconditionally, because they need no consumer port — and
@@ -5618,8 +5731,11 @@ the exact statement:
    metadata, and duplicated text/structured representations—is bounded before serialization; and
    built-in subscription admission is capped until each stream's `finally` releases it.
    Metadata/state failures use `-32602`; content/capacity failures use `-32603`. A
-   parsed value that is not a valid invocation (a response, or any non-message)
-   → a serialized `-32600` (Invalid Request) response with `id: null`. The
+   batch, any other non-object, or a `method` beside an `id` that is not valid
+   → a serialized `-32600` (Invalid Request) response with `id: null`, and a malformed request
+   carrying a valid id answers under that id. A response, malformed or not, and a malformed
+   notification answer `undefined` and reach the `error` event, because JSON-RPC gives no
+   response to a response and a notification waits on nothing. The
    raw-string parse is the only `try`/`catch`; the guards (`parseJSONRPCMessage`
    over `@orkestrel/jsonrpc`'s `isJSONRPCMessage`) are total and never throw.
 8. **Total wire guards.** `isBoundedString` / `isBoundedJSON` / `isMCPResult` /
@@ -5770,12 +5886,15 @@ the exact statement:
     exact open server-capability shapes and exact metadata before returning, rejects malformed
     known fields or extension identifiers/values, and snapshots accepted capability/metadata
     records with the installed exact JSON clone primitive so transport-owned objects cannot drift.
-    `tools()` runs `tools/list` and wraps each descriptor as a
-    local `ToolInterface` — `name` narrowed (`isString`), `inputSchema` mapped
+    `tools()` runs `tools/list` through `nextCursor` up to `MCP_LIST_PAGES` pages, refuses a page
+    or a listing it cannot read as complete with an `MCPError`, and wraps each descriptor as a
+    local `ToolInterface` — `inputSchema` mapped
     back to `parameters` (the inverse of the `parameters` → `inputSchema` rename, no `as`),
     `execute` bound to `call(name, …)`. `call(name, args)` runs `tools/call`,
-    concatenates the result's `text` content blocks and throws an `Error` carrying the text when
-    `isError === true`, else `JSON.parse`s the text (raw-string fallback;
+    concatenates the result's `text` content blocks and throws an `Error` carrying
+    the text when `isError === true`, refuses a success it cannot read, else takes an object
+    `structuredContent`, checked against the listing's
+    `outputSchema` when the tool declares one, or `JSON.parse`s the text (raw-string fallback;
     empty → `undefined`); so a remote tool failure throws locally and an
     agent's `ToolManager` isolates it into a `success: false` result exactly
     like a local throw. `disconnect()` rejects every pending request, clears
@@ -5897,8 +6016,10 @@ the exact statement:
     and sends unmasked frames), wraps it in a `WebSocketServerTransport`, and
     pumps — each inbound `JSONRPCMessage` that `@orkestrel/jsonrpc`'s `isJSONRPCRequest` guard accepts runs
     through `mcp.dispatch`, a defined response written back as a frame (a
-    notification → `dispatch` `undefined` → nothing sent); a non-request
-    message is ignored; a `dispatch` / `send` fault surfaces on `mcp.emitter`'s
+    notification → `dispatch` `undefined` → nothing sent); invalid JSON or an invalid request
+    is answered with `-32700` or `-32600`, and a stray response or a malformed notification is
+    not answered; a transport,
+    `dispatch`, or `send` fault surfaces on `mcp.emitter`'s
     `error` event rather than escaping the async listener, and a peer whose
     disconnect fires this transport's `close` is aborted by `bindServer` before
     any response is written, so that disconnect costs no frame and raises no
@@ -6026,9 +6147,10 @@ the exact statement:
     `process.stdout`) in a `StdioServerTransport` and pumps: each inbound
     `@orkestrel/jsonrpc` `JSONRPCMessage` value that is a request runs through `mcp.dispatch`, a defined
     response written back as a newline-terminated line after the output completion
-    callback confirms it (a notification writes nothing); a non-request message is ignored; a
-    `dispatch` / `send` fault
-    surfaces on the transport's `error` event. `stop()` unbinds that pump and
+    callback confirms it (a notification writes nothing); invalid JSON or an invalid request is
+    answered with `-32700` or `-32600`, and a stray response or a malformed notification is not
+    answered; a transport, `dispatch`, or
+    `send` fault surfaces on `mcp.emitter`'s `error` event. `stop()` unbinds that pump and
     closes the transport, which removes the listeners `start()` put on
     `input` and `output`, rejects every pending send, preserves the caller's flowing or
     non-flowing state and listeners,
