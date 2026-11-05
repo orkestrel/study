@@ -93,28 +93,28 @@
 		"prepublishOnly": "npm run format:check && npm run lint:check && npm run check && npm run build && npm test && npm run test:distribution -- --mode release"
 	},
 	"dependencies": {
-		"@orkestrel/abort": "^0.0.15",
-		"@orkestrel/agent": "^0.0.35",
-		"@orkestrel/budget": "^0.0.16",
-		"@orkestrel/contract": "^0.0.21",
-		"@orkestrel/ollama": "^0.0.29",
-		"@orkestrel/timeout": "^0.0.15",
-		"@orkestrel/tool": "^0.0.21"
+		"@orkestrel/abort": "^0.0.16",
+		"@orkestrel/agent": "^0.0.36",
+		"@orkestrel/budget": "^0.0.17",
+		"@orkestrel/contract": "^0.0.22",
+		"@orkestrel/ollama": "^0.0.30",
+		"@orkestrel/timeout": "^0.0.16",
+		"@orkestrel/tool": "^0.0.22"
 	},
 	"devDependencies": {
 		"@microsoft/api-extractor": "^7.60.1",
-		"@orkestrel/guide": "^0.0.29",
-		"@orkestrel/mcp": "^0.0.41",
+		"@orkestrel/guide": "^0.0.30",
+		"@orkestrel/mcp": "^0.0.42",
 		"@orkestrel/probe": "^0.0.28",
-		"@orkestrel/router": "^0.0.19",
-		"@orkestrel/scaffold": "^0.0.122",
-		"@orkestrel/server": "^0.0.25",
-		"@orkestrel/test": "^0.0.32",
+		"@orkestrel/router": "^0.0.20",
+		"@orkestrel/scaffold": "^0.0.124",
+		"@orkestrel/server": "^0.0.26",
+		"@orkestrel/test": "^0.0.33",
 		"@types/node": "^24.19.2",
 		"oxfmt": "^0.76.0",
 		"oxlint": "^1.91.0",
 		"typescript": "^7.0.2",
-		"vite": "^8.3.5",
+		"vite": "^8.3.6",
 		"vitest": "^5.1.0"
 	},
 	"devEngines": {
