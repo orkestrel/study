@@ -17,7 +17,7 @@ import {
 	buildArtifactClosureOptions,
 } from '../../../setupServer.js'
 
-it.each(['entries', 'roots', 'assets'])(
+it.each(['entries', 'roots', 'excluded', 'assets'])(
 	'refuses an oversized %s selection before reading any of its elements',
 	(group) => {
 		const limit = group === 'roots' ? ARTIFACT_ROOTS : ARTIFACT_FILES
@@ -31,6 +31,19 @@ it.each(['entries', 'roots', 'assets'])(
 		expect(reads.calls).toEqual([])
 	},
 )
+
+it('admits excluded selections through the file limit and refuses malformed selections', () => {
+	expect(isArtifactLoaderOptions({ entries: [], roots: [], excluded: [] })).toBe(true)
+	expect(
+		isArtifactLoaderOptions({
+			entries: [],
+			roots: [],
+			excluded: Array.from({ length: ARTIFACT_FILES }, () => 'path'),
+		}),
+	).toBe(true)
+	expect(isArtifactLoaderOptions({ entries: [], roots: [], excluded: 'path' })).toBe(false)
+	expect(isArtifactLoaderOptions({ entries: [], roots: [], excluded: [false] })).toBe(false)
+})
 
 it('narrows closure shapes and refuses malformed and unreadable records without throwing', async () => {
 	const scratch = createScratch({ files: ARTIFACT_CLOSURE_FILES })

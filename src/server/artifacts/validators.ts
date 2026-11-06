@@ -47,7 +47,10 @@ export function isArtifactLoaderOptions(value: unknown): value is ArtifactLoader
 			(value.source === undefined ||
 				(isRecord(value.source) && isString(value.source.root) && isString(value.source.entry))) &&
 			(value.instrument === undefined || isString(value.instrument)) &&
-			(value.excluded === undefined || arrayOf(isString)(value.excluded)) &&
+			(value.excluded === undefined ||
+				(isArray(value.excluded) &&
+					value.excluded.length <= ARTIFACT_FILES &&
+					arrayOf(isString)(value.excluded))) &&
 			(value.assets === undefined ||
 				(isArray(value.assets) &&
 					value.assets.length <= ARTIFACT_FILES &&
