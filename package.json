@@ -94,10 +94,10 @@
 	},
 	"dependencies": {
 		"@orkestrel/abort": "^0.0.16",
-		"@orkestrel/agent": "^0.0.36",
+		"@orkestrel/agent": "^0.0.37",
 		"@orkestrel/budget": "^0.0.17",
 		"@orkestrel/contract": "^0.0.22",
-		"@orkestrel/ollama": "^0.0.30",
+		"@orkestrel/ollama": "^0.0.31",
 		"@orkestrel/timeout": "^0.0.16",
 		"@orkestrel/tool": "^0.0.22"
 	},
