@@ -384,7 +384,7 @@ describe('StudyOllamaTransport', () => {
 			[
 				{
 					path: '/v1/systemone',
-					body: '{"answers":{"accept":{"type":"noul","noul":0.9}},"usage":{"input_tokens":12,"output_tokens":1},"done":true,"total_duration":999}',
+					body: '{"answers":{"0":{"type":"noul","noul":0.9}},"usage":{"input_tokens":12,"output_tokens":1},"done":true,"total_duration":999}',
 				},
 			],
 			{ roles: { triage: { model: 'judge', tokens: 128 } }, observe: true },
