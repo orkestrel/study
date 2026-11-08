@@ -5,11 +5,58 @@ import {
 	isStudyOllamaModel,
 	isStudyOllamaPolicy,
 	isStudyOllamaStep,
+	isStudySystemOnePolicy,
 } from '../../../../src/server/ollama/validators.js'
-import { buildOllamaStep, buildOllamaTransportOptions } from '../../../setupServer.js'
+import {
+	buildOllamaDeclaration,
+	buildOllamaStep,
+	buildOllamaTransportOptions,
+} from '../../../setupServer.js'
+import { isStudyExchangeDeclaration } from '../../../../src/server/stores/validators.js'
 import { STUDY_OLLAMA_CAPTURE_LENGTHS } from '../../../setupStudy.js'
+import { hashStudyBytes } from '../../../../src/server/helpers.js'
 
 describe('Ollama declaration guards', () => {
+	it('validates the System One total ceiling without generation options', () => {
+		expect(isStudySystemOnePolicy({ model: 'decision', tokens: 128 })).toBe(true)
+		for (const tokens of STUDY_OLLAMA_CAPTURE_LENGTHS)
+			expect(isStudySystemOnePolicy({ model: 'decision', tokens })).toBe(false)
+		expect(isStudySystemOnePolicy({ model: '', tokens: 128 })).toBe(false)
+		expect(isStudySystemOnePolicy({ model: 'decision', tokens: '128' })).toBe(false)
+		expect(isStudySystemOnePolicy(buildOllamaStep().policy)).toBe(false)
+	})
+	it('admits triage exact and capture steps only with their System One policy and route', () => {
+		const body = JSON.stringify({ model: 'decision', state: 'remember', questions: {} })
+		const step = {
+			ordinal: 1,
+			goal: 'write',
+			role: 'triage',
+			path: '/v1/systemone',
+			policy: { model: 'decision', tokens: 128 },
+			admission: 'exact',
+			body,
+			input: hashStudyBytes(body),
+		}
+		expect(isStudyOllamaStep(step)).toBe(true)
+		const declaration = buildOllamaDeclaration()
+		expect(
+			isStudyExchangeDeclaration({
+				...declaration,
+				goals: ['write'],
+				models: { ...declaration.models, triage: { name: 'decision', digest: 'c'.repeat(64) } },
+				procedure: [step],
+			}),
+		).toBe(true)
+		const { body: _body, input: _input, ...identity } = step
+		expect(
+			isStudyOllamaStep({ ...identity, admission: 'capture', bytes: Buffer.byteLength(body) }),
+		).toBe(true)
+		expect(isStudyOllamaStep({ ...step, path: '/api/generate' })).toBe(false)
+		expect(isStudyOllamaStep({ ...step, policy: buildOllamaStep().policy })).toBe(false)
+		expect(isStudyOllamaStep({ ...step, role: 'judge', path: '/api/generate' })).toBe(false)
+		for (const tokens of STUDY_OLLAMA_CAPTURE_LENGTHS)
+			expect(isStudyOllamaStep({ ...step, policy: { model: 'decision', tokens } })).toBe(false)
+	})
 	it('accepts declared metadata, pinned models, policies and both admission contracts', () => {
 		const options = buildOllamaTransportOptions('http://127.0.0.1:1')
 		expect(isStudyOllamaMetadata(options.metadata)).toBe(true)
@@ -54,10 +101,26 @@ describe('Ollama declaration guards', () => {
 		expect(isStudyOllamaMetadata(proxy.proxy)).toBe(false)
 		expect(isStudyOllamaModel(proxy.proxy)).toBe(false)
 		expect(isStudyOllamaPolicy(proxy.proxy)).toBe(false)
+		expect(isStudySystemOnePolicy(proxy.proxy)).toBe(false)
+		expect(
+			isStudySystemOnePolicy(
+				Object.defineProperty({}, 'model', {
+					get: () => {
+						throw new Error('unreadable')
+					},
+				}),
+			),
+		).toBe(false)
 	})
 })
 
 describe('matchesStudyKeyedRoles', () => {
+	it('admits triage for live and offline keyed replay', () => {
+		expect(matchesStudyKeyedRoles(['triage'], false)).toBe(true)
+		expect(matchesStudyKeyedRoles(['triage', 'metadata'], true)).toBe(true)
+		expect(matchesStudyKeyedRoles(['triage', 'metadata'], false)).toBe(false)
+		expect(matchesStudyKeyedRoles(['triage', 'triage'], true)).toBe(false)
+	})
 	it('admits metadata only offline and refuses a role with no recorded request', () => {
 		expect(matchesStudyKeyedRoles(['judge', 'agent', 'summary'], false)).toBe(true)
 		expect(matchesStudyKeyedRoles(['metadata', 'judge'], true)).toBe(true)

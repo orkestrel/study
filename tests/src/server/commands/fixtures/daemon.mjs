@@ -10,7 +10,7 @@ if (process.argv[2] === 'sentinel' || process.argv[2] === 'runner') {
 	setInterval(() => {}, 60000)
 } else {
 	const origin = new URL(`http://${process.env.OLLAMA_HOST}`)
-	if (origin.hostname !== '127.0.0.1' || !origin.port || origin.port === '11434')
+	if (origin.hostname !== '127.0.0.1' || !origin.port || ['11434', '11435'].includes(origin.port))
 		throw new Error('A dedicated loopback port is required')
 	writeFileSync(process.env.STUDY_DAEMON_PID, String(process.pid))
 	const runner = spawn(process.execPath, [fileURLToPath(import.meta.url), 'runner'], {
@@ -73,6 +73,7 @@ if (process.argv[2] === 'sentinel' || process.argv[2] === 'runner') {
 					models: [
 						{ name: 'model', digest: 'a'.repeat(64) },
 						{ name: 'judge', digest: 'b'.repeat(64) },
+						{ name: 'decision', digest: 'c'.repeat(64) },
 					],
 				}),
 			)
@@ -80,6 +81,14 @@ if (process.argv[2] === 'sentinel' || process.argv[2] === 'runner') {
 			response.end(
 				JSON.stringify({
 					model_info: { 'general.architecture': 'fixture', 'fixture.context_length': 8192 },
+				}),
+			)
+		else if (request.url === '/v1/systemone')
+			response.end(
+				JSON.stringify({
+					model: 'decision',
+					answers: {},
+					usage: { input_tokens: 12, output_tokens: 1 },
 				}),
 			)
 		else if (request.url === '/api/generate') {

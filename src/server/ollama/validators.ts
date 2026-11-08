@@ -3,6 +3,7 @@ import type {
 	StudyOllamaModel,
 	StudyOllamaPolicy,
 	StudyOllamaStep,
+	StudySystemOnePolicy,
 } from './types.js'
 import { holds, isArray, isRecord } from '@orkestrel/contract'
 import { STUDY_NAME } from '@src/core'
@@ -88,6 +89,22 @@ export function isStudyOllamaPolicy(value: unknown): value is StudyOllamaPolicy 
 	)
 }
 
+/** Checks whether a value declares a pinned System One model and total token ceiling.
+ * @param value - The untrusted triage policy.
+ * @returns True if the model is nonempty and the token ceiling is a positive safe integer; false otherwise.
+ */
+export function isStudySystemOnePolicy(value: unknown): value is StudySystemOnePolicy {
+	return holds(
+		() =>
+			isRecord(value) &&
+			typeof value.model === 'string' &&
+			value.model.length > 0 &&
+			typeof value.tokens === 'number' &&
+			Number.isSafeInteger(value.tokens) &&
+			value.tokens > 0,
+	)
+}
+
 /** Checks whether a value declares exclusive exact or capture admission with a valid receipt.
  * @param value - The untrusted ordered step.
  * @returns True if identity, policy, admission shape and exact receipt are valid; false otherwise.
@@ -101,7 +118,15 @@ export function isStudyOllamaStep(value: unknown): value is StudyOllamaStep {
 			value.ordinal <= 0 ||
 			typeof value.goal !== 'string' ||
 			!STUDY_NAME.test(value.goal) ||
-			(value.role !== 'agent' && value.role !== 'summary' && value.role !== 'judge') ||
+			(value.role !== 'agent' &&
+				value.role !== 'summary' &&
+				value.role !== 'judge' &&
+				value.role !== 'triage')
+		)
+			return false
+		if (value.role === 'triage') {
+			if (value.path !== '/v1/systemone' || !isStudySystemOnePolicy(value.policy)) return false
+		} else if (
 			value.path !== (value.role === 'judge' ? '/api/generate' : '/api/chat') ||
 			!isStudyOllamaPolicy(value.policy) ||
 			(value.role === 'judge' && value.policy.strict)

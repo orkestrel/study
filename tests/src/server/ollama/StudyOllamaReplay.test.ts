@@ -3,12 +3,40 @@ import {
 	buildReversedStudyHistory,
 	buildStudyExchangeHistory,
 	createForeignBudgetError,
+	buildStudyKeyedHistory,
 } from '../../../setupServer.js'
 import { buildStudyOllamaBytes } from '../../../../src/server/ollama/helpers.js'
-import { createRecorder } from '@orkestrel/test'
+import { collectStream, createRecorder, requireValue } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 
 describe('StudyOllamaReplay', () => {
+	it('triage prefix preserves response bytes and chunk lengths offline', async () => {
+		const text = '{\n"answers":{},"note":"résumé 🦉"\n}'
+		const chunks = [1, 2, Buffer.byteLength(text) - 3]
+		const history = buildStudyKeyedHistory(['triage'], [text], chunks)
+		const replay = new ollama.StudyOllamaReplay({
+			history,
+			url: 'http://127.0.0.1:1',
+			prefix: history.completion.count,
+			limit: { calls: 20, bytes: 65536, duration: 5000 },
+			signal: new AbortController().signal,
+		})
+		try {
+			for (const { attempt, response: recorded } of history.exchanges) {
+				const response = await replay.fetch(attempt.role, `http://127.0.0.1:1${attempt.path}`, {
+					method: attempt.method,
+					...(attempt.size === 0 ? {} : { body: Buffer.from(attempt.body, 'base64') }),
+				})
+				const received = await collectStream(requireValue(response.body))
+				expect(received.map((chunk) => chunk.length)).toEqual(recorded.chunks)
+				expect(Buffer.concat(received).toString('base64')).toBe(recorded.body)
+				expect(replay.served(response)).toBe(true)
+			}
+			replay.check()
+		} finally {
+			await replay.close()
+		}
+	})
 	it('refuses a same-route same-length changed prefix body and latches it without forwarding', async () => {
 		const history = buildStudyExchangeHistory()
 		const sent = createRecorder<readonly []>()

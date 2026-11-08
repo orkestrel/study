@@ -4,6 +4,7 @@ import { createScratch } from '@orkestrel/test/server'
 import { open } from 'node:fs/promises'
 import { join } from 'node:path'
 import { StudyExchangeSink } from '../../../../src/server/stores/StudyExchangeSink.js'
+import { isStudyOllamaPolicy } from '../../../../src/server/ollama/validators.js'
 import {
 	buildStudyOllamaTransportOptions,
 	buildStudyOllamaSnapshot,
@@ -31,6 +32,7 @@ describe('buildStudyOllamaTransportOptions', () => {
 			const reads = createRecorder<[]>()
 			const step = buildOllamaStep('exact')
 			const policy = step.policy
+			if (!isStudyOllamaPolicy(policy)) throw new Error('Missing generation policy')
 			Object.defineProperty(step, 'policy', {
 				enumerable: true,
 				get: () => {
@@ -43,21 +45,21 @@ describe('buildStudyOllamaTransportOptions', () => {
 			})
 			await sink.append({ ...declaration, procedure: [step] })
 			const owned = buildStudyOllamaTransportOptions(caller)
+			const retained = owned.exchanges?.declaration?.procedure?.[0]?.policy
+			if (!isStudyOllamaPolicy(retained)) throw new Error('Missing retained generation policy')
 			expect(reads.calls).toEqual([[]])
 			Reflect.set(step, 'body', 'changed')
 			Reflect.set(policy.options, 'seed', 2)
 			Reflect.set(caller.metadata, 'calls', 1)
 			expect(owned.metadata.calls).toBe(32)
-			expect(owned.exchanges?.declaration?.procedure?.[0]?.policy.options.seed).toBe(0)
+			expect(retained.options.seed).toBe(0)
 			expect(owned.exchanges?.declaration?.procedure?.[0]).toMatchObject({
 				admission: 'exact',
 				body: expect.stringContaining('model'),
 			})
 			expect(owned.exchanges).toBe(caller.exchanges)
 			expect(Object.isFrozen(owned.exchanges?.declaration?.procedure)).toBe(true)
-			expect(Object.isFrozen(owned.exchanges?.declaration?.procedure?.[0]?.policy.options)).toBe(
-				true,
-			)
+			expect(Object.isFrozen(retained.options)).toBe(true)
 		} finally {
 			await sink.close()
 			scratch.destroy()

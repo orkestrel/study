@@ -230,6 +230,24 @@ describe('study selection arguments', () => {
 })
 
 describe('keyed replay arguments', () => {
+	it('selects triage while retaining the keyed continuation refusal', () => {
+		const selection = [
+			'execute',
+			'files',
+			'--replay',
+			'recorded',
+			'--roles',
+			'["triage"]',
+			'--offline',
+			'false',
+		]
+		expect(parseStudyArguments(selection)).toMatchObject({
+			keyed: { roles: ['triage'], offline: false },
+		})
+		expect(() => parseStudyArguments([...selection, '--extend', 'recorded'])).toThrow(
+			/mutually exclusive/,
+		)
+	})
 	const base = ['execute', 'files', '--replay', 'recorded']
 
 	it('parses a role list and offline behavior into a keyed selection', () => {

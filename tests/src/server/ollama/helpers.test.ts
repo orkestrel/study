@@ -41,6 +41,47 @@ import {
 	buildStudyExchangeHistory,
 } from '../../../setupServer.js'
 
+it('projects the triage pin and admits only its System One request policy', () => {
+	const provider = {
+		...STUDY_OLLAMA_PROVIDER,
+		triage: 'decision',
+		digest: { ...STUDY_OLLAMA_PROVIDER.digest, triage: 'c'.repeat(64) },
+	}
+	expect(buildStudyOllamaModels(provider).triage).toEqual({
+		name: 'decision',
+		digest: 'c'.repeat(64),
+	})
+	const options = buildOllamaTransportOptions(STUDY_OLLAMA_ORIGIN, {
+		roles: { triage: { model: 'judge', tokens: 128 } },
+	})
+	const request = readStudyOllamaRequest(options, 'triage', new URL('/v1/systemone', options.url), {
+		method: 'POST',
+		body: '{"model":"judge","state":"decide","questions":{}}',
+	})
+	expect(request).toMatchObject({
+		role: 'triage',
+		model: 'judge',
+		path: '/v1/systemone',
+		tokens: 128,
+		options: {},
+	})
+	expect(() =>
+		readStudyOllamaRequest(options, 'triage', new URL('/v1/systemone', options.url), {
+			method: 'POST',
+			body: '{"model":"other","state":"decide","questions":{}}',
+		}),
+	).toThrow('declared model')
+	expect(() =>
+		readStudyOllamaRequest(options, 'triage', new URL('/v1/systemone', options.url), {
+			method: 'POST',
+			body: '{"model":"judge","state":"decide","questions":{},"stream":false}',
+		}),
+	).toThrow('declared model')
+	expect(() =>
+		validateStudyOllamaRoles({ triage: { model: 'judge', tokens: 0 } }, options.models),
+	).toThrow('positive safe token ceiling')
+})
+
 it('describes the first replay member and retains byte details with a maximum-length goal', () => {
 	const expected = {
 		...requireValue(buildStudyExchangeHistory().exchanges[3]?.attempt),

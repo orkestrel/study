@@ -22,6 +22,7 @@ export const STUDY_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 export const STUDY_ROLES: readonly StudyRole[] = Object.freeze([
 	'agent',
 	'judge',
+	'triage',
 	'summary',
 	'metadata',
 	'maintenance',

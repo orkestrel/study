@@ -42,27 +42,34 @@ export function buildStudyOllamaTransportOptions(
 			Object.freeze({ name, digest }),
 		]),
 	)
-	const policies: Partial<Record<StudyOllamaRole, StudyOllamaPolicy>> = Object.fromEntries(
-		(['agent', 'summary', 'judge'] as const).flatMap((role) => {
-			const policy = roles[role]
-			if (policy === undefined) return []
-			const { model, options: wire, think, strict, length } = policy
-			return [
-				[
-					role,
-					Object.freeze({ model, options: Object.freeze({ ...wire }), think, strict, length }),
-				] as const,
-			]
-		}),
-	)
+	const policies: Partial<Record<Exclude<StudyOllamaRole, 'triage'>, StudyOllamaPolicy>> =
+		Object.fromEntries(
+			(['agent', 'summary', 'judge'] as const).flatMap((role) => {
+				const policy = roles[role]
+				if (policy === undefined) return []
+				const { model, options: wire, think, strict, length } = policy
+				return [
+					[
+						role,
+						Object.freeze({ model, options: Object.freeze({ ...wire }), think, strict, length }),
+					] as const,
+				]
+			}),
+		)
 	const { context, safety } = room
+	const triage = roles.triage
 	const { duration, bytes } = limit
 	return Object.freeze({
 		url,
 		room: Object.freeze({ context, safety }),
 		limit: Object.freeze({ duration, bytes }),
 		models: Object.freeze(owned),
-		roles: Object.freeze(policies),
+		roles: Object.freeze({
+			...policies,
+			...(triage === undefined
+				? {}
+				: { triage: Object.freeze({ model: triage.model, tokens: triage.tokens }) }),
+		}),
 		signal,
 		observe,
 		timing,

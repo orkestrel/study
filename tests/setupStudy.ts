@@ -1456,6 +1456,7 @@ export function readOllamaDefault(path: string): string {
 			models: [
 				{ name: 'model', digest: 'a'.repeat(64) },
 				{ name: 'judge', digest: 'b'.repeat(64) },
+				{ name: 'decision', digest: 'c'.repeat(64) },
 			],
 		})
 	if (path === '/api/show')
@@ -1463,6 +1464,12 @@ export function readOllamaDefault(path: string): string {
 			model_info: { 'general.architecture': 'fixture', 'fixture.context_length': 32768 },
 		})
 	if (path === '/api/generate') return buildOllamaJudgeRow()
+	if (path === '/v1/systemone')
+		return JSON.stringify({
+			model: 'decision',
+			answers: {},
+			usage: { input_tokens: 12, output_tokens: 1 },
+		})
 	return buildOllamaRow()
 }
 

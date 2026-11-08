@@ -87,6 +87,10 @@ export function computeStudyConfigurationDigest(profile: StudyProfile): string {
 			valueToWire({
 				room: profile.room,
 				settings: profile.settings,
+				triage:
+					profile.provider === undefined
+						? undefined
+						: buildStudyOllamaModels(profile.provider).triage,
 				daemon: profile.provider?.daemon === undefined ? undefined : daemon,
 			}),
 		) ?? '',

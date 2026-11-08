@@ -4,7 +4,14 @@ import type { ContractInterface, JSONValue } from '@orkestrel/contract'
 export type StudyPurpose = 'mechanism' | 'quality' | 'capacity'
 
 /** Names a request's measured responsibility. */
-export type StudyRole = 'agent' | 'judge' | 'summary' | 'metadata' | 'maintenance' | 'tool'
+export type StudyRole =
+	| 'agent'
+	| 'judge'
+	| 'triage'
+	| 'summary'
+	| 'metadata'
+	| 'maintenance'
+	| 'tool'
 
 /**
  * Names an operational ending separately from task achievement.
@@ -76,11 +83,15 @@ export interface StudyProvider {
 	readonly model: string
 	/** Names the judge model; declared together with its digest or both absent. */
 	readonly judge: string | undefined
+	/** Names the System One model; declared together with its digest or both absent. */
+	readonly triage?: string
 	/** Pins the serving inventory independently of mutable model names. */
 	readonly digest: {
 		readonly model: string
 		/** Pins the judge model; declared together with its name or both absent. */
 		readonly judge: string | undefined
+		/** Pins the System One model independently of its mutable name. */
+		readonly triage?: string
 	}
 	/** Declares an execution-owned daemon at this provider's dedicated URL. */
 	readonly daemon?: StudyDaemon
@@ -92,7 +103,7 @@ export interface StudyProvider {
  * canonical path; digest is its SHA-256 and version is the exact expected version reply. The
  * provider URL must be a dedicated loopback origin outside port 11434. Environment entries are
  * explicit non-secret overrides, merged by case-folded name; the host owns OLLAMA_HOST. Models
- * have distinct names and SHA-256 digests equal to the provider's model and judge pins; shared
+ * have distinct names and SHA-256 digests equal to the provider's model, judge and triage pins; shared
  * pins require one entry. Execution
  * verifies identity before use, unloads this population before each trial, and stops and joins
  * on every ending. Offline replay never creates this daemon.

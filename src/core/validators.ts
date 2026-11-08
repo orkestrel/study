@@ -308,11 +308,18 @@ export function isStudyProvider(value: unknown): value is StudyProvider {
 	return holds(() => {
 		if (
 			!isRecord(value) ||
-			!matchesStudyKeys(value, ['entry', 'url', 'model', 'digest'], ['judge', 'daemon']) ||
+			!matchesStudyKeys(
+				value,
+				['entry', 'url', 'model', 'digest'],
+				['judge', 'triage', 'daemon'],
+			) ||
 			!['entry', 'url', 'model'].every((key) => isNonEmptyString(value[key])) ||
 			typeof value.url !== 'string' ||
 			!isRecord(value.digest) ||
-			!matchesStudyKeys(value.digest, ['model'], ['judge']) ||
+			!matchesStudyKeys(value.digest, ['model'], ['judge', 'triage']) ||
+			(value.triage === undefined) !== (value.digest.triage === undefined) ||
+			(value.triage !== undefined &&
+				(!isNonEmptyString(value.triage) || !isStudyDigest(value.digest.triage))) ||
 			!isStudyDigest(value.digest.model) ||
 			(value.judge === undefined) !== (value.digest.judge === undefined) ||
 			(value.judge !== undefined &&
@@ -336,7 +343,10 @@ export function isStudyProvider(value: unknown): value is StudyProvider {
 						(model.name === value.model && model.digest === digest.model) ||
 						(value.judge !== undefined &&
 							model.name === value.judge &&
-							model.digest === digest.judge),
+							model.digest === digest.judge) ||
+						(value.triage !== undefined &&
+							model.name === value.triage &&
+							model.digest === digest.triage),
 				) ||
 				!daemon.models.some(
 					(model) => model.name === value.model && model.digest === digest.model,
@@ -344,6 +354,10 @@ export function isStudyProvider(value: unknown): value is StudyProvider {
 				(value.judge !== undefined &&
 					!daemon.models.some(
 						(model) => model.name === value.judge && model.digest === digest.judge,
+					)) ||
+				(value.triage !== undefined &&
+					!daemon.models.some(
+						(model) => model.name === value.triage && model.digest === digest.triage,
 					))
 			)
 				return false

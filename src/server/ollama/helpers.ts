@@ -18,8 +18,14 @@ import type {
 import { computeStudyExchangeOffset } from '../stores/helpers.js'
 import { hashStudyBytes } from '../helpers.js'
 import { isStudyExchangeDeclaration } from '../stores/validators.js'
-import { isStudyOllamaMetadata, isStudyOllamaModel, isStudyOllamaStep } from './validators.js'
+import {
+	isStudyOllamaMetadata,
+	isStudyOllamaModel,
+	isStudyOllamaStep,
+	isStudySystemOnePolicy,
+} from './validators.js'
 import { StudyError, parseStudyMeasurement } from '@src/core'
+import { isSystemOneResponse } from '@orkestrel/agent'
 import {
 	attempt,
 	canonicalStringify,
@@ -109,6 +115,9 @@ export function buildStudyOllamaModels(
 ): StudyOllamaTransportOptions['models'] {
 	return {
 		model: { name: provider.model, digest: provider.digest.model },
+		...(provider.triage === undefined || provider.digest.triage === undefined
+			? {}
+			: { triage: { name: provider.triage, digest: provider.digest.triage } }),
 		...(provider.judge === undefined || provider.digest.judge === undefined
 			? {}
 			: { judge: { name: provider.judge, digest: provider.digest.judge } }),
@@ -149,6 +158,12 @@ export function validateStudyOllamaRoles(
 		if (policy === undefined) continue
 		if (!names.includes(policy.model))
 			throw new StudyError('CONFIG', 'Ollama role policy names a model the inventory does not pin')
+		if ('tokens' in policy) {
+			if (role !== 'triage' || !isStudySystemOnePolicy(policy))
+				throw new StudyError('CONFIG', 'System One policy requires a positive safe token ceiling')
+			continue
+		}
+		if (role === 'triage') throw new StudyError('CONFIG', 'Triage requires a System One policy')
 		const output = policy.options.num_predict
 		if (output === undefined || !Number.isSafeInteger(output) || output <= 0)
 			throw new StudyError(
@@ -264,9 +279,11 @@ export function readStudyOllamaRequest(
 				: url.pathname === '/api/version'
 					? '/api/version'
 					: '/api/tags'
-			: role === 'judge'
-				? '/api/generate'
-				: '/api/chat'
+			: role === 'triage'
+				? '/v1/systemone'
+				: role === 'judge'
+					? '/api/generate'
+					: '/api/chat'
 	if (
 		url.origin !== new URL(options.url).origin ||
 		url.pathname !== path ||
@@ -317,6 +334,33 @@ export function readStudyOllamaRequest(
 	}
 	if (init?.method !== 'POST' || typeof init.body !== 'string')
 		throw new StudyError('CONFIG', 'Ollama transport requires an encoded JSON POST')
+	if (role === 'triage') {
+		const policy = options.roles.triage
+		const body: unknown = JSON.parse(init.body)
+		if (
+			policy === undefined ||
+			!isRecord(body) ||
+			body.model !== policy.model ||
+			typeof body.state !== 'string' ||
+			!isRecord(body.questions) ||
+			Object.keys(body).some((key) => !['model', 'state', 'questions'].includes(key))
+		)
+			throw new StudyError(
+				'CONFIG',
+				'System One request requires the declared model, state, and questions',
+			)
+		return {
+			role,
+			path,
+			model: policy.model,
+			tokens: policy.tokens,
+			output: 0,
+			bytes: new TextEncoder().encode(init.body).byteLength,
+			options: {},
+			strict: false,
+			length: false,
+		}
+	}
 	const policy = role === 'tool' || role === 'maintenance' ? undefined : options.roles[role]
 	if (policy === undefined)
 		throw new StudyError('CONFIG', 'Ollama transport role has no declared wire policy')
@@ -479,6 +523,21 @@ export function readStudyOllamaTerminal(
 ): StudyOllamaTerminal | undefined {
 	const failure = readStudyOllamaFailure(value, request.role)
 	if (failure !== undefined) throw failure
+	if (request.role === 'triage') {
+		if (!isSystemOneResponse(value) || (value.model !== undefined && value.model !== request.model))
+			throw new StudyError('FAULT', 'Malformed System One response envelope or model')
+		const prompt = value.usage?.input_tokens
+		const completion = value.usage?.output_tokens
+		return {
+			prompt:
+				typeof prompt === 'number' && Number.isFinite(prompt) && prompt >= 0 ? prompt : undefined,
+			completion:
+				typeof completion === 'number' && Number.isFinite(completion) && completion >= 0
+					? completion
+					: undefined,
+			reason: undefined,
+		}
+	}
 	if (!isRecord(value) || typeof value.done !== 'boolean')
 		throw new StudyError('FAULT', 'Malformed Ollama response row')
 	if (value.model !== request.model)
@@ -537,6 +596,19 @@ export function validateStudyOllamaCompletion(
 ): void {
 	const { prompt, completion, reason } = terminal
 	const { role } = request
+	if (role === 'triage') {
+		const consumed = (prompt ?? 0) + (completion ?? 0)
+		if (request.tokens === undefined || consumed > request.tokens) {
+			const message = 'System One usage exceeds the declared token ceiling'
+			throw new StudyError('CAPACITY', message, {
+				cause: 'capacity',
+				message,
+				role,
+				stop: { layer: 'model', id: 'tokens', max: request.tokens, consumed },
+			})
+		}
+		return
+	}
 	const capped: StudyStop = {
 		layer: 'model',
 		id: 'num_predict',

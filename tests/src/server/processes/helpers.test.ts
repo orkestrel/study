@@ -48,6 +48,31 @@ import {
 } from '../../../../src/server/processes/helpers.js'
 
 describe('process helpers', () => {
+	it('binds the triage name and digest into configuration without an owned daemon', () => {
+		const profile = buildStudyProfile()
+		const { daemon: _daemon, ...base } = buildStudyDaemonProvider()
+		const provider = { ...base, triage: 'decision' }
+		const pinned = {
+			...profile,
+			provider: { ...provider, digest: { ...provider.digest, triage: 'c'.repeat(64) } },
+		}
+		const digest = computeStudyConfigurationDigest(pinned)
+		expect(
+			computeStudyConfigurationDigest({
+				...pinned,
+				provider: { ...pinned.provider, triage: 'other' },
+			}),
+		).not.toBe(digest)
+		expect(
+			computeStudyConfigurationDigest({
+				...pinned,
+				provider: {
+					...pinned.provider,
+					digest: { ...pinned.provider.digest, triage: 'd'.repeat(64) },
+				},
+			}),
+		).not.toBe(digest)
+	})
 	it('rechecks a sealed replay ancestor against its selected file, identity, prefix, and goal horizon', async () => {
 		const scratch = createScratch()
 		try {

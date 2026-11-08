@@ -402,7 +402,10 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		}
 		const ticket = await (metadata ? this.#metadataMeter : activity.context.meter).admit({
 			role,
-			tokens: role === 'metadata' ? 0 : this.#options.room.context - this.#options.room.safety,
+			tokens:
+				role === 'metadata'
+					? 0
+					: (request.tokens ?? this.#options.room.context - this.#options.room.safety),
 			bytes: limit.bytes,
 		})
 		const id = this.#options.exchanges?.next ?? ++this.#count
@@ -430,9 +433,11 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 									: request.path === '/api/tags'
 										? '/api/tags'
 										: '/api/show'
-								: role === 'judge'
-									? '/api/generate'
-									: '/api/chat',
+								: role === 'triage'
+									? '/v1/systemone'
+									: role === 'judge'
+										? '/api/generate'
+										: '/api/chat',
 						method: settings?.method === 'GET' ? 'GET' : 'POST',
 						stage:
 							role === 'metadata' ? (this.#passes === 0 ? 'preflight' : 'postflight') : 'execution',
@@ -463,7 +468,9 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				status: wire.status,
 				headers: {
 					'content-type':
-						role === 'judge' || role === 'metadata' ? 'application/json' : 'application/x-ndjson',
+						role === 'judge' || role === 'triage' || role === 'metadata'
+							? 'application/json'
+							: 'application/x-ndjson',
 				},
 			},
 		)
@@ -555,7 +562,11 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				wire.count(chunk.value.byteLength, wire.ceiling)
 				wire.retain(chunk.value)
 				wire.decode(chunk.value)
-				if (wire.request.role !== 'metadata' && wire.request.role !== 'judge')
+				if (
+					wire.request.role !== 'metadata' &&
+					wire.request.role !== 'judge' &&
+					wire.request.role !== 'triage'
+				)
 					this.#rows(wire, false)
 				controller.enqueue(chunk.value)
 				return
@@ -587,7 +598,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 					if (!isRecord(value) || value.version !== this.#declaration?.version)
 						throw new StudyError('FAULT', 'Serving version differs from the declared version')
 				} else readStudyOllamaSupport(value, this.#options.room.context)
-			} else if (wire.request.role === 'judge') {
+			} else if (wire.request.role === 'judge' || wire.request.role === 'triage') {
 				this.#observe(wire, JSON.parse(wire.text))
 			} else this.#rows(wire, true)
 			if (wire.request.role !== 'metadata' && wire.terminal === undefined)
@@ -660,7 +671,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 					value: {
 						role: wire.request.role,
 						path: wire.request.path,
-						finish: terminal.reason,
+						finish: terminal.reason ?? null,
 						prompt: terminal.prompt ?? null,
 						completion: terminal.completion ?? null,
 						stop: studyStopToJSON(stop),
@@ -706,7 +717,10 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 	// Validates a row against the wire's request and retains it; the timing extractor runs only on a terminal row.
 	#observe(wire: StudyOllamaExchange, row: unknown): void {
 		const terminal = readStudyOllamaTerminal(row, wire.request)
-		wire.observe(terminal, terminal === undefined ? undefined : this.#time(row))
+		wire.observe(
+			terminal,
+			terminal === undefined || wire.request.role === 'triage' ? undefined : this.#time(row),
+		)
 	}
 
 	// Reads the daemon timing of a terminal row when timing is observed.

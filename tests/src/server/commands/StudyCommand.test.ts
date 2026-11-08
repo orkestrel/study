@@ -44,6 +44,174 @@ import {
 } from '../../../setupServer.js'
 
 describe('recording and replay command handoff', () => {
+	it('triage seals open custody and replays prefix and keyed histories with progress attribution', async () => {
+		const fixture = await createStudyReplayFixture(false, true)
+		const signal = new AbortController().signal
+		try {
+			const { command, recorded, history, scratch, result, server } = fixture
+			const original = history.exchanges.filter(({ attempt }) => attempt.role === 'triage')
+			expect(original.map(({ attempt }) => [attempt.goal, attempt.path])).toEqual([
+				['write', '/v1/systemone'],
+				['recall', '/v1/systemone'],
+			])
+			expect(history.declaration.models.triage).toEqual({
+				name: 'decision',
+				digest: 'c'.repeat(64),
+			})
+			expect(history.declaration.procedure).toBeUndefined()
+			for (const mode of ['prefix', 'keyed', 'offline']) {
+				const before = server.requests.length
+				const output = join(scratch.path, mode)
+				await expect(
+					command.execute(
+						[
+							'execute',
+							'assessment',
+							'--out',
+							output,
+							'--replay',
+							recorded,
+							...(mode === 'prefix'
+								? [
+										'--prefix',
+										JSON.stringify({ [history.declaration.trial]: history.completion.count }),
+									]
+								: ['--roles', mode === 'keyed' ? '["triage"]' : '["triage","summary","metadata"]']),
+							'--offline',
+							mode === 'keyed' ? 'false' : 'true',
+						],
+						signal,
+					),
+				).resolves.toMatchObject({ status: 'completed' })
+				const replayed = await readStudyResult(output)
+				if (replayed.status !== 'sealed') throw new Error('Triage replay did not seal')
+				const retained = await readStudyExchanges(replayed, history.declaration.trial)
+				expect(retained.exchanges.filter(({ attempt }) => attempt.role === 'triage')).toEqual(
+					original,
+				)
+				expect(
+					replayed.attempts.flatMap((attempt) => attempt.observations.map((goal) => goal.product)),
+				).toEqual(
+					result.attempts.flatMap((attempt) => attempt.observations.map((goal) => goal.product)),
+				)
+				const live = server.requests.slice(before)
+				expect(live.filter((request) => request.path === '/v1/systemone')).toEqual([])
+				expect(live.filter((request) => request.path === '/api/chat')).toHaveLength(
+					mode === 'keyed' ? 1 : 0,
+				)
+				expect(mode === 'keyed' ? [] : live).toEqual([])
+				const progress = await command.execute(['progress', output, '--from', 'write'], signal)
+				if (!isRecord(progress) || progress.command !== 'progress')
+					throw new Error('Missing progress result')
+				expect(progress.progress).toMatchObject({
+					trials: [
+						{
+							goals: [
+								{
+									goal: 'write',
+									usage: expect.arrayContaining([
+										{
+											role: 'triage',
+											calls: 1,
+											replayed: 1,
+											prompt: 0,
+											completion: 0,
+											cached: 0,
+											total: 0,
+											length: 0,
+										},
+									]),
+								},
+								{
+									goal: 'recall',
+									usage: expect.arrayContaining([
+										{
+											role: 'triage',
+											calls: 1,
+											replayed: 1,
+											prompt: 0,
+											completion: 0,
+											cached: 0,
+											total: 0,
+											length: 0,
+										},
+									]),
+								},
+							],
+						},
+					],
+				})
+				expect(
+					replayed.attempts
+						.flatMap((attempt) => attempt.observations.flatMap((goal) => goal.usage))
+						.filter((usage) => usage.role === 'triage'),
+				).toEqual([
+					expect.objectContaining({ role: 'triage', calls: 1, tokens: 13, replayed: true }),
+					expect.objectContaining({ role: 'triage', calls: 1, tokens: 13, replayed: true }),
+				])
+			}
+			const before = server.requests.length
+			const profilePath = 'studies/files/profiles/local.json'
+			const profileText = requireValue(scratch.read(profilePath))
+			const { record: _record, ...unrecorded } = fixture.profile
+			scratch.write(profilePath, JSON.stringify(unrecorded))
+			try {
+				await expect(
+					command.execute(
+						[
+							'execute',
+							'assessment',
+							'--out',
+							join(scratch.path, 'unrecorded'),
+							'--replay',
+							recorded,
+							'--roles',
+							'["triage"]',
+							'--offline',
+							'false',
+						],
+						signal,
+					),
+				).rejects.toMatchObject({
+					code: 'CONFIG',
+					message: 'Keyed replay requires the profile to declare recording',
+				})
+				expect(scratch.has('unrecorded')).toBe(false)
+				expect(server.requests).toHaveLength(before)
+			} finally {
+				scratch.write(profilePath, profileText)
+			}
+			const sidecar = `baseline/execution/${history.file.path}`
+			scratch.write(
+				sidecar,
+				requireValue(scratch.read(sidecar)).replace(
+					'"path":"/v1/systemone"',
+					'"path":"/api/generate"',
+				),
+			)
+			await expect(
+				command.execute(
+					[
+						'execute',
+						'assessment',
+						'--out',
+						join(scratch.path, 'tampered'),
+						'--replay',
+						recorded,
+						'--roles',
+						'["triage"]',
+						'--offline',
+						'false',
+					],
+					signal,
+				),
+			).rejects.toMatchObject({ code: 'CUSTODY' })
+			expect(server.requests).toHaveLength(before)
+			expect(scratch.has('tampered')).toBe(false)
+		} finally {
+			await fixture.close()
+		}
+	}, 240000)
 	it.each(STUDY_CONTINUATION_COMMANDS)(
 		'F1 %s refuses a continuation profile changed between its early comparison and executing preparation',
 		async (operation) => {

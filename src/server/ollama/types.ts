@@ -20,7 +20,7 @@ import type {
  * @remarks
  * Inventory and metadata reads use the `metadata` role and need no policy.
  */
-export type StudyOllamaRole = Extract<StudyRole, 'agent' | 'summary' | 'judge'>
+export type StudyOllamaRole = Extract<StudyRole, 'agent' | 'summary' | 'judge' | 'triage'>
 
 /**
  * Declares one model role's exact wire policy.
@@ -40,6 +40,12 @@ export interface StudyOllamaPolicy {
 	readonly think: boolean
 	readonly strict: boolean
 	readonly length: boolean
+}
+
+/** Declares the pinned System One model and the total token reservation for each request. */
+export interface StudySystemOnePolicy {
+	readonly model: string
+	readonly tokens: number
 }
 
 /**
@@ -95,15 +101,16 @@ export type StudyOllamaStage = 'preflight' | 'execution' | 'postflight' | 'maint
  * @remarks
  * Ordinal is a positive, contiguous, one-based position among declared model steps in a trial.
  * Metadata and maintenance have their own sidecar ordinals and consume no model-step position.
- * Path is /api/chat for agent or summary and /api/generate for judge. Goal must be a declared
- * member of the trial. Policy is checked before body collection and again before sending.
+ * Path is /api/chat for agent or summary, /api/generate for judge, and /v1/systemone for triage.
+ * Triage declares a System One policy; the other model roles declare a generation policy.
+ * Goal must be a declared member of the trial. Policy is checked before body collection and again before sending.
  */
 export interface StudyOllamaStepIdentity {
 	readonly ordinal: number
 	readonly goal: string
 	readonly role: StudyOllamaRole
-	readonly path: '/api/chat' | '/api/generate'
-	readonly policy: StudyOllamaPolicy
+	readonly path: '/api/chat' | '/api/generate' | '/v1/systemone'
+	readonly policy: StudyOllamaPolicy | StudySystemOnePolicy
 }
 
 /** Declares an exact UTF-8 request body and its SHA-256 input receipt.
@@ -150,7 +157,10 @@ export interface StudyOllamaReplaySelection {
 }
 
 /** Names the roles a keyed replay can serve. */
-export type StudyOllamaKeyedRole = Extract<StudyRole, 'agent' | 'judge' | 'summary' | 'metadata'>
+export type StudyOllamaKeyedRole = Extract<
+	StudyRole,
+	'agent' | 'judge' | 'triage' | 'summary' | 'metadata'
+>
 
 /**
  * Selects a sealed recording and the roles a keyed replay serves from it.
@@ -243,7 +253,10 @@ export interface StudyOllamaTransportOptions {
 	readonly room: Pick<StudyRoom, 'context' | 'safety'>
 	readonly limit: Pick<StudyLimit, 'duration' | 'bytes'>
 	readonly models: Readonly<Record<string, StudyOllamaModel>>
-	readonly roles: Readonly<Partial<Record<StudyOllamaRole, StudyOllamaPolicy>>> & {
+	readonly roles: Readonly<
+		Partial<Record<Exclude<StudyOllamaRole, 'triage'>, StudyOllamaPolicy>>
+	> & {
+		readonly triage?: StudySystemOnePolicy
 		/** Forbids a model-generation policy for daemon maintenance. */
 		readonly maintenance?: never
 	}
@@ -281,6 +294,8 @@ export interface StudyOllamaActivity {
 
 /** Holds validated wire dispatch facts without retaining payload text. */
 export interface StudyOllamaRequest {
+	/** Holds the System One total token reservation; generation uses the declared context room. */
+	readonly tokens?: number
 	readonly role: StudyRole
 	readonly path: string
 	readonly model: string | undefined
@@ -297,7 +312,7 @@ export interface StudyOllamaRequest {
 export interface StudyOllamaTerminal {
 	readonly prompt: number | undefined
 	readonly completion: number | undefined
-	readonly reason: string
+	readonly reason: string | undefined
 }
 
 /** Tracks one owned HTTP response until its end or cancellation. */

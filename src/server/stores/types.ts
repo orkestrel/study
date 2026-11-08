@@ -85,7 +85,13 @@ export interface StudyExchangeIdentity {
 	readonly ordinal: number
 	readonly goal: string
 	readonly role: StudyRole
-	readonly path: '/api/chat' | '/api/generate' | '/api/version' | '/api/tags' | '/api/show'
+	readonly path:
+		| '/api/chat'
+		| '/api/generate'
+		| '/v1/systemone'
+		| '/api/version'
+		| '/api/tags'
+		| '/api/show'
 	readonly method: 'GET' | 'POST'
 	readonly stage: StudyOllamaStage
 	readonly step?: number

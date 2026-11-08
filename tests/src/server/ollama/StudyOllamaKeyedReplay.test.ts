@@ -1,5 +1,5 @@
 import type { StudyRole } from '../../../../src/core/types.js'
-import { createRecorder, requireValue } from '@orkestrel/test'
+import { collectStream, createRecorder, requireValue } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import { StudyOllamaKeyedReplay } from '../../../../src/server/ollama/StudyOllamaKeyedReplay.js'
 import { buildStudyOllamaBytes } from '../../../../src/server/ollama/helpers.js'
@@ -12,6 +12,35 @@ import {
 const URL_ORIGIN = 'http://127.0.0.1:1'
 
 describe('StudyOllamaKeyedReplay', () => {
+	it('triage preserves exact reply bytes and chunks and cannot answer another listed role', async () => {
+		const text = '{\n"answers":{},"note":"résumé 🦉"\n}'
+		const chunks = [1, 2, Buffer.byteLength(text) - 3]
+		const history = buildStudyKeyedHistory(['triage'], [text], chunks)
+		const { attempt } = requireValue(
+			history.exchanges.find((pair) => pair.attempt.role === 'triage'),
+		)
+		const replay = new StudyOllamaKeyedReplay({
+			histories: [history],
+			roles: ['triage', 'judge'],
+			url: URL_ORIGIN,
+			signal: new AbortController().signal,
+		})
+		try {
+			const init = { method: 'POST', body: Buffer.from(attempt.body, 'base64').toString() }
+			const response = await replay.fetch('triage', `${URL_ORIGIN}/v1/systemone`, init)
+			const received = await collectStream(requireValue(response.body))
+			expect(received.map((chunk) => chunk.length)).toEqual(chunks)
+			expect(Buffer.concat(received).toString()).toBe(text)
+			expect(replay.served(response)).toBe(true)
+			replay.check()
+			await expect(replay.fetch('judge', `${URL_ORIGIN}/v1/systemone`, init)).rejects.toMatchObject(
+				{ code: 'FAULT' },
+			)
+			expect(() => replay.check()).toThrow(/member=none/)
+		} finally {
+			await replay.close()
+		}
+	})
 	it('serves a listed role by equal path, method, and body, marked, with its recorded chunks', async () => {
 		const history = buildStudyExchangeHistory()
 		const { attempt, response } = requireValue(

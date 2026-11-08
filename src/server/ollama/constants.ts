@@ -4,6 +4,7 @@ import type { StudyOllamaKeyedRole } from './types.js'
 export const STUDY_OLLAMA_KEYED_ROLES: readonly StudyOllamaKeyedRole[] = Object.freeze([
 	'agent',
 	'judge',
+	'triage',
 	'summary',
 	'metadata',
 ])

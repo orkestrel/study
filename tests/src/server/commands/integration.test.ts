@@ -8,6 +8,7 @@ import { StudyCommand } from '../../../../src/server/commands/StudyCommand.js'
 import { StudyArtifactLoader } from '../../../../src/server/processes/StudyArtifactLoader.js'
 import { isStudyClosure } from '../../../../src/server/commands/validators.js'
 import { requireValue } from '@orkestrel/test'
+import { STUDY_STOP_SWITCHES } from '../../../setupStudy.js'
 import {
 	readStudyResult,
 	readStudyExchanges,
@@ -80,126 +81,137 @@ it('CT1 extends a grown frozen closure with an ancestor-bound check and an ances
 	}
 }, 240000)
 
-it('CT1 and CT3 extend one goal to two with raised record bounds and only suffix daemon traffic', async () => {
-	const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
-	const subject = await buildStudyLibrary(
-		library,
-		resolve('src/server/ollama/StudyOllamaTransport.ts'),
-	)
-	const fixture = await createStudyContinuationFixture(subject)
-	try {
-		const { scratch, command, recorded, result: ancestor, history } = fixture
-		const before = requireValue(scratch.read('daemon-requests.jsonl'))
-			.split(/\r\n|\n/)
-			.filter(Boolean).length
-		const checked = await command.execute(
-			['check', 'assessment', '--extend', recorded],
-			new AbortController().signal,
+it.each(STUDY_STOP_SWITCHES)(
+	'CT1 and CT3 extend one goal to two with only suffix daemon traffic, triage=%s',
+	async (triage) => {
+		const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
+		const subject = await buildStudyLibrary(
+			library,
+			resolve('src/server/ollama/StudyOllamaTransport.ts'),
 		)
-		if (!isRecord(checked) || typeof checked.fingerprint !== 'string')
-			throw new Error('Missing continuation check')
-		expect(checked.next).toEqual([
-			'execute',
-			'assessment',
-			'--profile',
-			'local',
-			'--expected',
-			checked.fingerprint,
-			'--extend',
-			recorded,
-		])
-		expect(
-			scratch
-				.read('daemon-requests.jsonl')
-				?.split(/\r\n|\n/)
-				.filter(Boolean).length,
-		).toBe(before)
-		const output = join(scratch.path, 'live')
-		await expect(
-			command.execute(
-				[
-					'execute',
-					'assessment',
-					'--extend',
-					recorded,
-					'--expected',
-					checked.fingerprint,
-					'--out',
-					output,
-				],
+		const fixture = await createStudyContinuationFixture(subject, triage)
+		try {
+			const { scratch, command, recorded, result: ancestor, history } = fixture
+			const before = requireValue(scratch.read('daemon-requests.jsonl'))
+				.split(/\r\n|\n/)
+				.filter(Boolean).length
+			const checked = await command.execute(
+				['check', 'assessment', '--extend', recorded],
 				new AbortController().signal,
-			),
-		).resolves.toMatchObject({ status: 'completed', fingerprint: checked.fingerprint })
-		const result = await readStudyResult(output)
-		if (result.status !== 'sealed') throw new Error('Continuation did not seal')
-		const trial = requireValue(result.manifest.schedule[0])
-		const extended = await readStudyExchanges(result, trial.id)
-		expect(extended.declaration.goals).toEqual(['write', 'recall'])
-		expect(extended.declaration.ancestor).toEqual({
-			result: ancestor.manifest.id,
-			seal: ancestor.seal.id,
-			identity: ancestor.manifest.identity,
-			file: history.file,
-			prefix: 7,
-		})
-		expect(result.manifest.ancestor).toEqual({
-			result: ancestor.manifest.id,
-			seal: ancestor.seal.id,
-			identity: ancestor.manifest.identity,
-		})
-		expect(result.manifest.record).toEqual({ bytes: 131072, calls: 4, duration: 30000 })
-		expect(result.manifest.identity.content).toBe(ancestor.manifest.identity.content)
-		expect(result.manifest.identity.fixtures).not.toBe(ancestor.manifest.identity.fixtures)
-		expect(extended.declaration.configuration).toBe(history.declaration.configuration)
-		expect(extended.exchanges.slice(2, 7)).toEqual(history.exchanges.slice(2, 7))
-		expect(result.attempts[0]?.observations.map((observation) => observation.goal)).toEqual([
-			'write',
-			'recall',
-		])
-		expect(result.attempts[0]?.observations[0]?.product).toEqual(
-			ancestor.attempts[0]?.observations[0]?.product,
-		)
-		const traffic = requireValue(scratch.read('daemon-requests.jsonl'))
-			.split(/\r\n|\n/)
-			.filter(Boolean)
-			.slice(before)
-			.map((line) => parseJSON(line))
-			.filter(isRecord)
-		expect(traffic.map((row) => row.path)).toEqual([
-			'/api/version',
-			'/api/tags',
-			'/api/generate',
-			'/api/generate',
-			'/api/chat',
-			'/api/version',
-			'/api/tags',
-			'/api/show',
-			'/api/show',
-		])
-		expect(traffic.slice(2).map((row) => row.positions)).toEqual([
-			[{ trial: trial.id, ordinal: 1, goal: 'write', stage: 'maintenance' }],
-			[{ trial: trial.id, ordinal: 2, goal: 'write', stage: 'maintenance' }],
-			[{ trial: trial.id, ordinal: 8, goal: 'recall', stage: 'execution' }],
-			...[9, 10, 11, 12].map((ordinal) => [
-				{ trial: trial.id, ordinal, goal: 'recall', stage: 'postflight' },
-			]),
-		])
-		expect(JSON.parse(requireValue(result.manifest.host.daemon))).toMatchObject({
-			url: fixture.url,
-			executable: { version: 'fixture-version' },
-		})
-		expect(isRunning(requireValue(readStudyPid(scratch, 'daemon.pid')))).toBe(false)
-		expect(isRunning(requireValue(readStudyPid(scratch, 'runner.pid')))).toBe(false)
-		expect(
-			readStudyExchangeRows(
-				Buffer.from(requireValue(scratch.read(`live/execution/${history.file.path}`))),
-			),
-		).toContainEqual({ phase: 'complete', count: 12 })
-	} finally {
-		await fixture.close()
-		library.destroy()
-	}
-}, 180000)
+			)
+			if (!isRecord(checked) || typeof checked.fingerprint !== 'string')
+				throw new Error('Missing continuation check')
+			expect(checked.next).toEqual([
+				'execute',
+				'assessment',
+				'--profile',
+				'local',
+				'--expected',
+				checked.fingerprint,
+				'--extend',
+				recorded,
+			])
+			expect(
+				scratch
+					.read('daemon-requests.jsonl')
+					?.split(/\r\n|\n/)
+					.filter(Boolean).length,
+			).toBe(before)
+			const output = join(scratch.path, 'live')
+			await expect(
+				command.execute(
+					[
+						'execute',
+						'assessment',
+						'--extend',
+						recorded,
+						'--expected',
+						checked.fingerprint,
+						'--out',
+						output,
+					],
+					new AbortController().signal,
+				),
+			).resolves.toMatchObject({ status: 'completed', fingerprint: checked.fingerprint })
+			const result = await readStudyResult(output)
+			if (result.status !== 'sealed') throw new Error('Continuation did not seal')
+			const trial = requireValue(result.manifest.schedule[0])
+			const extended = await readStudyExchanges(result, trial.id)
+			expect(extended.declaration.goals).toEqual(['write', 'recall'])
+			expect(extended.declaration.ancestor).toEqual({
+				result: ancestor.manifest.id,
+				seal: ancestor.seal.id,
+				identity: ancestor.manifest.identity,
+				file: history.file,
+				prefix: 7,
+			})
+			expect(result.manifest.ancestor).toEqual({
+				result: ancestor.manifest.id,
+				seal: ancestor.seal.id,
+				identity: ancestor.manifest.identity,
+			})
+			expect(result.manifest.record).toEqual({ bytes: 131072, calls: 4, duration: 30000 })
+			expect(result.manifest.identity.content).toBe(ancestor.manifest.identity.content)
+			expect(result.manifest.identity.fixtures).not.toBe(ancestor.manifest.identity.fixtures)
+			expect(extended.declaration.configuration).toBe(history.declaration.configuration)
+			expect(extended.exchanges.slice(2, 7)).toEqual(history.exchanges.slice(2, 7))
+			expect(
+				history.exchanges
+					.filter(({ attempt }) => attempt.stage === 'execution')
+					.map(({ attempt }) => attempt.role),
+			).toEqual([triage ? 'triage' : 'agent'])
+			expect(result.attempts[0]?.observations.map((observation) => observation.goal)).toEqual([
+				'write',
+				'recall',
+			])
+			expect(result.attempts[0]?.observations[0]?.product).toEqual(
+				ancestor.attempts[0]?.observations[0]?.product,
+			)
+			const traffic = requireValue(scratch.read('daemon-requests.jsonl'))
+				.split(/\r\n|\n/)
+				.filter(Boolean)
+				.slice(before)
+				.map((line) => parseJSON(line))
+				.filter(isRecord)
+			expect(traffic.map((row) => row.path)).toEqual([
+				'/api/version',
+				'/api/tags',
+				'/api/generate',
+				'/api/generate',
+				'/api/chat',
+				...(triage ? ['/v1/systemone'] : []),
+				'/api/version',
+				'/api/tags',
+				'/api/show',
+				'/api/show',
+			])
+			expect(traffic.slice(2).map((row) => row.positions)).toEqual([
+				[{ trial: trial.id, ordinal: 1, goal: 'write', stage: 'maintenance' }],
+				[{ trial: trial.id, ordinal: 2, goal: 'write', stage: 'maintenance' }],
+				[{ trial: trial.id, ordinal: 8, goal: 'recall', stage: 'execution' }],
+				...(triage ? [[{ trial: trial.id, ordinal: 9, goal: 'recall', stage: 'execution' }]] : []),
+				...(triage ? [10, 11, 12, 13] : [9, 10, 11, 12]).map((ordinal) => [
+					{ trial: trial.id, ordinal, goal: 'recall', stage: 'postflight' },
+				]),
+			])
+			expect(JSON.parse(requireValue(result.manifest.host.daemon))).toMatchObject({
+				url: fixture.url,
+				executable: { version: 'fixture-version' },
+			})
+			expect(isRunning(requireValue(readStudyPid(scratch, 'daemon.pid')))).toBe(false)
+			expect(isRunning(requireValue(readStudyPid(scratch, 'runner.pid')))).toBe(false)
+			expect(
+				readStudyExchangeRows(
+					Buffer.from(requireValue(scratch.read(`live/execution/${history.file.path}`))),
+				),
+			).toContainEqual({ phase: 'complete', count: triage ? 13 : 12 })
+		} finally {
+			await fixture.close()
+			library.destroy()
+		}
+	},
+	180000,
+)
 
 it('RP3 keeps content equal across a renamed frozen consumer and JSON edits, binds runtime, and replays changed code with both identities', async () => {
 	const fixture = await createStudyReplayFixture(true)

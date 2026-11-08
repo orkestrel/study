@@ -194,9 +194,13 @@ export function nestStudyConsumer(scratch: ScratchInterface, entry: string): str
 
 /** Records an open trial through the actual command, worker, and protocol fixture.
  * @param nested - If true, places admitted packages beneath a consumer root listed first.
+ * @param triage - If true, dispatches System One on both goals; if false, retains the generation control.
  * @returns The sealed recording and resources released by close.
  */
-export async function createStudyReplayFixture(nested = false): Promise<StudyReplayFixture> {
+export async function createStudyReplayFixture(
+	nested = false,
+	triage = false,
+): Promise<StudyReplayFixture> {
 	const scratch = createStudyConsumer()
 	const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
 	const server = await createOllamaServer()
@@ -205,7 +209,7 @@ export async function createStudyReplayFixture(nested = false): Promise<StudyRep
 			library,
 			resolve('src/server/ollama/StudyOllamaTransport.ts'),
 		)
-		writeStudyRecordingConsumer(scratch, server.url, subject, true)
+		writeStudyRecordingConsumer(scratch, server.url, subject, true, triage)
 		const original = parseStudyProfile(
 			parseJSON(scratch.read('studies/files/profiles/local.json') ?? ''),
 		)
@@ -269,12 +273,14 @@ export async function createStudyReplayFixture(nested = false): Promise<StudyRep
 
 /** Records one goal on the dedicated fixture and grows only JSON declarations for continuation.
  * @param library - The built real Study transport.
+ * @param triage - If true, records and extends System One requests; if false, retains the generation control.
  * @returns A sealed ancestor, the grown consumer, and ownership of its fixture resources.
  */
 export async function createStudyContinuationFixture(
 	library: string,
+	triage = false,
 ): Promise<StudyContinuationFixture> {
-	const fixture = await createStudyDaemonFixture(library, 'normal', true)
+	const fixture = await createStudyDaemonFixture(library, 'normal', true, triage)
 	const { scratch } = fixture
 	try {
 		const scenario = requireValue(scratch.read('studies/files/scenarios/first.json'))
@@ -1040,12 +1046,14 @@ export async function retainStudyExchangeFixture(
  * @param origin - The loopback Ollama peer.
  * @param library - The built real Study server library admitted as the subject.
  * @param open - If true, declares an open role sequence; if false, keeps the capture-step control.
+ * @param triage - If true, replaces the open sequence's agent and judge calls with System One calls.
  */
 export function writeStudyRecordingConsumer(
 	scratch: ScratchInterface,
 	origin: string,
 	library: string,
 	open = false,
+	triage = false,
 ): void {
 	writeStudyConsumer(scratch)
 	const original = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
@@ -1119,15 +1127,39 @@ export function writeStudyRecordingConsumer(
 				entry: resolveStudyEntry('@orkestrel/ollama'),
 				url: origin,
 				model: 'model',
-				...(open ? { judge: 'judge' } : {}),
-				digest: { model: 'a'.repeat(64), ...(open ? { judge: 'b'.repeat(64) } : {}) },
+				...(triage ? { triage: 'decision' } : open ? { judge: 'judge' } : {}),
+				digest: {
+					model: 'a'.repeat(64),
+					...(triage ? { triage: 'c'.repeat(64) } : open ? { judge: 'b'.repeat(64) } : {}),
+				},
 			},
 			record: { bytes: 32768, calls: 256, duration: 15000 },
 			settings: {
 				version: 'fixture-version',
 				metadata: { calls: open ? 16 : 8, bytes: 65536, duration: 5000 },
 				...(open
-					? { roles: { agent: policy, summary, judge }, requests }
+					? {
+							roles: {
+								agent: policy,
+								summary,
+								...(triage ? { triage: { model: 'decision', tokens: 128 } } : { judge }),
+							},
+							requests: triage
+								? requests.map((request) =>
+										request.role === 'summary'
+											? request
+											: {
+													goal: request.goal,
+													role: 'triage',
+													body: JSON.stringify({
+														model: 'decision',
+														state: request.goal,
+														questions: {},
+													}),
+												},
+									)
+								: requests,
+						}
 					: {
 							procedure: [
 								{
@@ -1190,7 +1222,7 @@ export function createStudyAdapter() { return {
  validate() { appendFileSync(${JSON.stringify(join(scratch.path, 'validations.log'))}, String(process.pid) + '\\n') },
  driver({ subject, provider, profile, exchanges, replay }) { return { async open(trial, signal) {
   appendFileSync(${JSON.stringify(join(scratch.path, 'workers.log'))}, String(process.pid) + '\\n')
-  const transport = new subject.StudyOllamaTransport({ url: profile.provider.url, room: profile.room, limit: profile.bounds.request, models: { model: { name: profile.provider.model, digest: profile.provider.digest.model }, ...(profile.provider.judge === undefined ? {} : { judge: { name: profile.provider.judge, digest: profile.provider.digest.judge } }) }, roles: profile.settings.roles ?? { agent: profile.settings.procedure[0].policy }, metadata: profile.settings.metadata, exchanges, signal, observe: false, timing: provider.extractTiming, ...(replay === undefined ? {} : { replay }) })
+  const transport = new subject.StudyOllamaTransport({ url: profile.provider.url, room: profile.room, limit: profile.bounds.request, models: { model: { name: profile.provider.model, digest: profile.provider.digest.model }, ...(profile.provider.judge === undefined ? {} : { judge: { name: profile.provider.judge, digest: profile.provider.digest.judge } }), ...(profile.provider.triage === undefined ? {} : { triage: { name: profile.provider.triage, digest: profile.provider.digest.triage } }) }, roles: profile.settings.roles ?? { agent: profile.settings.procedure[0].policy }, metadata: profile.settings.metadata, exchanges, signal, observe: false, timing: provider.extractTiming, ...(replay === undefined ? {} : { replay }) })
   return {
    async execute(goal, context) {
     transport.prepare({ goal: goal.id, context })
@@ -1198,10 +1230,10 @@ export function createStudyAdapter() { return {
      if (goal.id === exchanges.declaration.goals[0]) await transport.verify()
      const values = []
      for (const request of (profile.settings.requests ?? [{ goal: 'write', role: 'agent', body: profile.settings.body }]).filter(request => request.goal === goal.id)) {
-      const response = await transport.fetch(request.role, profile.provider.url + (request.role === 'judge' ? '/api/generate' : '/api/chat'), { method: 'POST', body: request.body })
+      const response = await transport.fetch(request.role, profile.provider.url + (request.role === 'triage' ? '/v1/systemone' : request.role === 'judge' ? '/api/generate' : '/api/chat'), { method: 'POST', body: request.body })
       const text = await response.text()
       const row = JSON.parse(text.trim())
-      values.push(row.message?.content ?? row.response)
+      values.push(request.role === 'triage' ? JSON.stringify(row.answers) : row.message?.content ?? row.response)
      }
      if (goal.id === exchanges.declaration.goals.at(-1)) await transport.verify()
      transport.check()
@@ -1222,12 +1254,14 @@ export function createStudyAdapter() { return {
  * @param library - The built real Study transport.
  * @param mode - The protocol outcome to exercise.
  * @param open - If true, records agent and summary without declared steps; if false, keeps the capture control.
+ * @param triage - If true, pins and unloads the System One model and dispatches its requests.
  * @returns The owned consumer; close releases only its recorded fixture processes.
  */
 export async function createStudyDaemonFixture(
 	library?: string,
 	mode = 'normal',
 	open = false,
+	triage = false,
 ): Promise<StudyDaemonFixture> {
 	const scratch = createStudyConsumer()
 	try {
@@ -1245,6 +1279,7 @@ export async function createStudyDaemonFixture(
 			library ??
 				(await buildStudyLibrary(scratch, resolve('src/server/ollama/StudyOllamaTransport.ts'))),
 			open,
+			triage,
 		)
 		const original = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
 		if (!isRecord(original) || !isRecord(original.provider) || !isRecord(original.settings))
@@ -1270,8 +1305,11 @@ export async function createStudyDaemonFixture(
 			},
 			provider: {
 				...original.provider,
-				judge: 'judge',
-				digest: { model: 'a'.repeat(64), judge: 'b'.repeat(64) },
+				...(triage ? { triage: 'decision' } : { judge: 'judge' }),
+				digest: {
+					model: 'a'.repeat(64),
+					...(triage ? { triage: 'c'.repeat(64) } : { judge: 'b'.repeat(64) }),
+				},
 				daemon: {
 					executable: realpathSync(process.execPath),
 					digest: hashStudyBytes(readFileSync(process.execPath)),
@@ -1292,7 +1330,9 @@ export async function createStudyDaemonFixture(
 					},
 					models: [
 						{ name: 'model', digest: 'a'.repeat(64) },
-						{ name: 'judge', digest: 'b'.repeat(64) },
+						triage
+							? { name: 'decision', digest: 'c'.repeat(64) }
+							: { name: 'judge', digest: 'b'.repeat(64) },
 					],
 				},
 			},
@@ -2796,7 +2836,7 @@ export class OllamaExchangeRecorder implements StudyExchangeSinkInterface {
 export function buildOllamaStep(
 	admission: 'exact' | 'capture' = 'capture',
 	body = STUDY_OLLAMA_CHAT_BODY,
-	role: StudyOllamaRole = 'agent',
+	role: Exclude<StudyOllamaRole, 'triage'> = 'agent',
 	ordinal = 1,
 	goal = 'first',
 ): StudyOllamaStep {
@@ -2816,7 +2856,9 @@ export function buildOllamaStep(
 /** Supplies distinct agent, summary and raw judge body bytes under their declared policies.
  * @returns Model-role and body pairs in the declared execution order.
  */
-export function buildOllamaRoleBodies(): ReadonlyArray<readonly [StudyOllamaRole, string]> {
+export function buildOllamaRoleBodies(): ReadonlyArray<
+	readonly [Exclude<StudyOllamaRole, 'triage'>, string]
+> {
 	return [
 		['agent', STUDY_OLLAMA_CHAT_BODY],
 		[
@@ -3081,7 +3123,7 @@ export async function createOllamaTransportFixture(
 export function createOllamaTransportProvider(
 	transport: StudyOllamaTransport,
 	url: string,
-	role: Exclude<StudyOllamaRole, 'judge'> = 'agent',
+	role: Exclude<StudyOllamaRole, 'judge' | 'triage'> = 'agent',
 	dispatch?: StudyAgentDispatch,
 ): ProviderInterface {
 	return createOllama({
@@ -4104,6 +4146,62 @@ export interface OllamaWireReplyFixture extends OllamaReplyFixture {
 	readonly interrupted?: boolean
 }
 
+/** Supplies System One failures at the envelope, budget, and deadline boundaries. */
+export const STUDY_TRIAGE_FAILURES = Object.freeze([
+	{ name: 'missing answers', body: '{}', code: 'FAULT', bytes: 4096, duration: 2000, open: false },
+	{
+		name: 'wrong model',
+		body: '{"model":"other","answers":{}}',
+		code: 'FAULT',
+		bytes: 4096,
+		duration: 2000,
+		open: false,
+	},
+	{
+		name: 'malformed usage',
+		body: '{"answers":{},"usage":{"input_tokens":"12"}}',
+		code: 'FAULT',
+		bytes: 4096,
+		duration: 2000,
+		open: false,
+	},
+	{
+		name: 'excess tokens',
+		body: '{"answers":{},"usage":{"input_tokens":129}}',
+		code: 'CAPACITY',
+		bytes: 4096,
+		duration: 2000,
+		open: false,
+	},
+	{
+		name: 'excess bytes',
+		body: JSON.stringify({ answers: {}, extra: 'x'.repeat(8192) }),
+		code: 'CAPACITY',
+		bytes: 4096,
+		duration: 2000,
+		open: false,
+	},
+	{
+		name: 'deadline',
+		body: '{"answers":',
+		code: 'DEADLINE',
+		bytes: 4096,
+		duration: 100,
+		open: true,
+	},
+])
+
+/** Supplies usage readings whose absent parts must remain unknown. */
+export const STUDY_TRIAGE_USAGE = Object.freeze([
+	{ body: '{"answers":{}}', prompt: null, completion: null },
+	{ body: '{"answers":{},"usage":{"input_tokens":12}}', prompt: 12, completion: null },
+	{
+		body: '{"answers":{},"usage":{"input_tokens":null,"output_tokens":1}}',
+		prompt: null,
+		completion: 1,
+	},
+])
+
 /** Holds metadata failures that must prevent every model send. */
 export interface OllamaMetadataFailureFixture {
 	readonly name: string
@@ -5110,11 +5208,13 @@ export interface StudyLabelFixture {
  * Builds a sealed-reader history whose execution attempts hold one request under each listed role.
  * @param roles - The role of each execution attempt
  * @param replies - The reply text of each attempt
+ * @param chunks - The exact chunk lengths for each execution reply; absent uses one complete chunk.
  * @returns A history the keyed replay's constructor accepts
  */
 export function buildStudyKeyedHistory(
 	roles: readonly StudyRole[],
 	replies: readonly string[],
+	chunks?: readonly number[],
 ): StudyExchangeHistory {
 	const rows = buildOpenStudyExchangeRows(
 		'r1-first-small',
@@ -5134,6 +5234,7 @@ export function buildStudyKeyedHistory(
 			return {
 				...row,
 				role,
+				...(role === 'triage' ? { path: '/v1/systemone' as const } : {}),
 				goal: 'write',
 				body,
 				digest: requireValue(executions[0]).digest,
@@ -5143,9 +5244,10 @@ export function buildStudyKeyedHistory(
 		return {
 			...row,
 			role,
+			...(role === 'triage' ? { path: '/v1/systemone' as const } : {}),
 			goal: 'write',
 			...buildStudyOllamaBytes(reply),
-			chunks: [reply.length],
+			chunks: chunks ?? [reply.length],
 		}
 	})
 	const declaration = requireValue(keyed[0])

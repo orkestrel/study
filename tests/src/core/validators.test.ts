@@ -48,6 +48,25 @@ import {
 	STUDY_PROFILE_SETTINGS,
 } from '../../setupStudy.js'
 
+it('pairs the triage pin and requires the same identity in daemon maintenance', () => {
+	const provider = buildStudyDaemonProvider()
+	const daemon = provider.daemon
+	if (daemon === undefined) throw new Error('Missing daemon fixture')
+	const digest = { ...provider.digest, triage: 'c'.repeat(64) }
+	const pinned = {
+		...provider,
+		triage: 'decision',
+		digest,
+		daemon: { ...daemon, models: [...daemon.models, { name: 'decision', digest: digest.triage }] },
+	}
+	expect(isStudyRole('triage')).toBe(true)
+	expect(isStudyProvider(pinned)).toBe(true)
+	expect(isStudyProvider({ ...pinned, triage: undefined })).toBe(false)
+	expect(isStudyProvider({ ...pinned, digest: provider.digest })).toBe(false)
+	expect(isStudyProvider({ ...pinned, daemon })).toBe(false)
+	expect(isStudyProvider({ ...pinned, digest: { ...digest, triage: 'd'.repeat(64) } })).toBe(false)
+})
+
 it('loads a declared daemon and refuses malformed executable, endpoint, environment and model declarations', () => {
 	const provider = buildStudyDaemonProvider()
 	const daemon = provider.daemon
@@ -368,10 +387,18 @@ it('accepts JSON products with partial status and refuses non-JSON or hostile ou
 })
 
 it('accepts exactly the declared roles and operational causes in their frozen report order', () => {
-	expect(STUDY_ROLES).toEqual(['agent', 'judge', 'summary', 'metadata', 'maintenance', 'tool'])
+	expect(STUDY_ROLES).toEqual([
+		'agent',
+		'judge',
+		'triage',
+		'summary',
+		'metadata',
+		'maintenance',
+		'tool',
+	])
 	expect(STUDY_CAUSES).toEqual(['capacity', 'infrastructure', 'deadline', 'interrupted', 'content'])
 	expect(Object.isFrozen(STUDY_ROLES) && Object.isFrozen(STUDY_CAUSES)).toBe(true)
-	for (const role of ['agent', 'judge', 'summary', 'metadata', 'maintenance', 'tool'])
+	for (const role of ['agent', 'judge', 'triage', 'summary', 'metadata', 'maintenance', 'tool'])
 		expect(isStudyRole(role)).toBe(true)
 	for (const cause of ['capacity', 'infrastructure', 'deadline', 'interrupted', 'content'])
 		expect(isStudyCause(cause)).toBe(true)

@@ -7,6 +7,7 @@ import {
 	createBudgetLookalike,
 } from '../../../setupServer.js'
 import { BudgetError } from '@orkestrel/budget'
+import { createSystemOneJudge } from '@orkestrel/agent'
 import { StudyOllamaKeyedReplay } from '../../../../src/server/ollama/StudyOllamaKeyedReplay.js'
 import { describe, expect, it } from 'vitest'
 import { parseJSON, isRecord } from '@orkestrel/contract'
@@ -28,6 +29,7 @@ import { StudyOllamaTransport } from '../../../../src/server/ollama/StudyOllamaT
 import { hashStudyBytes } from '../../../../src/server/helpers.js'
 import { StudyExchangeSink } from '../../../../src/server/stores/StudyExchangeSink.js'
 import { readStudyExchangeRows } from '../../../../src/server/stores/helpers.js'
+import { isStudyOllamaStep } from '../../../../src/server/ollama/validators.js'
 import {
 	STUDY_AGENT_MESSAGES,
 	STUDY_JUDGE_REQUEST,
@@ -51,6 +53,8 @@ import {
 	readOllamaDefault,
 } from '../../../setupStudy.js'
 import {
+	STUDY_TRIAGE_FAILURES,
+	STUDY_TRIAGE_USAGE,
 	STUDY_OLLAMA_CHAT_BODY,
 	STUDY_OLLAMA_ABANDONMENT_CASES,
 	STUDY_OLLAMA_EOF_CANCELLATION_CASES,
@@ -75,6 +79,359 @@ import {
 const encoder = new TextEncoder()
 
 describe('StudyOllamaTransport', () => {
+	it.each(STUDY_STOP_SWITCHES)(
+		'triage records declared admission and refuses changed requests, captured=%s',
+		async (captured) => {
+			const body = '{"model":"judge","state":"remember","questions":{}}'
+			const policy = { model: 'judge', tokens: 128 }
+			const candidate = {
+				ordinal: 1,
+				goal: 'first',
+				role: 'triage',
+				path: '/v1/systemone',
+				policy,
+				...(captured
+					? { admission: 'capture', bytes: Buffer.byteLength(body) }
+					: { admission: 'exact', body, input: hashStudyBytes(body) }),
+			}
+			if (!isStudyOllamaStep(candidate)) throw new Error('Triage step refused')
+			for (const changed of STUDY_STOP_SWITCHES) {
+				const fixture = await createOllamaRecordingFixture(
+					[candidate],
+					[{ path: '/v1/systemone', body: '{"answers":{}}' }],
+					{ roles: { triage: policy } },
+				)
+				try {
+					await fixture.transport.verify()
+					const request = fixture.transport.fetch(
+						'triage',
+						new URL('/v1/systemone', fixture.server.url),
+						{
+							method: 'POST',
+							body: changed ? body.replace('remember', captured ? ' remember' : 'Remember') : body,
+						},
+					)
+					const result = await request.then(
+						(response) => response.text(),
+						(error: unknown) => error,
+					)
+					const refused = expect.objectContaining({
+						message: expect.stringContaining('declared model step'),
+					})
+					expect(result).toEqual(changed ? refused : '{"answers":{}}')
+					if (!changed) await fixture.transport.verify()
+					expect(
+						fixture.server.requests.filter((entry) => entry.path === '/v1/systemone'),
+					).toHaveLength(changed ? 0 : 1)
+					expect(fixture.rows.some((row) => row.phase === 'complete')).toBe(!changed)
+					const rows = readStudyExchangeRows(
+						Buffer.from(fixture.rows.map((row) => JSON.stringify(row)).join('\n') + '\n'),
+						!changed,
+					)
+					expect(
+						rows.flatMap((row) =>
+							row.phase === 'attempt' && row.role === 'triage' ? [row.body] : [],
+						),
+					).toEqual(changed ? [] : [Buffer.from(body).toString('base64')])
+				} finally {
+					await fixture.close()
+				}
+			}
+		},
+	)
+	it('triage verifies its own pin in both metadata passes and refuses a changed digest', async () => {
+		const models = {
+			...buildOllamaTransportOptions('http://127.0.0.1:1').models,
+			triage: { name: 'decision', digest: 'c'.repeat(64) },
+		}
+		const inventory = JSON.stringify({ models: Object.values(models) })
+		const fixture = await createOpenOllamaRecordingFixture(
+			[
+				{ path: '/api/tags', body: inventory },
+				{ path: '/v1/systemone', body: '{"answers":{}}' },
+				{ path: '/api/tags', body: inventory.replace('c'.repeat(64), 'd'.repeat(64)) },
+			],
+			{ models, roles: { triage: { model: 'decision', tokens: 128 } } },
+		)
+		try {
+			await fixture.transport.verify()
+			expect(
+				fixture.server.requests
+					.filter((request) => request.path === '/api/show')
+					.map((request) => request.body),
+			).toContain('{"model":"decision"}')
+			const response = await fixture.transport.fetch(
+				'triage',
+				new URL('/v1/systemone', fixture.server.url),
+				{ method: 'POST', body: '{"model":"decision","state":"decide","questions":{}}' },
+			)
+			await response.text()
+			await expect(fixture.transport.verify()).rejects.toThrow('required model digest')
+			expect(fixture.rows.some((row) => row.phase === 'complete')).toBe(false)
+			expect(() => fixture.transport.check()).toThrow('required model digest')
+		} finally {
+			await fixture.close()
+		}
+	})
+	it('triage reserves its token ceiling independently of generation context', async () => {
+		const fixture = await createOllamaTransportFixture(
+			[{ path: '/v1/systemone', body: '{"answers":{}}' }],
+			{
+				roles: { triage: { model: 'judge', tokens: 128 } },
+				room: { context: 100000, safety: 128 },
+			},
+		)
+		try {
+			const response = await fixture.transport.fetch(
+				'triage',
+				new URL('/v1/systemone', fixture.server.url),
+				{
+					method: 'POST',
+					body: '{"model":"judge","state":"decide","questions":{}}',
+				},
+			)
+			expect(await response.text()).toBe('{"answers":{}}')
+			expect(fixture.goal.usage()).toHaveLength(1)
+		} finally {
+			await fixture.close()
+		}
+	})
+	it('triage retains exact request and reply bytes in strictly validated custody', async () => {
+		const body = '{ "model":"judge", "state":"résumé 🦉", "questions":{} }'
+		const reply = '{\n "answers": {},\n "usage": {"input_tokens":12,"output_tokens":1}\n}'
+		const fixture = await createOpenOllamaRecordingFixture(
+			[{ path: '/v1/systemone', body: reply }],
+			{
+				roles: { triage: { model: 'judge', tokens: 128 } },
+			},
+		)
+		try {
+			await fixture.transport.verify()
+			const response = await fixture.transport.fetch(
+				'triage',
+				new URL('/v1/systemone', fixture.server.url),
+				{ method: 'POST', body },
+			)
+			expect(await response.text()).toBe(reply)
+			await fixture.transport.verify()
+			const bytes = Buffer.from(fixture.rows.map((row) => JSON.stringify(row)).join('\n') + '\n')
+			const rows = readStudyExchangeRows(bytes, true)
+			expect(rows.find((row) => row.phase === 'attempt' && row.role === 'triage')).toMatchObject({
+				path: '/v1/systemone',
+				body: Buffer.from(body).toString('base64'),
+				size: Buffer.byteLength(body),
+				digest: hashStudyBytes(body),
+			})
+			const recorded = rows.find((row) => row.phase === 'response' && row.role === 'triage')
+			expect(recorded).toMatchObject({
+				body: Buffer.from(reply).toString('base64'),
+				size: Buffer.byteLength(reply),
+				digest: hashStudyBytes(reply),
+			})
+			if (recorded?.phase !== 'response') throw new Error('Missing triage reply')
+			expect(recorded.chunks.reduce((total, size) => total + size, 0)).toBe(
+				Buffer.byteLength(reply),
+			)
+			const tampered = Buffer.from(
+				fixture.rows
+					.map((row) =>
+						JSON.stringify(
+							row ===
+								fixture.rows.find((entry) => entry.phase === 'response' && entry.role === 'triage')
+								? { ...row, digest: 'f'.repeat(64) }
+								: row,
+						),
+					)
+					.join('\n') + '\n',
+			)
+			expect(() => readStudyExchangeRows(tampered, true)).toThrow(StudyError)
+		} finally {
+			await fixture.close()
+		}
+	})
+	it.each(STUDY_TRIAGE_FAILURES)(
+		'triage refuses $name without a successful recording',
+		async (entry) => {
+			const fixture = await createOpenOllamaRecordingFixture(
+				[{ path: '/v1/systemone', body: entry.body, open: entry.open }],
+				{
+					roles: { triage: { model: 'judge', tokens: 128 } },
+					limit: { bytes: entry.bytes, duration: entry.duration },
+				},
+			)
+			try {
+				await fixture.transport.verify()
+				const started = performance.now()
+				const response = await fixture.transport.fetch(
+					'triage',
+					new URL('/v1/systemone', fixture.server.url),
+					{
+						method: 'POST',
+						body: '{"model":"judge","state":"decide","questions":{}}',
+					},
+				)
+				await expect(response.text()).rejects.toBeDefined()
+				expect(performance.now() - started).toBeLessThan(entry.open ? 1000 : 5000)
+				expect(captureError(() => fixture.transport.check())).toBeDefined()
+				expect(
+					fixture.rows.filter((row) => row.phase === 'attempt' && row.role === 'triage'),
+				).toHaveLength(1)
+				expect(
+					fixture.rows.filter((row) => row.phase === 'failure' && row.role === 'triage'),
+				).toHaveLength(1)
+				expect(fixture.rows.some((row) => row.phase === 'response' && row.role === 'triage')).toBe(
+					false,
+				)
+				expect(fixture.rows.some((row) => row.phase === 'complete')).toBe(false)
+				expect(fixture.goal.usage()).toHaveLength(1)
+			} finally {
+				await fixture.close()
+			}
+		},
+	)
+	it.each(STUDY_TRIAGE_USAGE)('triage preserves partial usage from $body', async (entry) => {
+		const fixture = await createOllamaTransportFixture(
+			[{ path: '/v1/systemone', body: entry.body }],
+			{
+				roles: { triage: { model: 'judge', tokens: 128 } },
+				observe: true,
+			},
+		)
+		try {
+			const response = await fixture.transport.fetch(
+				'triage',
+				new URL('/v1/systemone', fixture.server.url),
+				{
+					method: 'POST',
+					body: '{"model":"judge","state":"decide","questions":{}}',
+				},
+			)
+			expect(await response.text()).toBe(entry.body)
+			expect(fixture.goal.usage()).toEqual([
+				{ role: 'triage', calls: 1, tokens: undefined, bytes: expect.any(Number) },
+			])
+			expect(fixture.goal.evidence.find((row) => row.event === 'wire')?.value).toMatchObject({
+				role: 'triage',
+				prompt: entry.prompt,
+				completion: entry.completion,
+				finish: null,
+			})
+		} finally {
+			await fixture.close()
+		}
+	})
+	it('triage refuses an unpinned policy and a wrong route before sending', async () => {
+		expect(
+			() =>
+				new StudyOllamaTransport(
+					buildOllamaTransportOptions('http://127.0.0.1:1', {
+						roles: { triage: { model: 'absent', tokens: 128 } },
+					}),
+				),
+		).toThrow('inventory does not pin')
+		const fixture = await createOllamaTransportFixture([], {
+			roles: { triage: { model: 'judge', tokens: 128 } },
+		})
+		try {
+			await expect(
+				fixture.transport.fetch('triage', new URL('/api/generate', fixture.server.url), {
+					method: 'POST',
+					body: '{"model":"judge","state":"decide","questions":{}}',
+				}),
+			).rejects.toThrow('endpoint differs')
+			expect(fixture.server.requests).toHaveLength(0)
+			expect(fixture.goal.usage()).toHaveLength(0)
+			expect(() => fixture.transport.check()).toThrow('endpoint differs')
+		} finally {
+			await fixture.close()
+		}
+	})
+	it('triage retains abort as a failure and never seals its partial response', async () => {
+		const fixture = await createOpenOllamaRecordingFixture(
+			[{ path: '/v1/systemone', body: '{"answers":', open: true }],
+			{
+				roles: { triage: { model: 'judge', tokens: 128 } },
+			},
+		)
+		const abort = new AbortController()
+		try {
+			await fixture.transport.verify()
+			const response = await fixture.transport.fetch(
+				'triage',
+				new URL('/v1/systemone', fixture.server.url),
+				{
+					method: 'POST',
+					body: '{"model":"judge","state":"decide","questions":{}}',
+					signal: abort.signal,
+				},
+			)
+			const reader = response.body?.getReader()
+			expect(await reader?.read()).toMatchObject({ done: false })
+			abort.abort(new Error('triage cancelled'))
+			await expect(reader?.read()).rejects.toThrow('triage cancelled')
+			expect(() => fixture.transport.check()).toThrow('triage cancelled')
+			expect(
+				fixture.rows.filter((row) => row.phase === 'failure' && row.role === 'triage'),
+			).toHaveLength(1)
+			expect(fixture.rows.some((row) => row.phase === 'complete')).toBe(false)
+			reader?.releaseLock()
+		} finally {
+			await fixture.close()
+		}
+	})
+	it('carries a real System One judge through triage and charges its known usage once', async () => {
+		const fixture = await createOpenOllamaRecordingFixture(
+			[
+				{
+					path: '/v1/systemone',
+					body: '{"answers":{"accept":{"type":"noul","noul":0.9}},"usage":{"input_tokens":12,"output_tokens":1},"done":true,"total_duration":999}',
+				},
+			],
+			{ roles: { triage: { model: 'judge', tokens: 128 } }, observe: true },
+		)
+		try {
+			await fixture.transport.verify()
+			const judge = createSystemOneJudge({
+				model: 'judge',
+				url: fixture.server.url,
+				fetch: (input, init) => fixture.transport.fetch('triage', input, init),
+			})
+			const result = await judge.ask(
+				{ state: 'Accept the request.', questions: { accept: { form: 'noul' } } },
+				new AbortController().signal,
+			)
+			expect(result.usage).toEqual({ prompt: 12, completion: 1, total: 13 })
+			expect(fixture.goal.usage()).toEqual([
+				{ role: 'triage', calls: 1, tokens: 13, bytes: expect.any(Number) },
+			])
+			expect(
+				fixture.server.requests.filter((request) => request.path === '/v1/systemone'),
+			).toHaveLength(1)
+			await fixture.transport.verify()
+			fixture.transport.check()
+			const sent = requireValue(
+				fixture.server.requests.find((request) => request.path === '/v1/systemone'),
+			)
+			const rows = readStudyExchangeRows(
+				Buffer.from(fixture.rows.map((row) => JSON.stringify(row)).join('\n') + '\n'),
+				true,
+			)
+			expect(rows.find((row) => row.phase === 'attempt' && row.role === 'triage')).toMatchObject({
+				body: Buffer.from(sent.body).toString('base64'),
+				digest: hashStudyBytes(sent.body),
+			})
+			expect(
+				fixture.goal.evidence.find(
+					(row) => row.event === 'wire' && isRecord(row.value) && row.value.role === 'triage',
+				)?.value,
+			).toMatchObject({
+				timing: null,
+				finish: null,
+			})
+		} finally {
+			await fixture.close()
+		}
+	})
 	describe.each(STUDY_OLLAMA_ABANDONMENT_CASES)(
 		'native abandonment recording=$recording',
 		({ recorded }) => {
