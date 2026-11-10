@@ -94,10 +94,10 @@
 	},
 	"dependencies": {
 		"@orkestrel/abort": "^0.0.16",
-		"@orkestrel/agent": "^0.0.39",
+		"@orkestrel/agent": "^0.0.40",
 		"@orkestrel/budget": "^0.0.17",
 		"@orkestrel/contract": "^0.0.22",
-		"@orkestrel/ollama": "^0.0.33",
+		"@orkestrel/ollama": "^0.0.34",
 		"@orkestrel/timeout": "^0.0.16",
 		"@orkestrel/tool": "^0.0.22"
 	},
@@ -107,7 +107,7 @@
 		"@orkestrel/mcp": "^0.0.42",
 		"@orkestrel/probe": "^0.0.29",
 		"@orkestrel/router": "^0.0.20",
-		"@orkestrel/scaffold": "^0.0.126",
+		"@orkestrel/scaffold": "^0.0.130",
 		"@orkestrel/server": "^0.0.26",
 		"@orkestrel/test": "^0.0.33",
 		"@types/node": "^24.19.2",
