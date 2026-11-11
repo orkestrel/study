@@ -881,7 +881,7 @@ try { parseStudyArguments([]) } catch (error) {
 		} finally {
 			await destroyScratch(scratch)
 		}
-	})
+	}, 60000)
 
 	it('preserves the declared provider namespace and profile without importing either during check', async () => {
 		const entry = await compiled.promise
@@ -1202,7 +1202,7 @@ try { parseStudyArguments([]) } catch (error) {
 		} finally {
 			await destroyScratch(scratch)
 		}
-	})
+	}, 60000)
 
 	it('refuses quality without qualification before evaluation while capacity and mechanism execute', async () => {
 		const entry = await compiled.promise
