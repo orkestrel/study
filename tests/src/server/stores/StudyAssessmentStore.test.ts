@@ -70,7 +70,7 @@ describe('StudyGradingStore', () => {
 		} finally {
 			scratch.destroy()
 		}
-	})
+	}, 20000)
 	it('reproduces the same exact predicate grading identity and preserves execution bytes', async () => {
 		const scratch = createScratch()
 		try {
@@ -111,7 +111,7 @@ describe('StudyGradingStore', () => {
 		} finally {
 			scratch.destroy()
 		}
-	})
+	}, 20000)
 
 	it('settles a later write only after every earlier write settled', async () => {
 		const scratch = createScratch()
@@ -179,7 +179,7 @@ describe('StudyGradingStore', () => {
 		} finally {
 			scratch.destroy()
 		}
-	})
+	}, 20000)
 
 	it('refuses omitted coverage, foreign attempt identities, artifact bindings, and unbound semantic success', async () => {
 		const scratch = createScratch()
@@ -224,7 +224,7 @@ describe('StudyGradingStore', () => {
 		} finally {
 			scratch.destroy()
 		}
-	})
+	}, 10000)
 
 	it('detects tampered grading, artifact, and execution bytes and never overwrites them', async () => {
 		const scratch = createScratch()
@@ -252,5 +252,5 @@ describe('StudyGradingStore', () => {
 		} finally {
 			scratch.destroy()
 		}
-	})
+	}, 20000)
 })

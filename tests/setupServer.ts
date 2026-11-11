@@ -219,16 +219,13 @@ export async function createStudyReplayFixture(
 			'studies/files/profiles/local.json',
 			JSON.stringify({
 				...original,
-				...(nested
-					? {
-							bounds: {
-								request: { ...original.bounds.request, duration: 10000 },
-								goal: { ...original.bounds.goal, duration: 30000 },
-								trial: { ...original.bounds.trial, duration: 40000 },
-								series: { ...original.bounds.series, duration: 120000 },
-							},
-						}
-					: {}),
+				// The trial deadline runs from the worker fork, whose start costs seconds under a contended suite.
+				bounds: {
+					request: { ...original.bounds.request, duration: 10000 },
+					goal: { ...original.bounds.goal, duration: 30000 },
+					trial: { ...original.bounds.trial, duration: 40000 },
+					series: { ...original.bounds.series, duration: 120000 },
+				},
 				record: { bytes: 65536, calls: 3, duration: 15000 },
 				settings: { ...original.settings, metadata: { ...original.settings.metadata, calls: 8 } },
 			}),

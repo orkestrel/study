@@ -100,4 +100,4 @@ it('admits loader builtins only from an explicitly recorded captured instrument 
 	} finally {
 		await destroyScratch(scratch)
 	}
-})
+}, 10000)

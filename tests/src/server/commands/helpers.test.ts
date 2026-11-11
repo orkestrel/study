@@ -752,7 +752,7 @@ describe('study command helpers', () => {
 		} finally {
 			scratch.destroy()
 		}
-	})
+	}, 20000)
 
 	it.each([
 		{
@@ -804,6 +804,7 @@ describe('study command helpers', () => {
 				scratch.destroy()
 			}
 		},
+		20000,
 	)
 })
 

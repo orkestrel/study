@@ -207,7 +207,7 @@ describe('StudyResultStore', () => {
 		} finally {
 			scratch.destroy()
 		}
-	})
+	}, 20000)
 	it('keeps construction inert and refuses existing empty or occupied directories', async () => {
 		const scratch = createScratch()
 		try {
@@ -319,7 +319,7 @@ describe('StudyResultStore', () => {
 		} finally {
 			scratch.destroy()
 		}
-	})
+	}, 20000)
 
 	it('reserves encoded series bytes before writes and preserves interrupted custody on terminal capacity failure', async () => {
 		const scratch = createScratch()

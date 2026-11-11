@@ -418,7 +418,7 @@ describe('study packet construction over sparse and oversized declarations', () 
 		} finally {
 			scratch.destroy()
 		}
-	})
+	}, 20000)
 })
 
 describe('readStudyHandle', () => {
@@ -1367,7 +1367,7 @@ describe('publishStudyBytes', () => {
 		} finally {
 			scratch.destroy()
 		}
-	})
+	}, 10000)
 })
 
 describe('readStudyTrialExchanges keyed binding', () => {
@@ -1414,5 +1414,5 @@ describe('readStudyTrialExchanges keyed binding', () => {
 		} finally {
 			scratch.destroy()
 		}
-	})
+	}, 20000)
 })

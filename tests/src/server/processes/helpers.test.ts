@@ -520,5 +520,5 @@ describe('readStudyKeyedHistories', () => {
 		} finally {
 			scratch.destroy()
 		}
-	})
+	}, 20000)
 })

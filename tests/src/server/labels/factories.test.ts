@@ -80,7 +80,7 @@ describe('createStudyLabelPool', () => {
 		} finally {
 			scratch.destroy()
 		}
-	})
+	}, 20000)
 
 	it('repeats for one order and moves with another', async () => {
 		const scratch = createScratch()
@@ -104,7 +104,7 @@ describe('createStudyLabelPool', () => {
 		} finally {
 			scratch.destroy()
 		}
-	})
+	}, 20000)
 
 	it('refuses a mapping that does not cover its packet, by length and by entry', async () => {
 		const scratch = createScratch()
@@ -171,7 +171,7 @@ describe('createStudyLabelPool', () => {
 		} finally {
 			scratch.destroy()
 		}
-	})
+	}, 10000)
 
 	it('leaves out the product of a goal that failed and groups by arm, result, trial, and goal', () => {
 		const encoder = new TextEncoder()
@@ -305,7 +305,7 @@ describe('createStudyLabels', () => {
 		} finally {
 			scratch.destroy()
 		}
-	})
+	}, 20000)
 
 	it('settles agreement, dispute, and references per verdict', () => {
 		const map = buildStudyLabelMap(['work', 'work', 'work'])

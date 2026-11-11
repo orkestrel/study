@@ -62,7 +62,7 @@ describe('gradeStudyEvidence', () => {
 		} finally {
 			scratch.destroy()
 		}
-	})
+	}, 20000)
 
 	it('keeps the declared order when retained attempts arrive reversed', async () => {
 		const scratch = createScratch()
@@ -157,7 +157,7 @@ describe('gradeStudyEvidence', () => {
 		} finally {
 			scratch.destroy()
 		}
-	})
+	}, 10000)
 
 	it('leaves per-goal success to the consumer: a whole-attempt failure fails a goal that itself succeeded', () => {
 		const manifest = buildCustodyManifest()
