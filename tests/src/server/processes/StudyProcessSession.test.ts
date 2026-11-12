@@ -34,7 +34,7 @@ describe('StudyProcessSession', () => {
 			exchanges: {
 				[options.trial.id]: {
 					...destination,
-					declaration: { ...destination.declaration, version: 'other-version' },
+					declaration: { ...destination.declaration, configuration: 'd'.repeat(64) },
 				},
 			},
 		})

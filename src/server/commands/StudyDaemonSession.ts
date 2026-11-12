@@ -28,11 +28,6 @@ export class StudyDaemonSession {
 		const daemon = provider?.daemon
 		if (provider === undefined || daemon === undefined)
 			throw new StudyError('CONFIG', 'Execution has no declared daemon')
-		if (
-			options.profile.record !== undefined &&
-			options.profile.settings?.version !== daemon.version
-		)
-			throw new StudyError('CONFIG', 'Daemon and recording versions differ')
 		this.#options = {
 			...options,
 			profile: structuredClone(options.profile),
@@ -52,7 +47,7 @@ export class StudyDaemonSession {
 		if (provider === undefined || daemon === undefined)
 			throw new StudyError('CONFIG', 'Execution has no declared daemon')
 		this.#daemon ??= createOllamaDaemon({
-			executable: { path: daemon.executable, digest: daemon.digest, version: daemon.version },
+			executable: { path: daemon.executable, digest: daemon.digest },
 			url: provider.url,
 			models: daemon.models,
 			workspace: this.#options.workspace,

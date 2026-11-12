@@ -567,22 +567,11 @@ export function isStudyExchangeDeclaration(value: unknown): value is StudyExchan
 			!isRecord(value) ||
 			!matchesStudyKeys(
 				value,
-				[
-					'phase',
-					'trial',
-					'version',
-					'models',
-					'metadata',
-					'maintenance',
-					'record',
-					'goals',
-					'configuration',
-				],
+				['phase', 'trial', 'models', 'metadata', 'maintenance', 'record', 'goals', 'configuration'],
 				['procedure', 'ancestor', 'keyed'],
 			) ||
 			value.phase !== 'declaration' ||
 			!isStudyCustodyName(value.trial) ||
-			!isNonEmptyString(value.version) ||
 			!isRecord(value.models) ||
 			Object.keys(value.models).length === 0 ||
 			!Object.values(value.models).every(isStudyOllamaModel) ||

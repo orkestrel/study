@@ -375,7 +375,7 @@ export function isStudyProvider(value: unknown): value is StudyProvider {
 
 /** Checks whether an owned daemon declaration pins an absolute executable and distinct models.
  * @param value - The candidate declaration.
- * @returns True if executable, version, environment, and model identities are valid; false otherwise.
+ * @returns True if executable, environment, and model identities are valid and no other key is present; false otherwise.
  * @example
  * ```ts
  * isStudyDaemon({ executable: 'ollama' }) // false
@@ -385,15 +385,12 @@ export function isStudyDaemon(value: unknown): value is StudyDaemon {
 	return holds(() => {
 		if (
 			!isRecord(value) ||
-			!matchesStudyKeys(value, ['executable', 'digest', 'version', 'models'], ['environment']) ||
+			!matchesStudyKeys(value, ['executable', 'digest', 'models'], ['environment']) ||
 			typeof value.executable !== 'string' ||
 			!/^(?:[A-Za-z]:[\\/]|\/(?!\/)|\\\\[^\\]+\\[^\\]+\\)/.test(value.executable) ||
 			value.executable.includes('\0') ||
 			value.executable.split(/[\\/]/).some((part) => part === '.' || part === '..') ||
 			!isStudyDigest(value.digest) ||
-			!isNonEmptyString(value.version) ||
-			value.version.trim().length === 0 ||
-			value.version.includes('\0') ||
 			!isArray(value.models) ||
 			value.models.length === 0 ||
 			!value.models.every(

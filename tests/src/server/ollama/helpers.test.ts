@@ -174,7 +174,7 @@ describe('recording declaration and byte helpers', () => {
 		expect(() =>
 			validateStudyOllamaCapture({
 				...options,
-				exchanges: new OllamaExchangeRecorder({ ...buildOllamaDeclaration(), version: '' }),
+				exchanges: new OllamaExchangeRecorder({ ...buildOllamaDeclaration(), trial: '' }),
 			}),
 		).toThrow(expect.objectContaining({ code: 'CONFIG' }))
 		const recorded = {

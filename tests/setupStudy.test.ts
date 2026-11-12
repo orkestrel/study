@@ -44,6 +44,7 @@ import {
 	STUDY_OLLAMA_CAPTURE_LENGTHS,
 	STUDY_OLLAMA_RECORDING_FAILURES,
 	STUDY_OLLAMA_METADATA_FAILURES,
+	STUDY_OLLAMA_UNVERSIONED_BODIES,
 	STUDY_OLLAMA_BYTE_FAILURES,
 	STUDY_PROFILE_SETTINGS,
 	STUDY_SCRIPT_CALL,
@@ -699,8 +700,8 @@ describe('Ollama admission witness tables', () => {
 		expect(
 			STUDY_OLLAMA_RECORDING_FAILURES.find((row) => row.name === 'nonfinite usage')?.body,
 		).toContain('1e999')
+		expect(STUDY_OLLAMA_UNVERSIONED_BODIES).toContain('not json')
 		expect(STUDY_OLLAMA_METADATA_FAILURES.map((row) => row.name)).toEqual([
-			'wrong version',
 			'wrong digest',
 			'redirect',
 			'oversized reply',
@@ -713,7 +714,7 @@ describe('Ollama admission witness tables', () => {
 it('builds an inert daemon declaration with matching provider and inventory identities', () => {
 	const provider = buildStudyDaemonProvider()
 	expect(provider.daemon?.models).toEqual([{ name: provider.model, digest: provider.digest.model }])
-	expect(provider.daemon?.version).toBe('fixture-version')
+	expect(provider.daemon).not.toHaveProperty('version')
 	expect(buildStudyDaemonRefusals(provider)).toContainEqual({
 		...provider,
 		url: 'http://127.0.0.1:11434',

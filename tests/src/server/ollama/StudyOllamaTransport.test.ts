@@ -43,6 +43,7 @@ import {
 	STUDY_OLLAMA_POSTFLIGHT_FAILURES,
 	STUDY_OLLAMA_BYTE_FAILURES,
 	STUDY_OLLAMA_METADATA_REQUESTS,
+	STUDY_OLLAMA_UNVERSIONED_BODIES,
 	STUDY_OLLAMA_CHARGED_FAILURES,
 	STUDY_OPEN_ADMISSION_CASES,
 	STUDY_OPEN_OVERLAPS,
@@ -74,7 +75,11 @@ import {
 	createOpenOllamaRecordingFixture,
 	OllamaExchangeRecorder,
 	buildOllamaRoleBodies,
+	buildStudyExchangeHistory,
+	createOllamaServer,
+	STUDY_OLLAMA_VERSION,
 } from '../../../setupServer.js'
+import { StudyOllamaReplay } from '../../../../src/server/ollama/StudyOllamaReplay.js'
 
 const encoder = new TextEncoder()
 
@@ -1236,7 +1241,6 @@ describe('StudyOllamaTransport', () => {
 					await sink.append({
 						phase: 'declaration',
 						trial: 'r1-first-small',
-						version: 'fixture-version',
 						models: options.models,
 						metadata: options.metadata,
 						procedure,
@@ -1613,6 +1617,123 @@ describe('StudyOllamaTransport', () => {
 				}
 			},
 		)
+
+		it('completes both passes across a changed serving version and records each version as evidence', async () => {
+			const fixture = await createOllamaRecordingFixture(undefined, [
+				{ path: '/api/version', body: '{"version":"a"}' },
+				{ path: '/api/version', body: '{"version":"b"}' },
+			])
+			try {
+				await fixture.transport.verify()
+				const response = await fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+					method: 'POST',
+					body: STUDY_OLLAMA_CHAT_BODY,
+				})
+				await response.text()
+				await fixture.transport.verify()
+				expect(() => fixture.transport.check()).not.toThrow()
+				expect(fixture.rows.at(-1)).toMatchObject({ phase: 'complete' })
+				expect(fixture.goal.evidence.filter((row) => row.event === 'version')).toEqual([
+					{ event: 'version', goal: 'first', value: { version: 'a' } },
+					{ event: 'version', goal: 'first', value: { version: 'b' } },
+				])
+			} finally {
+				await fixture.close()
+			}
+		})
+
+		it.each(STUDY_OLLAMA_UNVERSIONED_BODIES)(
+			'records a null version for the %j version body and completes',
+			async (body) => {
+				const fixture = await createOllamaRecordingFixture(undefined, [
+					{ path: '/api/version', body },
+				])
+				try {
+					await fixture.transport.verify()
+					const response = await fixture.transport.fetch(
+						'agent',
+						`${fixture.server.url}/api/chat`,
+						{ method: 'POST', body: STUDY_OLLAMA_CHAT_BODY },
+					)
+					await response.text()
+					await fixture.transport.verify()
+					expect(fixture.rows.at(-1)).toMatchObject({ phase: 'complete' })
+					// The exchange rows retain each version reply's bytes whatever they hold.
+					expect(
+						fixture.rows.flatMap((row) =>
+							row.phase === 'response' && row.path === '/api/version' ? [row.size] : [],
+						),
+					).toEqual([Buffer.byteLength(body), Buffer.byteLength(readOllamaDefault('/api/version'))])
+					expect(fixture.goal.evidence.filter((row) => row.event === 'version')).toEqual([
+						{ event: 'version', goal: 'first', value: { version: null } },
+						{ event: 'version', goal: 'first', value: { version: 'fixture-version' } },
+					])
+				} finally {
+					await fixture.close()
+				}
+			},
+		)
+
+		it('seals a live continuation whose live postflight reports a version the recording never saw', async () => {
+			const history = buildStudyExchangeHistory()
+			const server = await createOllamaServer()
+			const goal = createOllamaContext()
+			const replay = new StudyOllamaReplay({
+				history,
+				url: server.url,
+				prefix: 4,
+				limit: { calls: 20, bytes: 65536, duration: 5000 },
+				signal: new AbortController().signal,
+				fetch: (_role, input, init) => globalThis.fetch(input, init),
+			})
+			const sink = new OllamaExchangeRecorder(history.declaration)
+			const transport = new StudyOllamaTransport(
+				buildOllamaTransportOptions(server.url, {
+					room: { context: 8192, safety: 0 },
+					models: history.declaration.models,
+					metadata: history.declaration.metadata,
+					roles: {
+						agent: {
+							model: 'model',
+							options: { num_ctx: 32, num_predict: 8 },
+							think: false,
+							strict: false,
+							length: false,
+						},
+					},
+					replay,
+					exchanges: sink,
+				}),
+			)
+			try {
+				transport.prepare({ goal: 'write', context: goal.context, checkpoint: undefined })
+				await transport.verify()
+				const chat = requireValue(history.exchanges[3]).attempt
+				const response = await transport.fetch('agent', `${server.url}/api/chat`, {
+					method: 'POST',
+					body: Buffer.from(chat.body, 'base64').toString(),
+				})
+				await response.text()
+				transport.clear()
+				transport.prepare({ goal: 'read', context: goal.context, checkpoint: undefined })
+				await transport.verify()
+				expect(server.requests.map((request) => request.path)).toEqual([
+					'/api/version',
+					'/api/tags',
+					'/api/show',
+				])
+				expect(sink.rows.at(-1)).toMatchObject({ phase: 'complete' })
+				expect(goal.evidence.filter((row) => row.event === 'version')).toEqual([
+					{ event: 'version', goal: 'write', value: { version: STUDY_OLLAMA_VERSION } },
+					{ event: 'version', goal: 'read', value: { version: 'fixture-version' } },
+				])
+			} finally {
+				await transport.close()
+				await replay.close()
+				goal.close()
+				await server.close()
+			}
+		})
 
 		it.each(STUDY_OLLAMA_BYTE_FAILURES)(
 			'retains failed raw bytes without a manufactured response for %j',

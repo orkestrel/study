@@ -680,7 +680,6 @@ export class StudyCommand {
 				const declaration = buildStudyExchangeDeclaration(profile, trial, scenario, true)
 				if (
 					history.declaration.procedure !== undefined ||
-					history.declaration.version !== declaration.version ||
 					canonicalStringify(history.declaration.models) !==
 						canonicalStringify(declaration.models) ||
 					history.declaration.configuration !== declaration.configuration ||

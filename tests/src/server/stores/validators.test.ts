@@ -82,6 +82,12 @@ describe('custody validators', () => {
 		expect(isStudyAncestor(revoked.proxy)).toBe(false)
 		expect(isStudyExchangeAncestor(revoked.proxy)).toBe(false)
 	})
+	it('admits a declaration that names no serving version and refuses one that carries a version key', () => {
+		const declaration = buildOllamaDeclaration()
+		expect(declaration).not.toHaveProperty('version')
+		expect(isStudyExchangeDeclaration(declaration)).toBe(true)
+		expect(isStudyExchangeDeclaration({ ...declaration, version: '0.40.3' })).toBe(false)
+	})
 	it('retains finite foreign readings unchanged through IPC and custody', () => {
 		for (const max of STUDY_FINITE_MEASUREMENTS) {
 			for (const consumed of STUDY_FINITE_MEASUREMENTS) {

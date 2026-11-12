@@ -87,11 +87,11 @@ describe('process helpers', () => {
 				provider: { ...buildStudyDaemonProvider(), daemon: undefined },
 				record: history.declaration.record,
 				settings: {
-					version: history.declaration.version,
 					metadata: history.declaration.metadata,
 					procedure: history.declaration.procedure,
 				},
 			})
+			expect(profile.settings).not.toHaveProperty('version')
 			const selection = {
 				result: fixture.directory,
 				prefix: { [trial.id]: history.completion.count },
@@ -177,11 +177,12 @@ describe('process helpers', () => {
 				},
 			},
 			record: opening.record,
-			settings: { version: opening.version, metadata: { ...opening.metadata } },
+			settings: { metadata: { ...opening.metadata } },
 		}
 		const scenario = buildStudyScenario()
 		const trial = { id: 'r1-first-small', scenario: scenario.id, arm: 'small', repetition: 0 }
 		const declaration = buildStudyExchangeDeclaration(profile, trial, scenario, false)
+		expect(declaration).not.toHaveProperty('version')
 		expect(declaration).toMatchObject({
 			trial: trial.id,
 			goals: ['write', 'read'],
@@ -201,7 +202,6 @@ describe('process helpers', () => {
 		for (const changed of [
 			{ ...declaration, trial: 'other' },
 			{ ...declaration, goals: ['write'] },
-			{ ...declaration, version: 'other' },
 			{ ...declaration, configuration: 'd'.repeat(64) },
 			{ ...declaration, record: { ...declaration.record, calls: 1 } },
 			{ ...declaration, metadata: { ...declaration.metadata, calls: 1 } },
@@ -219,7 +219,7 @@ describe('process helpers', () => {
 	it('binds configuration to room settings and daemon identity apart from executable paths and ceilings', () => {
 		const provider = buildStudyDaemonProvider()
 		const daemon = requireValue(provider.daemon)
-		const profile = { ...buildStudyProfile(), provider, settings: { version: 'fixture-version' } }
+		const profile = { ...buildStudyProfile(), provider, settings: { capacity: 1 } }
 		const digest = computeStudyConfigurationDigest(profile)
 		expect(digest).toMatch(/^[a-f0-9]{64}$/)
 		expect(
@@ -236,13 +236,13 @@ describe('process helpers', () => {
 				room: { ...profile.room, output: profile.room.output + 1 },
 			}),
 		).not.toBe(digest)
-		expect(
-			computeStudyConfigurationDigest({ ...profile, settings: { version: 'different' } }),
-		).not.toBe(digest)
+		expect(computeStudyConfigurationDigest({ ...profile, settings: { capacity: 2 } })).not.toBe(
+			digest,
+		)
 		expect(
 			computeStudyConfigurationDigest({
 				...profile,
-				provider: { ...provider, daemon: { ...daemon, version: 'different' } },
+				provider: { ...provider, daemon: { ...daemon, digest: 'f'.repeat(64) } },
 			}),
 		).not.toBe(digest)
 	})

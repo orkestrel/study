@@ -423,7 +423,7 @@ export function buildStudyContinuationRefusals(
 			value: { ...profile, settings: { ...profile.settings, procedure: [buildOllamaStep()] } },
 		},
 		{
-			name: 'version',
+			name: 'stale version',
 			path: 'studies/files/profiles/local.json',
 			value: { ...profile, settings: { ...profile.settings, version: 'different' } },
 		},
@@ -605,6 +605,9 @@ import {
 	STUDY_OLLAMA_PARTIAL_ROW,
 } from './setupStudy.js'
 
+/** Names the version the recorded exchange journal's `/api/version` replies report. */
+export const STUDY_OLLAMA_VERSION = '0.40.3'
+
 /** Builds a declared complete exchange journal without using the production reader.
  * @param trial - The scheduled trial identity.
  * @param captured - If true, declares capture admission; if false, declares exact bytes.
@@ -633,7 +636,6 @@ export function buildStudyExchangeRows(
 	const declaration: StudyExchangeDeclaration = {
 		phase: 'declaration',
 		trial,
-		version: '0.40.3',
 		models: { model: { name: 'model', digest: 'a'.repeat(64) } },
 		metadata: { calls: 6, bytes: 65536, duration: 5000 },
 		record,
@@ -733,7 +735,7 @@ export function buildStudyExchangeRows(
 						: ''
 			const reply =
 				identity.path === '/api/version'
-					? JSON.stringify({ version: declaration.version })
+					? JSON.stringify({ version: STUDY_OLLAMA_VERSION })
 					: identity.path === '/api/tags'
 						? JSON.stringify({ models: [{ name: 'model', digest: 'a'.repeat(64) }] })
 						: identity.path === '/api/show'
@@ -1132,7 +1134,6 @@ export function writeStudyRecordingConsumer(
 			},
 			record: { bytes: 32768, calls: 256, duration: 15000 },
 			settings: {
-				version: 'fixture-version',
 				metadata: { calls: open ? 16 : 8, bytes: 65536, duration: 5000 },
 				...(open
 					? {
@@ -1247,6 +1248,15 @@ export function createStudyAdapter() { return {
 	)
 }
 
+/** Names the version the protocol daemon reports until its version file names another. */
+export const STUDY_DAEMON_VERSION = 'fixture-version'
+
+/** Names a later version a test writes to the protocol daemon's version file, as after an update. */
+export const STUDY_DAEMON_NEXT_VERSION = 'fixture-next'
+
+/** Names the file beside the daemon's pid file whose text, when present, the daemon reports as its version. */
+export const STUDY_DAEMON_VERSION_FILE = 'daemon.version'
+
 /** Creates an execution consumer with a dedicated protocol daemon and declared process receipts.
  * @param library - The built real Study transport.
  * @param mode - The protocol outcome to exercise.
@@ -1310,7 +1320,6 @@ export async function createStudyDaemonFixture(
 				daemon: {
 					executable: realpathSync(process.execPath),
 					digest: hashStudyBytes(readFileSync(process.execPath)),
-					version: 'fixture-version',
 					environment: {
 						NODE_OPTIONS: `--import=${pathToFileURL(resolve('tests/src/server/commands/fixtures/daemon.mjs')).href}`,
 						ollama_host: '127.0.0.1:1',
@@ -1445,7 +1454,7 @@ export function buildStudyRecordedSessionOptions(
 		...options.profile,
 		provider: buildStudyDaemonProvider(),
 		record: opening.record,
-		settings: { version: opening.version, metadata: { ...opening.metadata } },
+		settings: { metadata: { ...opening.metadata } },
 	}
 	return {
 		...options,
@@ -2885,7 +2894,7 @@ export function buildOllamaRoleBodies(): ReadonlyArray<
 /** Builds an independent opening row for transport protocol fixtures.
  * @param procedure - The declared execution population; undefined selects open recording.
  * @param change - Members replacing the fixture declaration.
- * @returns The complete opening row without transport-owned version or procedure options.
+ * @returns The complete opening row, which names no serving version.
  */
 export function buildOllamaDeclaration(
 	procedure: readonly StudyOllamaStep[] | undefined = [buildOllamaStep()],
@@ -2895,7 +2904,6 @@ export function buildOllamaDeclaration(
 	return {
 		phase: 'declaration',
 		trial: 'r1-first-small',
-		version: 'fixture-version',
 		models: options.models,
 		metadata: options.metadata,
 		record: { bytes: 32768, calls: 256, duration: 15000 },

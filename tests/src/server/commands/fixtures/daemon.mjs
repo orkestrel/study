@@ -3,7 +3,7 @@ import { createServer } from 'node:http'
 import { appendFileSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 if (process.argv[2] === 'sentinel' || process.argv[2] === 'runner') {
 	process.stdout.write(String(process.pid) + '\n')
@@ -60,12 +60,19 @@ if (process.argv[2] === 'sentinel' || process.argv[2] === 'runner') {
 				'\n',
 		)
 		response.setHeader('content-type', 'application/json')
+		// The version file beside the pid file stands for an Ollama update between two executions.
+		const versionFile = join(dirname(process.env.STUDY_DAEMON_PID), 'daemon.version')
 		if (request.url === '/api/version')
 			response.end(
-				JSON.stringify({
-					version:
-						process.env.STUDY_DAEMON_MODE === 'start-failure' ? 'wrong-version' : 'fixture-version',
-				}),
+				JSON.stringify(
+					process.env.STUDY_DAEMON_MODE === 'start-failure'
+						? {}
+						: {
+								version: existsSync(versionFile)
+									? readFileSync(versionFile, 'utf8')
+									: 'fixture-version',
+							},
+				),
 			)
 		else if (request.url === '/api/tags')
 			response.end(

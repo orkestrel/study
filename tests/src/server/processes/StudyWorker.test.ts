@@ -44,7 +44,7 @@ describe('StudyWorker', () => {
 							exchanges: {
 								[options.trial.id]: {
 									...destination,
-									declaration: { ...destination.declaration, version: 'other-version' },
+									declaration: { ...destination.declaration, configuration: 'd'.repeat(64) },
 								},
 							},
 						}),
@@ -82,10 +82,7 @@ describe('StudyWorker', () => {
 			const options = buildStudyRecordedSessionOptions(scratch, entry, new AbortController().signal)
 			const profile = {
 				...options.profile,
-				settings: {
-					version: history.declaration.version,
-					metadata: { ...history.declaration.metadata },
-				},
+				settings: { metadata: { ...history.declaration.metadata } },
 			}
 			const prefix = history.exchanges.findIndex(({ attempt }) => attempt.stage === 'postflight')
 			expect(prefix).toBeGreaterThan(0)
@@ -173,10 +170,7 @@ describe('StudyWorker', () => {
 			const options = buildStudyRecordedSessionOptions(scratch, entry, new AbortController().signal)
 			const profile = {
 				...options.profile,
-				settings: {
-					version: history.declaration.version,
-					metadata: { ...history.declaration.metadata },
-				},
+				settings: { metadata: { ...history.declaration.metadata } },
 			}
 			const scenario = requireValue(
 				result.manifest.scenarios.find((candidate) => candidate.id === trial.scenario),

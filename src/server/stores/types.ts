@@ -99,7 +99,8 @@ export interface StudyExchangeIdentity {
 
 /** Declares a bounded trial horizon and serving identities before any exchange attempt.
  * @remarks
- * This is the first sidecar row. Version and models pin both verification passes. Procedure
+ * This is the first sidecar row. Models pin both verification passes; each pass records the serving
+ * version as a `version` evidence row and compares it with nothing. Procedure
  * optionally contains every model step in order; absence selects open recording. Metadata declares an independent budget. Maintenance
  * declares each model to unload before preflight; it is empty when no daemon is owned.
  * Preflight and postflight each require version, tags, and one show per distinct model, in
@@ -108,7 +109,6 @@ export interface StudyExchangeIdentity {
 export interface StudyExchangeDeclaration {
 	readonly phase: 'declaration'
 	readonly trial: string
-	readonly version: string
 	readonly models: Readonly<Record<string, StudyOllamaModel>>
 	readonly metadata: StudyOllamaMetadata
 	/** Bounds the sidecar bytes, execution calls, and summed model time. */

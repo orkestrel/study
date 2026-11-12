@@ -57,7 +57,6 @@ export function buildStudyExchangeDeclaration(
 	const declaration = {
 		phase: 'declaration',
 		trial: trial.id,
-		version: profile.settings.version,
 		metadata: profile.settings.metadata,
 		procedure: profile.settings.procedure,
 		models: buildStudyOllamaModels(profile.provider),
@@ -71,7 +70,7 @@ export function buildStudyExchangeDeclaration(
 	if (!isStudyExchangeDeclaration(declaration))
 		throw new StudyError(
 			'CONFIG',
-			'Recording requires valid bounds, goals, version, metadata and optional procedure settings',
+			'Recording requires valid bounds, goals, metadata and optional procedure settings',
 		)
 	return declaration
 }
@@ -114,7 +113,6 @@ export function validateStudyCaptureDeclaration(
 		!isStudyExchangeDeclaration(declaration) ||
 		profile.provider === undefined ||
 		declaration.trial !== trial.id ||
-		declaration.version !== profile.settings?.version ||
 		canonicalStringify(declaration.metadata) !== canonicalStringify(profile.settings?.metadata) ||
 		canonicalStringify(declaration.procedure) !== canonicalStringify(profile.settings?.procedure) ||
 		canonicalStringify(declaration.models) !==
@@ -169,13 +167,8 @@ export async function readStudyReplayHistory(
 	declaration?: StudyExchangeDeclaration,
 ): Promise<StudyExchangeHistory> {
 	if (!isStudyReplaySelection(selection)) throw new StudyError('CONFIG', 'Invalid replay selection')
-	if (
-		profile.provider === undefined ||
-		typeof profile.settings?.version !== 'string' ||
-		profile.settings.version.length === 0 ||
-		!isStudyOllamaMetadata(profile.settings.metadata)
-	)
-		throw new StudyError('CONFIG', 'Recording requires valid version and metadata settings')
+	if (profile.provider === undefined || !isStudyOllamaMetadata(profile.settings?.metadata))
+		throw new StudyError('CONFIG', 'Recording requires valid metadata settings')
 	const result = await readStudyResult(selection.result)
 	if (result.status !== 'sealed') throw new StudyError('CUSTODY', 'Replay requires a sealed result')
 	const history = await readStudyExchanges(result, trial.id)
@@ -211,7 +204,6 @@ export async function readStudyReplayHistory(
 		)
 	if (
 		profile.provider === undefined ||
-		history.declaration.version !== profile.settings?.version ||
 		canonicalStringify(history.declaration.procedure) !==
 			canonicalStringify(profile.settings?.procedure) ||
 		canonicalStringify(history.declaration.models) !==

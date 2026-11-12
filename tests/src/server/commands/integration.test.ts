@@ -21,6 +21,9 @@ import {
 	createStudyContinuationFixture,
 	buildStudyLibrary,
 	readStudyPid,
+	STUDY_DAEMON_NEXT_VERSION,
+	STUDY_DAEMON_VERSION,
+	STUDY_DAEMON_VERSION_FILE,
 } from '../../../setupServer.js'
 
 it('CT1 extends a grown frozen closure with an ancestor-bound check and an ancestor-free freeze fingerprint', async () => {
@@ -82,7 +85,7 @@ it('CT1 extends a grown frozen closure with an ancestor-bound check and an ances
 }, 240000)
 
 it.each(STUDY_STOP_SWITCHES)(
-	'CT1 and CT3 extend one goal to two with only suffix daemon traffic, triage=%s',
+	'CT1 and CT3 extend one goal to two across a served version update with only suffix daemon traffic, triage=%s',
 	async (triage) => {
 		const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
 		const subject = await buildStudyLibrary(
@@ -92,6 +95,8 @@ it.each(STUDY_STOP_SWITCHES)(
 		const fixture = await createStudyContinuationFixture(subject, triage)
 		try {
 			const { scratch, command, recorded, result: ancestor, history } = fixture
+			// The ancestor was recorded under the fixture daemon's first version; every later reply reports the next one.
+			scratch.write(STUDY_DAEMON_VERSION_FILE, STUDY_DAEMON_NEXT_VERSION)
 			const before = requireValue(scratch.read('daemon-requests.jsonl'))
 				.split(/\r\n|\n/)
 				.filter(Boolean).length
@@ -194,10 +199,19 @@ it.each(STUDY_STOP_SWITCHES)(
 					{ trial: trial.id, ordinal, goal: 'recall', stage: 'postflight' },
 				]),
 			])
-			expect(JSON.parse(requireValue(result.manifest.host.daemon))).toMatchObject({
-				url: fixture.url,
-				executable: { version: 'fixture-version' },
-			})
+			const host = parseJSON(requireValue(result.manifest.host.daemon))
+			expect(host).toMatchObject({ url: fixture.url, version: STUDY_DAEMON_NEXT_VERSION })
+			expect(host).not.toHaveProperty('executable.version')
+			expect(
+				requireValue(scratch.read(`live/execution/trials/${trial.id}/evidence.jsonl`))
+					.split(/\r\n|\n/)
+					.filter(Boolean)
+					.map((line) => parseJSON(line))
+					.filter((row) => isRecord(row) && row.event === 'version'),
+			).toEqual([
+				{ event: 'version', goal: 'write', value: { version: STUDY_DAEMON_VERSION } },
+				{ event: 'version', goal: 'recall', value: { version: STUDY_DAEMON_NEXT_VERSION } },
+			])
 			expect(isRunning(requireValue(readStudyPid(scratch, 'daemon.pid')))).toBe(false)
 			expect(isRunning(requireValue(readStudyPid(scratch, 'runner.pid')))).toBe(false)
 			expect(

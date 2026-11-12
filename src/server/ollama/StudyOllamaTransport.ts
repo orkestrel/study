@@ -30,7 +30,7 @@ import {
 } from '@src/core'
 import { Abort } from '@orkestrel/abort'
 import { isBudgetError } from '@orkestrel/budget'
-import { isFunction, isRecord, parseJSON } from '@orkestrel/contract'
+import { isFunction, isNonEmptyString, isRecord, parseJSON } from '@orkestrel/contract'
 import { MAX_TIMEOUT_MS, Timeout } from '@orkestrel/timeout'
 import { buildStudyOllamaSnapshot, buildStudyOllamaTransportOptions } from './cloners.js'
 import { StudyOllamaExchange } from './StudyOllamaExchange.js'
@@ -149,6 +149,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 	}
 
 	/** Checks every pinned serving identity through admitted inventory and metadata requests.
+	 * @remarks While recording, each pass first appends a `version` evidence row holding the serving version, or `null` when the reply names none; nothing compares it.
 	 * @returns Completion after inventory validation and support evidence.
 	 * @throws StudyError - Thrown with code `FAULT` when no goal is bound; the transport retains this refusal as its failure, as it retains every verification failure.
 	 */
@@ -178,7 +179,17 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				const version = await this.fetch('metadata', new URL('/api/version', this.#options.url), {
 					method: 'GET',
 				})
-				await version.text()
+				const reply = parseJSON(await version.text())
+				const bound = this.#goal
+				if (bound === undefined) throw new StudyError('FAULT', 'Version has no goal attribution')
+				// The serving version is an observation for debugging: it is kept and compared with nothing.
+				await bound.activity.context.evidence.append({
+					event: 'version',
+					goal: bound.activity.goal,
+					value: {
+						version: isRecord(reply) && isNonEmptyString(reply.version) ? reply.version : null,
+					},
+				})
 			}
 			const response = await this.fetch('metadata', new URL('/api/tags', this.#options.url), {
 				method: 'GET',
@@ -591,13 +602,11 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		try {
 			wire.flush()
 			if (wire.request.role === 'metadata') {
-				const value: unknown = JSON.parse(wire.text)
+				// A version reply's bytes are retained whatever they hold; only verify reads its value.
 				if (wire.request.path === '/api/tags')
-					validateStudyOllamaInventory(value, this.#options.models)
-				else if (wire.request.path === '/api/version') {
-					if (!isRecord(value) || value.version !== this.#declaration?.version)
-						throw new StudyError('FAULT', 'Serving version differs from the declared version')
-				} else readStudyOllamaSupport(value, this.#options.room.context)
+					validateStudyOllamaInventory(JSON.parse(wire.text), this.#options.models)
+				else if (wire.request.path === '/api/show')
+					readStudyOllamaSupport(JSON.parse(wire.text), this.#options.room.context)
 			} else if (wire.request.role === 'judge' || wire.request.role === 'triage') {
 				this.#observe(wire, JSON.parse(wire.text))
 			} else this.#rows(wire, true)

@@ -9,7 +9,12 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { StudyCommand } from '../../../../src/server/commands/StudyCommand.js'
 import { StudyDaemonSession } from '../../../../src/server/commands/StudyDaemonSession.js'
 import { buildStudyExchangeDeclaration } from '../../../../src/server/processes/helpers.js'
-import { buildStudyScenario } from '../../../setupStudy.js'
+import { isStudyProfile } from '../../../../src/core/validators.js'
+import {
+	buildStudyDaemonProvider,
+	buildStudyProfile,
+	buildStudyScenario,
+} from '../../../setupStudy.js'
 import {
 	readStudyExchangeRows,
 	readStudyExchanges,
@@ -24,11 +29,31 @@ import {
 	createStudyDaemonFixture,
 	readStudyPid,
 	releaseStudyPid,
+	STUDY_DAEMON_VERSION,
 } from '../../../setupServer.js'
 
 describe('execution-owned daemon staging', () => {
 	const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
 	afterAll(() => library.destroy())
+	it('constructs for a recording profile that names no version on its daemon or in its settings', () => {
+		const profile = {
+			...buildStudyProfile(),
+			provider: buildStudyDaemonProvider(),
+			record: { bytes: 65536, calls: 4, duration: 15000 },
+			settings: { metadata: { calls: 16, bytes: 65536, duration: 20000 } },
+		}
+		expect(isStudyProfile(profile)).toBe(true)
+		expect(
+			() =>
+				new StudyDaemonSession({
+					profile,
+					scenarios: [buildStudyScenario()],
+					workspace: library.path,
+					signal: new AbortController().signal,
+				}),
+		).not.toThrow()
+	})
+
 	it('F2 refuses a profile-mismatched declaration before daemon unload', async () => {
 		const subject = await buildStudyLibrary(
 			library,
@@ -51,7 +76,7 @@ describe('execution-owned daemon staging', () => {
 			await expect(
 				session.prepare(trial, signal, {
 					path: join(fixture.scratch.path, 'exchanges.jsonl'),
-					declaration: { ...declaration, version: 'other-version' },
+					declaration: { ...declaration, configuration: 'd'.repeat(64) },
 				}),
 			).rejects.toMatchObject({
 				code: 'CONFIG',
@@ -266,10 +291,9 @@ console.log('captured-server-loaded')`,
 			).toMatchObject({ status: 'completed' })
 			const recorded = await readStudyResult(original)
 			if (recorded.status !== 'sealed') throw new Error('Live result did not seal')
-			expect(JSON.parse(requireValue(recorded.manifest.host.daemon))).toMatchObject({
-				url: fixture.url,
-				executable: { version: 'fixture-version' },
-			})
+			const host = parseJSON(requireValue(recorded.manifest.host.daemon))
+			expect(host).toMatchObject({ url: fixture.url, version: STUDY_DAEMON_VERSION })
+			expect(host).not.toHaveProperty('executable.version')
 			const histories = await Promise.all(
 				recorded.manifest.schedule.map((trial) => readStudyExchanges(recorded, trial.id)),
 			)

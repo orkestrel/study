@@ -354,7 +354,6 @@ export function buildStudyDaemonProvider(): NonNullable<StudyProfile['provider']
 		daemon: {
 			executable: '/opt/runtime/ollama',
 			digest: 'b'.repeat(64),
-			version: 'fixture-version',
 			environment: { OLLAMA_MODELS: '/models' },
 			models: [{ name: 'model', digest: 'a'.repeat(64) }],
 		},
@@ -363,7 +362,7 @@ export function buildStudyDaemonProvider(): NonNullable<StudyProfile['provider']
 
 /** Builds malformed daemon providers for guard and profile-load controls.
  * @param provider - The valid declaration whose individual boundaries are varied.
- * @returns Providers with invalid executable, environment, endpoint, or model declarations.
+ * @returns Providers with invalid executable, environment, endpoint, or model declarations, or a stale version key.
  */
 export function buildStudyDaemonRefusals(
 	provider = buildStudyDaemonProvider(),
@@ -374,7 +373,7 @@ export function buildStudyDaemonRefusals(
 		...[
 			{ ...daemon, executable: 'ollama' },
 			{ ...daemon, digest: 'wrong' },
-			{ ...daemon, version: '' },
+			{ ...daemon, version: 'fixture-version' },
 			{ ...daemon, models: [{ name: 'model' }] },
 			{ ...daemon, models: [] },
 			{ ...daemon, models: [...daemon.models, ...daemon.models] },
@@ -1299,7 +1298,6 @@ export const STUDY_OLLAMA_CHARGED_FAILURES = Object.freeze([
 /** Supplies metadata peers that cannot satisfy the declared preflight. */
 export const STUDY_OLLAMA_METADATA_FAILURES: readonly OllamaMetadataFailureFixture[] =
 	Object.freeze([
-		{ name: 'wrong version', reply: { path: '/api/version', body: '{"version":"other"}' } },
 		{ name: 'wrong digest', reply: { path: '/api/tags', body: '{"models":[]}' } },
 		{
 			name: 'redirect',
@@ -1319,10 +1317,17 @@ export const STUDY_OLLAMA_METADATA_FAILURES: readonly OllamaMetadataFailureFixtu
 
 /** Supplies serving identities that must also refuse after model execution. */
 export const STUDY_OLLAMA_POSTFLIGHT_FAILURES = Object.freeze(
-	STUDY_OLLAMA_METADATA_FAILURES.filter(
-		(row) => row.name === 'wrong version' || row.name === 'wrong digest',
-	),
+	STUDY_OLLAMA_METADATA_FAILURES.filter((row) => row.name === 'wrong digest'),
 )
+
+/** Supplies `/api/version` bodies that name no nonempty string version, each a reply a recording keeps as `null`. */
+export const STUDY_OLLAMA_UNVERSIONED_BODIES = Object.freeze([
+	'{}',
+	'{"version":""}',
+	'{"version":42}',
+	'not json',
+	'',
+])
 
 /** Supplies byte-invalid and interrupted native response streams. */
 export const STUDY_OLLAMA_BYTE_FAILURES: readonly OllamaWireReplyFixture[] = Object.freeze([

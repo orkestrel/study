@@ -284,8 +284,9 @@ describe('sealed exchange fixtures', () => {
 			const profile = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
 			expect(profile).toMatchObject({
 				record: { bytes: 32768, calls: 256, duration: 15000 },
-				settings: { version: 'fixture-version' },
+				settings: { metadata: { calls: 8, bytes: 65536, duration: 5000 } },
 			})
+			expect(profile).not.toHaveProperty('settings.version')
 			expect(scratch.read('studies/files/index.ts')).toContain('{ replay }')
 			expect(scratch.read('studies/files/index.ts')).toContain('exchanges.declaration.goals')
 			expect(writeStudyPreparationPeer(scratch)).toBe(join(scratch.path, 'preparation-peer.cjs'))

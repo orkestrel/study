@@ -87,7 +87,7 @@ describe('StudyProcessDriver', () => {
 				exchanges: {
 					[trial.id]: {
 						...destination,
-						declaration: { ...destination.declaration, version: 'other-version' },
+						declaration: { ...destination.declaration, configuration: 'd'.repeat(64) },
 					},
 				},
 				prepare: async () => {
