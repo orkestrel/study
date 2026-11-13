@@ -71,7 +71,6 @@ import {
 	DISTRIBUTION_RESOLUTIONS,
 	checkDistributionProject,
 	filterDistributionEntries,
-	isDistributionRecord,
 	readDistributionJSON,
 	readDistributionOutput,
 	runDistributionNode,
@@ -3935,7 +3934,7 @@ export function readStudyDistributionCore(stage: DistributionStage): readonly un
  */
 export function readStudyDistributionVersion(stage: DistributionStage): DistributionObservation {
 	const manifest = readDistributionJSON(join(stage.installed, 'package.json'))
-	if (!isDistributionRecord(manifest) || typeof manifest.version !== 'string')
+	if (!isRecord(manifest) || typeof manifest.version !== 'string')
 		throw new Error('The installed manifest declares no version')
 	const executable = join(
 		stage.consumer,
