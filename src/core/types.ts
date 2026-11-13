@@ -100,8 +100,9 @@ export interface StudyProvider {
 /** Pins an executable and the model population an execution owns until cleanup.
  * @remarks
  * Study owns this declaration independently of Ollama's server API. The executable is an absolute
- * canonical path and digest is its SHA-256; the declaration names no version, and the daemon's startup
- * identity records the version it reports. The
+ * canonical path. The declaration names no digest and no version: each execution reads the
+ * executable's SHA-256 at daemon startup, and the startup identity records it with the version the
+ * daemon reports, compared with nothing. The
  * provider URL must be a dedicated loopback origin outside port 11434. Environment entries are
  * explicit non-secret overrides, merged by case-folded name; the host owns OLLAMA_HOST. Models
  * have distinct names and SHA-256 digests equal to the provider's model, judge and triage pins; shared
@@ -111,7 +112,6 @@ export interface StudyProvider {
  */
 export interface StudyDaemon {
 	readonly executable: string
-	readonly digest: string
 	/** Holds explicit overrides with distinct case-folded names and no NUL characters. */
 	readonly environment?: Readonly<Record<string, string>> | undefined
 	readonly models: readonly StudyDaemonModel[]

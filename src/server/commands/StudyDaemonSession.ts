@@ -4,6 +4,8 @@ import type { StudyDaemonSessionOptions } from './types.js'
 import type { StudyExchangeDestination } from '../stores/types.js'
 import { StudyError } from '@src/core'
 import { canonicalStringify } from '@orkestrel/contract'
+import { readFile } from 'node:fs/promises'
+import { hashStudyBytes } from '../helpers.js'
 import { validateStudyCaptureDeclaration } from '../processes/helpers.js'
 import { StudyDaemonTrial } from './StudyDaemonTrial.js'
 
@@ -17,7 +19,7 @@ import { StudyDaemonTrial } from './StudyDaemonTrial.js'
 export class StudyDaemonSession {
 	readonly #options: StudyDaemonSessionOptions
 	#daemon: OllamaDaemonInterface | undefined
-	#stopped = false
+	#stopping: Promise<void> | undefined
 	readonly #trials = new Set<StudyDaemonTrial>()
 
 	/** Captures resolved declarations without loading the daemon runtime.
@@ -36,18 +38,22 @@ export class StudyDaemonSession {
 	}
 
 	/** Starts the daemon and returns its verified execution provenance.
-	 * @returns The executable, endpoint, owned pid, and model receipt.
+	 * @remarks The executable's SHA-256 is read here, at each start, and recorded in the returned identity; nothing compares it with an earlier reading.
+	 * @returns The executable and its digest, endpoint, owned pid, reported version, and model receipt.
 	 */
 	async start(): Promise<OllamaDaemonIdentity> {
 		this.#options.signal.throwIfAborted()
-		const { createOllamaDaemon } = await import('@orkestrel/ollama/server')
-		if (this.#stopped) throw new StudyError('FAULT', 'Daemon session has stopped')
 		const provider = this.#options.profile.provider
 		const daemon = provider?.daemon
 		if (provider === undefined || daemon === undefined)
 			throw new StudyError('CONFIG', 'Execution has no declared daemon')
+		const [{ createOllamaDaemon }, executable] = await Promise.all([
+			import('@orkestrel/ollama/server'),
+			readFile(daemon.executable),
+		])
+		if (this.#stopping !== undefined) throw new StudyError('FAULT', 'Daemon session has stopped')
 		this.#daemon ??= createOllamaDaemon({
-			executable: { path: daemon.executable, digest: daemon.digest },
+			executable: { path: daemon.executable, digest: hashStudyBytes(executable) },
 			url: provider.url,
 			models: daemon.models,
 			workspace: this.#options.workspace,
@@ -113,15 +119,33 @@ export class StudyDaemonSession {
 	}
 
 	/** Stops and joins the owned tree and refuses an unconfirmed cleanup.
+	 * @remarks Repeated calls share one outcome. An executable that changed or became unreadable while the daemon ran refuses nothing.
 	 * @returns Completion after daemon and emitter teardown.
 	 */
-	async stop(): Promise<void> {
-		this.#stopped = true
+	stop(): Promise<void> {
+		this.#stopping ??= this.#finish()
+		return this.#stopping
+	}
+
+	async #finish(): Promise<void> {
 		const daemon = this.#daemon
 		if (daemon === undefined) return
+		const { isOllamaError } = await import('@orkestrel/ollama/server')
+		const faults: unknown[] = []
+		daemon.emitter.on('error', (error) => {
+			faults.push(error)
+		})
 		const confirmed = await daemon.stop()
 		await daemon.destroy()
-		if (!confirmed) throw new StudyError('FAULT', 'Daemon cleanup was not confirmed')
+		// Ollama reports its stop-time executable re-hash as `digest` and an unconfirmed tree stop as `cleanup`; only the second refuses.
+		if (
+			!confirmed &&
+			!(
+				faults.length > 0 &&
+				faults.every((fault) => isOllamaError(fault) && fault.code === 'digest')
+			)
+		)
+			throw new StudyError('FAULT', 'Daemon cleanup was not confirmed')
 	}
 
 	#send(input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit): Promise<Response> {

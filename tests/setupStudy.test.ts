@@ -715,6 +715,11 @@ it('builds an inert daemon declaration with matching provider and inventory iden
 	const provider = buildStudyDaemonProvider()
 	expect(provider.daemon?.models).toEqual([{ name: provider.model, digest: provider.digest.model }])
 	expect(provider.daemon).not.toHaveProperty('version')
+	expect(provider.daemon).not.toHaveProperty('digest')
+	expect(buildStudyDaemonRefusals(provider)).toContainEqual({
+		...provider,
+		daemon: { ...provider.daemon, digest: 'b'.repeat(64) },
+	})
 	expect(buildStudyDaemonRefusals(provider)).toContainEqual({
 		...provider,
 		url: 'http://127.0.0.1:11434',

@@ -644,12 +644,8 @@ export class StudyCommand {
 				),
 				closure?.closure,
 			)
-		if (
-			profile.provider?.daemon === undefined ||
-			profile.record === undefined ||
-			profile.settings?.procedure !== undefined
-		)
-			throw new StudyError('CONFIG', 'Continuation requires open recording and provider.daemon')
+		if (profile.record === undefined || profile.settings?.procedure !== undefined)
+			throw new StudyError('CONFIG', 'Continuation requires open recording')
 		const schedule = buildStudySchedule(definition, scenarios)
 		if (
 			canonicalStringify(definition) !== canonicalStringify(source.manifest.definition) ||

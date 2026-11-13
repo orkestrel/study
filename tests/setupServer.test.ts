@@ -21,6 +21,7 @@ import {
 	STUDY_LAUNCHER_PID,
 	STUDY_TASK_INSTRUMENT,
 	buildStudyEvidenceRow,
+	createStudyDaemonExecutable,
 	createStudyDaemonFixture,
 	buildStudySparseEvidence,
 	admitStudyLibrary,
@@ -1067,11 +1068,15 @@ describe('Ollama recording fixtures', () => {
 	})
 })
 
-it('builds a daemon consumer without starting a process and rejects malformed declarations at load', async () => {
+it('builds a daemon consumer and an updated executable without starting the daemon and rejects malformed declarations at load', async () => {
 	const fixture = await createStudyDaemonFixture()
 	try {
 		expect(fixture.scratch.has('daemon.pid')).toBe(false)
 		expect(fixture.scratch.has('daemon-requests.jsonl')).toBe(false)
+		const executable = createStudyDaemonExecutable(fixture.scratch, 'next')
+		expect(realpathSync(executable)).toBe(executable)
+		expect(readFileSync(executable).equals(readFileSync(process.execPath))).toBe(false)
+		expect(execFileSync(executable, ['--version']).toString().trim()).toBe(process.version)
 		expect(fixture.profile.provider?.url).toBe(fixture.url)
 		expect(fixture.profile.provider?.daemon?.models.map((model) => model.name)).toEqual([
 			'model',
@@ -1080,6 +1085,7 @@ it('builds a daemon consumer without starting a process and rejects malformed de
 		const profile = parseJSON(fixture.scratch.read('studies/files/profiles/local.json') ?? '')
 		if (!isRecord(profile) || !isRecord(profile.provider) || !isRecord(profile.provider.daemon))
 			throw new Error('Missing fixture declaration')
+		expect(profile.provider.daemon).not.toHaveProperty('digest')
 		const provider = fixture.profile.provider
 		if (provider === undefined) throw new Error('Missing daemon provider')
 		for (const candidate of buildStudyDaemonRefusals(provider))

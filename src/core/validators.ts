@@ -385,12 +385,11 @@ export function isStudyDaemon(value: unknown): value is StudyDaemon {
 	return holds(() => {
 		if (
 			!isRecord(value) ||
-			!matchesStudyKeys(value, ['executable', 'digest', 'models'], ['environment']) ||
+			!matchesStudyKeys(value, ['executable', 'models'], ['environment']) ||
 			typeof value.executable !== 'string' ||
 			!/^(?:[A-Za-z]:[\\/]|\/(?!\/)|\\\\[^\\]+\\[^\\]+\\)/.test(value.executable) ||
 			value.executable.includes('\0') ||
 			value.executable.split(/[\\/]/).some((part) => part === '.' || part === '..') ||
-			!isStudyDigest(value.digest) ||
 			!isArray(value.models) ||
 			value.models.length === 0 ||
 			!value.models.every(

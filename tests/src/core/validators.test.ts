@@ -25,6 +25,7 @@ import {
 	isStudyProduct,
 	isStudyProfile,
 	isStudyRecord,
+	isStudyDaemon,
 	isStudyProvider,
 	isStudyRole,
 	isStudyRoom,
@@ -67,11 +68,13 @@ it('pairs the triage pin and requires the same identity in daemon maintenance', 
 	expect(isStudyProvider({ ...pinned, digest: { ...digest, triage: 'd'.repeat(64) } })).toBe(false)
 })
 
-it('loads a declared daemon and refuses malformed executable, endpoint, environment and model declarations', () => {
+it('loads a declared daemon that names no digest and refuses malformed declarations and a stale version or digest key', () => {
 	const provider = buildStudyDaemonProvider()
 	const daemon = provider.daemon
 	if (daemon === undefined) throw new Error('Missing daemon fixture')
 	expect(isStudyProvider(provider)).toBe(true)
+	expect(isStudyDaemon(daemon)).toBe(true)
+	expect(isStudyDaemon({ ...daemon, digest: 'b'.repeat(64) })).toBe(false)
 	expect(isStudyProfile({ ...buildStudyProfile(), provider })).toBe(true)
 	expect(
 		isStudyProvider({

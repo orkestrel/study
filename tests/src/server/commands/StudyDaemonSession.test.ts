@@ -3,11 +3,12 @@ import { isRunning } from '@orkestrel/test/server'
 import { isRecord, parseJSON } from '@orkestrel/contract'
 import { requireValue, waitForCondition, waitForEvent } from '@orkestrel/test'
 import { spawn, spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { StudyCommand } from '../../../../src/server/commands/StudyCommand.js'
 import { StudyDaemonSession } from '../../../../src/server/commands/StudyDaemonSession.js'
+import { hashStudyBytes } from '../../../../src/server/helpers.js'
 import { buildStudyExchangeDeclaration } from '../../../../src/server/processes/helpers.js'
 import { isStudyProfile } from '../../../../src/core/validators.js'
 import {
@@ -26,6 +27,7 @@ import {
 	buildStudyLibrary,
 	collectStudyRoots,
 	createArtifactWorker,
+	createStudyDaemonExecutable,
 	createStudyDaemonFixture,
 	readStudyPid,
 	releaseStudyPid,
@@ -265,6 +267,42 @@ console.log('captured-server-loaded')`,
 			expect(isRunning(requireValue(readStudyPid(fixture.scratch, 'runner.pid')))).toBe(false)
 			expect(error).toMatchObject({ code: 'EEXIST' })
 		} finally {
+			await fixture.close()
+		}
+	}, 60000)
+
+	it('stops without refusal after its executable changes while it runs and keeps the digest it started with', async () => {
+		const subject = await buildStudyLibrary(
+			library,
+			resolve('src/server/ollama/StudyOllamaTransport.ts'),
+		)
+		const fixture = await createStudyDaemonFixture(subject, 'normal', true)
+		const executable = createStudyDaemonExecutable(fixture.scratch, 'first')
+		const provider = requireValue(fixture.profile.provider)
+		const session = new StudyDaemonSession({
+			profile: {
+				...fixture.profile,
+				provider: { ...provider, daemon: { ...requireValue(provider.daemon), executable } },
+			},
+			scenarios: [buildStudyScenario()],
+			workspace: fixture.scratch.path,
+			signal: new AbortController().signal,
+		})
+		try {
+			const identity = await session.start()
+			const started = readFileSync(executable)
+			expect(identity.executable).toMatchObject({
+				path: executable,
+				digest: hashStudyBytes(started),
+			})
+			// An update replaces the file at the declared path while the daemon runs from the earlier one.
+			renameSync(executable, `${executable}.previous`)
+			writeFileSync(executable, Buffer.concat([started, Buffer.from('next')]))
+			await expect(session.stop()).resolves.toBeUndefined()
+			expect(isRunning(requireValue(readStudyPid(fixture.scratch, 'daemon.pid')))).toBe(false)
+			expect(isRunning(requireValue(readStudyPid(fixture.scratch, 'runner.pid')))).toBe(false)
+		} finally {
+			await session.stop()
 			await fixture.close()
 		}
 	}, 60000)

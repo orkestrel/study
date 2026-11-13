@@ -27,7 +27,7 @@ Output directories must be new; existing results are never overwritten.
 --rubric selects independent criteria. --labels imports caller-supplied semantic labels.
 --closure selects retained artifacts. Replay requires explicit prefix counts or roles, and offline behavior.
 --roles serves a listed role's request whose path, method, and body bytes equal a recorded attempt's.
---extend continues a sealed open recording with further goals and requires a declared daemon.
+--extend continues a sealed open recording with further goals; the profile can omit a daemon.
 check carries --extend into next and binds the ancestor seal into its fingerprint.
 check binds --trial, --goals, and --seed into its fingerprint and carries them into next.
 Success writes one JSON document; next contains suggested argv, never executed automatically.

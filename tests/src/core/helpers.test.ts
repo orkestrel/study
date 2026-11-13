@@ -91,7 +91,6 @@ it('normalizes an absent daemon environment while retaining declared daemon iden
 		}),
 	).toHaveProperty('provider.daemon', {
 		executable: daemon.executable,
-		digest: daemon.digest,
 		models: daemon.models,
 	})
 	expect(normalizeStudyProfile({ ...buildStudyProfile(), provider })).toHaveProperty(

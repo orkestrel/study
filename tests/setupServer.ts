@@ -88,9 +88,17 @@ import {
 	waitForDelay,
 } from '@orkestrel/test'
 import { execFile, fork, spawn } from 'node:child_process'
-import { cpSync, mkdirSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
+import {
+	appendFileSync,
+	copyFileSync,
+	cpSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	realpathSync,
+} from 'node:fs'
 import { mkdir, open as openFile, writeFile } from 'node:fs/promises'
-import { dirname, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { createRequire, isBuiltin } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build } from 'vite'
@@ -271,14 +279,22 @@ export async function createStudyReplayFixture(
 /** Records one goal on the dedicated fixture and grows only JSON declarations for continuation.
  * @param library - The built real Study transport.
  * @param triage - If true, records and extends System One requests; if false, retains the generation control.
+ * @param owned - If true, the profile declares the dedicated daemon; if false, it declares none and records against an external fixture server.
  * @returns A sealed ancestor, the grown consumer, and ownership of its fixture resources.
  */
 export async function createStudyContinuationFixture(
 	library: string,
 	triage = false,
+	owned = true,
 ): Promise<StudyContinuationFixture> {
 	const fixture = await createStudyDaemonFixture(library, 'normal', true, triage)
 	const { scratch } = fixture
+	const server = owned
+		? undefined
+		: await createOllamaServer().catch(async (error: unknown) => {
+				await fixture.close()
+				throw error
+			})
 	try {
 		const scenario = requireValue(scratch.read('studies/files/scenarios/first.json'))
 		const rubric = requireValue(scratch.read('studies/assessment/rubric.json'))
@@ -317,7 +333,12 @@ export async function createStudyContinuationFixture(
 					"if (goal.id === 'write' && process.env.STUDY_EXTENSION_CHANGE === 'extra') await transport.fetch('agent', profile.provider.url + '/api/chat', { method: 'POST', body: profile.settings.requests[0].body })\n     if (goal.id === exchanges.declaration.goals.at(-1))",
 				),
 		)
-		const profile = { ...fixture.profile, record: { bytes: 65536, calls: 1, duration: 15000 } }
+		const { daemon: _daemon, ...external } = requireValue(fixture.profile.provider)
+		const profile = {
+			...fixture.profile,
+			...(server === undefined ? {} : { provider: { ...external, url: server.url } }),
+			record: { bytes: 65536, calls: 1, duration: 15000 },
+		}
 		scratch.write('studies/files/profiles/local.json', JSON.stringify(profile))
 		const entry = await buildStudyCLI(scratch)
 		const command = new StudyCommand({ root: scratch.path, entry })
@@ -337,8 +358,23 @@ export async function createStudyContinuationFixture(
 			bounds: { ...profile.bounds, series: { ...profile.bounds.series, duration: 120000 } },
 		}
 		scratch.write('studies/files/profiles/local.json', JSON.stringify(executing))
-		return { ...fixture, profile: executing, entry, command, recorded, result, history }
+		return {
+			...fixture,
+			url: server?.url ?? fixture.url,
+			profile: executing,
+			server,
+			entry,
+			command,
+			recorded,
+			result,
+			history,
+			async close() {
+				await server?.close()
+				await fixture.close()
+			},
+		}
 	} catch (error) {
+		await server?.close()
 		await fixture.close()
 		throw error
 	}
@@ -1319,7 +1355,6 @@ export async function createStudyDaemonFixture(
 				},
 				daemon: {
 					executable: realpathSync(process.execPath),
-					digest: hashStudyBytes(readFileSync(process.execPath)),
 					environment: {
 						NODE_OPTIONS: `--import=${pathToFileURL(resolve('tests/src/server/commands/fixtures/daemon.mjs')).href}`,
 						ollama_host: '127.0.0.1:1',
@@ -1364,6 +1399,18 @@ export async function createStudyDaemonFixture(
 		scratch.destroy()
 		throw error
 	}
+}
+
+/** Copies the running Node executable into a scratch folder with trailing bytes, as an updated daemon.
+ * @param scratch - The owned consumer that holds the copy.
+ * @param release - The folder name and the bytes appended, so each release has its own digest.
+ * @returns The copy's canonical absolute path; it runs as Node does and hashes differently.
+ */
+export function createStudyDaemonExecutable(scratch: ScratchInterface, release: string): string {
+	const path = join(scratch.ensure(release), basename(process.execPath))
+	copyFileSync(process.execPath, path)
+	appendFileSync(path, Buffer.from(release))
+	return realpathSync(path)
 }
 
 /** Names daemon endings whose real process-tree cleanup the staging proof observes. */
@@ -4095,6 +4142,8 @@ export interface StudyDaemonFixture {
 
 /** Holds a one-goal daemon recording with the executing scenario grown to its next goal. */
 export interface StudyContinuationFixture extends StudyDaemonFixture {
+	/** Holds the external fixture server a recording that declares no daemon sends to. */
+	readonly server: OllamaServerFixture | undefined
 	readonly entry: string
 	readonly command: StudyCommand
 	readonly recorded: string

@@ -216,7 +216,7 @@ describe('process helpers', () => {
 		}
 	})
 
-	it('binds configuration to room settings and daemon identity apart from executable paths and ceilings', () => {
+	it('binds configuration to room settings and daemon environment and models apart from executable paths and ceilings', () => {
 		const provider = buildStudyDaemonProvider()
 		const daemon = requireValue(provider.daemon)
 		const profile = { ...buildStudyProfile(), provider, settings: { capacity: 1 } }
@@ -242,7 +242,7 @@ describe('process helpers', () => {
 		expect(
 			computeStudyConfigurationDigest({
 				...profile,
-				provider: { ...provider, daemon: { ...daemon, digest: 'f'.repeat(64) } },
+				provider: { ...provider, daemon: { ...daemon, environment: { OLLAMA_MODELS: '/other' } } },
 			}),
 		).not.toBe(digest)
 	})

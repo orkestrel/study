@@ -7,6 +7,7 @@ import { expect, it } from 'vitest'
 import { StudyCommand } from '../../../../src/server/commands/StudyCommand.js'
 import { StudyArtifactLoader } from '../../../../src/server/processes/StudyArtifactLoader.js'
 import { isStudyClosure } from '../../../../src/server/commands/validators.js'
+import { hashStudyBytes } from '../../../../src/server/helpers.js'
 import { requireValue } from '@orkestrel/test'
 import { STUDY_STOP_SWITCHES } from '../../../setupStudy.js'
 import {
@@ -19,6 +20,7 @@ import {
 	createStudyConsumer,
 	createStudyReplayFixture,
 	createStudyContinuationFixture,
+	createStudyDaemonExecutable,
 	buildStudyLibrary,
 	readStudyPid,
 	STUDY_DAEMON_NEXT_VERSION,
@@ -85,7 +87,7 @@ it('CT1 extends a grown frozen closure with an ancestor-bound check and an ances
 }, 240000)
 
 it.each(STUDY_STOP_SWITCHES)(
-	'CT1 and CT3 extend one goal to two across a served version update with only suffix daemon traffic, triage=%s',
+	'CT1 and CT3 extend one goal to two across a served version update and an executable update with only suffix daemon traffic, triage=%s',
 	async (triage) => {
 		const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
 		const subject = await buildStudyLibrary(
@@ -94,9 +96,19 @@ it.each(STUDY_STOP_SWITCHES)(
 		)
 		const fixture = await createStudyContinuationFixture(subject, triage)
 		try {
-			const { scratch, command, recorded, result: ancestor, history } = fixture
+			const { scratch, command, recorded, result: ancestor, history, profile } = fixture
 			// The ancestor was recorded under the fixture daemon's first version; every later reply reports the next one.
 			scratch.write(STUDY_DAEMON_VERSION_FILE, STUDY_DAEMON_NEXT_VERSION)
+			// The update also installs another executable, which the profile names by its path alone.
+			const executable = createStudyDaemonExecutable(scratch, 'next')
+			const provider = requireValue(profile.provider)
+			scratch.write(
+				'studies/files/profiles/local.json',
+				JSON.stringify({
+					...profile,
+					provider: { ...provider, daemon: { ...requireValue(provider.daemon), executable } },
+				}),
+			)
 			const before = requireValue(scratch.read('daemon-requests.jsonl'))
 				.split(/\r\n|\n/)
 				.filter(Boolean).length
@@ -200,8 +212,15 @@ it.each(STUDY_STOP_SWITCHES)(
 				]),
 			])
 			const host = parseJSON(requireValue(result.manifest.host.daemon))
-			expect(host).toMatchObject({ url: fixture.url, version: STUDY_DAEMON_NEXT_VERSION })
+			expect(host).toMatchObject({
+				url: fixture.url,
+				version: STUDY_DAEMON_NEXT_VERSION,
+				executable: { path: executable, digest: hashStudyBytes(readFileSync(executable)) },
+			})
 			expect(host).not.toHaveProperty('executable.version')
+			expect(parseJSON(requireValue(ancestor.manifest.host.daemon))).toMatchObject({
+				executable: { digest: hashStudyBytes(readFileSync(process.execPath)) },
+			})
 			expect(
 				requireValue(scratch.read(`live/execution/trials/${trial.id}/evidence.jsonl`))
 					.split(/\r\n|\n/)
@@ -226,6 +245,68 @@ it.each(STUDY_STOP_SWITCHES)(
 	},
 	180000,
 )
+
+it('CT1 extends a recording whose profile declares no daemon against its external server with empty maintenance', async () => {
+	const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
+	const subject = await buildStudyLibrary(
+		library,
+		resolve('src/server/ollama/StudyOllamaTransport.ts'),
+	)
+	const fixture = await createStudyContinuationFixture(subject, false, false)
+	try {
+		const { scratch, command, recorded, result: ancestor, history, profile } = fixture
+		const server = requireValue(fixture.server)
+		expect(profile.provider).not.toHaveProperty('daemon')
+		const before = server.requests.length
+		const checked = await command.execute(
+			['check', 'assessment', '--extend', recorded],
+			new AbortController().signal,
+		)
+		if (!isRecord(checked) || typeof checked.fingerprint !== 'string')
+			throw new Error('Missing continuation check')
+		expect(server.requests).toHaveLength(before)
+		const output = join(scratch.path, 'live')
+		await expect(
+			command.execute(
+				[
+					'execute',
+					'assessment',
+					'--extend',
+					recorded,
+					'--expected',
+					checked.fingerprint,
+					'--out',
+					output,
+				],
+				new AbortController().signal,
+			),
+		).resolves.toMatchObject({ status: 'completed', fingerprint: checked.fingerprint })
+		const result = await readStudyResult(output)
+		if (result.status !== 'sealed') throw new Error('Continuation without a daemon did not seal')
+		const trial = requireValue(result.manifest.schedule[0])
+		const extended = await readStudyExchanges(result, trial.id)
+		expect(history.declaration.maintenance).toEqual([])
+		expect(extended.declaration.maintenance).toEqual([])
+		expect(extended.declaration.goals).toEqual(['write', 'recall'])
+		expect(extended.declaration.ancestor).toMatchObject({ seal: ancestor.seal.id, prefix: 5 })
+		expect(result.manifest.host).not.toHaveProperty('daemon')
+		expect(server.requests.slice(before).map((request) => request.path)).toEqual([
+			'/api/chat',
+			'/api/version',
+			'/api/tags',
+			'/api/show',
+			'/api/show',
+		])
+		expect(
+			readStudyExchangeRows(
+				Buffer.from(requireValue(scratch.read(`live/execution/${history.file.path}`))),
+			),
+		).toContainEqual({ phase: 'complete', count: 10 })
+	} finally {
+		await fixture.close()
+		library.destroy()
+	}
+}, 180000)
 
 it('RP3 keeps content equal across a renamed frozen consumer and JSON edits, binds runtime, and replays changed code with both identities', async () => {
 	const fixture = await createStudyReplayFixture(true)

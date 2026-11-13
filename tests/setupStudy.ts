@@ -353,7 +353,6 @@ export function buildStudyDaemonProvider(): NonNullable<StudyProfile['provider']
 		digest: { model: 'a'.repeat(64), judge: undefined },
 		daemon: {
 			executable: '/opt/runtime/ollama',
-			digest: 'b'.repeat(64),
 			environment: { OLLAMA_MODELS: '/models' },
 			models: [{ name: 'model', digest: 'a'.repeat(64) }],
 		},
@@ -362,7 +361,7 @@ export function buildStudyDaemonProvider(): NonNullable<StudyProfile['provider']
 
 /** Builds malformed daemon providers for guard and profile-load controls.
  * @param provider - The valid declaration whose individual boundaries are varied.
- * @returns Providers with invalid executable, environment, endpoint, or model declarations, or a stale version key.
+ * @returns Providers with invalid executable, environment, endpoint, or model declarations, or a stale version or digest key.
  */
 export function buildStudyDaemonRefusals(
 	provider = buildStudyDaemonProvider(),
@@ -372,7 +371,7 @@ export function buildStudyDaemonRefusals(
 	return [
 		...[
 			{ ...daemon, executable: 'ollama' },
-			{ ...daemon, digest: 'wrong' },
+			{ ...daemon, digest: 'b'.repeat(64) },
 			{ ...daemon, version: 'fixture-version' },
 			{ ...daemon, models: [{ name: 'model' }] },
 			{ ...daemon, models: [] },
