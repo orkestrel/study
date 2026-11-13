@@ -1,9 +1,17 @@
 // This protocol fixture runs directly and as a preload without a TypeScript loader.
 import { createServer } from 'node:http'
-import { appendFileSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs'
+import {
+	appendFileSync,
+	writeFileSync,
+	readFileSync,
+	readdirSync,
+	existsSync,
+	realpathSync,
+	renameSync,
+} from 'node:fs'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join, relative } from 'node:path'
 
 if (process.argv[2] === 'sentinel' || process.argv[2] === 'runner') {
 	process.stdout.write(String(process.pid) + '\n')
@@ -12,6 +20,15 @@ if (process.argv[2] === 'sentinel' || process.argv[2] === 'runner') {
 	const origin = new URL(`http://${process.env.OLLAMA_HOST}`)
 	if (origin.hostname !== '127.0.0.1' || !origin.port || ['11434', '11435'].includes(origin.port))
 		throw new Error('A dedicated loopback port is required')
+	const placement = relative(
+		realpathSync(dirname(process.env.STUDY_DAEMON_PID)),
+		realpathSync(process.execPath),
+	)
+	if (
+		process.env.STUDY_DAEMON_REPLACE !== undefined &&
+		(placement.startsWith('..') || isAbsolute(placement))
+	)
+		throw new Error('Only an executable copy inside the fixture scratch can be replaced')
 	writeFileSync(process.env.STUDY_DAEMON_PID, String(process.pid))
 	const runner = spawn(process.execPath, [fileURLToPath(import.meta.url), 'runner'], {
 		stdio: 'ignore',
@@ -60,6 +77,20 @@ if (process.argv[2] === 'sentinel' || process.argv[2] === 'runner') {
 				'\n',
 		)
 		response.setHeader('content-type', 'application/json')
+		// An update replaces this daemon's executable once, at its first version request, while it runs from the earlier file.
+		if (
+			request.url === '/api/version' &&
+			process.env.STUDY_DAEMON_REPLACE !== undefined &&
+			!existsSync(`${process.execPath}.previous`)
+		) {
+			renameSync(process.execPath, `${process.execPath}.previous`)
+			writeFileSync(
+				process.execPath,
+				process.env.STUDY_DAEMON_REPLACE === 'shell'
+					? '#!/bin/sh\n'
+					: Buffer.concat([readFileSync(`${process.execPath}.previous`), Buffer.from('next')]),
+			)
+		}
 		// The version file beside the pid file stands for an Ollama update between two executions.
 		const versionFile = join(dirname(process.env.STUDY_DAEMON_PID), 'daemon.version')
 		if (request.url === '/api/version')
@@ -101,7 +132,9 @@ if (process.argv[2] === 'sentinel' || process.argv[2] === 'runner') {
 		else if (request.url === '/api/generate') {
 			if (process.env.STUDY_DAEMON_MODE === 'unload-failure')
 				response.writeHead(500).end(JSON.stringify({ error: 'maintenance refused' }))
-			else
+			else if (process.env.STUDY_DAEMON_MODE === 'unload-hang') {
+				// The unload stays pending until the daemon stops.
+			} else
 				response.end(
 					JSON.stringify({ model: JSON.parse(body).model, done: true, done_reason: 'unload' }),
 				)

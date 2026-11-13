@@ -21,6 +21,7 @@ import {
 	STUDY_LAUNCHER_PID,
 	STUDY_TASK_INSTRUMENT,
 	buildStudyEvidenceRow,
+	buildStudyDaemonSessionOptions,
 	createStudyDaemonExecutable,
 	createStudyDaemonFixture,
 	buildStudySparseEvidence,
@@ -1068,7 +1069,7 @@ describe('Ollama recording fixtures', () => {
 	})
 })
 
-it('builds a daemon consumer and an updated executable without starting the daemon and rejects malformed declarations at load', async () => {
+it('builds a daemon consumer, an updated executable and session options without starting the daemon and rejects malformed declarations at load', async () => {
 	const fixture = await createStudyDaemonFixture()
 	try {
 		expect(fixture.scratch.has('daemon.pid')).toBe(false)
@@ -1077,6 +1078,17 @@ it('builds a daemon consumer and an updated executable without starting the daem
 		expect(realpathSync(executable)).toBe(executable)
 		expect(readFileSync(executable).equals(readFileSync(process.execPath))).toBe(false)
 		expect(execFileSync(executable, ['--version']).toString().trim()).toBe(process.version)
+		const replaced = buildStudyDaemonSessionOptions(fixture, executable, 'shell')
+		expect(replaced.profile).not.toHaveProperty('record')
+		expect(replaced.workspace).toBe(fixture.scratch.path)
+		expect(replaced.profile.provider?.daemon).toMatchObject({
+			executable,
+			environment: { STUDY_DAEMON_MODE: 'normal', STUDY_DAEMON_REPLACE: 'shell' },
+		})
+		expect(
+			buildStudyDaemonSessionOptions(fixture, executable).profile.provider?.daemon?.environment,
+		).not.toHaveProperty('STUDY_DAEMON_REPLACE')
+		expect(fixture.scratch.has('daemon.pid')).toBe(false)
 		expect(fixture.profile.provider?.url).toBe(fixture.url)
 		expect(fixture.profile.provider?.daemon?.models.map((model) => model.name)).toEqual([
 			'model',

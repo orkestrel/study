@@ -53,6 +53,7 @@ import type {
 	StudyTaskOptions,
 	StudyTaskRequest,
 } from '../src/server/processes/types.js'
+import type { StudyDaemonSessionOptions } from '../src/server/commands/types.js'
 
 import type { ProviderInterface } from '@orkestrel/agent'
 import type { StudyAgentDispatch } from '../src/core/agents/types.js'
@@ -1411,6 +1412,41 @@ export function createStudyDaemonExecutable(scratch: ScratchInterface, release: 
 	copyFileSync(process.execPath, path)
 	appendFileSync(path, Buffer.from(release))
 	return realpathSync(path)
+}
+
+/** Builds daemon session options over a fixture's profile with an executable copy and no recording.
+ * @param fixture - The daemon consumer whose provider and workspace the session uses.
+ * @param executable - The canonical executable copy the daemon starts from.
+ * @param replace - The fixture daemon replaces that copy at its first version request: `bytes` appends bytes, so its digest changes; `shell` writes a shell script, which Ollama's re-hash refuses as `invalid`. Absent leaves the copy alone.
+ * @returns Options for a session whose profile records nothing, so preparation unloads directly.
+ */
+export function buildStudyDaemonSessionOptions(
+	fixture: StudyDaemonFixture,
+	executable: string,
+	replace?: 'bytes' | 'shell',
+): StudyDaemonSessionOptions {
+	const { record: _record, ...profile } = fixture.profile
+	const provider = requireValue(profile.provider)
+	const daemon = requireValue(provider.daemon)
+	return {
+		profile: {
+			...profile,
+			provider: {
+				...provider,
+				daemon: {
+					...daemon,
+					executable,
+					environment: {
+						...daemon.environment,
+						...(replace === undefined ? {} : { STUDY_DAEMON_REPLACE: replace }),
+					},
+				},
+			},
+		},
+		scenarios: [buildStudyScenario()],
+		workspace: fixture.scratch.path,
+		signal: new AbortController().signal,
+	}
 }
 
 /** Names daemon endings whose real process-tree cleanup the staging proof observes. */

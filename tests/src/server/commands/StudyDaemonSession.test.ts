@@ -3,7 +3,7 @@ import { isRunning } from '@orkestrel/test/server'
 import { isRecord, parseJSON } from '@orkestrel/contract'
 import { requireValue, waitForCondition, waitForEvent } from '@orkestrel/test'
 import { spawn, spawnSync } from 'node:child_process'
-import { readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { StudyCommand } from '../../../../src/server/commands/StudyCommand.js'
@@ -26,6 +26,7 @@ import {
 	STUDY_DAEMON_ENDS,
 	buildStudyLibrary,
 	collectStudyRoots,
+	buildStudyDaemonSessionOptions,
 	createArtifactWorker,
 	createStudyDaemonExecutable,
 	createStudyDaemonFixture,
@@ -278,16 +279,7 @@ console.log('captured-server-loaded')`,
 		)
 		const fixture = await createStudyDaemonFixture(subject, 'normal', true)
 		const executable = createStudyDaemonExecutable(fixture.scratch, 'first')
-		const provider = requireValue(fixture.profile.provider)
-		const session = new StudyDaemonSession({
-			profile: {
-				...fixture.profile,
-				provider: { ...provider, daemon: { ...requireValue(provider.daemon), executable } },
-			},
-			scenarios: [buildStudyScenario()],
-			workspace: fixture.scratch.path,
-			signal: new AbortController().signal,
-		})
+		const session = new StudyDaemonSession(buildStudyDaemonSessionOptions(fixture, executable))
 		try {
 			const identity = await session.start()
 			const started = readFileSync(executable)
@@ -303,6 +295,71 @@ console.log('captured-server-loaded')`,
 			expect(isRunning(requireValue(readStudyPid(fixture.scratch, 'runner.pid')))).toBe(false)
 		} finally {
 			await session.stop()
+			await fixture.close()
+		}
+	}, 60000)
+
+	it('refuses a stop whose faults hold an aborted unload beside a changed digest', async () => {
+		const subject = await buildStudyLibrary(
+			library,
+			resolve('src/server/ollama/StudyOllamaTransport.ts'),
+		)
+		const fixture = await createStudyDaemonFixture(subject, 'unload-hang', true)
+		const executable = createStudyDaemonExecutable(fixture.scratch, 'first')
+		const options = buildStudyDaemonSessionOptions(fixture, executable, 'bytes')
+		const session = new StudyDaemonSession(options)
+		try {
+			await session.start()
+			const scenario = requireValue(options.scenarios[0])
+			const unload = session
+				.prepare(
+					{ id: 'r1-first-small', scenario: scenario.id, arm: 'small', repetition: 0 },
+					options.signal,
+				)
+				.then(
+					() => undefined,
+					(error: unknown) => error,
+				)
+			await waitForCondition(
+				'pending unload',
+				() => fixture.scratch.read('daemon-requests.jsonl')?.includes('/api/generate') === true,
+				{ budget: 10000, interval: 20 },
+			)
+			await expect(session.stop()).rejects.toMatchObject({
+				code: 'FAULT',
+				message: 'Daemon cleanup was not confirmed',
+			})
+			expect(await unload).toMatchObject({ code: 'aborted' })
+			expect(existsSync(`${executable}.previous`)).toBe(true)
+			expect(isRunning(requireValue(readStudyPid(fixture.scratch, 'daemon.pid')))).toBe(false)
+			expect(isRunning(requireValue(readStudyPid(fixture.scratch, 'runner.pid')))).toBe(false)
+		} finally {
+			await session.stop().catch(() => undefined)
+			await fixture.close()
+		}
+	}, 60000)
+
+	it('refuses a stop after a failed start whose own stop the daemon reported before the session listened', async () => {
+		const subject = await buildStudyLibrary(
+			library,
+			resolve('src/server/ollama/StudyOllamaTransport.ts'),
+		)
+		const fixture = await createStudyDaemonFixture(subject, 'start-failure', true)
+		const executable = createStudyDaemonExecutable(fixture.scratch, 'first')
+		const session = new StudyDaemonSession(
+			buildStudyDaemonSessionOptions(fixture, executable, 'shell'),
+		)
+		try {
+			await expect(session.start()).rejects.toMatchObject({ code: 'cleanup' })
+			await expect(session.stop()).rejects.toMatchObject({
+				code: 'FAULT',
+				message: 'Daemon cleanup was not confirmed',
+			})
+			expect(existsSync(`${executable}.previous`)).toBe(true)
+			expect(isRunning(requireValue(readStudyPid(fixture.scratch, 'daemon.pid')))).toBe(false)
+			expect(isRunning(requireValue(readStudyPid(fixture.scratch, 'runner.pid')))).toBe(false)
+		} finally {
+			await session.stop().catch(() => undefined)
 			await fixture.close()
 		}
 	}, 60000)
