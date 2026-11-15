@@ -1,20 +1,26 @@
 import { defineConfig } from 'vite'
-import { resolveExternal } from '../helpers.js'
-import { peers, srcBin } from '../../vite.config.ts'
+import { declarationRollup, resolveExternal, rewriteSourceSpecifier } from '../helpers.js'
+import { peers, resolveWorkspacePath, srcBin } from '../../vite.config.ts'
 
-// The `scaffold` executable build — a single ESM lib file, no declarations (an
-// executable ships no types), with the `#!/usr/bin/env node` shebang re-emitted through
-// `output.banner` (rolldown strips shebangs from source during bundling), and
-// `output.paths` rewriting the externalized `@src/*` specifiers to the built sibling
-// src environments (relative to `dist/bin/`), so the emitted bin resolves at runtime.
+// One ES file per `src/bin` module. Rolldown strips a source shebang, so `main` alone takes
+// the `#!/usr/bin/env node` banner; every other module ships its rolled-up declaration.
+// `output.paths` and the declaration rewrite point each external `@src/*` specifier at the
+// built environment beside `dist/bin/`.
 export default defineConfig(
 	srcBin({
+		plugins: [
+			declarationRollup({
+				project: resolveWorkspacePath('configs/src/tsconfig.bin.json'),
+				entries: [],
+				rewrite: rewriteSourceSpecifier,
+			}),
+		],
 		build: {
 			rolldownOptions: {
 				external: (id: string) =>
 					id.startsWith('@src/') || resolveExternal(id, { peers, refused: [], siblings: [] }),
 				output: {
-					banner: '#!/usr/bin/env node',
+					banner: (chunk) => (chunk.name === 'main' ? '#!/usr/bin/env node' : ''),
 					paths: {
 						'@src/core': '../src/core/index.js',
 						'@src/server': '../src/server/index.js',

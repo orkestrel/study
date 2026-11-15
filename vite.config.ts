@@ -219,8 +219,8 @@ export function srcServer(override?: UserConfig): UserConfig {
 	return mergeOverride(project, override)
 }
 
-function resolveBinFilename(): string {
-	return 'main.js'
+function resolveBinFilename(_format: string, entry: string): string {
+	return `${entry}.js`
 }
 
 function resolveBinExternal(id: string): boolean {
@@ -237,7 +237,9 @@ export function srcBin(override?: UserConfig): UserConfig {
 			sourcemap: true,
 			minify: false,
 			lib: {
-				entry: resolveWorkspacePath('src/bin/main.ts'),
+				entry: {
+					main: resolveWorkspacePath('src/bin/main.ts'),
+				},
 				formats: ['es'],
 				fileName: resolveBinFilename,
 			},
@@ -346,9 +348,9 @@ export function distribution(override?: UserConfig): UserConfig {
 
 // A workbench, not a proof. No gate selects this project. Run in test mode by the
 // `test:probe` script, it collects `tmp/probes/**/*.test.ts`. Run in benchmark mode by the
-// `test:bench` script, it collects `*.bench.ts` files under `tmp/probes` and `tests`.
-// Each benchmark is a regular test that uses its context's `bench` fixture and awaits
-// `bench(name, options, fn).run()` or `bench.compare(...)`.
+// `test:bench` script, it collects `*.bench.ts` files under `tmp/probes` and `tests`, other
+// than a browser-hosted face's benches. Each benchmark is a regular test that uses its
+// context's `bench` fixture and awaits `bench(name, options, fn).run()` or `bench.compare(...)`.
 export function probe(override?: UserConfig): UserConfig {
 	const project: UserConfig = {
 		resolve,
