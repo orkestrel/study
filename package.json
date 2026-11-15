@@ -107,7 +107,7 @@
 		"@orkestrel/mcp": "^0.0.44",
 		"@orkestrel/probe": "^0.0.31",
 		"@orkestrel/router": "^0.0.22",
-		"@orkestrel/scaffold": "^0.0.136",
+		"@orkestrel/scaffold": "^0.0.137",
 		"@orkestrel/server": "^0.0.28",
 		"@orkestrel/test": "^0.0.40",
 		"@types/node": "^24.19.2",
