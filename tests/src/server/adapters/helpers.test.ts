@@ -5,7 +5,11 @@ import { createScratch } from '@orkestrel/test/server'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { isStudyError, StudyError } from '../../../../src/core/errors.js'
-import { buildStudyReference, gradeStudyEvidence } from '../../../../src/server/adapters/helpers.js'
+import {
+	buildStudyReference,
+	collectStudyRows,
+	gradeStudyEvidence,
+} from '../../../../src/server/adapters/helpers.js'
 import {
 	buildStudyAdjudication,
 	buildStudyEvidenceRow,
@@ -18,6 +22,7 @@ import {
 	STUDY_PREDICATE_RUBRIC,
 } from '../../../setupServer.js'
 import {
+	STUDY_ADMISSION_ROW,
 	buildCompactCustodyManifest,
 	buildCustodyAttempt,
 	buildCustodyManifest,
@@ -372,6 +377,36 @@ describe('gradeStudyEvidence', () => {
 		])
 		expect(judgments.every((judgment) => judgment.verdict === 'unknown')).toBe(true)
 	})
+
+	it('leaves every reference empty in an all-unknown grading of retained and unretained trials', () => {
+		const input = buildStudyAdjudication()
+		const judgments = gradeStudyEvidence(
+			{ ...input, attempts: input.attempts.slice(0, 1) },
+			createStudyRowGrade(),
+		)
+		expect(judgments).toHaveLength(6)
+		expect(judgments.map((judgment) => [judgment.verdict, judgment.references])).toEqual(
+			judgments.map(() => ['unknown', []]),
+		)
+	})
+
+	it('reads unknown with no references for a trial whose only retained row is a refused admission', () => {
+		const manifest = buildCompactCustodyManifest()
+		const trial = requireValue(manifest.schedule[0]).id
+		const judgments = gradeStudyEvidence(
+			buildStudyAdjudication(manifest, undefined, { [trial]: [STUDY_ADMISSION_ROW] }),
+			createStudyRowGrade(),
+		)
+		expect(
+			judgments
+				.filter((judgment) => judgment.trial === trial)
+				.map((judgment) => [judgment.criterion, judgment.verdict, judgment.references]),
+		).toEqual([
+			['first-operational', 'unknown', []],
+			['first-saved', 'unknown', []],
+			['first-read', 'unknown', []],
+		])
+	})
 })
 
 describe('buildStudyReference', () => {
@@ -450,6 +485,80 @@ describe('buildStudyReference', () => {
 			expect(isStudyError(caught)).toBe(true)
 			expect(caught).toMatchObject({ code: 'EVIDENCE' })
 		}
+	})
+})
+
+describe('collectStudyRows', () => {
+	const manifest = buildCompactCustodyManifest()
+	const trial = requireValue(manifest.schedule[0])
+	const evidence: readonly StudyEvidence[] = [
+		{ event: 'saved', goal: 'write', value: 'remember' },
+		{ event: 'noted', goal: 'write', value: 'aside' },
+		{ event: 'saved', goal: 'read', value: 'recall' },
+		{ event: 'saved', goal: 'write', value: 'again' },
+	]
+	const target: StudyGradeTarget = {
+		trial,
+		criterion: requireValue(
+			STUDY_PREDICATE_RUBRIC.criteria.find((criterion) => criterion.id === 'first-saved'),
+		),
+		attempt: buildCustodyAttempt(manifest, trial),
+		evidence,
+	}
+
+	it("pairs each row of the criterion's goal with its zero-based position, optionally of one event", () => {
+		expect(collectStudyRows(target)).toEqual([
+			{ row: 0, evidence: evidence[0] },
+			{ row: 1, evidence: evidence[1] },
+			{ row: 3, evidence: evidence[3] },
+		])
+		const saved = collectStudyRows(target, 'saved')
+		expect(saved.map(({ row }) => row)).toEqual([0, 3])
+		expect(saved[0]?.evidence).toBe(evidence[0])
+		expect(collectStudyRows(target, 'missing')).toEqual([])
+		expect(collectStudyRows({ ...target, evidence: [] })).toEqual([])
+		expect(Object.isFrozen(saved)).toBe(true)
+		expect(saved.every((row) => Object.isFrozen(row))).toBe(true)
+		expect(evidence).toHaveLength(4)
+	})
+
+	it('cites row 0 as #1 through gradeStudyEvidence, where an index + 1 citation names #2', () => {
+		const input = buildStudyAdjudication(undefined, undefined, { [trial.id]: evidence })
+		const judgments = gradeStudyEvidence(input, (graded) => {
+			const rows = collectStudyRows(graded, 'saved')
+			return {
+				verdict: rows.length === 0 ? 'unknown' : 'achieved',
+				method: graded.criterion.method === 'semantic' ? 'human' : graded.criterion.method,
+				reason: 'Cites the saved rows of the criterion goal',
+				references: rows.map(({ row }) => ({ file: 'evidence', row })),
+			}
+		})
+		const path = `trials/${trial.id}/evidence.jsonl`
+		expect(
+			judgments
+				.filter((judgment) => judgment.trial === trial.id)
+				.map((judgment) => [judgment.criterion, judgment.references]),
+		).toEqual([
+			['first-operational', [`${path}#1`, `${path}#4`]],
+			['first-saved', [`${path}#1`, `${path}#4`]],
+			['first-read', [`${path}#3`]],
+		])
+		const offset = gradeStudyEvidence(input, (graded) => {
+			const rows = graded.evidence
+				.entries()
+				.filter(([index, row]) => index === 0 && row.goal === graded.criterion.goal)
+				.map(([index]) => index + 1)
+				.toArray()
+			return {
+				verdict: rows.length === 0 ? 'unknown' : 'achieved',
+				method: graded.criterion.method === 'semantic' ? 'human' : graded.criterion.method,
+				reason: 'Cites the first row one-based before rendering',
+				references: rows.map((row) => ({ file: 'evidence', row })),
+			}
+		})
+		expect(offset.find((judgment) => judgment.criterion === 'first-saved')?.references).toEqual([
+			`${path}#2`,
+		])
 	})
 })
 

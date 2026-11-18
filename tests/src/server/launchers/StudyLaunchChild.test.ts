@@ -9,10 +9,10 @@ describe('StudyLaunchChild', () => {
 		const result = await new StudyLaunchChild(
 			spawnStudyScript("process.stdout.write('captured'); process.exit(4)"),
 			10000,
-			false,
+			{ stdout: false, stderr: true },
 			new AbortController().signal,
 		).execute()
-		expect(result).toEqual({ code: 4, output: 'captured' })
+		expect(result).toEqual({ code: 4, stdout: 'captured', stderr: '' })
 	})
 
 	it('terminates a child and reports 130 when the signal is already aborted', async () => {
@@ -21,7 +21,7 @@ describe('StudyLaunchChild', () => {
 		const result = await new StudyLaunchChild(
 			spawnStudyScript('setTimeout(() => undefined, 20000)'),
 			10000,
-			false,
+			{ stdout: false, stderr: true },
 			controller.signal,
 		).execute()
 		expect(result.code).toBe(130)
@@ -30,7 +30,12 @@ describe('StudyLaunchChild', () => {
 	it('terminates a running child and reports 130 when the signal aborts mid-launch', async () => {
 		const controller = new AbortController()
 		const child = spawnStudyScript('setTimeout(() => undefined, 20000)')
-		const running = new StudyLaunchChild(child, 10000, false, controller.signal).execute()
+		const running = new StudyLaunchChild(
+			child,
+			10000,
+			{ stdout: false, stderr: true },
+			controller.signal,
+		).execute()
 		controller.abort()
 		// The child must exit on the interruption, well before its own 10 s deadline could end it.
 		await waitForCondition(
@@ -50,7 +55,12 @@ describe('StudyLaunchChild', () => {
 			spawnStudyScript('setTimeout(() => undefined, 20000)'),
 		]
 		const running = children.map((child) =>
-			new StudyLaunchChild(child, 10000, false, controller.signal).execute(),
+			new StudyLaunchChild(
+				child,
+				10000,
+				{ stdout: false, stderr: true },
+				controller.signal,
+			).execute(),
 		)
 		controller.abort()
 		// Every child must exit on the shared interruption, well before its own 10 s deadline could end it.
@@ -67,17 +77,17 @@ describe('StudyLaunchChild', () => {
 		const settled = await new StudyLaunchChild(
 			first,
 			10000,
-			false,
+			{ stdout: false, stderr: true },
 			new AbortController().signal,
 		).execute()
 		const second = new StudyLaunchChild(
 			spawnStudyScript('setTimeout(() => process.exit(5), 300)'),
 			10000,
-			false,
+			{ stdout: false, stderr: true },
 			new AbortController().signal,
 		).execute()
 		expect(() => first.emit('error', new Error('late'))).not.toThrow()
-		expect(settled).toEqual({ code: 0, output: 'one' })
+		expect(settled).toEqual({ code: 0, stdout: 'one', stderr: '' })
 		expect((await second).code).toBe(5)
 	})
 
@@ -85,7 +95,7 @@ describe('StudyLaunchChild', () => {
 		const child = new StudyLaunchChild(
 			spawnStudyScript('process.exit(0)'),
 			10000,
-			false,
+			{ stdout: false, stderr: true },
 			new AbortController().signal,
 		)
 		const running = child.execute()

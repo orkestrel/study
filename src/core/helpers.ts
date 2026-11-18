@@ -367,6 +367,31 @@ export function validateStudyInputs(
 		throw new StudyError('CONFIG', 'Quality studies require a capacity qualification')
 }
 
+export function computeStudyQuantile(
+	values: readonly number[],
+	quantile: number,
+): number | undefined {
+	if (!Number.isFinite(quantile) || quantile < 0 || quantile > 1)
+		throw new StudyError(
+			'CONFIG',
+			`Study quantile must be a finite number from 0 to 1; received ${String(quantile)}`,
+		)
+	const index = values.findIndex((value) => !Number.isFinite(value))
+	if (index >= 0)
+		throw new StudyError(
+			'CONFIG',
+			`Study quantile values must be finite numbers; values[${index}] is ${String(values[index])}`,
+		)
+	const sorted = values.toSorted((left, right) => left - right)
+	const position = (sorted.length - 1) * quantile
+	const rank = Math.floor(position)
+	const lower = sorted[rank]
+	const upper = sorted[Math.ceil(position)]
+	if (lower === undefined || upper === undefined) return undefined
+	const weight = position - rank
+	return lower * (1 - weight) + upper * weight
+}
+
 /**
  * Computes arm intervals over the complete scheduled criterion horizon.
  * @param manifest - The sealed population and schedule, projected by its selection when present

@@ -8,9 +8,10 @@ import { STUDY_LAUNCH_BYTES } from './constants.js'
 export class StudyLaunchChild {
 	readonly #child: ChildProcess
 	readonly #duration: number
-	readonly #forward: boolean
+	readonly #forward: { readonly stdout: boolean; readonly stderr: boolean }
 	readonly #signal: AbortSignal
-	readonly #chunks: Buffer[] = []
+	readonly #stdout: Buffer[] = []
+	readonly #stderr: Buffer[] = []
 	#bytes = 0
 	#failure: Error | undefined
 	#expired = false
@@ -19,18 +20,23 @@ export class StudyLaunchChild {
 	/** Binds one spawned child to its deadline, output route and the launcher's interruption.
 	 * @param child - The spawned child; `execute` subscribes before any of its events can fire.
 	 * @param duration - The deadline in milliseconds.
-	 * @param forward - If `true`, stdout is forwarded to this process; if `false`, it is captured as the result output.
+	 * @param forward - Each stream forwarded to this process when `true`, or captured as the result's text when `false`.
 	 * @param signal - The launcher's interruption; an abort terminates the child and reports 130.
 	 */
-	constructor(child: ChildProcess, duration: number, forward: boolean, signal: AbortSignal) {
+	constructor(
+		child: ChildProcess,
+		duration: number,
+		forward: { readonly stdout: boolean; readonly stderr: boolean },
+		signal: AbortSignal,
+	) {
 		this.#child = child
 		this.#duration = duration
-		this.#forward = forward
+		this.#forward = { stdout: forward.stdout, stderr: forward.stderr }
 		this.#signal = signal
 	}
 
 	/** Waits for the child to close and reports its exit code and captured output.
-	 * @returns The child's code, 130 after interruption or 124 after the deadline, with captured stdout.
+	 * @returns The child's code, 130 after interruption or 124 after the deadline, with each captured stream.
 	 * @throws StudyError - Thrown with code `CONFIG` when this child is already supervised.
 	 */
 	execute(): Promise<StudyLaunchResult> {
@@ -50,11 +56,11 @@ export class StudyLaunchChild {
 			})
 			child.stdout?.on('data', (chunk: Buffer) => {
 				if (!this.#measure(chunk)) return
-				if (this.#forward) process.stdout.write(chunk)
-				else this.#chunks.push(chunk)
+				if (this.#forward.stdout) process.stdout.write(chunk)
+				else this.#stdout.push(chunk)
 			})
 			child.stderr?.on('data', (chunk: Buffer) => {
-				if (this.#measure(chunk)) process.stderr.write(chunk)
+				if (this.#measure(chunk)) this.#writeStderr(chunk)
 			})
 			child.once('error', (error) => {
 				this.#failure ??= error
@@ -67,12 +73,15 @@ export class StudyLaunchChild {
 					return
 				}
 				if (this.#expired)
-					process.stderr.write(
-						`study: DEADLINE: Process tree exceeded its ${this.#duration} ms deadline\n`,
+					this.#writeStderr(
+						Buffer.from(
+							`study: DEADLINE: Process tree exceeded its ${this.#duration} ms deadline\n`,
+						),
 					)
 				resolve({
 					code: signal.aborted ? 130 : this.#expired ? 124 : (code ?? 1),
-					output: Buffer.concat(this.#chunks).toString('utf8'),
+					stdout: Buffer.concat(this.#stdout).toString('utf8'),
+					stderr: Buffer.concat(this.#stderr).toString('utf8'),
 				})
 			})
 			if (signal.aborted) terminateStudyChild(child)
@@ -86,5 +95,10 @@ export class StudyLaunchChild {
 		this.#failure ??= new Error('Study command output exceeds the 16 MiB host allowance')
 		terminateStudyChild(this.#child)
 		return false
+	}
+
+	#writeStderr(chunk: Buffer): void {
+		if (this.#forward.stderr) process.stderr.write(chunk)
+		else this.#stderr.push(chunk)
 	}
 }

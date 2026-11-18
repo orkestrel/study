@@ -271,6 +271,32 @@ describe('StudyAgentScript', () => {
 		}
 	})
 
+	it('charges every scripted call with unknown tokens and positive integer bytes, not only the first', async () => {
+		const meter = createStudyScriptMeter(1000, 100, 3)
+		try {
+			const script = new StudyAgentScript({ bytes: 1000 })
+			script.prepare(
+				createStudyScriptFixture(meter, [
+					buildStudyScriptResponse({ content: 'one' }),
+					buildStudyScriptResponse({ content: 'two' }),
+					buildStudyScriptResponse({ content: 'three' }),
+				]).plan,
+			)
+			for (const content of ['one', 'two', 'three'])
+				expect(await script.generate(STUDY_SCRIPT_MESSAGES, meter.control.signal)).toEqual({
+					content,
+				})
+			expect(meter.meter.usage).toHaveLength(3)
+			for (const charge of meter.meter.usage) {
+				expect(charge).toMatchObject({ role: 'agent', calls: 1, tokens: undefined })
+				expect(Number.isSafeInteger(charge.bytes)).toBe(true)
+				expect(charge.bytes).toBeGreaterThan(0)
+			}
+		} finally {
+			meter.close()
+		}
+	})
+
 	it('refuses a continuation whose referenced result is absent before any admission', async () => {
 		const meter = createStudyScriptMeter()
 		try {

@@ -12,8 +12,13 @@ import type {
 	StudySelection,
 } from '@src/core'
 import type { StudyAttributionSource, StudyCommandArtifact, StudyDeclaration } from './types.js'
-import type { StudyClosure, StudySeedResult } from './types.js'
-import type { ArtifactClosure } from '../artifacts/types.js'
+import type {
+	StudyClosure,
+	StudyFreezeRequest,
+	StudyPreparation,
+	StudySeedResult,
+} from './types.js'
+import type { ArtifactClosure, ArtifactLoaderOptions } from '../artifacts/types.js'
 import type { StudySealedResult } from '../stores/types.js'
 import type { JSONValue } from '@orkestrel/contract'
 import {
@@ -42,8 +47,36 @@ import { readStudyBytes } from '../stores/helpers.js'
 import { isStudyCustodyEvidence } from '../stores/validators.js'
 import { STUDY_CUSTODY_BYTES, STUDY_RESERVED_NAME } from '../stores/constants.js'
 import { readArtifact, verifyArtifactClosure, relocateArtifactPath } from '../artifacts/helpers.js'
+import { collectStudyEntries, resolveStudyInstrument } from '../processes/helpers.js'
 import { STUDY_CHECKPOINT_EVENT } from './constants.js'
 import { isStudyClosure } from './validators.js'
+
+export function buildStudyFreezeOptions(
+	root: string,
+	entry: string,
+	request: Pick<StudyFreezeRequest, 'target' | 'profile'>,
+	preparation: Pick<StudyPreparation, 'bundle' | 'definition' | 'profile'>,
+): ArtifactLoaderOptions {
+	const instrument = resolveStudyInstrument(entry)
+	const directory = resolveStudyPath(join(root, 'studies'), request.target)
+	return {
+		entries: collectStudyEntries(preparation.profile),
+		roots: [...new Set([...preparation.profile.roots, instrument])],
+		source: { root: preparation.bundle, entry: join(preparation.bundle, 'index.ts') },
+		instrument,
+		assets: [
+			...new Set([
+				entry,
+				join(directory, 'study.json'),
+				resolveStudyPath(directory, preparation.definition.rubric),
+				resolveStudyPath(preparation.bundle, `profiles/${request.profile}.json`),
+				...preparation.definition.scenarios.map((id) =>
+					resolveStudyPath(preparation.bundle, `scenarios/${id}.json`),
+				),
+			]),
+		],
+	}
+}
 
 /** Reads and independently verifies an exclusively published closure.
  * @param directory - The canonical closure destination.

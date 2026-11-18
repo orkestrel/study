@@ -8,6 +8,7 @@ import {
 	buildStudyOllamaKey,
 	splitStudyOllamaChunks,
 	buildStudyOllamaModels,
+	collectStudyOllamaModels,
 	buildStudyOllamaRaw,
 	buildStudyOllamaOptions,
 	buildStudyOllamaTiming,
@@ -622,6 +623,32 @@ describe('validateStudyOllamaInventory', () => {
 		['a missing pinned model', { models: [model] }],
 	] as const)('refuses %s', (_name, value) => {
 		expect(() => validateStudyOllamaInventory(value, options.models)).toThrow(StudyError)
+	})
+})
+
+describe('collectStudyOllamaModels', () => {
+	const model = { name: 'model', digest: 'a'.repeat(64) }
+	const triage = { name: 'decision', digest: 'c'.repeat(64) }
+
+	it('keeps each pinned name once, first pin first, so an inventory built from it passes the check', () => {
+		const models = buildStudyOllamaModels({
+			entry: 'provider.js',
+			url: 'http://127.0.0.1:1',
+			model: 'model',
+			judge: 'model',
+			digest: { model: model.digest, judge: model.digest },
+		})
+		expect(Object.values(models)).toEqual([model, model])
+		expect(collectStudyOllamaModels(models)).toEqual([model])
+		expect(() => validateStudyOllamaInventory({ models: Object.values(models) }, models)).toThrow(
+			'Serving inventory does not match the required model digest',
+		)
+		expect(() =>
+			validateStudyOllamaInventory({ models: collectStudyOllamaModels(models) }, models),
+		).not.toThrow()
+		expect(collectStudyOllamaModels({ model, triage, judge: model })).toEqual([model, triage])
+		expect(collectStudyOllamaModels({})).toEqual([])
+		expect(Object.isFrozen(collectStudyOllamaModels(models))).toBe(true)
 	})
 })
 

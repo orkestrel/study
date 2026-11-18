@@ -2,6 +2,7 @@ import type { StudyProvider, StudyRole, StudyRoom, StudyStop } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
 import type { OllamaTiming } from '@orkestrel/ollama'
 import type {
+	StudyOllamaModel,
 	StudyOllamaPolicy,
 	StudyOllamaRequest,
 	StudyOllamaOptions,
@@ -122,6 +123,16 @@ export function buildStudyOllamaModels(
 			? {}
 			: { judge: { name: provider.judge, digest: provider.digest.judge } }),
 	}
+}
+
+export function collectStudyOllamaModels(
+	models: StudyOllamaTransportOptions['models'],
+): readonly StudyOllamaModel[] {
+	return Object.freeze(
+		Object.values(models).filter(
+			(model, index, entries) => entries.findIndex((entry) => entry.name === model.name) === index,
+		),
+	)
 }
 
 /**

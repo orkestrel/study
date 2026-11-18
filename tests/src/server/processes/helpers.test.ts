@@ -341,6 +341,34 @@ describe('process helpers', () => {
 			scratch.destroy()
 		}
 	})
+	it('refuses an omitted runtime dependency with CONFIG whatever its own dependencies hold', () => {
+		const scratch = createStudyScratch(resolve('tmp/units'), 'runtime-omitted-')
+		try {
+			scratch.write(
+				'package.json',
+				JSON.stringify({ name: '@orkestrel/study', version: '1.0.0', dependencies: { x: '*' } }),
+			)
+			const x = join(scratch.path, 'node_modules', 'x')
+			for (const [dependency, write] of [
+				['absent', undefined],
+				['broken', '{'],
+			] as const) {
+				scratch.write(
+					'node_modules/x/package.json',
+					JSON.stringify({ name: 'x', version: '1.0.0', dependencies: { [dependency]: '*' } }),
+				)
+				if (write !== undefined) scratch.write(`node_modules/${dependency}/package.json`, write)
+				expect(() => validateStudyRuntime(scratch.path, [scratch.path])).toThrow(
+					expect.objectContaining({
+						code: 'CONFIG',
+						message: `Profile roots omit a runtime dependency: ${realpathSync(x)}`,
+					}),
+				)
+			}
+		} finally {
+			scratch.destroy()
+		}
+	})
 	it('binds canonical resolved profile settings across the JSON boundary', () => {
 		const profile = buildStudyProfile()
 		expect(computeStudyProfileDigest(profile)).toMatch(/^[a-f0-9]{64}$/)

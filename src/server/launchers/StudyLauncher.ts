@@ -1,11 +1,12 @@
 import type { StudyLaunchOptions, StudyLaunchResult } from './types.js'
-import { StudyError, isStudyBounds, isStudyDigest } from '@src/core'
-import { isRecord } from '@orkestrel/contract'
+import { StudyError } from '@src/core'
 import { spawn } from 'node:child_process'
 import { STUDY_COMMAND_DURATION } from '../commands/constants.js'
 import { parseStudyArguments } from '../commands/parsers.js'
 import { STUDY_COMMAND_OPERATION } from '../processes/constants.js'
 import { STUDY_LAUNCH_CLEANUP, STUDY_LAUNCH_DURATION } from './constants.js'
+import { buildStudySelectors } from './helpers.js'
+import { parseStudyCheck } from './parsers.js'
 import { StudyLaunchChild } from './StudyLaunchChild.js'
 
 /** Supervises finite command trees and binds offline check to execution. */
@@ -38,12 +39,7 @@ export class StudyLauncher {
 				if (this.#interruption.signal.aborted) return 130
 				return (await this.#launch(entry, arguments_, STUDY_LAUNCH_DURATION, true)).code
 			}
-			const { trial, goals, seed } = request
-			const selectors = [
-				...(trial === undefined ? [] : ['--trial', trial]),
-				...(goals === undefined ? [] : ['--goals', goals.first + '..' + goals.last]),
-				...(seed === undefined ? [] : ['--seed', seed.result + ':' + seed.trial + ':' + seed.goal]),
-			]
+			const selectors = buildStudySelectors(request)
 			const check = [
 				'check',
 				request.target,
@@ -55,19 +51,15 @@ export class StudyLauncher {
 			]
 			const outcome = await this.#launch(entry, check, STUDY_LAUNCH_DURATION, false)
 			if (outcome.code !== 0) {
-				process.stdout.write(outcome.output)
+				process.stdout.write(outcome.stdout)
 				return outcome.code
 			}
-			const value: unknown = JSON.parse(outcome.output)
-			if (
-				!isRecord(value) ||
-				!isStudyBounds(value.bounds) ||
-				value.bounds.series.duration > STUDY_COMMAND_DURATION
-			)
+			const value = parseStudyCheck(JSON.parse(outcome.stdout))
+			if (value === undefined || value.bounds.series.duration > STUDY_COMMAND_DURATION)
 				throw new Error(
 					'Study execution requires a validated series duration within the 24-hour host ceiling',
 				)
-			if (!isStudyDigest(value.fingerprint))
+			if (value.fingerprint === undefined)
 				throw new Error('Study check did not return an execution fingerprint')
 			const duration = value.bounds.series.duration + STUDY_LAUNCH_CLEANUP
 			if (request.expected !== undefined && request.expected !== value.fingerprint)
@@ -130,6 +122,11 @@ export class StudyLauncher {
 				stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
 			},
 		)
-		return new StudyLaunchChild(child, duration, forward, this.#interruption.signal).execute()
+		return new StudyLaunchChild(
+			child,
+			duration,
+			{ stdout: forward, stderr: true },
+			this.#interruption.signal,
+		).execute()
 	}
 }

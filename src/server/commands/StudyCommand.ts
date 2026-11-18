@@ -81,6 +81,7 @@ import { StudyResultStore } from '../stores/StudyResultStore.js'
 import { StudyTask } from '../processes/StudyTask.js'
 import { STUDY_COMMAND_DURATION, STUDY_COMMAND_GRADER } from './constants.js'
 import {
+	buildStudyFreezeOptions,
 	collectStudyEvidence,
 	computeStudyCommandFingerprint,
 	computeStudyFixtureDigest,
@@ -145,32 +146,9 @@ export class StudyCommand {
 			expected: undefined,
 		}
 		const original = await this.#prepare(selection, signal)
-		const instrument = resolveStudyInstrument(this.#entry)
-		const directory = resolveStudyPath(join(this.#root, 'studies'), request.target)
-		const assets = [
-			...new Set([
-				this.#entry,
-				join(directory, 'study.json'),
-				resolveStudyPath(directory, original.definition.rubric),
-				resolveStudyPath(original.bundle, `profiles/${request.profile}.json`),
-				...original.definition.scenarios.map((id) =>
-					resolveStudyPath(original.bundle, `scenarios/${id}.json`),
-				),
-			]),
-		]
-		const loader = new ArtifactLoader({
-			entries: [
-				...new Set([
-					original.profile.agent,
-					original.profile.subject,
-					...(original.profile.provider === undefined ? [] : [original.profile.provider.entry]),
-				]),
-			],
-			roots: [...new Set([...original.profile.roots, instrument])],
-			source: { root: original.bundle, entry: join(original.bundle, 'index.ts') },
-			instrument,
-			assets,
-		})
+		const loader = new ArtifactLoader(
+			buildStudyFreezeOptions(this.#root, this.#entry, request, original),
+		)
 		loader.inspect()
 		signal.throwIfAborted()
 		const closure = await loader.materialize(request.destination)

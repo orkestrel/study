@@ -1,10 +1,17 @@
-import { createRecorder } from '@orkestrel/test'
+import { createRecorder, requireValue } from '@orkestrel/test'
 import { studyStopToJSON } from '../../../src/core/helpers.js'
-import { buildStudyStop } from '../../setupStudy.js'
+import {
+	STUDY_MEDIAN_SAMPLES,
+	STUDY_QUANTILE_CASES,
+	STUDY_QUANTILE_INVALID,
+	STUDY_QUANTILE_INVALID_VALUES,
+	buildStudyStop,
+} from '../../setupStudy.js'
 import { describe, expect, it } from 'vitest'
 import {
 	scanStudyJSONFaults,
 	buildStudySchedule,
+	computeStudyQuantile,
 	computeStudyScores,
 	filterStudyCriteria,
 	filterStudyGoals,
@@ -525,5 +532,53 @@ describe('scanStudyJSONFaults', () => {
 		expect(reads.calls).toEqual([])
 		expect(scanStudyJSONFaults(undefined)).toEqual(['value: holds no JSON value'])
 		expect(scanStudyJSONFaults({ [Symbol.iterator]: 1 })).toEqual(['value: holds a symbol key'])
+	})
+})
+
+describe('computeStudyQuantile', () => {
+	it('interpolates linearly between the closest ranks of the sorted values', () => {
+		for (const { values, quantile, expected } of STUDY_QUANTILE_CASES)
+			expect(computeStudyQuantile(values, quantile)).toBeCloseTo(expected, 12)
+	})
+
+	it('equals the middle value or the mean of the middle pair at the median', () => {
+		for (const values of STUDY_MEDIAN_SAMPLES) {
+			const sorted = values.toSorted((left, right) => left - right)
+			const middle = Math.floor(sorted.length / 2)
+			const desk =
+				sorted.length % 2 === 0
+					? (requireValue(sorted[middle - 1]) + requireValue(sorted[middle])) / 2
+					: requireValue(sorted[middle])
+			expect(computeStudyQuantile(values, 0.5)).toBe(desk)
+		}
+	})
+
+	it('differs from a floor-rank quantile on an even count', () => {
+		const values = [4, 1, 3, 2]
+		const sorted = values.toSorted((left, right) => left - right)
+		const ranks = [
+			sorted[Math.floor(0.5 * sorted.length)],
+			sorted[Math.floor(0.5 * (sorted.length - 1))],
+		]
+		expect(ranks).toEqual([3, 2])
+		expect(ranks).not.toContain(computeStudyQuantile(values, 0.5))
+	})
+
+	it('returns undefined for no values and leaves the caller order unchanged', () => {
+		expect(computeStudyQuantile([], 0.5)).toBeUndefined()
+		const values = Object.freeze([9, 1, 5])
+		expect(computeStudyQuantile(values, 0)).toBe(1)
+		expect(values).toEqual([9, 1, 5])
+	})
+
+	it('refuses a quantile outside 0 to 1 and a value that is not finite', () => {
+		for (const quantile of STUDY_QUANTILE_INVALID)
+			expect(() => computeStudyQuantile([1, 2], quantile)).toThrow(
+				expect.objectContaining({ code: 'CONFIG', message: expect.stringContaining('quantile') }),
+			)
+		for (const values of STUDY_QUANTILE_INVALID_VALUES)
+			expect(() => computeStudyQuantile(values, 0.5)).toThrow(
+				expect.objectContaining({ code: 'CONFIG', message: expect.stringContaining('values') }),
+			)
 	})
 })

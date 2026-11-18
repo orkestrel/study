@@ -12,9 +12,11 @@ import type {
 	StudyBounds,
 	StudyCriterion,
 	StudyDefinition,
+	StudyDriverInterface,
 	StudyAssessment,
 	StudyEvidence,
 	StudyFailure,
+	StudyGoal,
 	StudyJudgment,
 	StudyManifest,
 	StudyObservation,
@@ -663,6 +665,49 @@ export function buildStudyCapacityManifest(
 	}
 }
 
+export function buildStudyRepetitionManifest(): StudyManifest {
+	const baseline = buildCustodyManifest()
+	const definition: StudyDefinition = {
+		...baseline.definition,
+		arms: ['small'],
+		scenarios: ['first'],
+		order: [['small'], ['small']],
+	}
+	const scenarios = baseline.scenarios.filter((scenario) => scenario.id === 'first')
+	return buildCustodyManifest({
+		definition,
+		scenarios,
+		schedule: buildStudySchedule(definition, scenarios),
+	})
+}
+
+export class StudyHistorySession implements StudySessionInterface {
+	readonly #goals: string[] = []
+
+	async execute(goal: StudyGoal): Promise<StudyProduct> {
+		this.#goals.push(goal.id)
+		return { value: this.#goals.join(','), partial: false }
+	}
+
+	close(): Promise<void> {
+		return Promise.resolve()
+	}
+}
+
+export function createStudyHistoryDriver(): StudyDriverInterface {
+	return {
+		async open(): Promise<StudySessionInterface> {
+			return new StudyHistorySession()
+		},
+	}
+}
+
+export const STUDY_ADMISSION_ROW: StudyEvidence = Object.freeze({
+	event: 'admission',
+	goal: 'write',
+	value: Object.freeze({ role: 'agent', refused: true }),
+})
+
 /**
  * Builds a complete terminal horizon from the supplied scheduled trial.
  * @param manifest - The authoritative goal horizon
@@ -844,6 +889,50 @@ export const STUDY_TRUNCATION_VALUES: readonly unknown[] = Object.freeze([true, 
 
 /** Supplies off-shape truncation declarations. */
 export const STUDY_INVALID_TRUNCATIONS: readonly unknown[] = Object.freeze([null, 0, 'true', {}])
+
+export interface StudyQuantileCase {
+	readonly values: readonly number[]
+	readonly quantile: number
+	readonly expected: number
+}
+
+export const STUDY_QUANTILE_CASES: readonly StudyQuantileCase[] = Object.freeze([
+	{ values: [7], quantile: 0, expected: 7 },
+	{ values: [7], quantile: 0.5, expected: 7 },
+	{ values: [7], quantile: 1, expected: 7 },
+	{ values: [3, 1, 2], quantile: 0.5, expected: 2 },
+	{ values: [4, 1, 3, 2], quantile: 0.5, expected: 2.5 },
+	{ values: [5, -1, 9], quantile: 0, expected: -1 },
+	{ values: [5, -1, 9], quantile: 1, expected: 9 },
+	{ values: [1, 2, 3, 4, 5], quantile: 0.25, expected: 2 },
+	{ values: [2, 2, 2, 2], quantile: 0.75, expected: 2 },
+	{ values: [10, 20, 30, 40], quantile: 0.9, expected: 37 },
+	{ values: [-3, 0, 3], quantile: 0.5, expected: 0 },
+])
+
+export const STUDY_MEDIAN_SAMPLES: ReadonlyArray<readonly number[]> = Object.freeze([
+	[7],
+	[0.1, 0.2],
+	[0.3, 0.7, 0.2, 0.9],
+	[5, 3, 1],
+	[1e-9, 3.14159, 2.71828, 1.41421],
+	[1200.5, 87.25, 3400.75, 950, 410.125, 2210],
+	[-2.5, 8, -0.75, 4.125],
+])
+
+export const STUDY_QUANTILE_INVALID: readonly number[] = Object.freeze([
+	Number.NaN,
+	-0.1,
+	1.1,
+	Infinity,
+	-Infinity,
+])
+
+export const STUDY_QUANTILE_INVALID_VALUES: ReadonlyArray<readonly number[]> = Object.freeze([
+	[1, Number.NaN, 3],
+	[Infinity],
+	[2, -Infinity],
+])
 
 /** Executes a real Agent over the scripted provider inside a serial Study series.
  * @param options - The real Agent's budgets and window policy.

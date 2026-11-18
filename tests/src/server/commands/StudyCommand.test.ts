@@ -39,7 +39,10 @@ import {
 	STUDY_SELECTION_RUBRIC,
 	STUDY_SELECTION_ROW,
 	buildStudySelectionRefusals,
+	readStudySealDigests,
 	readStudySelectionOpens,
+	STUDY_STRICT_RUBRIC,
+	STUDY_STRICT_RUBRIC_PATH,
 	writeStudySelectionConsumer,
 } from '../../../setupServer.js'
 
@@ -908,6 +911,65 @@ describe('recording and replay command handoff', () => {
 				),
 			).rejects.toBeDefined()
 			expect(server.requests).toHaveLength(before)
+		} finally {
+			await fixture.close()
+		}
+	}, 240000)
+
+	it('keyed: an offline replay of the capacity recording qualifies its quality twin, and a changed bound refuses', async () => {
+		const fixture = await createStudyReplayFixture(false, false, true)
+		const signal = new AbortController().signal
+		try {
+			const { scratch, command, recorded, server, result, history } = fixture
+			const roles = [...new Set(history.exchanges.map(({ attempt }) => attempt.role))]
+			const keyed = ['--replay', recorded, '--roles', JSON.stringify(roles), '--offline', 'true']
+			const before = server.requests.length
+			const output = join(scratch.path, 'qualified')
+			expect(roles.length).toBeGreaterThan(0)
+			await expect(
+				command.execute(['execute', 'quality', '--out', output, ...keyed], signal),
+			).resolves.toMatchObject({ status: 'completed' })
+			const sealed = await readStudyResult(output)
+			if (sealed.status !== 'sealed') throw new Error('Keyed quality replay did not seal')
+			expect(sealed.manifest.definition.purpose).toBe('quality')
+			expect(sealed.manifest.qualification).toBe(result.seal.id)
+			expect(sealed.manifest.keyed).toMatchObject({
+				result: result.manifest.id,
+				seal: result.seal.id,
+				identity: result.manifest.identity,
+				offline: true,
+			})
+			expect([...(sealed.manifest.keyed?.roles ?? [])].toSorted()).toEqual(roles.toSorted())
+			expect(
+				sealed.attempts.flatMap((attempt) => attempt.observations.map((goal) => goal.product)),
+			).toEqual(
+				result.attempts.flatMap((attempt) => attempt.observations.map((goal) => goal.product)),
+			)
+			expect(server.requests).toHaveLength(before)
+			const profile = parseJSON(requireValue(scratch.read('studies/files/profiles/local.json')))
+			if (!isRecord(profile) || !isRecord(profile.bounds) || !isRecord(profile.bounds.series))
+				throw new Error('Missing qualified profile bounds')
+			const duration = fixture.profile.bounds.series.duration + 1
+			scratch.write(
+				'studies/files/profiles/local.json',
+				JSON.stringify({
+					...profile,
+					bounds: { ...profile.bounds, series: { ...profile.bounds.series, duration } },
+				}),
+			)
+			await expect(
+				command.execute(
+					['execute', 'quality', '--out', join(scratch.path, 'unqualified'), ...keyed],
+					signal,
+				),
+			).rejects.toMatchObject({
+				code: 'CONFIG',
+				message: expect.stringContaining(
+					'Qualification requires a compatible complete capacity result',
+				),
+			})
+			expect(server.requests).toHaveLength(before)
+			expect(scratch.has('unqualified')).toBe(false)
 		} finally {
 			await fixture.close()
 		}
@@ -1931,6 +1993,69 @@ describe('selection', () => {
 		} finally {
 			await server.close()
 			library.destroy()
+			scratch.destroy()
+		}
+	}, 240000)
+})
+
+describe('grading', () => {
+	it('grade: one sealed result under two rubrics keeps two identities over an unchanged seal, and one rubric twice keeps one', async () => {
+		const scratch = createStudyConsumer()
+		const signal = new AbortController().signal
+		try {
+			scratch.write(STUDY_STRICT_RUBRIC_PATH, JSON.stringify(STUDY_STRICT_RUBRIC))
+			const rubric = 'studies/assessment/rubric.json'
+			const entry = await buildStudyCLI(scratch)
+			const command = new StudyCommand({ root: scratch.path, entry })
+			const output = join(scratch.path, 'graded')
+			await expect(
+				command.execute(['execute', 'assessment', '--out', output], signal),
+			).resolves.toMatchObject({ status: 'completed' })
+			const result = await readStudyResult(output)
+			if (result.status !== 'sealed') throw new Error('Graded execution did not seal')
+			const before = readStudySealDigests(result)
+			const first = await command.execute(['grade', output, '--rubric', rubric], signal)
+			const second = await command.execute(
+				['grade', output, '--rubric', STUDY_STRICT_RUBRIC_PATH],
+				signal,
+			)
+			if (!isRecord(first) || typeof first.assessment !== 'string')
+				throw new Error('Missing first grading')
+			if (!isRecord(second) || typeof second.assessment !== 'string')
+				throw new Error('Missing second grading')
+			expect(second.assessment).not.toBe(first.assessment)
+			for (const [assessment, path] of [
+				[first.assessment, rubric],
+				[second.assessment, STUDY_STRICT_RUBRIC_PATH],
+			] as const)
+				expect(
+					parseJSON(requireValue(scratch.read(`graded/grades/${assessment}/grading.json`))),
+				).toMatchObject({
+					result: result.seal.id,
+					rubric: hashStudyBytes(requireValue(scratch.read(path))),
+				})
+			await expect(
+				command.execute(['report', output, '--assessment', first.assessment], signal),
+			).resolves.toMatchObject({
+				command: 'report',
+				assessment: first.assessment,
+				report: { scores: [{ total: 2, achieved: 1, unsuccessful: 0, unknown: 1, critical: 0 }] },
+			})
+			await expect(
+				command.execute(['report', output, '--assessment', second.assessment], signal),
+			).resolves.toMatchObject({
+				command: 'report',
+				assessment: second.assessment,
+				report: { scores: [{ total: 3, achieved: 2, unsuccessful: 1, unknown: 0, critical: 1 }] },
+			})
+			const reread = await readStudyResult(output)
+			if (reread.status !== 'sealed') throw new Error('Graded execution lost its seal')
+			expect(reread.seal.id).toBe(result.seal.id)
+			expect(before.length).toBeGreaterThan(0)
+			expect(readStudySealDigests(reread)).toEqual(before)
+			const again = await command.execute(['grade', output, '--rubric', rubric], signal)
+			expect(again).toMatchObject({ assessment: first.assessment })
+		} finally {
 			scratch.destroy()
 		}
 	}, 240000)

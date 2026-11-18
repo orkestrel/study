@@ -11,7 +11,9 @@ import { StudyError } from '../../../../src/core/errors.js'
 import {
 	buildCompactCustodyManifest,
 	buildStudyCapacityManifest,
+	buildStudyRepetitionManifest,
 	createStudyDriverFixture,
+	createStudyHistoryDriver,
 	createStudyStoreFixture,
 } from '../../../setupStudy.js'
 
@@ -66,6 +68,75 @@ describe('StudySeries', () => {
 		expect(driver.closed.count).toBe(2)
 		expect(custody.started.count).toBe(2)
 		expect(custody.attempts.count).toBe(2)
+	})
+
+	it('opens each scheduled repetition on fresh session state that only its own goals carry forward', async () => {
+		const manifest = buildStudyRepetitionManifest()
+		const attempts = await new StudySeries({
+			manifest,
+			driver: createStudyHistoryDriver(),
+			store: createStudyStoreFixture().store,
+			signal: new AbortController().signal,
+		}).execute()
+		expect(attempts.map((attempt) => attempt.trial.repetition)).toEqual([0, 1])
+		expect(
+			attempts.map((attempt) => attempt.observations.map((observation) => observation.product)),
+		).toEqual([
+			[
+				{ value: 'write', partial: false },
+				{ value: 'write,read', partial: false },
+			],
+			[
+				{ value: 'write', partial: false },
+				{ value: 'write,read', partial: false },
+			],
+		])
+	})
+
+	it("reads capacity on a later repetition's record when that repetition's admission is refused", async () => {
+		const repetitions = buildStudyRepetitionManifest()
+		const bounds = repetitions.bounds
+		const manifest = {
+			...repetitions,
+			bounds: {
+				request: { ...bounds.request, tokens: 10 },
+				goal: { ...bounds.goal, tokens: 20 },
+				trial: { ...bounds.trial, tokens: 20 },
+				series: { ...bounds.series, tokens: 25 },
+			},
+		}
+		const driver = createStudyDriverFixture({
+			execute: async (goal, context): Promise<StudyProduct> => {
+				const ticket = await context.meter.admit({ role: 'tool', tokens: 10, bytes: 10 })
+				ticket.finish({ role: 'tool', calls: 1, tokens: 10, bytes: 10, duration: 0 })
+				return { value: goal.id, partial: false }
+			},
+		})
+		const [first, second, ...rest] = await new StudySeries({
+			manifest,
+			driver: driver.driver,
+			store: createStudyStoreFixture().store,
+			signal: new AbortController().signal,
+		}).execute()
+		expect(rest).toEqual([])
+		expect(first?.failure).toBeUndefined()
+		expect(first?.observations.map((observation) => observation.failure)).toEqual([
+			undefined,
+			undefined,
+		])
+		const stop = { layer: 'scope', id: 'Series tokens', max: 25, consumed: 30 }
+		expect(second?.executed).toBe(true)
+		expect(second?.failure).toMatchObject({ cause: 'capacity', role: 'tool', stop })
+		expect(second?.observations[0]).toMatchObject({
+			executed: true,
+			product: undefined,
+			failure: { cause: 'capacity', role: 'tool', stop },
+		})
+		expect(second?.observations[1]).toMatchObject({
+			executed: false,
+			failure: { cause: 'capacity', message: expect.stringMatching(/^Goal unexecuted/) },
+		})
+		expect(driver.executed.calls).toEqual([['write'], ['read'], ['write']])
 	})
 
 	it('propagates an attached content failure through the horizon without retry and keeps settled usage', async () => {

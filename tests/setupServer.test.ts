@@ -440,7 +440,7 @@ describe('study server fixtures', () => {
 			expect(scratch.read('runtime/dist/bin/main.js')?.startsWith('#!/usr/bin/env node')).toBe(true)
 			const checked = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
 			expect(checked.code).toBe(0)
-			expect(() => JSON.parse(checked.output)).not.toThrow()
+			expect(() => JSON.parse(checked.stdout)).not.toThrow()
 			const refused = await executeStudyCLI(entry, scratch.path, ['check', 'missing'])
 			expect(refused.code).not.toBe(0)
 		} finally {

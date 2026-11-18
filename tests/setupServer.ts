@@ -15,7 +15,11 @@ import type { StudyMeterFixture } from './setup.js'
 import type { StudyResultStoreInterface } from '../src/server/stores/types.js'
 import type { BudgetError, BudgetErrorContext } from '@orkestrel/budget'
 import type { DistributionObservation, DistributionStage } from './setupDistribution.js'
-import type { StudyLaunchResult } from '../src/server/launchers/types.js'
+import type {
+	StudyInstallResult,
+	StudyLaunchOptions,
+	StudyLaunchResult,
+} from '../src/server/launchers/types.js'
 import type { ScratchInterface } from '@orkestrel/test/server'
 import type { ArtifactLoaderOptions } from '../src/server/artifacts/types.js'
 import type { ChildProcess } from 'node:child_process'
@@ -79,7 +83,7 @@ import {
 	writeDistributionProject,
 } from './setupDistribution.js'
 import { isArray, isInteger, isRecord, parseJSON } from '@orkestrel/contract'
-import { createScratch, isRunning } from '@orkestrel/test/server'
+import { createScratch, isRunning, readInventory } from '@orkestrel/test/server'
 import {
 	createTeardown,
 	requireValue,
@@ -96,6 +100,7 @@ import {
 	readdirSync,
 	readFileSync,
 	realpathSync,
+	writeFileSync,
 } from 'node:fs'
 import { mkdir, open as openFile, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
@@ -126,6 +131,8 @@ import { StudyChannel } from '../src/server/processes/StudyChannel.js'
 import { StudyCommand } from '../src/server/commands/StudyCommand.js'
 import { STUDY_TASK_DURATION, STUDY_WORKER_OPERATION } from '../src/server/processes/constants.js'
 import { STUDY_LAUNCH_BYTES } from '../src/server/launchers/constants.js'
+import { createStudyInstall } from '../src/server/launchers/factories.js'
+import { StudyInstall } from '../src/server/launchers/StudyInstall.js'
 import { collectStudyEvidence } from '../src/server/commands/helpers.js'
 import { StudyResultStore } from '../src/server/stores/StudyResultStore.js'
 import { StudyExchangeSink } from '../src/server/stores/StudyExchangeSink.js'
@@ -208,6 +215,7 @@ export function nestStudyConsumer(scratch: ScratchInterface, entry: string): str
 export async function createStudyReplayFixture(
 	nested = false,
 	triage = false,
+	qualified = false,
 ): Promise<StudyReplayFixture> {
 	const scratch = createStudyConsumer()
 	const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
@@ -223,6 +231,19 @@ export async function createStudyReplayFixture(
 		)
 		if (!isRecord(original.settings) || !isRecord(original.settings.metadata))
 			throw new Error('Missing recording settings')
+		const recorded = join(scratch.path, 'baseline')
+		if (qualified) {
+			const definition = parseJSON(scratch.read('studies/assessment/study.json') ?? '')
+			if (!isRecord(definition)) throw new Error('Missing recording definition')
+			scratch.write(
+				'studies/quality/study.json',
+				JSON.stringify({ ...definition, name: 'quality', purpose: 'quality' }),
+			)
+			scratch.write(
+				'studies/quality/rubric.json',
+				requireValue(scratch.read('studies/assessment/rubric.json')),
+			)
+		}
 		scratch.write(
 			'studies/files/profiles/local.json',
 			JSON.stringify({
@@ -236,12 +257,12 @@ export async function createStudyReplayFixture(
 				},
 				record: { bytes: 65536, calls: 3, duration: 15000 },
 				settings: { ...original.settings, metadata: { ...original.settings.metadata, calls: 8 } },
+				...(qualified ? { qualification: recorded } : {}),
 			}),
 		)
 		const built = await buildStudyCLI(scratch)
 		const entry = nested ? nestStudyConsumer(scratch, built) : built
 		const command = new StudyCommand({ root: scratch.path, entry })
-		const recorded = join(scratch.path, 'baseline')
 		await command.execute(
 			['execute', 'assessment', '--out', recorded],
 			new AbortController().signal,
@@ -2033,11 +2054,11 @@ ${body}
  * @param duration - The series duration, in milliseconds, the reply declares.
  * @returns The JSON reply carrying the bounds and the fixture fingerprint.
  */
-export function buildStudyCheckReply(duration: number): string {
+export function buildStudyCheckReply(duration: number, fingerprint = true): string {
 	const bounds = buildStudyProfile().bounds
 	return JSON.stringify({
 		bounds: { ...bounds, series: { ...bounds.series, duration } },
-		fingerprint: STUDY_CHECK_FINGERPRINT,
+		...(fingerprint ? { fingerprint: STUDY_CHECK_FINGERPRINT } : {}),
 	})
 }
 
@@ -2046,11 +2067,15 @@ export function buildStudyCheckReply(duration: number): string {
  * @param duration - The series duration, in milliseconds, the check reply declares.
  * @returns The absolute entry path.
  */
-export function writeStudyCheckEntry(scratch: ScratchInterface, duration: number): string {
+export function writeStudyCheckEntry(
+	scratch: ScratchInterface,
+	duration: number,
+	fingerprint = true,
+): string {
 	return writeStudyLauncherEntry(
 		scratch,
 		20000,
-		`finish(0, command === 'check' ? ${JSON.stringify(buildStudyCheckReply(duration))} : undefined)`,
+		`finish(0, command === 'check' ? ${JSON.stringify(buildStudyCheckReply(duration, fingerprint))} : undefined)`,
 	)
 }
 
@@ -2336,6 +2361,47 @@ export const STUDY_PREDICATE_RUBRIC: StudyRubric = Object.freeze({
 	),
 })
 
+export const STUDY_STRICT_RUBRIC_PATH = 'studies/assessment/strict.json'
+
+export const STUDY_STRICT_RUBRIC: StudyRubric = Object.freeze({
+	version: 'strict-1',
+	criteria: Object.freeze<readonly StudyCriterion[]>([
+		{
+			id: 'first-write',
+			scenario: 'first',
+			goal: 'write',
+			method: 'state',
+			critical: false,
+			assertion: { equals: 'remember' },
+		},
+		{
+			id: 'first-forget',
+			scenario: 'first',
+			goal: 'write',
+			method: 'trace',
+			critical: true,
+			assertion: { equals: 'forget' },
+		},
+		{
+			id: 'first-recall',
+			scenario: 'first',
+			goal: 'read',
+			method: 'state',
+			critical: false,
+			assertion: { equals: 'recall' },
+		},
+	]),
+})
+
+export function readStudySealDigests(
+	result: StudySealedResult,
+): ReadonlyArray<readonly [string, string]> {
+	return result.seal.files.map((file): readonly [string, string] => [
+		file.path,
+		hashStudyBytes(readFileSync(join(result.directory, 'execution', ...file.path.split('/')))),
+	])
+}
+
 /**
  * Builds an inert predicate shaped like the memory consumer's grading policy.
  * @returns A predicate that requires whole-attempt success for the operational assertion, cites the first matching row for an event assertion, and leaves semantic criteria unknown
@@ -2461,12 +2527,15 @@ export function createStudyRowGrade(): StudyGradeFunction {
  * @param scratch - The owned temporary consumer and runtime package.
  * @returns The actual built executable.
  */
-export async function buildStudyCLI(scratch: ScratchInterface): Promise<string> {
-	const output = scratch.ensure('runtime/dist/bin')
-	const core = scratch.ensure('runtime/dist/src/core')
-	const server = scratch.ensure('runtime/dist/src/server')
+export async function buildStudyCLI(
+	scratch: ScratchInterface,
+	directory = 'runtime',
+): Promise<string> {
+	const output = scratch.ensure(`${directory}/dist/bin`)
+	const core = scratch.ensure(`${directory}/dist/src/core`)
+	const server = scratch.ensure(`${directory}/dist/src/server`)
 	scratch.write(
-		'runtime/package.json',
+		`${directory}/package.json`,
 		JSON.stringify({ name: '@orkestrel/study', version: '0.0.0-runtime', type: 'module' }),
 	)
 	await build({
@@ -2572,7 +2641,8 @@ export function executeStudyCLI(
 			(error, stdout, stderr) =>
 				complete({
 					code: error === null ? 0 : typeof error.code === 'number' ? error.code : 1,
-					output: error === null ? stdout : stdout + stderr,
+					stdout,
+					stderr,
 				}),
 		),
 	)
@@ -2716,6 +2786,148 @@ export function createStudyAdapter() { return {
 } }
 `,
 	)
+}
+
+export const STUDY_INSTALL_PRIVATE = 'studies/files/sources/private/answers.json'
+
+export function writeStudyInstallConsumer(scratch: ScratchInterface): void {
+	writeStudyConsumer(scratch)
+	const profile = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
+	if (!isRecord(profile)) throw new Error('Missing install profile')
+	scratch.write(
+		'studies/files/profiles/local.json',
+		JSON.stringify({
+			...profile,
+			agent: 'subject/dist/index.js',
+			subject: 'subject/dist/index.js',
+			roots: ['.', 'subject'],
+		}),
+	)
+	scratch.write(
+		'package.json',
+		JSON.stringify({ name: 'install-consumer', version: '1.0.0', type: 'module' }),
+	)
+	scratch.write('dist/index.js', 'export const consumer = true\n')
+	scratch.write(STUDY_INSTALL_PRIVATE, JSON.stringify({ answer: 'withheld' }))
+	scratch.write(
+		'node_modules/@orkestrel/study/package.json',
+		JSON.stringify({ name: '@orkestrel/study', version: '0.0.0-install', type: 'module' }),
+	)
+	scratch.write('node_modules/@orkestrel/study/dist/bin/main.js', 'export {}\n')
+}
+
+export function writeStudyInstallProfile(
+	scratch: ScratchInterface,
+	change: Readonly<Record<string, unknown>>,
+): void {
+	const profile = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
+	if (!isRecord(profile)) throw new Error('Missing install profile')
+	scratch.write('studies/files/profiles/local.json', JSON.stringify({ ...profile, ...change }))
+}
+
+export const STUDY_INSTALL_DEPENDENCY = 'node_modules/dep/package.json'
+
+export function writeStudyInstallDependency(scratch: ScratchInterface, module: boolean): void {
+	scratch.write(
+		'package.json',
+		JSON.stringify({
+			name: 'install-consumer',
+			version: '1.0.0',
+			type: 'module',
+			dependencies: { dep: '*' },
+		}),
+	)
+	scratch.write(
+		STUDY_INSTALL_DEPENDENCY,
+		JSON.stringify({ name: 'dep', version: '1.0.0', ...(module ? { type: 'module' } : {}) }),
+	)
+	scratch.write('node_modules/dep/dist/index.js', 'export const dep = true\n')
+}
+
+export function collectStudyInstallFiles(directory: string): readonly string[] {
+	return Object.keys(readInventory(directory, readdirSync(directory))).toSorted()
+}
+
+export async function createStudyInstallFixture(): Promise<StudyInstallFixture> {
+	const scratch = createStudyConsumer(writeStudyInstallConsumer)
+	try {
+		writeStudyRefusalConsumer(scratch)
+		await buildStudyCLI(scratch, 'node_modules/@orkestrel/study')
+		const install = await createStudyInstall({
+			root: scratch.path,
+			directory: join(scratch.path, 'install'),
+			studies: ['assessment', 'ungraded'],
+			profiles: ['local', 'failing'],
+		})
+		return { scratch, install }
+	} catch (error) {
+		scratch.destroy()
+		throw error
+	}
+}
+
+export function writeStudyRefusalConsumer(scratch: ScratchInterface): void {
+	const adapter = requireValue(scratch.read('studies/files/index.ts'))
+	if (!adapter.includes('async open(trial) {') || !adapter.includes(' grade(input) {'))
+		throw new Error('Missing file adapter open or grade')
+	scratch.write(
+		'studies/files/index.ts',
+		adapter
+			.replace(
+				'async open(trial) {',
+				"async open(trial) { if (options.profile.settings?.open === 'refuse') throw new Error('Declared open refusal');",
+			)
+			.replace(
+				' grade(input) {',
+				" grade(input) { if (input.manifest.definition.name === 'ungraded') throw new Error('Declared grade refusal');",
+			),
+	)
+	const profile = parseJSON(requireValue(scratch.read('studies/files/profiles/local.json')))
+	const definition = parseJSON(requireValue(scratch.read('studies/assessment/study.json')))
+	if (!isRecord(profile) || !isRecord(definition)) throw new Error('Missing install declarations')
+	scratch.write(
+		'studies/files/profiles/failing.json',
+		JSON.stringify({ ...profile, name: 'failing', settings: { open: 'refuse' } }),
+	)
+	scratch.write('studies/ungraded/study.json', JSON.stringify({ ...definition, name: 'ungraded' }))
+	scratch.write(
+		'studies/ungraded/rubric.json',
+		requireValue(scratch.read('studies/assessment/rubric.json')),
+	)
+}
+
+export function writeStudyReplyEntry(
+	install: StudyInstall,
+	command: string,
+	reply: string,
+): string {
+	const entry = join(dirname(install.entry), `${command}-reply.mjs`)
+	writeFileSync(
+		entry,
+		`import { fileURLToPath } from 'node:url'
+import { StudyCLI } from '../src/server/index.js'
+if (process.argv[2] === ${JSON.stringify(command)}) process.stdout.write(${JSON.stringify(reply)})
+else process.exitCode = await new StudyCLI({ root: process.cwd(), entry: fileURLToPath(import.meta.url) }).execute(process.argv.slice(2))
+`,
+	)
+	return entry
+}
+
+export class StudyInstallRecorder extends StudyInstall {
+	readonly #calls: RecorderInterface<readonly [readonly string[], number | undefined]>
+
+	constructor(
+		options: StudyLaunchOptions,
+		calls: RecorderInterface<readonly [readonly string[], number | undefined]>,
+	) {
+		super(options)
+		this.#calls = calls
+	}
+
+	override execute(arguments_: readonly string[], duration?: number): Promise<StudyInstallResult> {
+		this.#calls.handler(arguments_, duration)
+		return super.execute(arguments_, duration)
+	}
 }
 
 /** Starts a loopback Ollama protocol fixture on an ephemeral port that answers queued replies by path.
@@ -4201,6 +4413,11 @@ export interface StudyContinuationSource {
 	readonly declared: boolean
 	readonly sealed: boolean
 	readonly code: 'CONFIG' | 'CUSTODY'
+}
+
+export interface StudyInstallFixture {
+	readonly scratch: ScratchInterface
+	readonly install: StudyInstall
 }
 
 /** Holds a sealed open recording and its real command, worker, and protocol resources. */

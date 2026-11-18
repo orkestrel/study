@@ -47,9 +47,9 @@ describe('admitted Agent over the admitted MCP core client', () => {
 			try {
 				writeStudyMCP(consumer, server.url, peer.url)
 				const executed = await executeStudyCLI(entry, consumer.path, ['execute', 'orders'])
-				const output = parseJSON(executed.output.split(/\r\n|\n/)[0] ?? '')
+				const output = parseJSON(executed.stdout.split(/\r\n|\n/)[0] ?? '')
 				if (!isRecord(output) || typeof output.path !== 'string')
-					throw new Error(`Missing result: ${executed.output}`)
+					throw new Error(`Missing result: ${executed.stdout}${executed.stderr}`)
 				const sealed = await readStudyResult(output.path)
 				if (sealed.status !== 'sealed') throw new Error('Execution did not seal')
 				expect({
@@ -124,9 +124,9 @@ describe('admitted Agent over the admitted MCP core client', () => {
 				try {
 					writeStudyMCP(consumer, proxy.url, peer.url)
 					const executed = await executeStudyCLI(entry, consumer.path, ['execute', 'orders'])
-					const output = parseJSON(executed.output.split(/\r\n|\n/)[0] ?? '')
+					const output = parseJSON(executed.stdout.split(/\r\n|\n/)[0] ?? '')
 					if (!isRecord(output) || typeof output.path !== 'string')
-						throw new Error(`Missing result: ${executed.output}`)
+						throw new Error(`Missing result: ${executed.stdout}${executed.stderr}`)
 					const sealed = await readStudyResult(output.path)
 					if (sealed.status !== 'sealed') throw new Error('Execution did not seal')
 					const [attempt] = sealed.attempts

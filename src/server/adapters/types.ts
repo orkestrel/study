@@ -64,6 +64,11 @@ export interface StudyGradeTarget {
 	readonly evidence: readonly StudyEvidence[]
 }
 
+export interface StudyRow {
+	readonly row: number
+	readonly evidence: StudyEvidence
+}
+
 /** Holds a consumer predicate's reading of one target, citing only retained files and rows. */
 export interface StudyGradeVerdict {
 	readonly verdict: StudyJudgment['verdict']

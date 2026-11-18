@@ -5,6 +5,7 @@ import type {
 	StudyGradeFunction,
 	StudyGradeTarget,
 	StudyReference,
+	StudyRow,
 } from './types.js'
 import { StudyError, isStudyJudgment, isStudyRubric } from '@src/core'
 import { isArray, isRecord } from '@orkestrel/contract'
@@ -62,6 +63,20 @@ export function buildStudyReference(target: StudyGradeTarget, reference: StudyRe
 	)
 		throw new StudyError('EVIDENCE', 'Grading reference names a retained row that does not exist')
 	return `${path}#${reference.row + 1}`
+}
+
+export function collectStudyRows(target: StudyGradeTarget, event?: string): readonly StudyRow[] {
+	return Object.freeze(
+		target.evidence
+			.entries()
+			.filter(
+				([, evidence]) =>
+					evidence.goal === target.criterion.goal &&
+					(event === undefined || evidence.event === event),
+			)
+			.map(([row, evidence]): StudyRow => Object.freeze({ row, evidence }))
+			.toArray(),
+	)
 }
 
 /**

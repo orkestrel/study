@@ -87,8 +87,10 @@ describe('built study executable', () => {
 				if (removed !== undefined) scratch.remove(removed)
 				const refusal = await executeStudyCLI(entry, scratch.path, tokens)
 				expect(refusal.code).toBe(64)
-				expect(refusal.output).toBe(`study: CONFIG: Declaration is missing: ${path}\n`)
-				expect(refusal.output).not.toContain(scratch.path)
+				expect(refusal.stdout + refusal.stderr).toBe(
+					`study: CONFIG: Declaration is missing: ${path}\n`,
+				)
+				expect(refusal.stdout + refusal.stderr).not.toContain(scratch.path)
 				expect(scratch.has('tmp')).toBe(false)
 				expect(scratch.has('imports.log')).toBe(false)
 			} finally {
@@ -108,7 +110,9 @@ describe('built study executable', () => {
 				'a'.repeat(64),
 			])
 			expect(refusal.code).toBe(1)
-			expect(refusal.output).toBe('study: CUSTODY: Selected result is missing: nope\n')
+			expect(refusal.stdout + refusal.stderr).toBe(
+				'study: CUSTODY: Selected result is missing: nope\n',
+			)
 			expect(scratch.names()).toEqual([])
 		} finally {
 			scratch.destroy()
@@ -125,10 +129,10 @@ describe('built study executable', () => {
 			scratch.link('studies/files/scenarios', target)
 			const refusal = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
 			expect(refusal.code).toBe(64)
-			expect(refusal.output).toBe(
+			expect(refusal.stdout + refusal.stderr).toBe(
 				'study: CONFIG: Declaration path is linked: studies/files/scenarios\n',
 			)
-			expect(refusal.output).not.toContain(scratch.path)
+			expect(refusal.stdout + refusal.stderr).not.toContain(scratch.path)
 			expect(scratch.has('tmp')).toBe(false)
 			expect(scratch.has('imports.log')).toBe(false)
 			expect(outside.names('scenarios')).toEqual([])
@@ -147,7 +151,7 @@ describe('built study executable', () => {
 			scratch.remove('studies/files/profiles/local.json')
 			const refusal = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
 			expect(refusal.code).toBe(64)
-			expect(refusal.output).toBe(
+			expect(refusal.stdout + refusal.stderr).toBe(
 				'study: CONFIG: Declaration is missing: studies/assessment/rubric.json\n',
 			)
 			expect(scratch.has('tmp')).toBe(false)
@@ -308,11 +312,14 @@ try { parseStudyArguments([]) } catch (error) {
 				'--out',
 				'chosen/result',
 			])
-			expect({ code: executed.code, output: executed.code === 0 ? '' : executed.output }).toEqual({
+			expect({
+				code: executed.code,
+				output: executed.code === 0 ? '' : executed.stdout + executed.stderr,
+			}).toEqual({
 				code: 0,
 				output: '',
 			})
-			const result = parseJSON(executed.output)
+			const result = parseJSON(executed.stdout)
 			if (!isRecord(result) || !arrayOf(isString)(result.next))
 				throw new Error('Missing relative output next argv')
 			expect(result.path).toBe(join(scratch.path, 'chosen', 'result'))
@@ -353,11 +360,14 @@ try { parseStudyArguments([]) } catch (error) {
 		const scratch = createStudyConsumer()
 		try {
 			const checked = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
-			expect({ code: checked.code, output: checked.code === 0 ? '' : checked.output }).toEqual({
+			expect({
+				code: checked.code,
+				output: checked.code === 0 ? '' : checked.stdout + checked.stderr,
+			}).toEqual({
 				code: 0,
 				output: '',
 			})
-			const value = parseJSON(checked.output)
+			const value = parseJSON(checked.stdout)
 			expect(value).toMatchObject({ command: 'check', study: 'assessment', driver: 'files' })
 			expect(scratch.has('imports.log')).toBe(false)
 			expect(scratch.has('tmp')).toBe(false)
@@ -372,7 +382,7 @@ try { parseStudyArguments([]) } catch (error) {
 		const scratch = createStudyConsumer()
 		try {
 			const checked = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
-			const planned = parseJSON(checked.output)
+			const planned = parseJSON(checked.stdout)
 			if (!isRecord(planned) || !arrayOf(isString)(planned.next))
 				throw new Error('Missing check next argv')
 			expect(parseStudyArguments(planned.next)).toMatchObject({
@@ -381,11 +391,14 @@ try { parseStudyArguments([]) } catch (error) {
 				expected: planned.fingerprint,
 			})
 			const executed = await executeStudyCLI(entry, scratch.path, planned.next)
-			expect({ code: executed.code, output: executed.code === 0 ? '' : executed.output }).toEqual({
+			expect({
+				code: executed.code,
+				output: executed.code === 0 ? '' : executed.stdout + executed.stderr,
+			}).toEqual({
 				code: 0,
 				output: '',
 			})
-			const result = parseJSON(executed.output)
+			const result = parseJSON(executed.stdout)
 			if (
 				!isRecord(result) ||
 				typeof result.path !== 'string' ||
@@ -414,11 +427,14 @@ try { parseStudyArguments([]) } catch (error) {
 					.map((observation) => observation.product?.value),
 			).toEqual(['saved:remember', 'saved:recall'])
 			const grade = await executeStudyCLI(entry, scratch.path, result.next)
-			expect({ code: grade.code, output: grade.code === 0 ? '' : grade.output }).toEqual({
+			expect({
+				code: grade.code,
+				output: grade.code === 0 ? '' : grade.stdout + grade.stderr,
+			}).toEqual({
 				code: 0,
 				output: '',
 			})
-			const assessment = parseJSON(grade.output)
+			const assessment = parseJSON(grade.stdout)
 			if (
 				!isRecord(assessment) ||
 				typeof assessment.assessment !== 'string' ||
@@ -432,11 +448,14 @@ try { parseStudyArguments([]) } catch (error) {
 			})
 			expect((scratch.read('imports.log') ?? '').trim().split(/\r\n|\n/)).toHaveLength(1)
 			const report = await executeStudyCLI(entry, scratch.path, assessment.next)
-			expect({ code: report.code, output: report.code === 0 ? '' : report.output }).toEqual({
+			expect({
+				code: report.code,
+				output: report.code === 0 ? '' : report.stdout + report.stderr,
+			}).toEqual({
 				code: 0,
 				output: '',
 			})
-			expect(parseJSON(report.output)).toMatchObject({
+			expect(parseJSON(report.stdout)).toMatchObject({
 				report: { scores: [{ achieved: 1, unknown: 1 }] },
 			})
 			const rubric = parseStudyRubric(
@@ -452,11 +471,14 @@ try { parseStudyArguments([]) } catch (error) {
 				'--labels',
 				path,
 			])
-			expect({ code: labeled.code, output: labeled.code === 0 ? '' : labeled.output }).toEqual({
+			expect({
+				code: labeled.code,
+				output: labeled.code === 0 ? '' : labeled.stdout + labeled.stderr,
+			}).toEqual({
 				code: 0,
 				output: '',
 			})
-			const labeledResult = parseJSON(labeled.output)
+			const labeledResult = parseJSON(labeled.stdout)
 			if (!isRecord(labeledResult) || !arrayOf(isString)(labeledResult.next))
 				throw new Error('Missing label next argv')
 			expect(parseStudyArguments(labeledResult.next)).toEqual({
@@ -465,7 +487,7 @@ try { parseStudyArguments([]) } catch (error) {
 				assessment: labeledResult.assessment,
 			})
 			const labeledReport = await executeStudyCLI(entry, scratch.path, labeledResult.next)
-			expect(parseJSON(labeledReport.output)).toMatchObject({
+			expect(parseJSON(labeledReport.stdout)).toMatchObject({
 				report: { scores: [{ achieved: 2, unknown: 0 }] },
 			})
 			const missingGrade = 'e'.repeat(64)
@@ -475,8 +497,12 @@ try { parseStudyArguments([]) } catch (error) {
 			]) {
 				const missing = await executeStudyCLI(entry, scratch.path, operation)
 				expect(missing.code).not.toBe(0)
-				expect(missing.output).toContain('study: CUSTODY: Selected grading is missing:')
-				expect(missing.output).toContain(join(result.path, 'grades', missingGrade, 'grading.json'))
+				expect(missing.stdout + missing.stderr).toContain(
+					'study: CUSTODY: Selected grading is missing:',
+				)
+				expect(missing.stdout + missing.stderr).toContain(
+					join(result.path, 'grades', missingGrade, 'grading.json'),
+				)
 			}
 			const source = scratch.read('studies/files/index.ts') ?? ''
 			scratch.write(
@@ -489,11 +515,14 @@ try { parseStudyArguments([]) } catch (error) {
 				'--rubric',
 				'studies/assessment/rubric.json',
 			])
-			expect({ code: regraded.code, output: regraded.code === 0 ? '' : regraded.output }).toEqual({
+			expect({
+				code: regraded.code,
+				output: regraded.code === 0 ? '' : regraded.stdout + regraded.stderr,
+			}).toEqual({
 				code: 0,
 				output: '',
 			})
-			const current = parseJSON(regraded.output)
+			const current = parseJSON(regraded.stdout)
 			if (!isRecord(current) || typeof current.assessment !== 'string')
 				throw new Error('Missing regrading')
 			expect(current.assessment).not.toBe(assessment.assessment)
@@ -520,12 +549,12 @@ try { parseStudyArguments([]) } catch (error) {
 		beforeAll(async () => {
 			const entry = await compiled.promise
 			const checked = parseJSON(
-				(await executeStudyCLI(entry, consumer.path, ['check', 'assessment'])).output,
+				(await executeStudyCLI(entry, consumer.path, ['check', 'assessment'])).stdout,
 			)
 			if (!isRecord(checked) || !arrayOf(isString)(checked.next))
 				throw new Error('Missing check next argv')
 			const execution = parseJSON(
-				(await executeStudyCLI(entry, consumer.path, checked.next)).output,
+				(await executeStudyCLI(entry, consumer.path, checked.next)).stdout,
 			)
 			if (!isRecord(execution) || typeof execution.path !== 'string')
 				throw new Error('Missing execution path')
@@ -540,11 +569,13 @@ try { parseStudyArguments([]) } catch (error) {
 			const { path, source } = await executed.promise
 			consumer.write('studies/files/index.ts', source)
 			const last = await executeStudyCLI(entry, consumer.path, ['progress', path])
-			expect({ code: last.code, output: last.code === 0 ? '' : last.output }).toEqual({
-				code: 0,
-				output: '',
-			})
-			const document = parseJSON(last.output)
+			expect({ code: last.code, output: last.code === 0 ? '' : last.stdout + last.stderr }).toEqual(
+				{
+					code: 0,
+					output: '',
+				},
+			)
+			const document = parseJSON(last.stdout)
 			expect(document).toMatchObject({
 				command: 'progress',
 				progress: {
@@ -565,7 +596,7 @@ try { parseStudyArguments([]) } catch (error) {
 				'--from',
 				'write',
 			])
-			expect(parseJSON(listed.output)).toMatchObject({
+			expect(parseJSON(listed.stdout)).toMatchObject({
 				progress: { trials: [{ goals: [{ goal: 'write' }, { goal: 'read' }] }] },
 			})
 			consumer.write(
@@ -580,9 +611,9 @@ try { parseStudyArguments([]) } catch (error) {
 			])
 			expect({
 				code: projected.code,
-				output: projected.code === 0 ? '' : projected.output,
+				output: projected.code === 0 ? '' : projected.stdout + projected.stderr,
 			}).toEqual({ code: 0, output: '' })
-			expect(parseJSON(projected.output)).toMatchObject({
+			expect(parseJSON(projected.stdout)).toMatchObject({
 				progress: {
 					trials: [
 						{
@@ -609,9 +640,9 @@ try { parseStudyArguments([]) } catch (error) {
 				)
 				const refused = await executeStudyCLI(entry, consumer.path, ['progress', path])
 				expect(refused.code).toBe(1)
-				expect(refused.output).toContain('study: FAULT: ')
-				expect(refused.output).toContain(message)
-				expect(refused.output).toContain('goal "read"')
+				expect(refused.stdout + refused.stderr).toContain('study: FAULT: ')
+				expect(refused.stdout + refused.stderr).toContain(message)
+				expect(refused.stdout + refused.stderr).toContain('goal "read"')
 			}
 			consumer.write('studies/files/index.ts', source)
 		}, 60000)
@@ -632,13 +663,17 @@ try { parseStudyArguments([]) } catch (error) {
 				'studies/assessment/rubric.json',
 			])
 			expect(graded.code).toBe(1)
-			expect(graded.output).toContain('Interrupted execution cannot be graded or reported')
+			expect(graded.stdout + graded.stderr).toContain(
+				'Interrupted execution cannot be graded or reported',
+			)
 			const read = await executeStudyCLI(entry, consumer.path, ['progress', 'interrupted'])
-			expect({ code: read.code, output: read.code === 0 ? '' : read.output }).toEqual({
-				code: 0,
-				output: '',
-			})
-			expect(parseJSON(read.output)).toMatchObject({
+			expect({ code: read.code, output: read.code === 0 ? '' : read.stdout + read.stderr }).toEqual(
+				{
+					code: 0,
+					output: '',
+				},
+			)
+			expect(parseJSON(read.stdout)).toMatchObject({
 				progress: { sealed: false, trials: [{ ended: false, goals: [{ goal: 'read' }] }] },
 			})
 		}, 60000)
@@ -668,11 +703,13 @@ try { parseStudyArguments([]) } catch (error) {
 				'--from',
 				'goal-1',
 			])
-			expect({ code: read.code, output: read.code === 0 ? '' : read.output }).toEqual({
-				code: 0,
-				output: '',
-			})
-			expect(parseJSON(read.output)).toEqual({
+			expect({ code: read.code, output: read.code === 0 ? '' : read.stdout + read.stderr }).toEqual(
+				{
+					code: 0,
+					output: '',
+				},
+			)
+			expect(parseJSON(read.stdout)).toEqual({
 				command: 'progress',
 				progress: {
 					id: manifest.id,
@@ -702,10 +739,12 @@ try { parseStudyArguments([]) } catch (error) {
 			const entry = await compiled.promise
 			const missing = await executeStudyCLI(entry, consumer.path, ['progress', 'nope'])
 			expect(missing.code).toBe(1)
-			expect(missing.output).toBe('study: CUSTODY: Selected result is missing: nope\n')
+			expect(missing.stdout + missing.stderr).toBe(
+				'study: CUSTODY: Selected result is missing: nope\n',
+			)
 			const help = await executeStudyCLI(entry, consumer.path, ['--help'])
 			expect(help.code).toBe(0)
-			expect(help.output).toContain('study progress <result> [--from <goal>]\n')
+			expect(help.stdout).toContain('study progress <result> [--from <goal>]\n')
 		})
 	})
 
@@ -725,7 +764,7 @@ try { parseStudyArguments([]) } catch (error) {
 			)
 			const result = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
 			expect(result.code).not.toBe(0)
-			expect(result.output).toContain('File adapter requires text input')
+			expect(result.stdout + result.stderr).toContain('File adapter requires text input')
 			expect(scratch.has('imports.log')).toBe(false)
 			expect(scratch.has('tmp')).toBe(false)
 		} finally {
@@ -754,7 +793,7 @@ try { parseStudyArguments([]) } catch (error) {
 			scratch.write('studies/files/index.ts', 'export const missing = true')
 			const invalid = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
 			expect(invalid.code).toBe(64)
-			expect(invalid.output).toContain('createStudyAdapter')
+			expect(invalid.stdout + invalid.stderr).toContain('createStudyAdapter')
 		} finally {
 			await destroyScratch(scratch)
 		}
@@ -774,9 +813,9 @@ try { parseStudyArguments([]) } catch (error) {
 			)
 			const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
 			expect(executed.code).toBe(1)
-			const result = parseJSON(executed.output.split(/\r\n|\n/)[0] ?? '')
+			const result = parseJSON(executed.stdout.split(/\r\n|\n/)[0] ?? '')
 			if (!isRecord(result) || typeof result.path !== 'string')
-				throw new Error(`Missing failure result: ${executed.output}`)
+				throw new Error(`Missing failure result: ${executed.stdout}${executed.stderr}`)
 			const sealed = await readStudyResult(result.path)
 			if (sealed.status !== 'sealed') throw new Error('Failure horizon did not seal')
 			expect(sealed.attempts).toHaveLength(sealed.manifest.schedule.length)
@@ -792,7 +831,7 @@ try { parseStudyArguments([]) } catch (error) {
 		const scratch = createStudyConsumer()
 		try {
 			const checked = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
-			const value = parseJSON(checked.output)
+			const value = parseJSON(checked.stdout)
 			if (!isRecord(value) || typeof value.fingerprint !== 'string')
 				throw new Error('Missing fingerprint')
 			const mismatch = await executeStudyCLI(entry, scratch.path, [
@@ -802,7 +841,7 @@ try { parseStudyArguments([]) } catch (error) {
 				'a'.repeat(64),
 			])
 			expect(mismatch.code).toBe(64)
-			expect(mismatch.output).toContain('requested fingerprint')
+			expect(mismatch.stdout + mismatch.stderr).toContain('requested fingerprint')
 			expect(scratch.has('imports.log')).toBe(false)
 			const matching = await executeStudyCLI(entry, scratch.path, [
 				'execute',
@@ -810,7 +849,10 @@ try { parseStudyArguments([]) } catch (error) {
 				'--expected',
 				value.fingerprint,
 			])
-			expect({ code: matching.code, output: matching.code === 0 ? '' : matching.output }).toEqual({
+			expect({
+				code: matching.code,
+				output: matching.code === 0 ? '' : matching.stdout + matching.stderr,
+			}).toEqual({
 				code: 0,
 				output: '',
 			})
@@ -854,19 +896,22 @@ try { parseStudyArguments([]) } catch (error) {
 				'--out',
 				qualification,
 			])
-			expect({ code: capacity.code, output: capacity.code === 0 ? '' : capacity.output }).toEqual({
+			expect({
+				code: capacity.code,
+				output: capacity.code === 0 ? '' : capacity.stdout + capacity.stderr,
+			}).toEqual({
 				code: 0,
 				output: '',
 			})
 			const qualified = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
 			expect({
 				code: qualified.code,
-				output: qualified.code === 0 ? '' : qualified.output,
+				output: qualified.code === 0 ? '' : qualified.stdout + qualified.stderr,
 			}).toEqual({
 				code: 0,
 				output: '',
 			})
-			const result = parseJSON(qualified.output)
+			const result = parseJSON(qualified.stdout)
 			if (!isRecord(result) || typeof result.path !== 'string')
 				throw new Error('Missing qualified result')
 			const sealed = await readStudyResult(result.path)
@@ -919,7 +964,10 @@ try { parseStudyArguments([]) } catch (error) {
 			expect(scratch.has('imports.log')).toBe(false)
 			expect(scratch.has('provider.log')).toBe(false)
 			const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
-			expect({ code: executed.code, output: executed.code === 0 ? '' : executed.output }).toEqual({
+			expect({
+				code: executed.code,
+				output: executed.code === 0 ? '' : executed.stdout + executed.stderr,
+			}).toEqual({
 				code: 0,
 				output: '',
 			})
@@ -942,12 +990,15 @@ try { parseStudyArguments([]) } catch (error) {
 				),
 			)
 			const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
-			expect({ code: executed.code, output: executed.code === 0 ? '' : executed.output }).toEqual({
+			expect({
+				code: executed.code,
+				output: executed.code === 0 ? '' : executed.stdout + executed.stderr,
+			}).toEqual({
 				code: 0,
 				output: '',
 			})
 			expect((scratch.read('imports.log') ?? '').trim().split(/\r\n|\n/)).toHaveLength(1)
-			const result = parseJSON(executed.output)
+			const result = parseJSON(executed.stdout)
 			if (!isRecord(result) || typeof result.path !== 'string') throw new Error('Missing result')
 			const sealed = await readStudyResult(result.path)
 			if (sealed.status !== 'sealed') throw new Error('Execution did not seal')
@@ -977,14 +1028,20 @@ try { parseStudyArguments([]) } catch (error) {
 				),
 			)
 			const checked = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
-			expect({ code: checked.code, output: checked.code === 0 ? '' : checked.output }).toEqual({
+			expect({
+				code: checked.code,
+				output: checked.code === 0 ? '' : checked.stdout + checked.stderr,
+			}).toEqual({
 				code: 0,
 				output: '',
 			})
 			expect(scratch.has('agent.log')).toBe(false)
-			const before = readStudyCheck(checked.output)
+			const before = readStudyCheck(checked.stdout)
 			const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
-			expect({ code: executed.code, output: executed.code === 0 ? '' : executed.output }).toEqual({
+			expect({
+				code: executed.code,
+				output: executed.code === 0 ? '' : executed.stdout + executed.stderr,
+			}).toEqual({
 				code: 0,
 				output: '',
 			})
@@ -999,7 +1056,7 @@ try { parseStudyArguments([]) } catch (error) {
 			)
 			const changed = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
 			expect(changed.code).toBe(0)
-			const after = readStudyCheck(changed.output)
+			const after = readStudyCheck(changed.stdout)
 			expect(after.agent).not.toBe(before.agent)
 			expect(after.fingerprint).not.toBe(before.fingerprint)
 		} finally {
@@ -1037,12 +1094,13 @@ try { parseStudyArguments([]) } catch (error) {
 				)
 				const untouched = scratch.read(relative(scratch.path, other.log))
 				const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
-				expect({ code: executed.code, output: executed.code === 0 ? '' : executed.output }).toEqual(
-					{
-						code: 0,
-						output: '',
-					},
-				)
+				expect({
+					code: executed.code,
+					output: executed.code === 0 ? '' : executed.stdout + executed.stderr,
+				}).toEqual({
+					code: 0,
+					output: '',
+				})
 				expect(scratch.read(relative(scratch.path, other.log))).toBe(untouched)
 			}
 		} finally {
@@ -1072,7 +1130,7 @@ try { parseStudyArguments([]) } catch (error) {
 				for (const operation of ['check', 'execute']) {
 					const refused = await executeStudyCLI(entry, scratch.path, [operation, 'assessment'])
 					expect(refused.code).not.toBe(0)
-					expect(refused.output).toContain('Artifact module is excluded:')
+					expect(refused.stdout + refused.stderr).toContain('Artifact module is excluded:')
 				}
 			}
 			expect(scratch.has('agent.log')).toBe(false)
@@ -1097,7 +1155,10 @@ try { parseStudyArguments([]) } catch (error) {
 				}),
 			)
 			const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
-			expect({ code: executed.code, output: executed.code === 0 ? '' : executed.output }).toEqual({
+			expect({
+				code: executed.code,
+				output: executed.code === 0 ? '' : executed.stdout + executed.stderr,
+			}).toEqual({
 				code: 0,
 				output: '',
 			})
@@ -1125,7 +1186,10 @@ try { parseStudyArguments([]) } catch (error) {
 				}),
 			)
 			const omitted = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
-			expect({ code: omitted.code, output: omitted.code === 0 ? '' : omitted.output }).toEqual({
+			expect({
+				code: omitted.code,
+				output: omitted.code === 0 ? '' : omitted.stdout + omitted.stderr,
+			}).toEqual({
 				code: 0,
 				output: '',
 			})
@@ -1139,7 +1203,7 @@ try { parseStudyArguments([]) } catch (error) {
 				)
 				const refused = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
 				expect(refused.code).toBe(64)
-				expect(refused.output).toContain('study profile')
+				expect(refused.stdout + refused.stderr).toContain('study profile')
 			}
 			expect(scratch.has('imports.log')).toBe(false)
 		} finally {
@@ -1187,7 +1251,7 @@ try { parseStudyArguments([]) } catch (error) {
 				for (const operation of ['check', 'execute']) {
 					const refused = await executeStudyCLI(entry, scratch.path, [operation, 'assessment'])
 					expect(refused.code).not.toBe(0)
-					expect(refused.output).toContain('Artifact module is excluded:')
+					expect(refused.stdout + refused.stderr).toContain('Artifact module is excluded:')
 				}
 			}
 			expect(scratch.has('imports.log')).toBe(false)
@@ -1195,7 +1259,10 @@ try { parseStudyArguments([]) } catch (error) {
 			expect(scratch.has('tmp')).toBe(false)
 			scratch.write('studies/files/index.ts', adapter)
 			const checked = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
-			expect({ code: checked.code, output: checked.code === 0 ? '' : checked.output }).toEqual({
+			expect({
+				code: checked.code,
+				output: checked.code === 0 ? '' : checked.stdout + checked.stderr,
+			}).toEqual({
 				code: 0,
 				output: '',
 			})
@@ -1221,7 +1288,9 @@ try { parseStudyArguments([]) } catch (error) {
 			for (const operation of ['check', 'execute']) {
 				const refused = await executeStudyCLI(entry, scratch.path, [operation, 'quality'])
 				expect(refused.code).toBe(64)
-				expect(refused.output).toContain('Quality studies require a capacity qualification')
+				expect(refused.stdout + refused.stderr).toContain(
+					'Quality studies require a capacity qualification',
+				)
 			}
 			expect(scratch.has('imports.log')).toBe(false)
 			expect(scratch.has('tmp')).toBe(false)
@@ -1240,12 +1309,13 @@ try { parseStudyArguments([]) } catch (error) {
 			)
 			for (const study of ['assessment', 'mechanism']) {
 				const executed = await executeStudyCLI(entry, scratch.path, ['execute', study])
-				expect({ code: executed.code, output: executed.code === 0 ? '' : executed.output }).toEqual(
-					{
-						code: 0,
-						output: '',
-					},
-				)
+				expect({
+					code: executed.code,
+					output: executed.code === 0 ? '' : executed.stdout + executed.stderr,
+				}).toEqual({
+					code: 0,
+					output: '',
+				})
 			}
 		} finally {
 			await destroyScratch(scratch)
@@ -1260,11 +1330,14 @@ try { parseStudyArguments([]) } catch (error) {
 		const scratch = createStudyConsumer()
 		try {
 			const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
-			expect({ code: executed.code, output: executed.code === 0 ? '' : executed.output }).toEqual({
+			expect({
+				code: executed.code,
+				output: executed.code === 0 ? '' : executed.stdout + executed.stderr,
+			}).toEqual({
 				code: 0,
 				output: '',
 			})
-			const result = parseJSON(executed.output)
+			const result = parseJSON(executed.stdout)
 			if (!isRecord(result) || typeof result.path !== 'string') throw new Error('Missing result')
 			const graded = await executeStudyCLI(entry, scratch.path, [
 				'grade',
@@ -1272,11 +1345,14 @@ try { parseStudyArguments([]) } catch (error) {
 				'--rubric',
 				'studies/assessment/rubric.json',
 			])
-			expect({ code: graded.code, output: graded.code === 0 ? '' : graded.output }).toEqual({
+			expect({
+				code: graded.code,
+				output: graded.code === 0 ? '' : graded.stdout + graded.stderr,
+			}).toEqual({
 				code: 0,
 				output: '',
 			})
-			const assessment = parseJSON(graded.output)
+			const assessment = parseJSON(graded.stdout)
 			if (!isRecord(assessment) || typeof assessment.assessment !== 'string')
 				throw new Error('Missing grading')
 			const sealed = await readStudyResult(result.path)
@@ -1297,11 +1373,14 @@ try { parseStudyArguments([]) } catch (error) {
 				labels,
 			]
 			const labeled = await executeStudyCLI(entry, scratch.path, tokens)
-			expect({ code: labeled.code, output: labeled.code === 0 ? '' : labeled.output }).toEqual({
+			expect({
+				code: labeled.code,
+				output: labeled.code === 0 ? '' : labeled.stdout + labeled.stderr,
+			}).toEqual({
 				code: 0,
 				output: '',
 			})
-			const first = parseJSON(labeled.output)
+			const first = parseJSON(labeled.stdout)
 			if (!isRecord(first) || typeof first.assessment !== 'string') throw new Error('Missing label')
 			runtime.write(
 				'runtime/dist/src/server/index.js',
@@ -1311,9 +1390,9 @@ try { parseStudyArguments([]) } catch (error) {
 			const relabeled = await executeStudyCLI(entry, scratch.path, tokens)
 			expect({
 				code: relabeled.code,
-				output: relabeled.code === 0 ? '' : relabeled.output,
+				output: relabeled.code === 0 ? '' : relabeled.stdout + relabeled.stderr,
 			}).toEqual({ code: 0, output: '' })
-			const second = parseJSON(relabeled.output)
+			const second = parseJSON(relabeled.stdout)
 			if (!isRecord(second) || typeof second.assessment !== 'string')
 				throw new Error('Missing changed label')
 			expect(first.previous).toBe(assessment.assessment)
@@ -1330,13 +1409,13 @@ try { parseStudyArguments([]) } catch (error) {
 		const scratch = createStudyConsumer()
 		try {
 			const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
-			const result = parseJSON(executed.output)
+			const result = parseJSON(executed.stdout)
 			if (!isRecord(result) || typeof result.path !== 'string') throw new Error('Missing result')
 			const grade = ['grade', result.path, '--rubric', 'studies/assessment/rubric.json']
-			const first = parseJSON((await executeStudyCLI(entry, scratch.path, grade)).output)
+			const first = parseJSON((await executeStudyCLI(entry, scratch.path, grade)).stdout)
 			const adapter = scratch.read('studies/files/index.ts') ?? ''
 			scratch.write('studies/files/index.ts', `${adapter}\n// Changed grader bytes\n`)
-			const second = parseJSON((await executeStudyCLI(entry, scratch.path, grade)).output)
+			const second = parseJSON((await executeStudyCLI(entry, scratch.path, grade)).stdout)
 			if (
 				!isRecord(first) ||
 				!isRecord(second) ||
@@ -1364,11 +1443,14 @@ try { parseStudyArguments([]) } catch (error) {
 					'--labels',
 					labels,
 				])
-				expect({ code: output.code, output: output.code === 0 ? '' : output.output }).toEqual({
+				expect({
+					code: output.code,
+					output: output.code === 0 ? '' : output.stdout + output.stderr,
+				}).toEqual({
 					code: 0,
 					output: '',
 				})
-				const value = parseJSON(output.output)
+				const value = parseJSON(output.stdout)
 				if (!isRecord(value) || typeof value.assessment !== 'string')
 					throw new Error('Missing label')
 				expect(value.previous).toBe(assessment)
@@ -1388,7 +1470,7 @@ try { parseStudyArguments([]) } catch (error) {
 					labels,
 				])
 				expect(imported.code).toBe(0)
-				const value = parseJSON(imported.output)
+				const value = parseJSON(imported.stdout)
 				if (!isRecord(value) || typeof value.assessment !== 'string')
 					throw new Error('Missing label')
 				expect(value.previous).toBe(first.assessment)
@@ -1452,7 +1534,7 @@ try { parseStudyArguments([]) } catch (error) {
 					)
 					const checked = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
 					expect(checked.code).toBe(code)
-					expect(checked.output).toContain(`study: ${message}`)
+					expect(checked.stdout + checked.stderr).toContain(`study: ${message}`)
 				}
 			} finally {
 				await destroyScratch(library)
@@ -1503,9 +1585,9 @@ try { parseStudyArguments([]) } catch (error) {
 					)
 					const executed = await executeStudyCLI(entry, consumer.path, ['execute', 'assessment'])
 					expect(executed.code).toBe(1)
-					const result = parseJSON(executed.output.split(/\r\n|\n/)[0] ?? '')
+					const result = parseJSON(executed.stdout.split(/\r\n|\n/)[0] ?? '')
 					if (!isRecord(result) || typeof result.path !== 'string')
-						throw new Error(`Missing failure result: ${executed.output}`)
+						throw new Error(`Missing failure result: ${executed.stdout}${executed.stderr}`)
 					const sealed = await readStudyResult(result.path)
 					if (sealed.status !== 'sealed') throw new Error('Failure horizon did not seal')
 					expect(sealed.attempts[0]?.failure).toEqual(failure)
@@ -1536,9 +1618,9 @@ try { parseStudyArguments([]) } catch (error) {
 				)
 				const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
 				expect(executed.code).toBe(1)
-				const result = parseJSON(executed.output.split(/\r\n|\n/)[0] ?? '')
+				const result = parseJSON(executed.stdout.split(/\r\n|\n/)[0] ?? '')
 				if (!isRecord(result) || typeof result.path !== 'string')
-					throw new Error(`Missing failure result: ${executed.output}`)
+					throw new Error(`Missing failure result: ${executed.stdout}${executed.stderr}`)
 				const sealed = await readStudyResult(result.path)
 				if (sealed.status !== 'sealed') throw new Error('Failure horizon did not seal')
 				expect(sealed.attempts[0]?.observations[0]?.failure).toEqual({
@@ -1586,14 +1668,18 @@ try { parseStudyArguments([]) } catch (error) {
 					`import {ArtifactLoader} from ${JSON.stringify(pathToFileURL(runtimeLibrary).href)}; const artifacts=new ArtifactLoader(${JSON.stringify({ entries: [target], roots: [outside] })}); const namespace=await artifacts.load(${JSON.stringify(target)}); export const prefix=namespace.prefix`,
 				)
 				const checked = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
-				expect({ code: checked.code, output: checked.code === 0 ? '' : checked.output }).toEqual({
+				expect({
+					code: checked.code,
+					output: checked.code === 0 ? '' : checked.stdout + checked.stderr,
+				}).toEqual({
 					code: 0,
 					output: '',
 				})
 				expect(scratch.has('escaped.log')).toBe(false)
 				const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
-				const output = parseJSON(executed.output.split(/\r\n|\n/)[0] ?? '')
-				if (!isRecord(output) || typeof output.path !== 'string') throw new Error(executed.output)
+				const output = parseJSON(executed.stdout.split(/\r\n|\n/)[0] ?? '')
+				if (!isRecord(output) || typeof output.path !== 'string')
+					throw new Error(executed.stdout + executed.stderr)
 				const retained = await readStudyResult(output.path)
 				expect(executed.code).toBe(1)
 				if (retained.status !== 'sealed') throw new Error('Missing retained failure')

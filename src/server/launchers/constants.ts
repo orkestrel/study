@@ -6,3 +6,5 @@ export const STUDY_LAUNCH_CLEANUP = 15000
 
 /** Bounds combined supervised command output to 16 MiB before terminating the tree. */
 export const STUDY_LAUNCH_BYTES = 16 * 1024 * 1024
+
+export const STUDY_INSTALL_ENTRY = 'node_modules/@orkestrel/study/dist/bin/main.js'

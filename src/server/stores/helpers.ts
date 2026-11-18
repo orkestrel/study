@@ -33,6 +33,7 @@ import { constants } from 'node:fs'
 import { lstat, open, readdir, rename } from 'node:fs/promises'
 import { dirname, join, parse, relative, resolve, sep } from 'node:path'
 import { decodeStudyJSON, encodeStudyJSON, hashStudyBytes, matchesSystemError } from '../helpers.js'
+import { collectStudyOllamaModels } from '../ollama/helpers.js'
 import { STUDY_FRAME_BYTES } from '../processes/constants.js'
 import { STUDY_ATTEMPT_PART, STUDY_CUSTODY_BYTES, STUDY_PACKET_DISCLOSURE } from './constants.js'
 import {
@@ -1016,9 +1017,7 @@ export function buildStudyExchangeSequence(
 	const last = declaration.goals.at(-1)
 	if (first === undefined || last === undefined)
 		throw new StudyError('CUSTODY', 'Exchange procedure is empty')
-	const models = Object.values(declaration.models).filter(
-		(model, index, entries) => entries.findIndex((entry) => entry.name === model.name) === index,
-	)
+	const models = collectStudyOllamaModels(declaration.models)
 	const maintenance: readonly StudyExchangeIdentity[] = declaration.maintenance.map(
 		(_model, index) => ({
 			ordinal: index + 1,
@@ -1124,9 +1123,7 @@ export function validateStudyExchangeRequest(
 			throw new StudyError('CUSTODY', 'Maintenance request differs from its declaration')
 		return
 	}
-	const models = Object.values(declaration.models).filter(
-		(model, index, entries) => entries.findIndex((entry) => entry.name === model.name) === index,
-	)
+	const models = collectStudyOllamaModels(declaration.models)
 	const population = models.length + 2
 	const offset =
 		request.ordinal -

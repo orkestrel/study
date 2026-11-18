@@ -187,6 +187,25 @@ describe('StudyLauncher', () => {
 		}
 	}, 20000)
 
+	it('refuses a check reply with no fingerprint before dispatching execute', async () => {
+		const scratch = createScratch()
+		const launcher = new StudyLauncher({
+			root: scratch.path,
+			entry: writeStudyCheckEntry(scratch, 60000, false),
+		})
+		try {
+			await expect(
+				new StudyDeadline({ duration: 15000, label: 'launcher fingerprint observation' }).wait(
+					launcher.execute(STUDY_EXECUTE_ARGUMENTS),
+				),
+			).rejects.toThrow('Study check did not return an execution fingerprint')
+			expect(readStudyCommands(scratch)).toEqual(['check files --profile local'])
+		} finally {
+			await releaseStudyPid(readStudyPid(scratch, STUDY_LAUNCHER_PID))
+			scratch.destroy()
+		}
+	}, 20000)
+
 	it('dispatches execute with the checked fingerprint for a series duration at the host ceiling', async () => {
 		const scratch = createScratch()
 		const launcher = new StudyLauncher({
