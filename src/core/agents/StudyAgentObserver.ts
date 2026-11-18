@@ -1,23 +1,38 @@
 import type {
 	Message,
 	ProviderDelta,
+	ProviderInterface,
 	ProviderRequest,
 	ProviderResult,
 	ProviderStreamOptions,
 	ThinkingReplay,
 } from '@orkestrel/agent'
-import type { StudyAgentObserverOptions, StudyAgentProviderInterface } from './types.js'
+import type { StudyAgentObserverOptions } from './types.js'
+import { isNonEmptyString } from '@orkestrel/contract'
+import { StudyError } from '../errors.js'
 import { projectStudyAgentRequest, validateStudyAgentUsage } from './helpers.js'
 
 /** Reads each Agent request's size before delegating it unchanged to the real provider. */
-export class StudyAgentObserver implements StudyAgentProviderInterface {
+export class StudyAgentObserver implements ProviderInterface {
 	readonly #options: StudyAgentObserverOptions
+	readonly #model: string
 
 	/** Binds the real provider, the measuring runtime, the explicit gauge and usage policy, and the reading recorder.
+	 * @remarks
+	 * Reads the delegate's `model` once, here, because Agent 0.0.46's `ProviderInterface` declares no `model`.
 	 * @param options - Delegate, measurement seam, and policies.
+	 * @throws StudyError - Thrown with code `CONFIG` when the delegate carries no non-empty string `model`.
 	 */
 	constructor(options: StudyAgentObserverOptions) {
 		this.#options = { ...options }
+		const provider = this.#options.provider
+		const model = 'model' in provider ? provider.model : undefined
+		if (!isNonEmptyString(model))
+			throw new StudyError(
+				'CONFIG',
+				'Observer delegate lacks a non-empty string model: provider.model must name the model it serves',
+			)
+		this.#model = model
 	}
 
 	/** Reports the delegate's trace label. */
@@ -30,9 +45,9 @@ export class StudyAgentObserver implements StudyAgentProviderInterface {
 		return this.#options.provider.name
 	}
 
-	/** Reports the model the delegate serves. */
+	/** Reports the model the delegate named at construction. */
 	get model(): string {
-		return this.#options.provider.model
+		return this.#model
 	}
 
 	/** Reports the delegate's thinking replay policy; an absent policy is the declared `none`. */

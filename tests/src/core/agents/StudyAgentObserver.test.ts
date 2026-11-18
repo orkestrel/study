@@ -1,16 +1,20 @@
 import type { ProviderRequest } from '@orkestrel/agent'
+import type { StudyAgentRecordHandler } from '../../../../src/core/agents/types.js'
 import { describe, expect, it } from 'vitest'
 import {
 	Agent,
 	createAuthority,
 	createConversationManager,
+	createRelayProvider,
 	estimateRequest,
 	measureRequest,
 } from '@orkestrel/agent'
 import { createBudget } from '@orkestrel/budget'
 import { isRecord, parseJSON } from '@orkestrel/contract'
 import { createOllama } from '@orkestrel/ollama'
+import { createRecorder } from '@orkestrel/test'
 import { createTool, createToolManager } from '@orkestrel/tool'
+import { StudyAgentObserver } from '../../../../src/core/agents/StudyAgentObserver.js'
 import { StudyError } from '../../../../src/core/errors.js'
 import { readStudyFailure } from '../../../../src/core/engines/helpers.js'
 import {
@@ -29,6 +33,7 @@ import {
 	buildOllamaRow,
 	buildOllamaStream,
 	createAgentObserver,
+	createAgentRuntime,
 	createOllamaFetch,
 	readOllamaToolResults,
 	readProviderStream,
@@ -269,12 +274,42 @@ describe('StudyAgentObserver', () => {
 		)
 	})
 
-	it('reports the delegate model, which differs from the delegate backend name', () => {
+	it('reports the model the real delegate was constructed with, which differs from its backend name', () => {
 		const { observer, inner } = createAgentObserver(createOllamaFetch(), undefined, false)
-		expect(inner.model).toBe('model')
-		expect(inner.model).not.toBe(inner.name)
-		expect(observer.model).toBe(inner.model)
+		expect(observer.model).toBe('model')
+		expect(observer.model).not.toBe(inner.name)
 	})
+
+	it.each([
+		['no model', {}],
+		['an empty model', { model: '' }],
+		['a non-string model', { model: 7 }],
+	] as const)(
+		'refuses a delegate with %s at construction, before any reading',
+		(_name, members) => {
+			const provider = Object.assign(createRelayProvider({ url: STUDY_OLLAMA_ORIGIN }), members)
+			const record = createRecorder<Parameters<StudyAgentRecordHandler>>()
+			expect('model' in provider).toBe('model' in members)
+			expect(
+				() =>
+					new StudyAgentObserver({
+						provider,
+						runtime: createAgentRuntime(),
+						gauge: undefined,
+						enforced: false,
+						record: record.handler,
+					}),
+			).toThrow(
+				expect.objectContaining({
+					name: 'StudyError',
+					code: 'CONFIG',
+					message:
+						'Observer delegate lacks a non-empty string model: provider.model must name the model it serves',
+				}),
+			)
+			expect(record.calls).toEqual([])
+		},
+	)
 
 	it('measures the same complete request the Agent window measures', async () => {
 		const wire = createOllamaFetch([

@@ -1739,8 +1739,6 @@ export function createAgentWindowError(message = 'Context window exhausted'): Ag
 }
 
 /** Wraps a real published Ollama provider in the observer and records every reading it takes.
- *
- * The delegate carries the model it was constructed with, because the Ollama 0.0.42 provider names none.
  * @param wire - The fetch boundary the real provider sends through.
  * @param gauge - The explicit gauge; undefined prices nothing.
  * @param enforced - If `true`, the observer refuses an unusable prompt count; if `false`, it refuses nothing.
@@ -1753,15 +1751,14 @@ export function createAgentObserver(
 	enforced: boolean,
 	replay?: ThinkingReplay,
 ): AgentObserverFixture {
-	const configured = {
+	const inner = createOllama({
 		model: 'model',
 		url: STUDY_OLLAMA_ORIGIN,
 		think: false,
 		fetch: wire.fetch,
 		...(replay === undefined ? {} : { replay }),
 		options: STUDY_OLLAMA_OPTIONS,
-	}
-	const inner = Object.assign(createOllama(configured), { model: configured.model })
+	})
 	const measurements = new StudyLog<StudyAgentMeasurement>()
 	const requests = new StudyLog<ProviderRequest>()
 	const observer = new StudyAgentObserver({

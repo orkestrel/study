@@ -97,7 +97,7 @@
 		"@orkestrel/agent": "^0.0.46",
 		"@orkestrel/budget": "^0.0.20",
 		"@orkestrel/contract": "^0.0.26",
-		"@orkestrel/ollama": "^0.0.42",
+		"@orkestrel/ollama": "^0.0.43",
 		"@orkestrel/timeout": "^0.0.19",
 		"@orkestrel/tool": "^0.0.25"
 	},

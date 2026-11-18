@@ -1,5 +1,10 @@
 import type { RecorderInterface } from '@orkestrel/test'
-import type { ProviderDelta, ProviderRequest, ProviderResult } from '@orkestrel/agent'
+import type {
+	ProviderDelta,
+	ProviderInterface,
+	ProviderRequest,
+	ProviderResult,
+} from '@orkestrel/agent'
 import type { JSONValue } from '@orkestrel/contract'
 import type { ContractInterface } from '@orkestrel/contract'
 
@@ -15,10 +20,7 @@ export interface StudyContractCase {
 	readonly restore: ((value: unknown) => unknown) | undefined
 }
 import type { StudyAgentObserver } from '../src/core/agents/StudyAgentObserver.js'
-import type {
-	StudyAgentMeasurement,
-	StudyAgentProviderInterface,
-} from '../src/core/agents/types.js'
+import type { StudyAgentMeasurement } from '../src/core/agents/types.js'
 import type { StudyControl, StudyMeter, StudyScope } from '../src/core/engines/index.js'
 import type { StudyTrialLease } from '../src/core/engines/StudyTrialLease.js'
 import type { StudyError } from '../src/core/errors.js'
@@ -70,7 +72,7 @@ export interface OllamaRowFixture {
 /** Holds a real observing provider, the real provider it delegates to, and every reading it recorded. */
 export interface AgentObserverFixture {
 	readonly observer: StudyAgentObserver
-	readonly inner: StudyAgentProviderInterface
+	readonly inner: ProviderInterface
 	readonly measurements: readonly StudyAgentMeasurement[]
 	/** Holds the exact pre-encoding request each reading measured, in reading order. */
 	readonly requests: readonly ProviderRequest[]
