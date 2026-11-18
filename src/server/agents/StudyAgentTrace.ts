@@ -11,7 +11,18 @@ import { buildStudyAgentParts, StudyError } from '@src/core'
 import { buildStudyAgentRevision } from './helpers.js'
 import { StudyAgentTraceGoal } from './StudyAgentTraceGoal.js'
 
-/** Correlates measured Agent requests and retains their evidence across a trial's goals. */
+/**
+ * Correlates measured Agent requests and retains their evidence across a trial's goals.
+ * @example
+ * ```ts
+ * declare const runtime: StudyAgentRuntime
+ * declare const evidence: StudySinkInterface
+ * const trace = new StudyAgentTrace({ runtime, observe: true, origins: () => null })
+ * trace.start('open-order')
+ * trace.append('note', 'looked up the order')
+ * await trace.flush(evidence)
+ * ```
+ */
 export class StudyAgentTrace {
 	readonly #options: StudyAgentTraceOptions
 	// Dispatch identities per role; one current dispatch cannot be overtaken by another of its role

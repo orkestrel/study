@@ -67,7 +67,7 @@ describe('StudyTaskChild', () => {
 			).rejects.toMatchObject({
 				code: 'FAULT',
 				message: 'Adapter deadline exceeded',
-				failure: {
+				context: {
 					cause: 'deadline',
 					stop: { layer: 'scope', id: 'Adapter duration', max: 1500, consumed: undefined },
 				},

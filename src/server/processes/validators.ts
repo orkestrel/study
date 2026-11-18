@@ -17,7 +17,7 @@ import {
 	isStudyExchangeDeclaration,
 } from '../stores/validators.js'
 import { holds, isJSONValue, isRecord } from '@orkestrel/contract'
-import { matchesStudyKeyedRoles } from '../ollama/validators.js'
+import { matchesStudyKeyedRoles } from '../ollama/helpers.js'
 
 /** Checks whether a worker destination has an absolute sidecar path and finite reservation.
  * @param value - The decoded destination.

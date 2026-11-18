@@ -1,5 +1,3 @@
-import { StudyFieldCeiling } from '../../setupStudy.js'
-import { DerivedStudyError } from '../../setupStudy.js'
 import type { StudyFailure } from '../../../src/core/types.js'
 import { isRecord } from '@orkestrel/contract'
 import { requireValue } from '@orkestrel/test'
@@ -8,7 +6,7 @@ import { pathToFileURL } from 'node:url'
 import { expect, it } from 'vitest'
 import { STUDY_ERROR_BRAND } from '../../../src/core/constants.js'
 import { isStudyError, StudyError } from '../../../src/core/errors.js'
-import { importStudyErrorCopy } from '../../setupStudy.js'
+import { DerivedStudyError, StudyFieldCeiling, importStudyErrorCopy } from '../../setupStudy.js'
 import { createStudyScratch, buildStudyLibrary } from '../../setupServer.js'
 
 const BRAND = Symbol.for('@orkestrel/study.StudyError')
@@ -23,7 +21,7 @@ it('retains coded failure attribution and safely narrows caught values', () => {
 	const error = new StudyError('CAPACITY', 'Request cannot fit', failure)
 	expect(error.message).toBe('Request cannot fit')
 	expect(error.code).toBe('CAPACITY')
-	expect(error.failure).toBe(failure)
+	expect(error.context).toBe(failure)
 	expect(error.name).toBe('StudyError')
 	expect(isStudyError(error)).toBe(true)
 	expect(isStudyError(new Error('ordinary'))).toBe(false)
@@ -51,7 +49,7 @@ it('stamps a nonenumerable global self-brand without changing the public propert
 		enumerable: false,
 		writable: false,
 	})
-	expect(Object.keys(error).sort()).toEqual(['code', 'failure', 'name'])
+	expect(Object.keys(error).sort()).toEqual(['code', 'context', 'name'])
 	expect(JSON.parse(JSON.stringify(error))).toEqual({ name: 'StudyError', code: 'FAULT' })
 })
 
@@ -198,21 +196,21 @@ it('validates the optional stack member of a study error', () => {
 
 it('refuses malformed failure members on an otherwise valid error', () => {
 	const error = new StudyError('FAULT', 'Malformed attribution')
-	Object.defineProperty(error, 'failure', { value: 7 })
+	Object.defineProperty(error, 'context', { value: 7 })
 	expect(isStudyError(error)).toBe(false)
-	Object.defineProperty(error, 'failure', { value: { cause: 'content', message: 7 } })
+	Object.defineProperty(error, 'context', { value: { cause: 'content', message: 7 } })
 	expect(isStudyError(error)).toBe(false)
-	Object.defineProperty(error, 'failure', { value: { cause: 'unknown', message: 'Failure' } })
+	Object.defineProperty(error, 'context', { value: { cause: 'unknown', message: 'Failure' } })
 	expect(isStudyError(error)).toBe(false)
-	Object.defineProperty(error, 'failure', {
+	Object.defineProperty(error, 'context', {
 		value: { cause: 'content', message: 'Failure', role: 'unknown' },
 	})
 	expect(isStudyError(error)).toBe(false)
-	Object.defineProperty(error, 'failure', {
+	Object.defineProperty(error, 'context', {
 		value: { cause: 'capacity', message: 'Failure', stop: { layer: 'unknown' } },
 	})
 	expect(isStudyError(error)).toBe(false)
-	Object.defineProperty(error, 'failure', {
+	Object.defineProperty(error, 'context', {
 		value: {
 			cause: 'capacity',
 			message: 'Failure',
@@ -309,7 +307,7 @@ it('admits callable failure and stop records and does not require the error name
 		stop,
 	})
 	const error = new StudyError('CAPACITY', 'Callable attribution')
-	Object.defineProperty(error, 'failure', { value: failure })
+	Object.defineProperty(error, 'context', { value: failure })
 	Object.defineProperty(error, 'stack', { value: 'Stable stack' })
 	Object.defineProperty(error, 'name', { value: 7 })
 	expect(isStudyError(error)).toBe(true)

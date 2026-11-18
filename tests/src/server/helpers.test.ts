@@ -44,6 +44,7 @@ describe('server environment helpers', () => {
 			Buffer.from(encodeStudyJSON({ optional: undefined, nested: { z: 2, a: 1 } })).toString(),
 		).toBe('{"nested":{"a":1,"z":2}}\n')
 		expect(encodeStudyJSON({ b: 2, a: 1 })).toEqual(encodeStudyJSON({ a: 1, b: 2 }))
+		expect(hashStudyBytes(encodeStudyJSON({ id: 1 }))).toBe(hashStudyBytes('{"id":1}\n'))
 		expect(() => encodeStudyJSON(undefined)).toThrow('Record cannot be encoded')
 	})
 

@@ -14,7 +14,7 @@ describe('StudyOllamaExchange', () => {
 				expect.objectContaining({
 					code: 'CAPACITY',
 					message: 'Ollama wire byte allowance exceeded',
-					failure: expect.objectContaining({
+					context: expect.objectContaining({
 						cause: 'capacity',
 						role: 'agent',
 						stop: { layer: 'scope', id: 'Wire bytes', max: 20, consumed: 21 },
@@ -55,6 +55,22 @@ describe('StudyOllamaExchange', () => {
 			} finally {
 				truncated.close()
 			}
+		} finally {
+			fixture.close()
+		}
+	})
+
+	it('reports a consumer abort and refuses later work with the first reason', async () => {
+		const fixture = await createOllamaExchange()
+		try {
+			expect(fixture.exchange.aborted).toBe(false)
+			expect(() => fixture.exchange.check()).not.toThrow()
+			const first = new Error('Consumer stopped reading')
+			fixture.exchange.abort(first)
+			fixture.exchange.abort(new Error('Second abort'))
+			expect(fixture.exchange.aborted).toBe(true)
+			expect(() => fixture.exchange.check()).toThrow(first)
+			expect(fixture.exchange.signal.aborted).toBe(false)
 		} finally {
 			fixture.close()
 		}

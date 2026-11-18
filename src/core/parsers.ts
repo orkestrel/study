@@ -3,7 +3,7 @@ import type {
 	StudyDefinition,
 	StudyAssessment,
 	StudyJudgment,
-	StudyLabels,
+	StudyLabelSheet,
 	StudyProfile,
 	StudyRubric,
 	StudyScenario,
@@ -16,7 +16,7 @@ import {
 	isFiniteNumber,
 	isRecord,
 } from '@orkestrel/contract'
-import { studyJudgmentContract, studyLabelsContract, studyRubricContract } from './contracts.js'
+import { studyJudgmentContract, studyLabelSheetContract, studyRubricContract } from './contracts.js'
 import { StudyError } from './errors.js'
 import {
 	matchesStudyKeys,
@@ -24,7 +24,7 @@ import {
 	omitStudyAbsent,
 	scanStudyJSONFaults,
 	scanStudyJudgmentFaults,
-	scanStudyLabelsFaults,
+	scanStudyLabelSheetFaults,
 	scanStudyRubricFaults,
 } from './helpers.js'
 import {
@@ -198,10 +198,10 @@ export function parseStudyAssessment(value: unknown): StudyAssessment {
  * @throws StudyError - Thrown when evidence is invalid or cannot be owned
  * @example
  * ```ts
- * parseStudyLabels(evidence)
+ * parseStudyLabelSheet(evidence)
  * ```
  */
-export function parseStudyLabels(value: unknown): StudyLabels {
+export function parseStudyLabelSheet(value: unknown): StudyLabelSheet {
 	// Labels written in memory can hold an undefined reading, which has no JSON form to own.
 	const normalized = attempt(() =>
 		isRecord(value) && matchesStudyKeys(value, [], Object.keys(value)) && isArray(value.usage)
@@ -219,8 +219,8 @@ export function parseStudyLabels(value: unknown): StudyLabels {
 	return parseStudyContract(normalized.value, {
 		code: 'EVIDENCE',
 		noun: 'study labels',
-		contract: studyLabelsContract,
-		scan: scanStudyLabelsFaults,
+		contract: studyLabelSheetContract,
+		scan: scanStudyLabelSheetFaults,
 	})
 }
 

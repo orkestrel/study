@@ -1,4 +1,4 @@
-import type { StudyCause, StudyLayer, StudyRole } from './types.js'
+import type { StudyCause, StudyLayer, StudyRole, StudyVerdict } from './types.js'
 
 /**
  * Keys the own self-identity every study error stamps on itself.
@@ -29,7 +29,11 @@ export const STUDY_ROLES: readonly StudyRole[] = Object.freeze([
 ])
 
 /** Lists every verdict a judgment holds. */
-export const STUDY_VERDICTS = Object.freeze(['achieved', 'unsuccessful', 'unknown'] as const)
+export const STUDY_VERDICTS: readonly StudyVerdict[] = Object.freeze([
+	'achieved',
+	'unsuccessful',
+	'unknown',
+])
 
 /** Lists every ceiling a run can stop at in report order. */
 export const STUDY_LAYERS: readonly StudyLayer[] = Object.freeze([

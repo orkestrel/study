@@ -4,13 +4,29 @@ import type {
 	StudyOllamaReplayInterface,
 	StudyOllamaReplayOptions,
 } from './types.js'
+import type { StudyFault } from '../types.js'
 import { StudyError } from '@src/core'
 import { isBudgetError } from '@orkestrel/budget'
 import { validateStudyExchangeHistory } from '../stores/helpers.js'
 import { isStudyOllamaMetadata } from './validators.js'
 import { describeStudyReplayDifference, splitStudyOllamaChunks } from './helpers.js'
 
-/** Answers declared HTTP prefixes from complete ordered recorded application bytes. */
+/**
+ * Answers declared HTTP prefixes from complete ordered recorded application bytes.
+ * @example
+ * ```ts
+ * declare const history: StudyExchangeHistory
+ * declare const limit: StudyOllamaMetadata
+ * const replay = new StudyOllamaReplay({
+ * 	history,
+ * 	url: 'http://127.0.0.1:11500',
+ * 	prefix: history.exchanges.length,
+ * 	limit,
+ * 	signal: new AbortController().signal,
+ * })
+ * await replay.close()
+ * ```
+ */
 export class StudyOllamaReplay implements StudyOllamaReplayInterface {
 	readonly #options: StudyOllamaReplayOptions
 	readonly #readers = new Set<ReadableStream<Uint8Array>>()
@@ -20,7 +36,7 @@ export class StudyOllamaReplay implements StudyOllamaReplayInterface {
 	#cursor: number
 	#bytes = 0
 	#calls = 0
-	#fault: { readonly error: unknown } | undefined
+	#fault: StudyFault | undefined
 	#closed = false
 
 	/** Owns and revalidates the complete selected history before any sender can be reached.
@@ -104,7 +120,9 @@ export class StudyOllamaReplay implements StudyOllamaReplayInterface {
 	 * @param response - The response its `fetch` returned.
 	 * @returns True if the response came from the recorded prefix; false otherwise.
 	 */
-	readonly served = (response: Response): boolean => this.#served.has(response)
+	served(response: Response): boolean {
+		return this.#served.has(response)
+	}
 
 	/** Refuses a mismatch, an unread response or an incompletely consumed prefix. */
 	check(): void {

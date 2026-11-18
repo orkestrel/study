@@ -2,7 +2,13 @@ import type { ArtifactErrorCode } from './types.js'
 import { holds, INTRINSICS, isString } from '@orkestrel/contract'
 import { ARTIFACT_ERROR_BRAND, ARTIFACT_ERROR_CODES } from './constants.js'
 
-/** Reports an invalid or drifted artifact inventory. */
+/**
+ * Reports an invalid or drifted artifact inventory.
+ * @example
+ * ```ts
+ * new ArtifactError('Artifact member traverses its boundary', 'TRAVERSAL').code // 'TRAVERSAL'
+ * ```
+ */
 export class ArtifactError extends Error {
 	readonly code: ArtifactErrorCode
 
@@ -25,6 +31,10 @@ export class ArtifactError extends Error {
  * throwing accessors, and revoked proxies return false.
  * @param value - The caught value.
  * @returns True if the value is an artifact error; false otherwise.
+ * @example
+ * ```ts
+ * isArtifactError(new ArtifactError('Captured bytes changed', 'DRIFT')) // true
+ * ```
  */
 export function isArtifactError(value: unknown): value is ArtifactError {
 	return holds(() => {

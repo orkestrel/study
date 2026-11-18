@@ -118,6 +118,11 @@ export function buildStudyAgentToolDenial(call: unknown, reason: unknown): JSONV
  * changes the revision.
  * @param request - The exact pre-encoding request
  * @returns The lowercase SHA-256 digest, or undefined when the request cannot be canonically rendered; a rendering failure never throws
+ * @example
+ * ```ts
+ * declare const request: ProviderRequest
+ * buildStudyAgentRevision(request) // a 64-character lowercase hex digest
+ * ```
  */
 export function buildStudyAgentRevision(request: ProviderRequest): string | undefined {
 	const rendered = attempt(() => canonicalStringify(request))
@@ -129,6 +134,10 @@ export function buildStudyAgentRevision(request: ProviderRequest): string | unde
  * Builds the JSON evidence form of a Ledger result's logical classifier attempts.
  * @param result - Value returned by the Ledger
  * @returns Null when the result carries no attempts array, else one entry per well-formed attempt in asking order, each with its duration or null
+ * @example
+ * ```ts
+ * buildStudyAgentAttempts({ text: 'done' }) // null
+ * ```
  */
 export function buildStudyAgentAttempts(result: unknown): JSONValue {
 	if (!isObject(result) || !('attempts' in result) || !isArray(result.attempts)) return null
@@ -159,6 +168,14 @@ export function buildStudyAgentAttempts(result: unknown): JSONValue {
  * @param response - The declared response being served
  * @returns The declared content, or the content of the actual tool message the response consumes
  * @throws StudyError - Thrown when a consuming response has no actual referenced tool result
+ * @example
+ * ```ts
+ * declare const response: StudyAgentResponse
+ * resolveStudyAgentContent(
+ * 	[{ role: 'tool', call: 'c1', content: 'order-1 shipped' }],
+ * 	{ ...response, consume: 'c1' },
+ * ) // 'order-1 shipped'
+ * ```
  */
 export function resolveStudyAgentContent(
 	request: readonly JSONValue[],
@@ -177,6 +194,13 @@ export function resolveStudyAgentContent(
  * Drains a scripted provider stream into its assembled result.
  * @param stream - The provider stream to consume to its end
  * @returns The result the stream returns after its last delta
+ * @example
+ * ```ts
+ * declare const script: StudyAgentScript
+ * declare const messages: readonly Message[]
+ * declare const signal: AbortSignal
+ * const result = await readStudyAgentResult(script.stream(messages, signal))
+ * ```
  */
 export async function readStudyAgentResult(
 	stream: AsyncGenerator<ProviderDelta, ProviderResult>,

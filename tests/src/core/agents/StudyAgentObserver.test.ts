@@ -322,7 +322,7 @@ describe('StudyAgentObserver', () => {
 			reply: { unknown: true },
 			outcome: expect.objectContaining({
 				code: 'FAULT',
-				failure: expect.objectContaining({ cause: 'infrastructure', role: 'agent' }),
+				context: expect.objectContaining({ cause: 'infrastructure', role: 'agent' }),
 			}),
 			chats: 1,
 			unsent: 1,

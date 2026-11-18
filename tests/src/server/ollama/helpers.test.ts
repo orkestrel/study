@@ -6,6 +6,7 @@ import { StudyError } from '../../../../src/core/errors.js'
 import { readStudyFailure } from '../../../../src/core/engines/helpers.js'
 import {
 	buildStudyOllamaKey,
+	matchesStudyKeyedRoles,
 	splitStudyOllamaChunks,
 	buildStudyOllamaModels,
 	collectStudyOllamaModels,
@@ -278,14 +279,14 @@ describe('buildStudyOllamaOptions', () => {
 describe('readStudyOllamaFailure', () => {
 	it('retains the native model context limit and prompt reading', () => {
 		expect(
-			readStudyOllamaFailure({ error: STUDY_OLLAMA_NATIVE_ERROR }, 'judge')?.failure?.stop,
+			readStudyOllamaFailure({ error: STUDY_OLLAMA_NATIVE_ERROR }, 'judge')?.context?.stop,
 		).toEqual({ layer: 'model', id: 'num_ctx', max: 2048, consumed: 8204 })
 	})
 	it.each(STUDY_OLLAMA_FAILURE_CASES)('reads $name as $code', ({ value, status, code, reason }) => {
 		const failure = readStudyOllamaFailure(value, 'judge', status)
 		expect(failure).toBeInstanceOf(StudyError)
 		expect(failure?.code).toBe(code)
-		expect(failure?.failure).toMatchObject({
+		expect(failure?.context).toMatchObject({
 			cause: code === 'CAPACITY' ? 'capacity' : 'infrastructure',
 			role: 'judge',
 			stop:
@@ -312,7 +313,7 @@ describe('readStudyOllamaTerminal', () => {
 		)
 		expect(error).toMatchObject({
 			code: 'FAULT',
-			failure: {
+			context: {
 				cause: 'infrastructure',
 				message: 'Malformed Ollama usage',
 				role: 'judge',
@@ -465,7 +466,7 @@ describe('validateStudyOllamaCompletion', () => {
 			validateStudyOllamaCompletion({ prompt, completion, reason }, room, agentRequest),
 		)
 		expect(outcome).toBeInstanceOf(StudyError)
-		expect(outcome).toMatchObject({ code, failure: { role: 'agent' } })
+		expect(outcome).toMatchObject({ code, context: { role: 'agent' } })
 	})
 
 	it('retains the judge role in the failure of a prompt one over the room', () => {
@@ -481,7 +482,7 @@ describe('validateStudyOllamaCompletion', () => {
 		expect(outcome).toMatchObject({
 			code: 'CAPACITY',
 			message: 'Actual prompt exceeded reserved context capacity',
-			failure: { role: 'judge' },
+			context: { role: 'judge' },
 		})
 		expect(readStudyFailure(outcome)).toMatchObject({ cause: 'capacity', role: 'judge' })
 	})
@@ -784,5 +785,29 @@ describe('keyed replay helpers', () => {
 		expect(buildStudyOllamaKey('agent', '/api/chat', 'GET', Buffer.from('body'))).not.toBe(key)
 		expect(buildStudyOllamaKey('agent', '/api/chat', 'POST', Buffer.from('bodz'))).not.toBe(key)
 		expect(buildStudyOllamaKey('judge', '/api/chat', 'POST', Buffer.from('body'))).not.toBe(key)
+	})
+})
+
+describe('matchesStudyKeyedRoles', () => {
+	it('admits triage for live and offline keyed replay', () => {
+		expect(matchesStudyKeyedRoles(['triage'], false)).toBe(true)
+		expect(matchesStudyKeyedRoles(['triage', 'metadata'], true)).toBe(true)
+		expect(matchesStudyKeyedRoles(['triage', 'metadata'], false)).toBe(false)
+		expect(matchesStudyKeyedRoles(['triage', 'triage'], true)).toBe(false)
+	})
+	it('admits metadata only offline and refuses a role with no recorded request', () => {
+		expect(matchesStudyKeyedRoles(['judge', 'agent'], false)).toBe(true)
+		expect(matchesStudyKeyedRoles(['metadata', 'judge'], true)).toBe(true)
+		for (const roles of [['metadata'], ['metadata', 'judge']])
+			expect(matchesStudyKeyedRoles(roles, false)).toBe(false)
+		for (const roles of [[], ['tool'], ['maintenance'], ['judge', 'judge'], 'judge', undefined])
+			expect(matchesStudyKeyedRoles(roles, true)).toBe(false)
+	})
+	it('refuses a summary role', () => {
+		for (const offline of [false, true]) {
+			expect(matchesStudyKeyedRoles(['agent'], offline)).toBe(true)
+			expect(matchesStudyKeyedRoles(['summary'], offline)).toBe(false)
+			expect(matchesStudyKeyedRoles(['agent', 'summary'], offline)).toBe(false)
+		}
 	})
 })

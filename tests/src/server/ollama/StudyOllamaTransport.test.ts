@@ -1,11 +1,4 @@
-import { createRejectedStudyJudge } from '../../../setupStudy.js'
 import type { StudyOllamaFetchFunction } from '../../../../src/server/ollama/types.js'
-import { STUDY_STOP_SWITCHES, StudyLog, readSettled } from '../../../setupStudy.js'
-import {
-	buildStudyKeyedHistory,
-	createForeignBudgetError,
-	createBudgetLookalike,
-} from '../../../setupServer.js'
 import { BudgetError } from '@orkestrel/budget'
 import { createSystemOneJudge } from '@orkestrel/agent'
 import { StudyOllamaKeyedReplay } from '../../../../src/server/ollama/StudyOllamaKeyedReplay.js'
@@ -52,10 +45,17 @@ import {
 	buildOllamaStream,
 	createOllamaJudgeFixture,
 	createOllamaReply,
+	createRejectedStudyJudge,
+	readSettled,
 	requireStudyRecord,
 	STUDY_OLLAMA_FIXTURE,
+	STUDY_STOP_SWITCHES,
+	StudyLog,
 } from '../../../setupStudy.js'
 import {
+	buildStudyKeyedHistory,
+	createForeignBudgetError,
+	createBudgetLookalike,
 	STUDY_TRIAGE_FAILURES,
 	STUDY_TRIAGE_USAGE,
 	STUDY_OLLAMA_CHAT_BODY,
@@ -1137,7 +1137,7 @@ describe('StudyOllamaTransport', () => {
 					}),
 				).rejects.toMatchObject({
 					code: 'DEADLINE',
-					failure: { stop: { layer: 'scope', id: 'Recording duration' } },
+					context: { stop: { layer: 'scope', id: 'Recording duration' } },
 				})
 				expect(fixture.rows).toHaveLength(before)
 				expect(fixture.server.requests.filter((row) => row.path === '/api/chat')).toHaveLength(1)
@@ -1174,7 +1174,7 @@ describe('StudyOllamaTransport', () => {
 					)
 				expect(error).toMatchObject({
 					code: 'CAPACITY',
-					failure: { stop: { layer: 'scope', id: 'Recording calls', max: 1, consumed: 2 } },
+					context: { stop: { layer: 'scope', id: 'Recording calls', max: 1, consumed: 2 } },
 				})
 				expect(captureError(() => fixture.transport.check())).toBe(error)
 				expect(fixture.rows).toHaveLength(before)
@@ -1204,7 +1204,7 @@ describe('StudyOllamaTransport', () => {
 				)
 				expect(error).toMatchObject({
 					code: 'DEADLINE',
-					failure: {
+					context: {
 						cause: 'deadline',
 						stop: { layer: 'scope', id: 'Recording duration', max: 80 },
 					},
@@ -1964,7 +1964,7 @@ describe('StudyOllamaTransport', () => {
 					}),
 				).rejects.toMatchObject({
 					code: 'CAPACITY',
-					failure: { role: 'agent', stop: { id: 'Wire bytes' } },
+					context: { role: 'agent', stop: { id: 'Wire bytes' } },
 				})
 				expect(fixture.goal.usage()).toEqual([])
 				expect(fixture.server.requests.some((row) => row.path === '/api/chat')).toBe(false)
@@ -1980,7 +1980,7 @@ describe('StudyOllamaTransport', () => {
 			try {
 				await expect(limited.transport.verify()).rejects.toMatchObject({
 					code: 'CAPACITY',
-					failure: { role: 'metadata' },
+					context: { role: 'metadata' },
 				})
 				expect(limited.server.requests).toHaveLength(3)
 				expect(limited.goal.usage()).toEqual([])
@@ -2672,7 +2672,7 @@ describe('StudyOllamaTransport', () => {
 						(error: unknown) => error,
 					)
 				expect(outcome).toBeInstanceOf(StudyError)
-				expect(outcome).toMatchObject({ code, failure: { role: 'agent' } })
+				expect(outcome).toMatchObject({ code, context: { role: 'agent' } })
 				expect(readStudyFailure(outcome).message).toContain(message)
 				expect(captureError(() => fixture.transport.check())).toBe(outcome)
 				expect(fixture.goal.usage()).toEqual([
@@ -3550,7 +3550,7 @@ describe('transport stop chain', () => {
 						body: STUDY_OLLAMA_CHAT_BODY,
 					})
 					.then((response) => response.text()),
-			).rejects.toMatchObject({ failure: { stop: { id: 'Wire bytes', max: 2048 } } })
+			).rejects.toMatchObject({ context: { stop: { id: 'Wire bytes', max: 2048 } } })
 			expect(seen.entries).toEqual([
 				['dispatch', false],
 				['stop', false],
@@ -3578,7 +3578,7 @@ describe('transport stop chain', () => {
 					method: 'POST',
 					body: STUDY_OLLAMA_CHAT_BODY,
 				}),
-			).rejects.toMatchObject({ failure: { stop: { id: 'Wire bytes' } } })
+			).rejects.toMatchObject({ context: { stop: { id: 'Wire bytes' } } })
 			expect(fixture.goal.evidence.map((row) => row.event)).toEqual(['stop'])
 		} finally {
 			await fixture.close()
@@ -3594,7 +3594,7 @@ describe('transport stop chain', () => {
 					body: STUDY_OLLAMA_CHAT_BODY,
 				}),
 			).rejects.toMatchObject({
-				failure: {
+				context: {
 					cause: 'capacity',
 					role: 'agent',
 					stop: {
@@ -3630,7 +3630,7 @@ describe('transport stop chain', () => {
 					{ id: 3, revision: 'f'.repeat(64) },
 				)
 				await expect(response.text()).rejects.toMatchObject({
-					failure: { stop: { layer: 'model', id: 'num_predict', max: 512, consumed: 9 } },
+					context: { stop: { layer: 'model', id: 'num_predict', max: 512, consumed: 9 } },
 				})
 				expect(fixture.goal.evidence.map((row) => row.event)).toEqual(['dispatch', 'wire', 'stop'])
 				const stopped = requireStudyRecord(fixture.goal.evidence[2]?.value)

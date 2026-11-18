@@ -9,7 +9,15 @@ import { buildStudySelectors } from './helpers.js'
 import { parseStudyCheck } from './parsers.js'
 import { StudyLaunchChild } from './StudyLaunchChild.js'
 
-/** Supervises finite command trees and binds offline check to execution. */
+/**
+ * Supervises finite command trees and binds offline check to execution.
+ * @example
+ * ```ts
+ * declare const entry: string
+ * const launcher = new StudyLauncher({ root: process.cwd(), entry })
+ * const code = await launcher.execute(['check', 'assessment', '--profile', 'local']) // 0 when valid
+ * ```
+ */
 export class StudyLauncher {
 	readonly #root: string
 	readonly #entry: string
@@ -28,6 +36,10 @@ export class StudyLauncher {
 	/** Checks and supervises the requested command under its finite native allowance.
 	 * @param arguments_ - Public command tokens.
 	 * @returns The exact operational or supervisor exit code.
+	 * @remarks
+	 * Detaching each command child is platform-defined: a detached child gets its own process group on
+	 * POSIX only, so the child is detached there alone; a Windows child stays attached and is
+	 * terminated by its process tree.
 	 */
 	async execute(arguments_: readonly string[]): Promise<number> {
 		const entry = this.#entry
@@ -104,7 +116,7 @@ export class StudyLauncher {
 		}
 	}
 
-	// Spawns one command child; its own entity supervises the deadline, output allowance and interruption.
+	// Spawns one command child; its own entity supervises the deadline, output allowance and interruption. Detaching is platform-defined: a detached child gets its own process group on POSIX only, and a Windows child is terminated by its process tree.
 	#launch(
 		entry: string,
 		arguments_: readonly string[],

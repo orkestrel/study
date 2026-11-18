@@ -1,21 +1,12 @@
-import { isStudyKeyedSource } from '../../../../src/server/stores/validators.js'
-import { STUDY_STOP_CAUSES, STUDY_OTHER_CAUSES } from '../../../setupStudy.js'
-import { buildStudyStop, STUDY_INVALID_STOPS } from '../../../setupStudy.js'
-import { STUDY_FINITE_MEASUREMENTS } from '../../../setupStudy.js'
-import {
-	createForeignBudgetError,
-	buildStudyExchangeHistory,
-	buildOllamaDeclaration,
-	STUDY_SELECTION_MALFORMED_SEEDS,
-	STUDY_SELECTION_SEED,
-} from '../../../setupServer.js'
-import { readStudyFailure, translateStudyAgentStop } from '../../../../src/core/index.js'
-import { buildStudySchedule } from '../../../../src/core/helpers.js'
-import { isStudyProcessFailure } from '../../../../src/server/processes/validators.js'
 import type { StudyFailure, StudyObservation } from '../../../../src/core/types.js'
 import { isRecord } from '@orkestrel/contract'
 import { createRecorder, requireValue } from '@orkestrel/test'
+import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
+import { readStudyFailure, translateStudyAgentStop } from '../../../../src/core/index.js'
+import { buildStudySchedule } from '../../../../src/core/helpers.js'
+import { decodeStudyJSON, encodeStudyJSON } from '../../../../src/server/helpers.js'
+import { isStudyProcessFailure } from '../../../../src/server/processes/validators.js'
 import {
 	buildCompactCustodyManifest,
 	buildCustodyAttempt,
@@ -23,9 +14,21 @@ import {
 	buildStudyFailure,
 	buildStudyObservation,
 	buildStudySparse,
+	buildStudyStop,
 	STUDY_EXECUTION_CASES,
+	STUDY_FINITE_MEASUREMENTS,
+	STUDY_INVALID_STOPS,
+	STUDY_OTHER_CAUSES,
+	STUDY_STOP_CAUSES,
 } from '../../../setupStudy.js'
-import { decodeStudyJSON, encodeStudyJSON } from '../../../../src/server/helpers.js'
+import {
+	createForeignBudgetError,
+	buildStudyExchangeHistory,
+	buildStudyExchangeRows,
+	buildOllamaDeclaration,
+	STUDY_SELECTION_MALFORMED_SEEDS,
+	STUDY_SELECTION_SEED,
+} from '../../../setupServer.js'
 import {
 	isStudyCustodyAttempt,
 	isStudyCustodyEvidence,
@@ -38,10 +41,16 @@ import {
 	isStudyCustodyTrial,
 	isStudyAncestor,
 	isStudyExchangeAncestor,
+	isStudyExchangeBytes,
 	isStudyExchangeDeclaration,
+	isStudyExchangeHistory,
 	isStudyExchangeIdentity,
+	isStudyExchangeReply,
+	isStudyExchangeRow,
+	isStudyKeyedSource,
 	isStudySelection,
 } from '../../../../src/server/stores/validators.js'
+import { projectStudyExchangeIdentity } from '../../../../src/server/stores/helpers.js'
 
 describe('custody validators', () => {
 	it('validates replay ancestry and requires native and content identities in sealed manifests', () => {
@@ -402,6 +411,81 @@ describe('custody selection', () => {
 				selection: { ...narrowed.selection, goals: { first: 'write', last: 'read' } },
 			}),
 		).toBe(false)
+	})
+})
+
+describe('exchange row guards', () => {
+	it('checks byte envelopes against their own base64, size, and SHA-256 digest', () => {
+		const digest = createHash('sha256').update('hi').digest('hex')
+		expect(isStudyExchangeBytes({ body: 'aGk=', size: 2, digest })).toBe(true)
+		expect(
+			isStudyExchangeBytes({
+				body: '',
+				size: 0,
+				digest: createHash('sha256').update('').digest('hex'),
+			}),
+		).toBe(true)
+		for (const changed of [
+			{ body: 'aGk=', size: 3, digest },
+			{ body: 'aGk=', size: 2, digest: 'f'.repeat(64) },
+			{ body: 'aGk', size: 2, digest },
+			{ body: 'aGk=', size: -1, digest },
+			{ body: 2, size: 2, digest },
+		])
+			expect(isStudyExchangeBytes(changed)).toBe(false)
+	})
+
+	it('checks replies for status, selected headers, and chunk lengths summing to the size', () => {
+		const reply = requireValue(buildStudyExchangeRows().find((row) => row.phase === 'response'))
+		expect(isStudyExchangeReply(reply)).toBe(true)
+		for (const changed of [
+			{ ...reply, status: 199 },
+			{ ...reply, status: 600 },
+			{ ...reply, headers: [['x-trace', 'one']] },
+			{ ...reply, headers: [['content-type', 'text/plain\r\nx-trace: one']] },
+			{ ...reply, chunks: [...reply.chunks, 1] },
+			{ ...reply, chunks: [0, ...reply.chunks] },
+		])
+			expect(isStudyExchangeReply(changed)).toBe(false)
+	})
+
+	it('admits every fixture row and refuses rows outside the closed grammar', () => {
+		const rows = buildStudyExchangeRows()
+		expect(rows.every(isStudyExchangeRow)).toBe(true)
+		const attempt = requireValue(rows.find((row) => row.phase === 'attempt'))
+		const response = requireValue(rows.find((row) => row.phase === 'response'))
+		for (const changed of [
+			{ phase: 'complete', count: 0 },
+			{ phase: 'complete', count: 7, extra: true },
+			{ ...attempt, status: 200 },
+			{ ...response, status: 500 },
+			{ ...attempt, phase: 'retry' },
+			{ ...attempt, reason: 'Refused', phase: 'failure', body: undefined },
+		])
+			expect(isStudyExchangeRow(changed)).toBe(false)
+		expect(
+			isStudyExchangeRow({
+				...projectStudyExchangeIdentity(attempt),
+				phase: 'failure',
+				reason: 'Ollama refused',
+			}),
+		).toBe(true)
+	})
+
+	it('checks history envelopes and paired row phases before relational validation', () => {
+		const history = buildStudyExchangeHistory()
+		expect(isStudyExchangeHistory(history)).toBe(true)
+		const [pair] = history.exchanges
+		const exchange = requireValue(pair)
+		for (const changed of [
+			{ ...history, seal: 'invalid' },
+			{ ...history, exchanges: [{ attempt: exchange.response, response: exchange.attempt }] },
+			{ ...history, exchanges: [{ ...exchange, extra: true }] },
+			{ ...history, completion: history.declaration },
+			{ ...history, extra: true },
+		])
+			expect(isStudyExchangeHistory(changed)).toBe(false)
+		expect(isStudyExchangeHistory({})).toBe(false)
 	})
 })
 

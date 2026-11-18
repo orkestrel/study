@@ -1,6 +1,14 @@
 import type { StudyAgentPlan, StudyAgentResponse } from './types.js'
 
-/** Serves one goal's owned response sequence in declared order. */
+/**
+ * Serves one goal's owned response sequence in declared order.
+ * @example
+ * ```ts
+ * declare const plan: StudyAgentPlan
+ * const goal = new StudyAgentScriptGoal(plan)
+ * goal.take() === plan.responses[0] // true
+ * ```
+ */
 export class StudyAgentScriptGoal {
 	readonly #plan: StudyAgentPlan
 	#cursor = 0

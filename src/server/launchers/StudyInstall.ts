@@ -58,7 +58,7 @@ export class StudyInstall {
 	 * @param arguments_ - The command tokens after the entry.
 	 * @param duration - The deadline in milliseconds. Default: `STUDY_LAUNCH_DURATION + STUDY_LAUNCH_CLEANUP`.
 	 * @returns The exit code, 124 after the deadline, each captured stream, and the elapsed milliseconds.
-	 * @remarks The child inherits no runtime flags from this process. At the deadline the captured stderr ends with the deadline diagnostic.
+	 * @remarks The child inherits no runtime flags from this process. At the deadline the captured stderr ends with the deadline diagnostic. Detaching the child is platform-defined: a detached child gets its own process group on POSIX only, so the child is detached there alone; a Windows child stays attached and is terminated by its process tree.
 	 */
 	async execute(
 		arguments_: readonly string[],

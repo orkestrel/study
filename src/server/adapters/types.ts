@@ -5,11 +5,13 @@ import type {
 	StudyDriverInterface,
 	StudyEvidence,
 	StudyJudgment,
+	StudyJudgmentMethod,
 	StudyManifest,
 	StudyProfile,
 	StudyRubric,
 	StudyScenario,
 	StudyTrial,
+	StudyVerdict,
 } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
 import type { StudyExchangeSinkInterface } from '../stores/types.js'
@@ -81,8 +83,8 @@ export interface StudyRow {
 
 /** Holds a consumer predicate's reading of one target, citing only retained files and rows. */
 export interface StudyGradeVerdict {
-	readonly verdict: StudyJudgment['verdict']
-	readonly method: StudyJudgment['method']
+	readonly verdict: StudyVerdict
+	readonly method: StudyJudgmentMethod
 	readonly reason: string
 	readonly references: readonly StudyReference[]
 }

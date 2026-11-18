@@ -1,4 +1,4 @@
-import type { StudyTicket } from '@src/core'
+import type { StudyTicketInterface } from '@src/core'
 import type { Message, ProviderDelta, ProviderInterface, ProviderResult } from '@orkestrel/agent'
 import type { StudyAgentPlan, StudyAgentResponse, StudyAgentScriptOptions } from './types.js'
 import { StudyError, failStudyTicket } from '@src/core'
@@ -14,7 +14,18 @@ import {
 import { isStudyAgentResponse } from './validators.js'
 import { StudyAgentScriptGoal } from './StudyAgentScriptGoal.js'
 
-/** Serves declared inert responses through the actual Agent provider boundary. */
+/**
+ * Serves declared inert responses through the actual Agent provider boundary.
+ * @example
+ * ```ts
+ * declare const plan: StudyAgentPlan
+ * declare const messages: readonly Message[]
+ * const script = new StudyAgentScript({ bytes: 65536, model: 'scripted' })
+ * script.prepare(plan)
+ * const result = await script.generate(messages, plan.context.signal)
+ * script.clear()
+ * ```
+ */
 export class StudyAgentScript implements ProviderInterface {
 	readonly id = randomUUID()
 	readonly name = 'scripted-study'
@@ -188,7 +199,7 @@ export class StudyAgentScript implements ProviderInterface {
 	}
 
 	// Finishes an unsettled request that an Agent budget cut, with unknown tokens; a settled or aborted ticket is left untouched.
-	#cut(ticket: StudyTicket, bytes: number, started: number): void {
+	#cut(ticket: StudyTicketInterface, bytes: number, started: number): void {
 		if (ticket.settled || ticket.signal.aborted) return
 		ticket.finish({
 			role: 'agent',
@@ -200,7 +211,7 @@ export class StudyAgentScript implements ProviderInterface {
 	}
 
 	// Admits the response's ceiling, retaining a refused admission as evidence before rethrowing it.
-	async #admit(plan: StudyAgentPlan, response: StudyAgentResponse): Promise<StudyTicket> {
+	async #admit(plan: StudyAgentPlan, response: StudyAgentResponse): Promise<StudyTicketInterface> {
 		try {
 			return await plan.context.meter.admit({
 				role: 'agent',

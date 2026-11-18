@@ -26,7 +26,7 @@ export interface StudyLimit {
 }
 
 /** Holds nested execution allowances; each request also has a deadline. */
-export interface StudyBounds {
+export interface StudyAllowance {
 	readonly request: StudyLimit
 	readonly goal: StudyLimit
 	readonly trial: StudyLimit
@@ -77,15 +77,18 @@ export interface StudyProvider {
 	/** Names the System One model; declared together with its digest or both absent. */
 	readonly triage?: string
 	/** Pins the serving inventory independently of mutable model names. */
-	readonly digest: {
-		readonly model: string
-		/** Pins the judge model; declared together with its name or both absent. */
-		readonly judge: string | undefined
-		/** Pins the System One model independently of its mutable name. */
-		readonly triage?: string
-	}
+	readonly digest: StudyProviderDigest
 	/** Declares an execution-owned daemon at this provider's dedicated URL. */
 	readonly daemon?: StudyDaemon
+}
+
+/** Pins a provider's serving inventory independently of mutable model names. */
+export interface StudyProviderDigest {
+	readonly model: string
+	/** Pins the judge model; declared together with its name or both absent. */
+	readonly judge: string | undefined
+	/** Pins the System One model independently of its mutable name. */
+	readonly triage?: string
 }
 
 /** Pins an executable and the model population an execution owns until cleanup.
@@ -139,7 +142,7 @@ export interface StudyProfile {
 	/** Selects the entry of the package under study; it can equal the Agent entry. */
 	readonly subject: string
 	readonly roots: readonly string[]
-	readonly bounds: StudyBounds
+	readonly bounds: StudyAllowance
 	readonly room: StudyRoom
 	readonly provider: StudyProvider | undefined
 	readonly qualification: string | undefined
@@ -229,7 +232,7 @@ export interface StudyManifest {
 	readonly scenarios: readonly StudyScenario[]
 	readonly identity: StudyIdentity
 	readonly schedule: readonly StudyTrial[]
-	readonly bounds: StudyBounds
+	readonly bounds: StudyAllowance
 	readonly qualification: string | undefined
 	readonly host: Readonly<Record<string, string>>
 	/** Copies the profile's recording declaration before any trial starts. */
@@ -297,7 +300,7 @@ export interface StudyUsage {
 }
 
 /** Holds one admitted request until its actual charge is recorded. */
-export interface StudyTicket {
+export interface StudyTicketInterface {
 	readonly signal: AbortSignal
 	/** Reports whether this ticket already recorded its own settlement; an aborted signal does not establish it. */
 	readonly settled: boolean
@@ -318,7 +321,7 @@ export interface StudyAdmissionInterface {
 	readonly signal: AbortSignal
 	readonly usage: readonly StudyUsage[]
 	/** Resolves admission before dispatch; local meters may return the ticket synchronously. */
-	admit(charge: StudyCharge): StudyTicket | Promise<StudyTicket>
+	admit(charge: StudyCharge): StudyTicketInterface | Promise<StudyTicketInterface>
 }
 
 /** Holds append-only domain evidence in a JSON-compatible form. */
@@ -420,12 +423,21 @@ export interface StudySeriesOptions {
 	readonly seed?: JSONValue
 }
 
+/** Names how a grader establishes a criterion. */
+export type StudyCriterionMethod = 'state' | 'trace' | 'semantic'
+
+/** Names the outcome a judgment awards; missing evidence stays `unknown`. */
+export type StudyVerdict = 'achieved' | 'unsuccessful' | 'unknown'
+
+/** Names how a judgment was established. */
+export type StudyJudgmentMethod = 'state' | 'trace' | 'human' | 'model'
+
 /** Holds a grader-owned criterion outside the driver's public input. */
 export interface StudyCriterion {
 	readonly id: string
 	readonly scenario: string
 	readonly goal: string
-	readonly method: 'state' | 'trace' | 'semantic'
+	readonly method: StudyCriterionMethod
 	readonly critical: boolean
 	readonly assertion: JSONValue
 }
@@ -440,14 +452,14 @@ export interface StudyRubric {
 export interface StudyJudgment {
 	readonly trial: string
 	readonly criterion: string
-	readonly verdict: 'achieved' | 'unsuccessful' | 'unknown'
-	readonly method: 'state' | 'trace' | 'human' | 'model'
+	readonly verdict: StudyVerdict
+	readonly method: StudyJudgmentMethod
 	readonly reason: string
 	readonly references: readonly string[]
 }
 
 /** Holds imported semantic judgments and their accountable origin. */
-export interface StudyLabels {
+export interface StudyLabelSheet {
 	readonly packet: string
 	readonly labeler: string
 	readonly version: string
@@ -455,6 +467,9 @@ export interface StudyLabels {
 	readonly usage: readonly StudyUsage[]
 	readonly judgments: readonly StudyJudgment[]
 }
+
+/** Lists, by path, what a contract's shape cannot express in a value the contract accepted. */
+export type StudyContractScanFunction<T> = (value: T) => readonly string[]
 
 /**
  * Configures one contract-backed parse of a value an author, a labeler, or an adapter filled.
@@ -465,8 +480,8 @@ export interface StudyLabels {
 export interface StudyContractOptions<T> {
 	readonly code: StudyErrorCode
 	readonly noun: string
-	readonly contract: Pick<ContractInterface<T>, 'is' | 'audit' | 'schema'>
-	readonly scan: (value: T) => readonly string[]
+	readonly contract: ContractInterface<T>
+	readonly scan: StudyContractScanFunction<T>
 }
 
 /** Holds a grading identity that cannot replace or mutate execution bytes. */

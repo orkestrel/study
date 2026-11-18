@@ -1,6 +1,6 @@
 import type {
 	StudyAttempt,
-	StudyBounds,
+	StudyAllowance,
 	StudyDefinition,
 	StudyEvidence,
 	StudyAssessment,
@@ -326,7 +326,7 @@ export function resolveStudyProfile(
  */
 export function computeStudyCommandFingerprint(
 	identity: StudyIdentity,
-	bounds: StudyBounds,
+	bounds: StudyAllowance,
 	definition?: StudyDefinition,
 	ancestor?: string,
 	selection?: StudySelection,

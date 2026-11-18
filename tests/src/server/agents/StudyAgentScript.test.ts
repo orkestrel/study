@@ -577,7 +577,7 @@ describe('StudyAgentScript', () => {
 			).rejects.toMatchObject({
 				code: 'CAPACITY',
 				message: 'Scripted request exceeds its encoded workload bound',
-				failure: {
+				context: {
 					stop: { layer: 'scope', id: 'Scripted bytes', max: encoded - 1, consumed: encoded },
 				},
 			})

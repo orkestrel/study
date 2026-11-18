@@ -4,7 +4,7 @@ import type {
 	StudyManifest,
 	StudyProfile,
 	StudyRubric,
-	StudyTicket,
+	StudyTicketInterface,
 	StudyTrial,
 	StudyUsage,
 	StudyFailure,
@@ -160,7 +160,7 @@ export interface StudyProcessSessionOptions extends StudyProcessOptions {
 
 /** Holds an authoritative parent ticket and its transport listener lifetime. */
 export interface StudyParentTicket {
-	readonly ticket: StudyTicket
+	readonly ticket: StudyTicketInterface
 	readonly listeners: AbortController
 }
 

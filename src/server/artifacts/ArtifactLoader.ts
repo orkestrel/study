@@ -42,6 +42,14 @@ import { Resolution } from './Resolution.js'
  * @remarks
  * Loads trusted code without sandboxing untrusted code. Native process APIs, eval and external
  * services are not replayed. One inventory may load per process; terminate it afterwards.
+ * @example
+ * ```ts
+ * declare const root: string
+ * declare const entry: string
+ * const artifacts = new ArtifactLoader({ roots: [root], entries: [entry] })
+ * artifacts.inspect().entries.includes(entry) // true
+ * artifacts.verify()
+ * ```
  */
 export class ArtifactLoader implements ArtifactLoaderInterface {
 	static #active = false

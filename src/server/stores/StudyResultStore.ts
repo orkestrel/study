@@ -33,7 +33,16 @@ import {
 	isStudyExchangeDeclaration,
 } from './validators.js'
 
-/** Owns append-only execution bytes and seals only a complete terminal population. */
+/**
+ * Owns append-only execution bytes and seals only a complete terminal population.
+ * @example
+ * ```ts
+ * declare const directory: string
+ * declare const manifest: StudyManifest
+ * const store = new StudyResultStore({ directory, manifest })
+ * await store.create()
+ * ```
+ */
 export class StudyResultStore implements StudyResultStoreInterface {
 	readonly #directory: string
 	readonly #manifest: StudyManifest
@@ -59,7 +68,7 @@ export class StudyResultStore implements StudyResultStoreInterface {
 	}
 
 	/**
-	 * Exclusively creates the result directory and initial manifest bytes.
+	 * Creates the result directory and initial manifest bytes exclusively.
 	 * @returns Nothing after the manifest is synchronized
 	 * @throws StudyError - Thrown when creation repeats or custody bounds are exceeded
 	 */
@@ -120,7 +129,7 @@ export class StudyResultStore implements StudyResultStoreInterface {
 	}
 
 	/**
-	 * Exclusively creates the evidence sink for an exact scheduled trial.
+	 * Creates the evidence sink for an exact scheduled trial exclusively.
 	 * @param trial - The scheduled trajectory
 	 * @returns The bounded append-only sink
 	 * @throws StudyError - Thrown when the trial is foreign, repeated, or late

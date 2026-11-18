@@ -5,18 +5,30 @@ import type {
 	StudyExchangeSinkInterface,
 	StudyExchangeSinkOptions,
 } from './types.js'
+import type { StudyFault } from '../types.js'
 import { StudyError, isStudyRecord } from '@src/core'
 import { parseJSON, cloneJSONValue, canonicalStringify } from '@orkestrel/contract'
 import { advanceStudyExchangeProgress, validateStudyExchangeRows } from './helpers.js'
 import { isStudyExchangeRow, isStudyExchangeDeclaration } from './validators.js'
 
-/** Retains ordered exchange rows under a parent-reserved serialized byte allowance. */
+/**
+ * Retains ordered exchange rows under a parent-reserved serialized byte allowance.
+ * @example
+ * ```ts
+ * declare const options: StudyExchangeSinkOptions
+ * declare const declaration: StudyExchangeDeclaration
+ * const sink = new StudyExchangeSink(options)
+ * await sink.append(declaration)
+ * sink.next // 1
+ * await sink.close()
+ * ```
+ */
 export class StudyExchangeSink implements StudyExchangeSinkInterface {
 	readonly #options: StudyExchangeSinkOptions
 	readonly #writes = new Set<Promise<void>>()
 	#progress: StudyExchangeProgress | undefined
 	#bytes = 0
-	#fault: { readonly error: unknown } | undefined
+	#fault: StudyFault | undefined
 	#shutdown: Promise<void> | undefined
 
 	/** Owns the descriptor and restores a verified prefix without rewriting it.

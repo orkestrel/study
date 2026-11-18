@@ -1,10 +1,11 @@
-import { STUDY_FINITE_MEASUREMENTS, STUDY_UNKNOWN_MEASUREMENTS } from '../../setupStudy.js'
-import { parseStudyMeasurement } from '../../../src/core/parsers.js'
 import { expect, it } from 'vitest'
+import { studyJudgmentContract } from '../../../src/core/contracts.js'
 import {
+	parseStudyContract,
+	parseStudyMeasurement,
 	parseStudyDefinition,
 	parseStudyAssessment,
-	parseStudyLabels,
+	parseStudyLabelSheet,
 	parseStudyProfile,
 	parseStudyRubric,
 	parseStudyScenario,
@@ -12,7 +13,7 @@ import {
 import {
 	isStudyDefinition,
 	isStudyAssessment,
-	isStudyLabels,
+	isStudyLabelSheet,
 	isStudyProfile,
 	isStudyRubric,
 	isStudyScenario,
@@ -29,8 +30,10 @@ import {
 	buildStudyRubric,
 	buildStudyScenario,
 	buildStudySettingsProfile,
+	STUDY_FINITE_MEASUREMENTS,
 	STUDY_PROFILE_INVALID_SETTINGS,
 	STUDY_PROFILE_SETTINGS,
+	STUDY_UNKNOWN_MEASUREMENTS,
 } from '../../setupStudy.js'
 
 it('owns frozen declaration snapshots that satisfy each paired guard', () => {
@@ -160,12 +163,12 @@ it('parses real JSON grading and labels without coercion and preserves unknown t
 		usage: [{ role: 'judge', calls: 0, tokens: undefined, bytes: undefined, duration: 0 }],
 		judgments: [buildStudyJudgment('r1-s1-a1', 'first-read', 'unknown', 'human')],
 	}
-	const parsedLabels = parseStudyLabels(labels)
-	expect(isStudyLabels(parsedLabels)).toBe(true)
+	const parsedLabels = parseStudyLabelSheet(labels)
+	expect(isStudyLabelSheet(parsedLabels)).toBe(true)
 	expect(parsedLabels.usage[0]?.tokens).toBeUndefined()
 	expect(parsedLabels.usage[0]?.bytes).toBeUndefined()
 	expect(Object.isFrozen(parsedLabels.usage[0])).toBe(true)
-	expect(parseStudyLabels(JSON.parse(JSON.stringify(labels)))).toEqual(parsedLabels)
+	expect(parseStudyLabelSheet(JSON.parse(JSON.stringify(labels)))).toEqual(parsedLabels)
 })
 
 it('rejects unknown keys, unsafe limits, malformed JSON shapes and hostile reads with coded errors', () => {
@@ -183,7 +186,7 @@ it('rejects unknown keys, unsafe limits, malformed JSON shapes and hostile reads
 	).toThrow(StudyError)
 	expect(() => parseStudyRubric({ ...buildStudyRubric(), criteria: [] })).toThrow(StudyError)
 	expect(() => parseStudyAssessment({})).toThrow(expect.objectContaining({ code: 'EVIDENCE' }))
-	expect(() => parseStudyLabels({})).toThrow(expect.objectContaining({ code: 'EVIDENCE' }))
+	expect(() => parseStudyLabelSheet({})).toThrow(expect.objectContaining({ code: 'EVIDENCE' }))
 	expect(() =>
 		parseStudyScenario(
 			new Proxy(
@@ -235,4 +238,60 @@ it('owns an unselected criterion list on a grading and leaves it out when absent
 	expect(selected.unselected).toEqual(['first-read'])
 	expect(isStudyAssessment(selected)).toBe(true)
 	expect(() => parseStudyAssessment({ ...assessment, unselected: [''] })).toThrow(StudyError)
+})
+
+it('owns a contract-valid value and refuses with the configured code, noun, and scan faults', () => {
+	const judgment = buildStudyJudgment('r1-s1-a1')
+	const contract = studyJudgmentContract
+	const owned = parseStudyContract(judgment, {
+		code: 'EVIDENCE',
+		noun: 'study judgment',
+		contract,
+		scan: () => [],
+	})
+	expect(owned).toEqual(judgment)
+	expect(owned).not.toBe(judgment)
+	expect(() =>
+		parseStudyContract(
+			{ ...judgment, trial: 1 },
+			{ code: 'EVIDENCE', noun: 'study judgment', contract, scan: () => [] },
+		),
+	).toThrow(
+		expect.objectContaining({
+			code: 'EVIDENCE',
+			message: expect.stringMatching(/^Invalid study judgment: .*trial/),
+		}),
+	)
+	expect(() =>
+		parseStudyContract(judgment, {
+			code: 'EVIDENCE',
+			noun: 'study judgment',
+			contract,
+			scan: () => ['references.0: names no file'],
+		}),
+	).toThrow(
+		expect.objectContaining({
+			code: 'EVIDENCE',
+			message: 'Invalid study judgment: references.0: names no file',
+		}),
+	)
+	const unreadable = Object.defineProperty({ ...judgment }, 'reason', {
+		enumerable: true,
+		get: () => {
+			throw new Error('Reason is unreadable')
+		},
+	})
+	expect(() =>
+		parseStudyContract(unreadable, {
+			code: 'CONFIG',
+			noun: 'study judgment',
+			contract,
+			scan: () => [],
+		}),
+	).toThrow(
+		expect.objectContaining({
+			code: 'CONFIG',
+			message: expect.stringMatching(/^Invalid or unreadable study judgment/),
+		}),
+	)
 })

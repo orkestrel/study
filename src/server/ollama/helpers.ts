@@ -1,9 +1,13 @@
-import type { StudyProvider, StudyRole, StudyRoom, StudyStop } from '@src/core'
+import type { StudyProvider, StudyRole, StudyStop } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
 import type { OllamaTiming } from '@orkestrel/ollama'
 import type {
+	StudyOllamaAdmission,
+	StudyOllamaInventory,
 	StudyOllamaModel,
 	StudyOllamaPolicy,
+	StudyOllamaRolePolicy,
+	StudyOllamaRoom,
 	StudyOllamaRequest,
 	StudyOllamaOptions,
 	StudyOllamaTerminal,
@@ -36,6 +40,28 @@ import {
 	isRecord,
 	parseJSON,
 } from '@orkestrel/contract'
+import { STUDY_OLLAMA_KEYED_ROLES } from './constants.js'
+
+/** Checks whether a list holds distinct roles a keyed replay can serve under its offline behavior.
+ * @remarks
+ * `metadata` is admitted only offline: served inventory verifies the recording, not a live daemon.
+ * @param roles - The candidate list.
+ * @param offline - If `true`, no request sends live; if `false`, a miss sends live.
+ * @returns True if the list is nonempty, distinct, and admitted under `offline`; false otherwise.
+ * @example
+ * ```ts
+ * matchesStudyKeyedRoles(['metadata', 'judge'], false) // false
+ * ```
+ */
+export function matchesStudyKeyedRoles(roles: unknown, offline: boolean): boolean {
+	return (
+		isArray(roles) &&
+		roles.length > 0 &&
+		roles.every((role) => STUDY_OLLAMA_KEYED_ROLES.some((entry) => entry === role)) &&
+		new Set(roles).size === roles.length &&
+		(offline || !roles.includes('metadata'))
+	)
+}
 
 /** Builds the key a keyed replay finds a recorded exchange by.
  * @param role - The request's Study role.
@@ -82,6 +108,12 @@ export function splitStudyOllamaChunks(
  * @param expected - The next recorded attempt, absent after the offline prefix.
  * @param actual - The request admitted by the executing transport.
  * @returns An attributable reason, or undefined when the request matches exactly.
+ * @example
+ * ```ts
+ * declare const expected: StudyExchangeAttempt
+ * declare const actual: StudyOllamaReplayRequest
+ * describeStudyReplayDifference(expected, actual) // undefined when the request matches the recording
+ * ```
  */
 export function describeStudyReplayDifference(
 	expected: StudyExchangeAttempt | undefined,
@@ -110,10 +142,13 @@ export function describeStudyReplayDifference(
  * Declares the pinned serving identities the Ollama transport verifies, keyed by the label their inventory evidence carries.
  * @param provider - Declared serving identities
  * @returns The model pin, plus the judge pin when the provider declares both the judge name and its digest
+ * @example
+ * ```ts
+ * declare const provider: StudyProvider
+ * buildStudyOllamaModels(provider).model // { name: provider.model, digest: provider.digest.model }
+ * ```
  */
-export function buildStudyOllamaModels(
-	provider: StudyProvider,
-): StudyOllamaTransportOptions['models'] {
+export function buildStudyOllamaModels(provider: StudyProvider): StudyOllamaInventory {
 	return {
 		model: { name: provider.model, digest: provider.digest.model },
 		...(provider.triage === undefined || provider.digest.triage === undefined
@@ -138,7 +173,7 @@ export function buildStudyOllamaModels(
  * ```
  */
 export function collectStudyOllamaModels(
-	models: StudyOllamaTransportOptions['models'],
+	models: StudyOllamaInventory,
 ): readonly StudyOllamaModel[] {
 	return Object.freeze(
 		Object.values(models).filter(
@@ -155,6 +190,17 @@ export function collectStudyOllamaModels(
  * transport and projects nothing.
  * @param policy - The role's declared wire policy
  * @returns The model, think flag, options object, and the strict native fields when declared
+ * @example
+ * ```ts
+ * buildStudyOllamaOptions({
+ * 	model: 'scribe',
+ * 	options: { num_predict: 256 },
+ * 	think: false,
+ * 	strict: true,
+ * 	length: false,
+ * })
+ * // { model: 'scribe', options: { num_predict: 256 }, think: false, truncate: false, shift: false }
+ * ```
  */
 export function buildStudyOllamaOptions(policy: StudyOllamaPolicy): StudyOllamaOptions {
 	return {
@@ -171,10 +217,17 @@ export function buildStudyOllamaOptions(policy: StudyOllamaPolicy): StudyOllamaO
  * @param models - The pinned served identities
  * @returns Nothing when every policy names a pinned model and a positive output allowance
  * @throws StudyError - Thrown with code `CONFIG` when a policy names an unpinned model, declares no positive safe-integer `num_predict`, or makes the raw judge wire strict
+ * @example
+ * ```ts
+ * const models = { model: { name: 'scribe', digest: 'a'.repeat(64) } }
+ * const agent = { model: 'scribe', options: { num_predict: 256 }, think: false, strict: true, length: false }
+ * validateStudyOllamaRoles({ agent }, models) // returns
+ * validateStudyOllamaRoles({ agent: { ...agent, model: 'other' } }, models) // throws a CONFIG StudyError
+ * ```
  */
 export function validateStudyOllamaRoles(
-	roles: StudyOllamaTransportOptions['roles'],
-	models: StudyOllamaTransportOptions['models'],
+	roles: StudyOllamaRolePolicy,
+	models: StudyOllamaInventory,
 ): void {
 	const names = Object.values(models).map((model) => model.name)
 	for (const [role, policy] of Object.entries(roles)) {
@@ -201,6 +254,10 @@ export function validateStudyOllamaRoles(
 /** Encodes exact application bytes with their decoded size and SHA-256 identity.
  * @param bytes - The request or response application bytes.
  * @returns Canonical base64 and the independent byte receipt.
+ * @example
+ * ```ts
+ * buildStudyOllamaBytes(new TextEncoder().encode('hi')).body // 'aGk='
+ * ```
  */
 export function buildStudyOllamaBytes(bytes: Uint8Array): StudyExchangeBytes {
 	return {
@@ -214,6 +271,11 @@ export function buildStudyOllamaBytes(bytes: Uint8Array): StudyExchangeBytes {
  * @param options - The owned transport configuration.
  * @returns The validated sink declaration, or undefined without recording.
  * @throws StudyError - Thrown with CONFIG for invalid bounds, groups, identities or ordered policies.
+ * @example
+ * ```ts
+ * declare const options: StudyOllamaTransportOptions
+ * validateStudyOllamaCapture({ ...options, exchanges: undefined }) // undefined without recording
+ * ```
  */
 export function validateStudyOllamaCapture(
 	options: StudyOllamaTransportOptions,
@@ -255,6 +317,11 @@ export function validateStudyOllamaCapture(
  * @param body - The owned encoded request body.
  * @returns Nothing when identity, policy and bytes match the declaration.
  * @throws StudyError - Thrown with FAULT before sending any mismatched request.
+ * @example
+ * ```ts
+ * declare const request: StudyOllamaRequest
+ * validateStudyOllamaStep(undefined, 'open-order', request, '{}') // throws a FAULT StudyError after the procedure ends
+ * ```
  */
 export function validateStudyOllamaStep(
 	step: StudyOllamaStep | undefined,
@@ -285,9 +352,14 @@ export function validateStudyOllamaStep(
  * @param init - The native fetch settings
  * @returns The validated dispatch facts
  * @throws StudyError - Thrown with code `CONFIG` when the endpoint, model, options, flags, or strict fields differ from the declaration, or the role declares no policy
+ * @example
+ * ```ts
+ * declare const admission: StudyOllamaAdmission
+ * readStudyOllamaRequest(admission, 'metadata', new URL('/api/tags', admission.url)).path // '/api/tags'
+ * ```
  */
 export function readStudyOllamaRequest(
-	options: Pick<StudyOllamaTransportOptions, 'url' | 'models' | 'roles'>,
+	options: StudyOllamaAdmission,
 	role: StudyRole,
 	input: string | URL | Request,
 	init?: RequestInit,
@@ -430,6 +502,13 @@ export function readStudyOllamaRequest(
  * @param context - The requested total context
  * @returns The unambiguous model context ceiling
  * @throws StudyError - Thrown with code `FAULT` when context metadata is missing, or `CAPACITY` when it is ambiguous or below the requested context
+ * @example
+ * ```ts
+ * readStudyOllamaSupport(
+ * 	{ model_info: { 'general.architecture': 'qwen3', 'qwen3.context_length': 40960 } },
+ * 	8192,
+ * ) // 40960
+ * ```
  */
 export function readStudyOllamaSupport(value: unknown, context: number): number {
 	if (
@@ -478,6 +557,11 @@ export function readStudyOllamaSupport(value: unknown, context: number): number 
  * @param role - The responsibility whose request was dispatched; the failure retains it
  * @param status - The HTTP status of the carrying response; undefined for a row of a stream that answered 200
  * @returns Undefined when the value carries no `error` member; otherwise the attributable failure
+ * @example
+ * ```ts
+ * readStudyOllamaFailure({ done: true }, 'agent') // undefined
+ * readStudyOllamaFailure({ error: 'model not found' }, 'agent')?.code // 'FAULT'
+ * ```
  */
 export function readStudyOllamaFailure(
 	value: unknown,
@@ -539,6 +623,12 @@ export function readStudyOllamaFailure(
  * @param request - The admitted dispatch
  * @returns The terminal facts, or undefined for a nonterminal row
  * @throws StudyError - Thrown with the recognized provider failure when the row carries an `error` member, before any other row check; `FAULT` for a malformed row, model, message, finish reason, or usage
+ * @example
+ * ```ts
+ * declare const request: StudyOllamaRequest
+ * declare const row: unknown
+ * readStudyOllamaTerminal(row, request) // { prompt, completion, reason } for a terminal row, else undefined
+ * ```
  */
 export function readStudyOllamaTerminal(
 	value: unknown,
@@ -611,10 +701,17 @@ export function readStudyOllamaTerminal(
  * @param request - The admitted dispatch and its declared finish policy; every refusal retains its role
  * @returns Nothing when the completion satisfies the declared policy
  * @throws StudyError - Thrown with code `CAPACITY` when the actual prompt exceeds its room, generation exceeds its allowance, or an undeclared `length` finish or capped generation occurs; `FAULT` for another unsupported finish reason
+ * @example
+ * ```ts
+ * declare const request: StudyOllamaRequest
+ * const room = { context: 4096, safety: 256 }
+ * validateStudyOllamaCompletion({ prompt: 9000, completion: 2, reason: 'stop' }, room, request)
+ * // throws a CAPACITY StudyError: the prompt exceeds the reserved context
+ * ```
  */
 export function validateStudyOllamaCompletion(
 	terminal: StudyOllamaTerminal,
-	room: Pick<StudyRoom, 'context' | 'safety'>,
+	room: StudyOllamaRoom,
 	request: StudyOllamaRequest,
 ): void {
 	const { prompt, completion, reason } = terminal
@@ -686,11 +783,14 @@ export function validateStudyOllamaCompletion(
  * @param models - The pinned served identities
  * @returns Nothing for a matching inventory
  * @throws StudyError - Thrown with code `FAULT` when the inventory is unsupported or a pinned identity does not match
+ * @example
+ * ```ts
+ * const pin = { name: 'scribe', digest: 'a'.repeat(64) }
+ * validateStudyOllamaInventory({ models: [{ name: 'scribe', digest: 'a'.repeat(64) }] }, { model: pin }) // returns
+ * validateStudyOllamaInventory({ models: [] }, { model: pin }) // throws a FAULT StudyError
+ * ```
  */
-export function validateStudyOllamaInventory(
-	value: unknown,
-	models: StudyOllamaTransportOptions['models'],
-): void {
+export function validateStudyOllamaInventory(value: unknown, models: StudyOllamaInventory): void {
 	if (!isObject(value) || !('models' in value) || !isArray(value.models))
 		throw new StudyError('FAULT', 'Unsupported Ollama inventory')
 	const served = value.models
@@ -712,9 +812,15 @@ export function validateStudyOllamaInventory(
  * @param models - The pinned served identities
  * @param request - The admitted dispatch
  * @returns The pinned digest, or undefined for an inventory request or an unpinned model
+ * @example
+ * ```ts
+ * declare const request: StudyOllamaRequest
+ * const pin = { name: 'scribe', digest: 'a'.repeat(64) }
+ * readStudyOllamaDigest({ model: pin }, { ...request, model: 'scribe' }) === pin.digest // true
+ * ```
  */
 export function readStudyOllamaDigest(
-	models: StudyOllamaTransportOptions['models'],
+	models: StudyOllamaInventory,
 	request: StudyOllamaRequest,
 ): string | undefined {
 	if (request.model === undefined) return undefined
@@ -726,6 +832,13 @@ export function readStudyOllamaDigest(
  * @param extract - The admitted extractor
  * @param record - The validated terminal row
  * @returns The raw timing, or undefined when absent or the extractor throws
+ * @example
+ * ```ts
+ * const unreadable = (): never => {
+ * 	throw new Error('Timing is unreadable')
+ * }
+ * readStudyOllamaTiming(unreadable, { done: true }) // undefined
+ * ```
  */
 export function readStudyOllamaTiming(
 	extract: StudyOllamaTransportOptions['timing'],
@@ -742,6 +855,10 @@ export function readStudyOllamaTiming(
  * Builds the JSON evidence form of a timing observation with raw nanoseconds and counts.
  * @param timing - The extracted timing
  * @returns Null when no terminal timing was observed; otherwise every unreported member as null
+ * @example
+ * ```ts
+ * buildStudyOllamaTiming(undefined) // null
+ * ```
  */
 export function buildStudyOllamaTiming(timing: OllamaTiming | undefined): JSONValue {
 	if (timing === undefined) return null
@@ -765,6 +882,10 @@ export function buildStudyOllamaTiming(timing: OllamaTiming | undefined): JSONVa
  * Builds a reading of the raw prompt text an encoded request body carries, as sent.
  * @param body - The encoded request body
  * @returns The prompt's UTF-16 code units and UTF-8 bytes, labeled with its encoding, or undefined when there is no string prompt; these are readings of the actual text, not token allocations
+ * @example
+ * ```ts
+ * buildStudyOllamaRaw(JSON.stringify({ prompt: 'héllo' })) // { encoding: 'utf-8', units: 5, bytes: 6 }
+ * ```
  */
 export function buildStudyOllamaRaw(body: unknown): JSONValue | undefined {
 	if (typeof body !== 'string') return undefined

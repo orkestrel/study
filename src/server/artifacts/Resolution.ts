@@ -17,7 +17,20 @@ import { containsArtifact } from '../helpers.js'
 import { ArtifactError } from './errors.js'
 import { readArtifact } from './helpers.js'
 
-/** Enforces captured inventory membership at every synchronous native import edge. */
+/**
+ * Enforces captured inventory membership at every synchronous native import edge.
+ * @example
+ * ```ts
+ * import { registerHooks } from 'node:module'
+ *
+ * declare const input: ArtifactHookInput
+ * const resolution = new Resolution(input)
+ * registerHooks({
+ * 	resolve: (specifier, context, next) => resolution.resolve(specifier, context, next),
+ * 	load: (url, context, next) => resolution.load(url, context, next),
+ * })
+ * ```
+ */
 export class Resolution {
 	#input: ArtifactHookInput
 	#files: ReadonlyMap<string, ArtifactSource>

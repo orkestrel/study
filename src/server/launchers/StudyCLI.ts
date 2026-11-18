@@ -13,7 +13,15 @@ import { StudyWorker } from '../processes/StudyWorker.js'
 import { readStudyVersion } from '../processes/helpers.js'
 import { StudyLauncher } from './StudyLauncher.js'
 
-/** Dispatches private child routes before the public native supervisor. */
+/**
+ * Dispatches private child routes before the public native supervisor.
+ * @example
+ * ```ts
+ * declare const entry: string
+ * const cli = new StudyCLI({ root: process.cwd(), entry })
+ * process.exitCode = await cli.execute(process.argv.slice(2))
+ * ```
+ */
 export class StudyCLI {
 	#options: StudyLaunchOptions
 	/** Owns the installed executable path and consumer working directory.
@@ -91,9 +99,9 @@ export class StudyCLI {
 			return error instanceof StudyError
 				? error.code === 'CONFIG'
 					? 64
-					: error.failure?.cause === 'deadline'
+					: error.context?.cause === 'deadline'
 						? 124
-						: error.failure?.cause === 'interrupted'
+						: error.context?.cause === 'interrupted'
 							? 130
 							: 1
 				: 1

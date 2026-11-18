@@ -10,7 +10,7 @@ import { isStudyLayer, isStudyStop } from '../../../src/core/validators.js'
 import { describe, expect, it } from 'vitest'
 import { STUDY_CAUSES, STUDY_ROLES } from '../../../src/core/constants.js'
 import {
-	isStudyBounds,
+	isStudyAllowance,
 	isStudyCause,
 	isStudyCriterion,
 	isStudyDefinition,
@@ -19,7 +19,7 @@ import {
 	isStudyGoal,
 	isStudyAssessment,
 	isStudyJudgment,
-	isStudyLabels,
+	isStudyLabelSheet,
 	isStudyLimit,
 	isStudyName,
 	isStudyProduct,
@@ -135,7 +135,7 @@ it('rejects unsafe, fractional, nonfinite, negative, unordered and misspelled li
 	const profile = buildStudyProfile()
 	const limit = profile.bounds.request
 	expect(isStudyLimit(limit)).toBe(true)
-	expect(isStudyBounds(profile.bounds)).toBe(true)
+	expect(isStudyAllowance(profile.bounds)).toBe(true)
 	expect(isStudyLimit({ ...limit, tokens: Number.MAX_SAFE_INTEGER + 1 })).toBe(false)
 	expect(isStudyLimit({ ...limit, duration: 2147483648 })).toBe(false)
 	expect(isStudyLimit({ ...limit, duration: 2147483647 })).toBe(true)
@@ -147,9 +147,9 @@ it('rejects unsafe, fractional, nonfinite, negative, unordered and misspelled li
 	expect(isStudyLimit({ ...limit, tokens: NaN })).toBe(false)
 	expect(isStudyLimit({ ...limit, tokens: '100' })).toBe(false)
 	expect(isStudyLimit({ ...limit, timeout: 100 })).toBe(false)
-	expect(isStudyBounds({ ...profile.bounds, request: { ...limit, calls: 2 } })).toBe(false)
-	expect(isStudyBounds({ ...profile.bounds, goal: { ...limit, tokens: 99 } })).toBe(false)
-	expect(isStudyBounds({ ...profile.bounds, typo: true })).toBe(false)
+	expect(isStudyAllowance({ ...profile.bounds, request: { ...limit, calls: 2 } })).toBe(false)
+	expect(isStudyAllowance({ ...profile.bounds, goal: { ...limit, tokens: 99 } })).toBe(false)
+	expect(isStudyAllowance({ ...profile.bounds, typo: true })).toBe(false)
 })
 
 it('requires dense bounded unique goals and exact configuration keys', () => {
@@ -332,16 +332,18 @@ it('requires nonnegative known usage and honest semantic-label provenance', () =
 	expect(isStudyUsage({ ...usage, calls: -0, duration: -0, tokens: -0, bytes: -0 })).toBe(true)
 	expect(isStudyUsage({ ...usage, role: 'foreign' })).toBe(false)
 	expect(isStudyUsage({ ...usage, typo: true })).toBe(false)
-	expect(isStudyLabels(labels)).toBe(true)
-	expect(isStudyLabels({ ...labels, labeler: ' ' })).toBe(false)
-	expect(isStudyLabels({ ...labels, packet: '' })).toBe(false)
-	expect(isStudyLabels({ ...labels, judgments: [buildStudyJudgment('r1-s1-a1')] })).toBe(false)
-	expect(isStudyLabels({ ...labels, judgments: [...labels.judgments, ...labels.judgments] })).toBe(
+	expect(isStudyLabelSheet(labels)).toBe(true)
+	expect(isStudyLabelSheet({ ...labels, labeler: ' ' })).toBe(false)
+	expect(isStudyLabelSheet({ ...labels, packet: '' })).toBe(false)
+	expect(isStudyLabelSheet({ ...labels, judgments: [buildStudyJudgment('r1-s1-a1')] })).toBe(false)
+	expect(
+		isStudyLabelSheet({ ...labels, judgments: [...labels.judgments, ...labels.judgments] }),
+	).toBe(false)
+	expect(isStudyLabelSheet({ ...labels, usage: Array(1) })).toBe(false)
+	expect(isStudyLabelSheet({ ...labels, usage: Object.assign([usage], { typo: true }) })).toBe(
 		false,
 	)
-	expect(isStudyLabels({ ...labels, usage: Array(1) })).toBe(false)
-	expect(isStudyLabels({ ...labels, usage: Object.assign([usage], { typo: true }) })).toBe(false)
-	expect(isStudyLabels({ ...labels, typo: true })).toBe(false)
+	expect(isStudyLabelSheet({ ...labels, typo: true })).toBe(false)
 })
 
 it('accepts JSON products with partial status and refuses non-JSON or hostile output', () => {
@@ -466,7 +468,7 @@ it('contains hostile property reads and cyclic unknown data in total guards', ()
 	)
 	expect(isStudyProfile(hostile)).toBe(false)
 	expect(isStudyRubric(hostile)).toBe(false)
-	expect(isStudyLabels(hostile)).toBe(false)
+	expect(isStudyLabelSheet(hostile)).toBe(false)
 	expect(isStudyAssessment(hostile)).toBe(false)
 	const cycle: Record<string, unknown> = {}
 	cycle.self = cycle

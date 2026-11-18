@@ -1,6 +1,7 @@
 import type { StudyContext, StudyRole, StudyAgentRuntime } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
-import type { Message, ProviderResult } from '@orkestrel/agent'
+import type { Message } from '@orkestrel/agent'
+import type { ToolCall } from '@orkestrel/tool'
 
 /** Names the model responsibility whose requests the trace measures. */
 export type StudyAgentRole = Extract<StudyRole, 'agent'>
@@ -52,7 +53,7 @@ export interface StudyAgentTraceOptions {
  */
 export interface StudyAgentResponse {
 	readonly content: string
-	readonly calls: NonNullable<ProviderResult['tools']>
+	readonly calls: readonly ToolCall[]
 	readonly consume: string | undefined
 	readonly abort: boolean | undefined
 	readonly tokens: number | undefined

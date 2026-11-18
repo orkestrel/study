@@ -1,17 +1,11 @@
-import type {
-	StudyContext,
-	StudyLimit,
-	StudyRole,
-	StudyRoom,
-	StudyTicket,
-	StudyAgentDispatch,
-} from '@src/core'
+import type { StudyContext, StudyRole, StudyTicketInterface, StudyAgentDispatch } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
 import type { TimeoutInterface } from '@orkestrel/timeout'
 import type { OllamaOptions, OllamaTiming, extractTiming } from '@orkestrel/ollama'
 import type {
 	StudyExchangeHistory,
 	StudyExchangeIdentity,
+	StudyExchangePath,
 	StudyExchangeSinkInterface,
 } from '../stores/types.js'
 
@@ -97,6 +91,12 @@ export interface StudyOllamaMetadata {
 /** Names the ordered verification, model work, and daemon maintenance stages. */
 export type StudyOllamaStage = 'preflight' | 'execution' | 'postflight' | 'maintenance'
 
+/** Names the Ollama paths a model step dispatches to: chat for agent, generate for judge, and System One for triage. */
+export type StudyOllamaPath = Extract<
+	StudyExchangePath,
+	'/api/chat' | '/api/generate' | '/v1/systemone'
+>
+
 /** Declares an ordered model request's goal, responsibility, route, and wire policy.
  * @remarks
  * Ordinal is a positive, contiguous, one-based position among declared model steps in a trial.
@@ -109,7 +109,7 @@ export interface StudyOllamaStepIdentity {
 	readonly ordinal: number
 	readonly goal: string
 	readonly role: StudyOllamaRole
-	readonly path: '/api/chat' | '/api/generate' | '/v1/systemone'
+	readonly path: StudyOllamaPath
 	readonly policy: StudyOllamaPolicy | StudySystemOnePolicy
 }
 
@@ -218,8 +218,11 @@ export interface StudyOllamaReplayRequest {
 export interface StudyOllamaReplayInterface {
 	/** Supplies native responses over retained bytes without settling a Study ticket. */
 	readonly fetch: StudyOllamaFetchFunction
-	/** Reports whether this replay answered a response its `fetch` returned from the recording. */
-	readonly served: (response: Response) => boolean
+	/** Reports whether this replay answered a response its `fetch` returned from the recording.
+	 * @param response - A response the transport received.
+	 * @returns True if this replay served the response from the recording; false otherwise.
+	 */
+	served(response: Response): boolean
 	/** Refuses a latched mismatch, an unread response, or an incompletely consumed prefix.
 	 * @returns Nothing after the complete declared prefix has been consumed.
 	 */
@@ -228,6 +231,42 @@ export interface StudyOllamaReplayInterface {
 	 * @returns Completion after all replay resources are released.
 	 */
 	close(): Promise<void>
+}
+
+/** Holds the context a transport reserves for a request and the safety margin it keeps. */
+export interface StudyOllamaRoom {
+	readonly context: number
+	readonly safety: number
+}
+
+/** Bounds each transport request's duration in milliseconds and its encoded bytes. */
+export interface StudyOllamaAllowance {
+	readonly duration: number
+	readonly bytes: number
+}
+
+/** Pins the served model identities, keyed by the label their inventory evidence carries. */
+export type StudyOllamaInventory = Readonly<Record<string, StudyOllamaModel>>
+
+/** Declares the wire policy of each model role a consumer dispatches; an absent role is refused. */
+export interface StudyOllamaRolePolicy {
+	readonly agent?: StudyOllamaPolicy
+	readonly judge?: StudyOllamaPolicy
+	readonly triage?: StudySystemOnePolicy
+	/** Forbids a model-generation policy for daemon maintenance. */
+	readonly maintenance?: never
+}
+
+/**
+ * Holds what a transport reads to admit a request: its origin, its pinned models, and its role policies.
+ * @remarks
+ * `url` is the admitted daemon origin, `models` the pinned inventory, and `roles` the declared
+ * policy of each role.
+ */
+export interface StudyOllamaAdmission {
+	readonly url: string
+	readonly models: StudyOllamaInventory
+	readonly roles: StudyOllamaRolePolicy
 }
 
 /**
@@ -245,18 +284,9 @@ export interface StudyOllamaReplayInterface {
  * `replay` sends through a replay instead, which also tells the transport which replies a recording
  * served; it is exclusive with `fetch`.
  */
-export interface StudyOllamaTransportOptions {
-	readonly url: string
-	readonly room: Pick<StudyRoom, 'context' | 'safety'>
-	readonly limit: Pick<StudyLimit, 'duration' | 'bytes'>
-	readonly models: Readonly<Record<string, StudyOllamaModel>>
-	readonly roles: Readonly<
-		Partial<Record<Exclude<StudyOllamaRole, 'triage'>, StudyOllamaPolicy>>
-	> & {
-		readonly triage?: StudySystemOnePolicy
-		/** Forbids a model-generation policy for daemon maintenance. */
-		readonly maintenance?: never
-	}
+export interface StudyOllamaTransportOptions extends StudyOllamaAdmission {
+	readonly room: StudyOllamaRoom
+	readonly limit: StudyOllamaAllowance
 	readonly signal: AbortSignal
 	readonly observe: boolean
 	readonly timing: typeof extractTiming
@@ -312,8 +342,17 @@ export interface StudyOllamaTerminal {
 	readonly reason: string | undefined
 }
 
-/** Tracks one owned HTTP response until its end or cancellation. */
-export interface StudyOllamaWire {
+/**
+ * Names the instance type of the host's global `TextDecoder`, which a strict response decoder is.
+ * @remarks
+ * The Node and DOM library declarations spell the global differently: Node's declares only a value
+ * whose instance is the `node:util` class, and the DOM's declares its own interface. Reading the
+ * instance type from the global value fits whichever declaration a project compiles under.
+ */
+export type StudyOllamaDecoder = InstanceType<typeof TextDecoder>
+
+/** Holds the facts of one dispatched request and its open response, which an exchange binds. */
+export interface StudyOllamaExchangeOptions {
 	/** Holds the recording deadline armed immediately before send, released at settlement. */
 	readonly deadline?: TimeoutInterface | undefined
 	/** Holds the admission registry key until this exchange settles. */
@@ -326,10 +365,10 @@ export interface StudyOllamaWire {
 	readonly ceiling: number
 	readonly activity: StudyOllamaActivity
 	readonly request: StudyOllamaRequest
-	readonly ticket: StudyTicket
+	readonly ticket: StudyTicketInterface
 	readonly signal: AbortSignal
 	readonly reader: ReadableStreamDefaultReader<Uint8Array>
-	readonly decoder: InstanceType<typeof TextDecoder>
+	readonly decoder: StudyOllamaDecoder
 	/** Holds the HTTP status the daemon answered with. */
 	readonly status: number
 	readonly started: number
@@ -343,6 +382,10 @@ export interface StudyOllamaWire {
 	readonly bytes: number
 	/** Reports whether a keyed replay served the response from a recording. */
 	readonly served: boolean
+}
+
+/** Tracks one owned HTTP response until its end or cancellation. */
+export interface StudyOllamaWire extends StudyOllamaExchangeOptions {
 	/** Holds the decoded response text not yet consumed as complete rows. */
 	readonly text: string
 	readonly terminal: StudyOllamaTerminal | undefined

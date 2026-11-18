@@ -7,7 +7,19 @@ import { StudyError } from '../errors.js'
 import { isStudyLimit } from '../validators.js'
 import { failureToStudyError } from './helpers.js'
 
-/** Reserves finite request ceilings around cumulative actual budgets and one deadline. */
+/**
+ * Reserves finite request ceilings around cumulative actual budgets and one deadline.
+ * @example
+ * ```ts
+ * const scope = new StudyScope({
+ * 	limit: { duration: 1000, calls: 4, tokens: 100, bytes: 100 },
+ * 	control: new StudyControl(),
+ * 	label: 'Goal',
+ * })
+ * scope.check({ role: 'agent', tokens: 10, bytes: 10 })
+ * scope.close()
+ * ```
+ */
 export class StudyScope implements StudyScopeInterface {
 	#options: StudyScopeOptions
 	#calls: Budget<number>

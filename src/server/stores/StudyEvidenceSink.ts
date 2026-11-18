@@ -1,10 +1,20 @@
 import type { StudyEvidence } from '@src/core'
 import type { StudyCustodySinkInterface, StudyEvidenceSinkOptions } from './types.js'
+import type { StudyFault } from '../types.js'
 import { StudyError } from '@src/core'
 import { encodeStudyJSON } from '../helpers.js'
 import { isStudyCustodyEvidence } from './validators.js'
 
-/** Retains admitted evidence in order and closes admission before terminal records. */
+/**
+ * Retains admitted evidence in order and closes admission before terminal records.
+ * @example
+ * ```ts
+ * declare const options: StudyEvidenceSinkOptions
+ * const sink = new StudyEvidenceSink(options)
+ * await sink.append({ event: 'note', goal: 'open-order', value: 'looked up the order' })
+ * await sink.close()
+ * ```
+ */
 export class StudyEvidenceSink implements StudyCustodySinkInterface {
 	readonly #options: StudyEvidenceSinkOptions
 	readonly #goals = new Map<string, number>()
@@ -12,7 +22,7 @@ export class StudyEvidenceSink implements StudyCustodySinkInterface {
 	readonly #writes = new Set<Promise<void>>()
 	#bytes = 0
 	// Wraps the first failed write so every later append and the close refuse with that failure.
-	#fault: { readonly error: unknown } | undefined
+	#fault: StudyFault | undefined
 	#shutdown: Promise<void> | undefined
 
 	/**

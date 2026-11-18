@@ -69,7 +69,7 @@ describe('StudyProcessSession', () => {
 		})
 		try {
 			await expect(session.start()).rejects.toMatchObject({
-				failure: {
+				context: {
 					cause: 'deadline',
 					stop: { layer: 'scope', id: 'Trial duration', max: 100, consumed: undefined },
 				},

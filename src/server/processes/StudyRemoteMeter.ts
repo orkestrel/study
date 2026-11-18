@@ -1,4 +1,4 @@
-import type { StudyCharge, StudyFailure, StudyTicket, StudyUsage } from '@src/core'
+import type { StudyCharge, StudyFailure, StudyTicketInterface, StudyUsage } from '@src/core'
 import type { StudyRemoteMeterInterface, StudyRemoteMeterOptions } from './types.js'
 import { failureToStudyError, readStudyFailure, StudyError, isStudyUsage } from '@src/core'
 import { isRecord } from '@orkestrel/contract'
@@ -33,7 +33,7 @@ export class StudyRemoteMeter implements StudyRemoteMeterInterface {
 	 * @param charge - Upper bounds that the parent reserves before replying.
 	 * @returns A ticket only after authoritative admission succeeds.
 	 */
-	async admit(charge: StudyCharge): Promise<StudyTicket> {
+	async admit(charge: StudyCharge): Promise<StudyTicketInterface> {
 		if (this.#closed || this.#options.control.failure !== undefined)
 			throw failureToStudyError(
 				this.#options.control.failure ?? createStudyProcessFailure('Worker meter is closed'),

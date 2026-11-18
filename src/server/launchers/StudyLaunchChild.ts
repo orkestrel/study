@@ -1,14 +1,26 @@
 import type { ChildProcess } from 'node:child_process'
-import type { StudyLaunchResult } from './types.js'
+import type { StudyLaunchForward, StudyLaunchResult } from './types.js'
 import { StudyError } from '@src/core'
 import { drainStudyChild, terminateStudyChild } from '../processes/helpers.js'
 import { STUDY_LAUNCH_BYTES } from './constants.js'
 
-/** Supervises one launched command child until it closes under its output allowance and deadline. */
+/**
+ * Supervises one launched command child until it closes under its output allowance and deadline.
+ * @example
+ * ```ts
+ * import { spawn } from 'node:child_process'
+ *
+ * declare const entry: string
+ * const child = spawn(process.execPath, [entry, '--version'], { stdio: ['ignore', 'pipe', 'pipe'] })
+ * const forward = { stdout: false, stderr: false }
+ * const result = await new StudyLaunchChild(child, 60000, forward, new AbortController().signal).execute()
+ * result.code // 0 when the command succeeded
+ * ```
+ */
 export class StudyLaunchChild {
 	readonly #child: ChildProcess
 	readonly #duration: number
-	readonly #forward: { readonly stdout: boolean; readonly stderr: boolean }
+	readonly #forward: StudyLaunchForward
 	readonly #signal: AbortSignal
 	readonly #stdout: Buffer[] = []
 	readonly #stderr: Buffer[] = []
@@ -27,7 +39,7 @@ export class StudyLaunchChild {
 	constructor(
 		child: ChildProcess,
 		duration: number,
-		forward: { readonly stdout: boolean; readonly stderr: boolean },
+		forward: StudyLaunchForward,
 		signal: AbortSignal,
 	) {
 		this.#child = child

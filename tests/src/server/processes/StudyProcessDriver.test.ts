@@ -178,7 +178,7 @@ describe('StudyProcessDriver', () => {
 						meter: fixture.meter,
 						evidence,
 					}),
-				).rejects.toMatchObject({ failure: { cause: 'capacity' } })
+				).rejects.toMatchObject({ context: { cause: 'capacity' } })
 				expect(scratch.has('dispatched.txt')).toBe(false)
 				expect(fixture.meter.usage).toEqual([])
 				await store.finish({
@@ -269,7 +269,7 @@ describe('StudyProcessDriver', () => {
 			const controller = new AbortController()
 			const opened = driver.open(trial, controller.signal)
 			const aborting = waitForDelay(30).then(() => controller.abort())
-			await expect(opened).rejects.toMatchObject({ failure: { cause: 'interrupted' } })
+			await expect(opened).rejects.toMatchObject({ context: { cause: 'interrupted' } })
 			await aborting
 		} finally {
 			scratch.destroy()

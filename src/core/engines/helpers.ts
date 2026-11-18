@@ -4,7 +4,7 @@ import type {
 	StudyFailure,
 	StudyRole,
 	StudyStop,
-	StudyTicket,
+	StudyTicketInterface,
 	StudyUsage,
 } from '../types.js'
 import { isBudgetError } from '@orkestrel/budget'
@@ -15,6 +15,10 @@ import { parseStudyMeasurement } from '../parsers.js'
 /** Converts an operational reading to its throwable boundary.
  * @param failure - The retained operational reading.
  * @returns An error preserving the reading's cause and responsibility.
+ * @example
+ * ```ts
+ * failureToStudyError({ cause: 'deadline', message: 'Late', role: 'agent', stop: undefined }).code // 'DEADLINE'
+ * ```
  */
 export function failureToStudyError(failure: StudyFailure): StudyError {
 	return new StudyError(
@@ -32,11 +36,15 @@ export function failureToStudyError(failure: StudyFailure): StudyError {
  * @param error - The caught error.
  * @returns Existing attribution, the capacity a branded budget error names, the cause a bare
  * capacity or deadline code names, or an infrastructure failure.
+ * @example
+ * ```ts
+ * readStudyFailure(new Error('Socket closed')).cause // 'infrastructure'
+ * ```
  */
 export function readStudyFailure(error: unknown): StudyFailure {
 	if (isStudyError(error)) {
-		const { failure, code, message } = error
-		if (failure !== undefined) return failure
+		const { context, code, message } = error
+		if (context !== undefined) return context
 		if (code === 'CAPACITY') return { cause: 'capacity', message, role: undefined, stop: undefined }
 		if (code === 'DEADLINE') return { cause: 'deadline', message, role: undefined, stop: undefined }
 	}
@@ -128,15 +136,19 @@ export function computeStudyOutputStop(
  * @throws Thrown when the ticket's settlement refuses the failure.
  * @example Fail an admitted request
  * ```ts
- * import type { StudyTicket } from '@orkestrel/study'
+ * import type { StudyTicketInterface } from '@orkestrel/study'
  * import { failStudyTicket } from '@orkestrel/study'
  *
- * declare const ticket: StudyTicket
+ * declare const ticket: StudyTicketInterface
  *
  * failStudyTicket(ticket, new Error('Provider refused'), 'tool')
  * ```
  */
-export function failStudyTicket(ticket: StudyTicket, error: unknown, role?: StudyRole): void {
+export function failStudyTicket(
+	ticket: StudyTicketInterface,
+	error: unknown,
+	role?: StudyRole,
+): void {
 	if (ticket.settled || ticket.signal.aborted) return
 	const failure = readStudyFailure(error)
 	ticket.fail(role === undefined ? failure : { ...failure, role })

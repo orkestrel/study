@@ -11,7 +11,20 @@ import { StudyError } from '../errors.js'
 import { failureToStudyError, readStudyFailure } from './helpers.js'
 import { StudyScope } from './StudyScope.js'
 
-/** Holds one trial's evidence custody, admission scope and driver session from opening to cleanup. */
+/**
+ * Holds one trial's evidence custody, admission scope and driver session from opening to cleanup.
+ * @example
+ * ```ts
+ * declare const trial: StudyTrial
+ * declare const options: StudySeriesOptions
+ * declare const control: StudyControl
+ * declare const series: StudyScope
+ * declare const deadline: StudyDeadline
+ * const lease = new StudyTrialLease(trial, options, control, series, deadline)
+ * await lease.open()
+ * const failure = await lease.close() // undefined after a clean cleanup
+ * ```
+ */
 export class StudyTrialLease {
 	readonly #trial: StudyTrial
 	readonly #options: StudySeriesOptions

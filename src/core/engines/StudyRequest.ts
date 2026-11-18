@@ -1,4 +1,4 @@
-import type { StudyFailure, StudyTicket, StudyUsage } from '../types.js'
+import type { StudyFailure, StudyTicketInterface, StudyUsage } from '../types.js'
 import type { StudyRequestOptions } from './types.js'
 import { Abort, linkSignal } from '@orkestrel/abort'
 import { Timeout } from '@orkestrel/timeout'
@@ -6,8 +6,21 @@ import { StudyError } from '../errors.js'
 import { isStudyUsage } from '../validators.js'
 import { computeStudyAdmittedStop, failureToStudyError } from './helpers.js'
 
-/** Settles an admitted request once and propagates operational failure to its owner. */
-export class StudyRequest implements StudyTicket {
+/**
+ * Settles an admitted request once and propagates operational failure to its owner.
+ * @example
+ * ```ts
+ * const request = new StudyRequest({
+ * 	charge: { role: 'agent', tokens: 10, bytes: 10 },
+ * 	duration: 1000,
+ * 	control: new StudyControl(),
+ * 	settle: () => undefined,
+ * })
+ * request.finish({ role: 'agent', calls: 1, tokens: 8, bytes: 6, duration: 5 })
+ * request.settled // true
+ * ```
+ */
+export class StudyRequest implements StudyTicketInterface {
 	#options: StudyRequestOptions
 	#timeout: Timeout
 	#signal: AbortSignal

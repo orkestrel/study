@@ -1,4 +1,3 @@
-import { matchesStudyKeyedRoles } from '../../../../src/server/ollama/validators.js'
 import { describe, expect, it } from 'vitest'
 import {
 	isStudyOllamaMetadata,
@@ -116,29 +115,5 @@ describe('Ollama declaration guards', () => {
 				}),
 			),
 		).toBe(false)
-	})
-})
-
-describe('matchesStudyKeyedRoles', () => {
-	it('admits triage for live and offline keyed replay', () => {
-		expect(matchesStudyKeyedRoles(['triage'], false)).toBe(true)
-		expect(matchesStudyKeyedRoles(['triage', 'metadata'], true)).toBe(true)
-		expect(matchesStudyKeyedRoles(['triage', 'metadata'], false)).toBe(false)
-		expect(matchesStudyKeyedRoles(['triage', 'triage'], true)).toBe(false)
-	})
-	it('admits metadata only offline and refuses a role with no recorded request', () => {
-		expect(matchesStudyKeyedRoles(['judge', 'agent'], false)).toBe(true)
-		expect(matchesStudyKeyedRoles(['metadata', 'judge'], true)).toBe(true)
-		for (const roles of [['metadata'], ['metadata', 'judge']])
-			expect(matchesStudyKeyedRoles(roles, false)).toBe(false)
-		for (const roles of [[], ['tool'], ['maintenance'], ['judge', 'judge'], 'judge', undefined])
-			expect(matchesStudyKeyedRoles(roles, true)).toBe(false)
-	})
-	it('refuses a summary role', () => {
-		for (const offline of [false, true]) {
-			expect(matchesStudyKeyedRoles(['agent'], offline)).toBe(true)
-			expect(matchesStudyKeyedRoles(['summary'], offline)).toBe(false)
-			expect(matchesStudyKeyedRoles(['agent', 'summary'], offline)).toBe(false)
-		}
 	})
 })

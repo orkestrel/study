@@ -1,7 +1,15 @@
 import type { StudyEvidence } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
 
-/** Holds one goal's retained trace rows. */
+/**
+ * Holds one goal's retained trace rows.
+ * @example
+ * ```ts
+ * const goal = new StudyAgentTraceGoal('open-order')
+ * goal.append('note', 'looked up the order')
+ * goal.rows // [{ event: 'note', goal: 'open-order', value: 'looked up the order' }]
+ * ```
+ */
 export class StudyAgentTraceGoal {
 	readonly #goal: string
 	readonly #rows: StudyEvidence[] = []

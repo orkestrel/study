@@ -1,4 +1,4 @@
-import type { StudyBounds, StudyProvider } from '@src/core'
+import type { StudyAllowance, StudyProviderDigest } from '@src/core'
 import type { StudyExecutionRequest } from '../commands/types.js'
 import type { StudyResultView } from '../stores/types.js'
 import type { StudyInstall } from './StudyInstall.js'
@@ -28,7 +28,7 @@ export interface StudyLaunchResult {
  * ```
  */
 export interface StudyCheckReply {
-	readonly bounds: StudyBounds
+	readonly bounds: StudyAllowance
 	readonly fingerprint: string | undefined
 }
 
@@ -66,7 +66,24 @@ export interface StudyInstallOptions {
 	readonly directory: string
 	readonly studies: readonly string[]
 	readonly profiles?: readonly string[]
-	readonly provider?: Pick<StudyProvider, 'url' | 'digest'>
+	readonly provider?: StudyInstallProvider
+}
+
+/** Holds the provider URL and model pins an install rebinds each listed profile's copy to. */
+export interface StudyInstallProvider {
+	readonly url: string
+	readonly digest: StudyProviderDigest
+}
+
+/**
+ * Selects, per stream, whether a launched child's output goes to this process or into the result.
+ * @remarks
+ * A stream set to `true` is forwarded to this process; a stream set to `false` is captured as the
+ * result's text.
+ */
+export interface StudyLaunchForward {
+	readonly stdout: boolean
+	readonly stderr: boolean
 }
 
 /**

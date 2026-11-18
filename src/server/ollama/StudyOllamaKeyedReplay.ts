@@ -4,6 +4,7 @@ import type {
 	StudyOllamaReplayInterface,
 } from './types.js'
 import type { StudyExchangeReply, StudyRecordedExchange } from '../stores/types.js'
+import type { StudyFault } from '../types.js'
 import { StudyError } from '@src/core'
 import { isBudgetError } from '@orkestrel/budget'
 import { validateStudyExchangeHistory } from '../stores/helpers.js'
@@ -13,13 +14,27 @@ import {
 	splitStudyOllamaChunks,
 } from './helpers.js'
 
-/** Serves a listed role's request from the recorded exchange its role, path, method, and body bytes equal. */
+/**
+ * Serves a listed role's request from the recorded exchange its role, path, method, and body bytes equal.
+ * @example
+ * ```ts
+ * declare const histories: readonly StudyExchangeHistory[]
+ * const replay = new StudyOllamaKeyedReplay({
+ * 	histories,
+ * 	roles: ['judge'],
+ * 	url: 'http://127.0.0.1:11500',
+ * 	signal: new AbortController().signal,
+ * })
+ * replay.check()
+ * await replay.close()
+ * ```
+ */
 export class StudyOllamaKeyedReplay implements StudyOllamaReplayInterface {
 	readonly #options: Omit<StudyOllamaKeyedReplayOptions, 'histories'>
 	readonly #exchanges: ReadonlyMap<string, StudyRecordedExchange>
 	readonly #readers = new Set<ReadableStream<Uint8Array>>()
 	readonly #served = new WeakSet<Response>()
-	#fault: { readonly error: unknown } | undefined
+	#fault: StudyFault | undefined
 	#closed = false
 	#reached = false
 
@@ -110,7 +125,9 @@ export class StudyOllamaKeyedReplay implements StudyOllamaReplayInterface {
 	 * @param response - The response its `fetch` returned.
 	 * @returns True if the response came from a recorded exchange; false otherwise.
 	 */
-	readonly served = (response: Response): boolean => this.#served.has(response)
+	served(response: Response): boolean {
+		return this.#served.has(response)
+	}
 
 	/** Refuses a latched failure or cancellation. */
 	check(): void {

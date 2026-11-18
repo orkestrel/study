@@ -1,18 +1,15 @@
-import { retainStudyExchangeFixture, retainStudyFixture } from '../../../setupServer.js'
+import type { StudyProduct } from '../../../../src/core/types.js'
 import { createScratch } from '@orkestrel/test/server'
 import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { STUDY_ATTEMPT_PART } from '../../../../src/server/stores/constants.js'
 import { describe, expect, it } from 'vitest'
 import { StudySeries } from '../../../../src/core/engines/index.js'
-import type { StudyProduct } from '../../../../src/core/types.js'
-import { StudyResultStore } from '../../../../src/server/stores/StudyResultStore.js'
 import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
-import { readStudyResult } from '../../../../src/server/stores/helpers.js'
-import { readStudyExchanges } from '../../../../src/server/stores/helpers.js'
-import { STUDY_EXCHANGE_MUTATIONS, STUDY_OPEN_EXCHANGE_MUTATIONS } from '../../../setupStudy.js'
+import { STUDY_ATTEMPT_PART } from '../../../../src/server/stores/constants.js'
+import { readStudyExchanges, readStudyResult } from '../../../../src/server/stores/helpers.js'
 import { StudyEvidenceSink } from '../../../../src/server/stores/StudyEvidenceSink.js'
+import { StudyResultStore } from '../../../../src/server/stores/StudyResultStore.js'
 import {
 	buildCompactCustodyManifest,
 	buildCustodyAttempt,
@@ -23,7 +20,10 @@ import {
 	STUDY_ADMISSION_CASES,
 	STUDY_ADMISSION_DURATIONS,
 	STUDY_CUSTODY_MUTATIONS,
+	STUDY_EXCHANGE_MUTATIONS,
+	STUDY_OPEN_EXCHANGE_MUTATIONS,
 } from '../../../setupStudy.js'
+import { retainStudyExchangeFixture, retainStudyFixture } from '../../../setupServer.js'
 
 describe('StudyResultStore', () => {
 	// Contended runs read at most 3756 ms; 40000 holds 10x that.

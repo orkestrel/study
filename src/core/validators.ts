@@ -1,5 +1,5 @@
 import type {
-	StudyBounds,
+	StudyAllowance,
 	StudyDaemon,
 	StudyCause,
 	StudyDefinition,
@@ -7,7 +7,7 @@ import type {
 	StudyErrorCode,
 	StudyAssessment,
 	StudyJudgment,
-	StudyLabels,
+	StudyLabelSheet,
 	StudyGoal,
 	StudyLimit,
 	StudyProduct,
@@ -120,10 +120,10 @@ export function isStudyLimit(value: unknown): value is StudyLimit {
  * @returns True if every nested allowance is ordered; false otherwise
  * @example
  * ```ts
- * isStudyBounds({}) // false
+ * isStudyAllowance({}) // false
  * ```
  */
-export function isStudyBounds(value: unknown): value is StudyBounds {
+export function isStudyAllowance(value: unknown): value is StudyAllowance {
 	return holds(() => {
 		if (
 			!isRecord(value) ||
@@ -453,7 +453,7 @@ export function isStudyProfile(value: unknown): value is StudyProfile {
 			value.roots.every((root) => typeof root === 'string' && root.trim().length > 0) &&
 			new Set(value.roots).size === value.roots.length &&
 			isNonEmptyString(value.subject) &&
-			isStudyBounds(value.bounds) &&
+			isStudyAllowance(value.bounds) &&
 			isStudyRoom(value.room) &&
 			(value.provider === undefined || isStudyProvider(value.provider)) &&
 			(value.record === undefined || isStudyRecord(value.record)) &&
@@ -466,6 +466,10 @@ export function isStudyProfile(value: unknown): value is StudyProfile {
 /** Checks whether recording bytes, calls and model milliseconds have positive safe bounds.
  * @param value - The candidate declaration.
  * @returns True if every allowance is a positive safe integer; false otherwise.
+ * @example
+ * ```ts
+ * isStudyRecord({ bytes: 65536, calls: 8, duration: 60000 }) // true
+ * ```
  */
 export function isStudyRecord(value: unknown): value is StudyRecord {
 	return holds(
@@ -661,10 +665,10 @@ export function isStudyJudgment(value: unknown): value is StudyJudgment {
  * @returns True if provenance, usage and semantic judgments are valid; false otherwise
  * @example
  * ```ts
- * isStudyLabels({}) // false
+ * isStudyLabelSheet({}) // false
  * ```
  */
-export function isStudyLabels(value: unknown): value is StudyLabels {
+export function isStudyLabelSheet(value: unknown): value is StudyLabelSheet {
 	return holds(() => {
 		return (
 			isRecord(value) &&

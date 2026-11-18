@@ -1,5 +1,8 @@
-import type { StudyJudgment, StudyLabels } from '@src/core'
+import type { StudyJudgmentMethod, StudyLabelSheet, StudyVerdict } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
+
+/** Names who answered a labeled row: a person or a model. */
+export type StudyLabelMethod = Extract<StudyJudgmentMethod, 'human' | 'model'>
 
 /** Holds one sealed segment's retained packet and mapping bytes and the arm it belongs to. */
 export interface StudyLabelSegment {
@@ -15,7 +18,7 @@ export interface StudyLabelControl {
 	readonly input: JSONValue
 	readonly product: JSONValue
 	readonly assertion: JSONValue
-	readonly verdict: StudyJudgment['verdict']
+	readonly verdict: StudyVerdict
 }
 
 /** Names the source pair a neutral row stands for. */
@@ -55,12 +58,16 @@ export interface StudyLabelPoolOptions {
 	readonly partition: StudyLabelPartitionFunction
 }
 
-/** Holds the one row text a labeler reads; a goal that failed holds no `product`. */
-export interface StudyLabelRow {
-	readonly row: number
+/** Holds the text a labeler reads for one row; a goal that failed holds no `product`. */
+export interface StudyLabelText {
 	readonly input: JSONValue
 	readonly product?: JSONValue
 	readonly assertion: JSONValue
+}
+
+/** Holds the one row text a labeler reads; a goal that failed holds no `product`. */
+export interface StudyLabelRow extends StudyLabelText {
+	readonly row: number
 }
 
 /** Holds the rows one blind labeler answers together. */
@@ -86,7 +93,7 @@ export interface StudyLabelLink extends StudyLabelPartition {
 export interface StudyLabelCheck {
 	readonly row: number
 	readonly request: number
-	readonly verdict: StudyJudgment['verdict']
+	readonly verdict: StudyVerdict
 }
 
 /** Holds what a labeler must not see: each row's identity, and which rows are controls. */
@@ -110,17 +117,21 @@ export interface StudyLabelReceipt {
 /** Holds one row a labeler returned. */
 export interface StudyLabelAnswer {
 	readonly row: number
-	readonly verdict: StudyJudgment['verdict']
+	readonly verdict: StudyVerdict
 	readonly reason: string
 	/** Holds whether the labeler flagged the row's text as revealing its arm. */
 	readonly revealed?: boolean
 }
 
-/** Holds what one labeler returned across its requests. */
-export interface StudyLabelLane {
+/** Holds the accountable name and method a labeler's lane carries. */
+export interface StudyLabelOrigin {
 	readonly labeler: string
 	/** Names who answered, which each judgment this lane settles carries. */
-	readonly method: Extract<StudyJudgment['method'], 'human' | 'model'>
+	readonly method: StudyLabelMethod
+}
+
+/** Holds what one labeler returned across its requests. */
+export interface StudyLabelLane extends StudyLabelOrigin {
 	readonly rows: readonly StudyLabelAnswer[]
 }
 
@@ -136,7 +147,7 @@ export interface StudyLabelImportOptions {
 /** Holds the labels files of a pool and what their rows came to. */
 export interface StudyLabelImport {
 	/** Holds one file per packet. */
-	readonly labels: readonly StudyLabels[]
+	readonly labels: readonly StudyLabelSheet[]
 	/** Counts each lane's row that is absent or carries a blank reason, controls aside. */
 	readonly omitted: number
 	/** Lists the rows the labeling lanes disagree on, before any third lane. */

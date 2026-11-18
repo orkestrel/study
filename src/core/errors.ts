@@ -3,18 +3,30 @@ import { holds, INTRINSICS, isNumber, isObject, isFunction } from '@orkestrel/co
 import { STUDY_ERROR_BRAND } from './constants.js'
 import { isStudyCause, isStudyErrorCode, isStudyLayer, isStudyRole } from './validators.js'
 
-/** Reports a study contract or operational failure with a stable code. */
+/**
+ * Reports a study contract or operational failure with a stable code.
+ * @example
+ * ```ts
+ * const error = new StudyError('CAPACITY', 'Goal tokens', {
+ * 	cause: 'capacity',
+ * 	message: 'Goal tokens',
+ * 	role: 'agent',
+ * 	stop: undefined,
+ * })
+ * error.context?.cause // 'capacity'
+ * ```
+ */
 export class StudyError extends Error {
 	readonly code: StudyErrorCode
-	readonly failure: StudyFailure | undefined
+	readonly context: StudyFailure | undefined
 
 	/**
 	 * Records the failing boundary and optional operational attribution.
 	 * @param code - The machine-readable boundary
 	 * @param message - The specific failure
-	 * @param failure - The optional operational reading
+	 * @param context - The optional operational reading
 	 */
-	constructor(code: StudyErrorCode, message: string, failure?: StudyFailure) {
+	constructor(code: StudyErrorCode, message: string, context?: StudyFailure) {
 		super(message)
 		INTRINSICS.define(this, STUDY_ERROR_BRAND, {
 			value: this,
@@ -24,7 +36,7 @@ export class StudyError extends Error {
 		})
 		this.name = 'StudyError'
 		this.code = code
-		this.failure = failure
+		this.context = context
 	}
 }
 
@@ -54,7 +66,7 @@ export function isStudyError(value: unknown): value is StudyError {
 			return false
 		const brand: unknown = INTRINSICS.describe(value, STUDY_ERROR_BRAND)?.value
 		const code: unknown = INTRINSICS.reflect.read(value, 'code')
-		const failure: unknown = INTRINSICS.reflect.read(value, 'failure')
+		const failure: unknown = INTRINSICS.reflect.read(value, 'context')
 		const stack: unknown = INTRINSICS.reflect.read(value, 'stack')
 		if (
 			brand !== value ||

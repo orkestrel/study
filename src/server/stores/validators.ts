@@ -24,7 +24,7 @@ import {
 	buildStudySchedule,
 	filterStudySchedule,
 	matchesStudyKeys,
-	isStudyBounds,
+	isStudyAllowance,
 	isStudyCause,
 	isStudyDefinition,
 	isStudyDigest,
@@ -47,8 +47,8 @@ import {
 import { STUDY_RESERVED_NAME } from './constants.js'
 import { hashStudyBytes } from '../helpers.js'
 import { isStudyIdentity } from '../processes/validators.js'
+import { matchesStudyKeyedRoles } from '../ollama/helpers.js'
 import {
-	matchesStudyKeyedRoles,
 	isStudyOllamaMetadata,
 	isStudyOllamaModel,
 	isStudyOllamaStep,
@@ -70,6 +70,10 @@ export function isStudyCustodyName(value: unknown): value is string {
 /** Checks a sealed source reference and its retained identities.
  * @param value - The candidate source reference.
  * @returns True if the reference has exactly its declared members; false otherwise.
+ * @example
+ * ```ts
+ * isStudyAncestor({ result: 'baseline', seal: 'a'.repeat(64) }) // false
+ * ```
  */
 export function isStudyAncestor(value: unknown): value is StudyAncestor {
 	return holds(
@@ -118,6 +122,10 @@ export function isStudySelection(value: unknown): value is StudySelection {
 /** Checks a sealed sidecar reference and its positive exchange prefix.
  * @param value - The candidate replay provenance.
  * @returns True if the sidecar reference is valid; false otherwise.
+ * @example
+ * ```ts
+ * isStudyExchangeAncestor({}) // false
+ * ```
  */
 export function isStudyExchangeAncestor(value: unknown): value is StudyExchangeAncestor {
 	return holds(
@@ -175,7 +183,7 @@ export function isStudyCustodyManifest(value: unknown): value is StudyManifest {
 			!isStudyDefinition(value.definition) ||
 			!isArray(value.scenarios) ||
 			!value.scenarios.every(isStudyScenario) ||
-			!isStudyBounds(value.bounds) ||
+			!isStudyAllowance(value.bounds) ||
 			(value.record !== undefined && !isStudyRecord(value.record)) ||
 			(value.ancestor !== undefined && !isStudyAncestor(value.ancestor)) ||
 			(value.keyed !== undefined && !isStudyKeyedSource(value.keyed)) ||
@@ -452,6 +460,10 @@ export function isStudyCustodySeal(value: unknown): value is StudySeal {
 /** Checks whether encoded body bytes have their exact canonical base64 and SHA-256 identity.
  * @param value - The candidate byte envelope.
  * @returns True if decoded length and digest match; false otherwise.
+ * @example
+ * ```ts
+ * isStudyExchangeBytes({ body: 'aGk=', size: 2, digest: 'a'.repeat(64) }) // false: the digest is not the bytes' SHA-256
+ * ```
  */
 export function isStudyExchangeBytes(value: unknown): value is StudyExchangeBytes {
 	return holds(() => {
@@ -476,6 +488,10 @@ export function isStudyExchangeBytes(value: unknown): value is StudyExchangeByte
 /** Checks whether an exchange carries an admissible ordered HTTP identity.
  * @param value - The candidate identity.
  * @returns True if identity and stage fields are valid; false otherwise.
+ * @example
+ * ```ts
+ * isStudyExchangeIdentity({}) // false
+ * ```
  */
 export function isStudyExchangeIdentity(value: unknown): value is StudyExchangeIdentity {
 	return holds(() => {
@@ -521,6 +537,10 @@ export function isStudyExchangeIdentity(value: unknown): value is StudyExchangeI
 /** Checks whether a retained reply describes bounded successful application bytes and chunks.
  * @param value - The candidate reply.
  * @returns True if status, selected headers and chunk lengths are valid; false otherwise.
+ * @example
+ * ```ts
+ * isStudyExchangeReply({}) // false
+ * ```
  */
 export function isStudyExchangeReply(value: unknown): value is StudyExchangeReply {
 	return holds(
@@ -557,6 +577,10 @@ export function isStudyExchangeReply(value: unknown): value is StudyExchangeRepl
 /** Checks whether the opening row declares bounded execution, ordered goals and serving identities.
  * @param value - The candidate declaration.
  * @returns True if all declared populations are valid; false otherwise.
+ * @example
+ * ```ts
+ * isStudyExchangeDeclaration({ phase: 'declaration' }) // false
+ * ```
  */
 export function isStudyExchangeDeclaration(value: unknown): value is StudyExchangeDeclaration {
 	return holds(() => {
@@ -614,6 +638,11 @@ export function isStudyExchangeDeclaration(value: unknown): value is StudyExchan
 /** Checks whether a sidecar row has exactly its declared fields and verified byte identities.
  * @param value - The candidate row.
  * @returns True if the row belongs to the closed sidecar grammar; false otherwise.
+ * @example
+ * ```ts
+ * isStudyExchangeRow({ phase: 'complete', count: 3 }) // true
+ * isStudyExchangeRow({ phase: 'complete', count: 0 }) // false
+ * ```
  */
 export function isStudyExchangeRow(value: unknown): value is StudyExchangeRow {
 	return holds(() => {
@@ -655,6 +684,10 @@ export function isStudyExchangeRow(value: unknown): value is StudyExchangeRow {
 /** Checks whether a history has verified row shapes before its complete relational validation.
  * @param value - The candidate history.
  * @returns True if its envelopes and rows have valid types; false otherwise.
+ * @example
+ * ```ts
+ * isStudyExchangeHistory({}) // false
+ * ```
  */
 export function isStudyExchangeHistory(value: unknown): value is StudyExchangeHistory {
 	return holds(

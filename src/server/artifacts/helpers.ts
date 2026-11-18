@@ -32,6 +32,11 @@ import { isArtifactClosure, isArtifactKey } from './validators.js'
 /** Checks whether a portable segment identifies credentials.
  * @param value - One untrusted path segment.
  * @returns True if the segment has a credential filename; false otherwise.
+ * @example
+ * ```ts
+ * matchesArtifactCredential('.npmrc') // true
+ * matchesArtifactCredential('index.js') // false
+ * ```
  */
 export function matchesArtifactCredential(value: string): boolean {
 	return (
@@ -46,6 +51,12 @@ export function matchesArtifactCredential(value: string): boolean {
  * @param key - The slash-separated member key.
  * @returns The contained host path.
  * @throws ArtifactError - Thrown for traversal or an unsafe name.
+ * @example
+ * ```ts
+ * declare const destination: string
+ * resolveArtifactMember(destination, 'dist/index.js') // the member's path under destination
+ * resolveArtifactMember(destination, '../outside.js') // throws a TRAVERSAL ArtifactError
+ * ```
  */
 export function resolveArtifactMember(destination: string, key: string): string {
 	if (
@@ -95,6 +106,11 @@ export function matchesArtifactOverlap(
  * @param path - The existing absolute file or directory.
  * @returns Its physical filesystem metadata.
  * @throws ArtifactError - Thrown for traversal, unsafe names, aliases or redirects before reading bytes.
+ * @example
+ * ```ts
+ * declare const path: string
+ * readArtifactPhysical(path).isFile() // true for a regular file
+ * ```
  */
 export function readArtifactPhysical(path: string): BigIntStats {
 	if (!isAbsolute(path) || resolve(path) !== path)
@@ -121,6 +137,12 @@ export function readArtifactPhysical(path: string): BigIntStats {
  * @param paths - Existing absolute members or selected roots on one volume.
  * @returns Their common ancestor directory.
  * @throws ArtifactError - Thrown when selections span volumes or contain no files.
+ * @example
+ * ```ts
+ * declare const subject: string
+ * declare const agent: string
+ * resolveArtifactBase([subject, agent]) // the deepest directory both paths sit under
+ * ```
  */
 export function resolveArtifactBase(paths: readonly string[]): string {
 	const first = paths[0]
@@ -145,6 +167,12 @@ export function resolveArtifactBase(paths: readonly string[]): string {
  * @param path - An original member or ancestor within its forest.
  * @returns The corresponding destination path.
  * @throws ArtifactError - Thrown when provenance or containment is inconsistent.
+ * @example
+ * ```ts
+ * declare const closure: ArtifactClosure
+ * declare const original: string
+ * relocateArtifactPath(closure, original) // the same member under closure.destination
+ * ```
  */
 export function relocateArtifactPath(closure: ArtifactClosure, path: string): string {
 	const first = closure.members[0]
@@ -164,6 +192,12 @@ export function relocateArtifactPath(closure: ArtifactClosure, path: string): st
  * @param packages - Package identities with relocated roots.
  * @param destination - The common destination directory.
  * @returns The portable SHA-256 identity.
+ * @example
+ * ```ts
+ * declare const closure: ArtifactClosure
+ * declare const packages: readonly ArtifactPackage[]
+ * computeArtifactClosureDigest(closure.members, packages, closure.destination) // a SHA-256 hex digest
+ * ```
  */
 export function computeArtifactClosureDigest(
 	members: readonly ArtifactMember[],
@@ -188,6 +222,11 @@ export function computeArtifactClosureDigest(
 /** Computes the location-independent native execution identity.
  * @param inventory - The captured Node version and execution settings.
  * @returns The SHA-256 identity of the native runtime declaration.
+ * @example
+ * ```ts
+ * declare const loader: ArtifactLoader
+ * computeArtifactRuntimeDigest(loader.inspect()) // a SHA-256 hex digest
+ * ```
  */
 export function computeArtifactRuntimeDigest(inventory: ArtifactInventory): string {
 	return hashStudyBytes(encodeStudyJSON({ node: inventory.node, runtime: inventory.runtime }))
@@ -197,6 +236,12 @@ export function computeArtifactRuntimeDigest(inventory: ArtifactInventory): stri
  * @param inventory - The code inventory, without custody-only assets.
  * @param entry - The trusted Study executable's byte digest.
  * @returns The SHA-256 identity relative to the admitted roots' common base.
+ * @example
+ * ```ts
+ * declare const loader: ArtifactLoader
+ * declare const entry: string
+ * computeArtifactContentDigest(loader.inspect(), entry) // a SHA-256 hex digest
+ * ```
  */
 export function computeArtifactContentDigest(inventory: ArtifactInventory, entry: string): string {
 	const base = resolveArtifactBase(
@@ -232,6 +277,11 @@ export function computeArtifactContentDigest(inventory: ArtifactInventory, entry
  * @param published - If true, permits the root publication marker; if false, refuses every extra file. Default: false.
  * @returns Nothing when the entire forest matches.
  * @throws ArtifactError - Thrown for malformed records, changed membership, bytes, or physical paths.
+ * @example
+ * ```ts
+ * declare const closure: ArtifactClosure
+ * verifyArtifactClosure(closure, true) // returns when the published forest matches the record
+ * ```
  */
 export function verifyArtifactClosure(closure: ArtifactClosure, published = false): void {
 	if (!isArtifactClosure(closure))
@@ -328,6 +378,11 @@ export function verifyArtifactClosure(closure: ArtifactClosure, published = fals
  * @param target - The buffer to fill.
  * @param offset - The position in the file and the buffer to continue from; Default: 0.
  * @returns The bytes read, as the whole buffer when the file filled it or as its leading part when the file ended first.
+ * @example
+ * ```ts
+ * declare const descriptor: number
+ * readArtifactBytes(descriptor, Buffer.alloc(4)) // the file's first 4 bytes, or fewer when it is shorter
+ * ```
  */
 export function readArtifactBytes(descriptor: number, target: Buffer, offset = 0): Buffer {
 	if (offset >= target.length) return target
@@ -354,6 +409,11 @@ export function* iterateArtifactEntries(handle: Dir): Generator<Dirent, void> {
  * @param maximum - The remaining capture budget; Default: 16 MiB.
  * @returns Captured bytes with their identity.
  * @throws Thrown when the path is linked, noncanonical, oversized, or changes while read.
+ * @example
+ * ```ts
+ * declare const path: string
+ * readArtifact(path).source // the file's captured bytes
+ * ```
  */
 export function readArtifact(path: string, maximum = ARTIFACT_FILE_BYTES): ArtifactSource {
 	if (

@@ -7,14 +7,23 @@ import type {
 } from '@orkestrel/agent'
 
 /**
+ * Holds the admitted Agent namespace capability an observing provider estimates requests with.
+ * @remarks
+ * The member has the exact signature of the export of the same name in the selected Agent
+ * runtime, and the consumer supplies it from the admitted namespace.
+ */
+export interface StudyAgentEstimator {
+	readonly estimateRequest: typeof estimateRequest
+}
+
+/**
  * Holds the admitted Agent namespace capabilities the shared instrumentation invokes.
  * @remarks
  * Each member has the exact signature of the export of the same name in the selected Agent
  * runtime. The consumer supplies the admitted namespace; the instrumentation never imports a
  * runtime value from an installed Agent copy. No Ledger capability is required.
  */
-export interface StudyAgentRuntime {
-	readonly estimateRequest: typeof estimateRequest
+export interface StudyAgentRuntime extends StudyAgentEstimator {
 	readonly measureRequest: typeof measureRequest
 }
 
@@ -36,7 +45,8 @@ export type StudyAgentRecordHandler = (
  * Holds the observing provider's delegate, measurement seam and explicit policies.
  * @remarks
  * `provider` receives every call unchanged and supplies the `id`, `name`, `model`, and replay
- * policy the observer reports. `runtime` measures each request. `gauge` prices each
+ * policy the observer reports. `runtime` estimates each request through its `estimateRequest`
+ * member and needs no other Agent capability. `gauge` prices each
  * reading; undefined prices nothing. `enforced` selects the usage policy: if `true`, a successful,
  * unaborted return must report a usable actual prompt count; if `false`, the observer reads usage
  * passively and refuses nothing. `record` receives exactly one reading, synchronously, before
@@ -44,7 +54,7 @@ export type StudyAgentRecordHandler = (
  */
 export interface StudyAgentObserverOptions {
 	readonly provider: ProviderInterface
-	readonly runtime: Pick<StudyAgentRuntime, 'estimateRequest'>
+	readonly runtime: StudyAgentEstimator
 	readonly gauge: LedgerGauge | undefined
 	readonly enforced: boolean
 	readonly record: StudyAgentRecordHandler

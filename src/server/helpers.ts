@@ -26,6 +26,14 @@ export function matchesSystemError(value: unknown, code: string): boolean {
  * @param root - The canonical directory.
  * @param path - The candidate absolute file.
  * @returns True if the file is below the directory; false otherwise.
+ * @example
+ * ```ts
+ * import { join } from 'node:path'
+ *
+ * declare const root: string
+ * containsArtifact(root, join(root, 'dist', 'index.js')) // true
+ * containsArtifact(root, root) // false
+ * ```
  */
 export function containsArtifact(root: string, path: string): boolean {
 	const location = relative(root, path)

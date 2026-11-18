@@ -5,35 +5,17 @@ import type {
 	StudyOllamaStep,
 	StudySystemOnePolicy,
 } from './types.js'
-import { holds, isArray, isRecord } from '@orkestrel/contract'
+import { holds, isRecord } from '@orkestrel/contract'
 import { STUDY_NAME } from '@src/core'
 import { hashStudyBytes } from '../helpers.js'
-import { STUDY_OLLAMA_KEYED_ROLES } from './constants.js'
-
-/** Checks whether a list holds distinct roles a keyed replay can serve under its offline behavior.
- * @remarks
- * `metadata` is admitted only offline: served inventory verifies the recording, not a live daemon.
- * @param roles - The candidate list.
- * @param offline - If `true`, no request sends live; if `false`, a miss sends live.
- * @returns True if the list is nonempty, distinct, and admitted under `offline`; false otherwise.
- * @example
- * ```ts
- * matchesStudyKeyedRoles(['metadata', 'judge'], false) // false
- * ```
- */
-export function matchesStudyKeyedRoles(roles: unknown, offline: boolean): boolean {
-	return (
-		isArray(roles) &&
-		roles.length > 0 &&
-		roles.every((role) => STUDY_OLLAMA_KEYED_ROLES.some((entry) => entry === role)) &&
-		new Set(roles).size === roles.length &&
-		(offline || !roles.includes('metadata'))
-	)
-}
 
 /** Checks whether a value declares independent positive metadata allowances.
  * @param value - The untrusted metadata declaration.
  * @returns True if the declaration has positive safe calls and bytes and finite duration; false otherwise.
+ * @example
+ * ```ts
+ * isStudyOllamaMetadata({ calls: 8, bytes: 1048576, duration: 2000 }) // true
+ * ```
  */
 export function isStudyOllamaMetadata(value: unknown): value is StudyOllamaMetadata {
 	return holds(
@@ -54,6 +36,10 @@ export function isStudyOllamaMetadata(value: unknown): value is StudyOllamaMetad
 /** Checks whether a value pins a served model name and SHA-256 digest.
  * @param value - The untrusted model pin.
  * @returns True if the value declares a nonempty name and lowercase SHA-256 digest; false otherwise.
+ * @example
+ * ```ts
+ * isStudyOllamaModel({ name: 'scribe', digest: 'a'.repeat(64) }) // true
+ * ```
  */
 export function isStudyOllamaModel(value: unknown): value is StudyOllamaModel {
 	return holds(
@@ -69,6 +55,10 @@ export function isStudyOllamaModel(value: unknown): value is StudyOllamaModel {
 /** Checks whether a value declares a complete finite model-generation policy.
  * @param value - The untrusted role policy.
  * @returns True if every policy member and output allowance is valid; false otherwise.
+ * @example
+ * ```ts
+ * isStudyOllamaPolicy({ model: 'scribe', options: {}, think: false, strict: true, length: false }) // false
+ * ```
  */
 export function isStudyOllamaPolicy(value: unknown): value is StudyOllamaPolicy {
 	return holds(
@@ -92,6 +82,10 @@ export function isStudyOllamaPolicy(value: unknown): value is StudyOllamaPolicy 
 /** Checks whether a value declares a pinned System One model and total token ceiling.
  * @param value - The untrusted triage policy.
  * @returns True if the model is nonempty and the token ceiling is a positive safe integer; false otherwise.
+ * @example
+ * ```ts
+ * isStudySystemOnePolicy({ model: 'triage', tokens: 512 }) // true
+ * ```
  */
 export function isStudySystemOnePolicy(value: unknown): value is StudySystemOnePolicy {
 	return holds(
@@ -108,6 +102,10 @@ export function isStudySystemOnePolicy(value: unknown): value is StudySystemOneP
 /** Checks whether a value declares exclusive exact or capture admission with a valid receipt.
  * @param value - The untrusted ordered step.
  * @returns True if identity, policy, admission shape and exact receipt are valid; false otherwise.
+ * @example
+ * ```ts
+ * isStudyOllamaStep({}) // false
+ * ```
  */
 export function isStudyOllamaStep(value: unknown): value is StudyOllamaStep {
 	return holds(() => {

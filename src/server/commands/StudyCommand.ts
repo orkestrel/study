@@ -31,7 +31,7 @@ import {
 	filterStudySchedule,
 	validateStudyInputs,
 	parseStudyAssessment,
-	parseStudyLabels,
+	parseStudyLabelSheet,
 	parseStudyProfile,
 	parseStudyRubric,
 	StudySeries,
@@ -861,7 +861,7 @@ export class StudyCommand {
 		if (previous.packet === undefined || previous.assessment.packet === undefined)
 			throw new StudyError('EVIDENCE', 'Selected grading has no semantic packet')
 		const bytes = await readStudyBytes(this.#file(request.labels), STUDY_CUSTODY_BYTES)
-		const labels = parseStudyLabels(decodeStudyJSON(bytes))
+		const labels = parseStudyLabelSheet(decodeStudyJSON(bytes))
 		const translated = translateStudyPacketLabels(
 			result,
 			previous.rubric,
@@ -917,7 +917,9 @@ export class StudyCommand {
 		const context = await this.#assessment(result, request.assessment)
 		signal.throwIfAborted()
 		const labels =
-			context.labels === undefined ? undefined : parseStudyLabels(decodeStudyJSON(context.labels))
+			context.labels === undefined
+				? undefined
+				: parseStudyLabelSheet(decodeStudyJSON(context.labels))
 		return valueToWire({
 			command: 'report',
 			assessment: request.assessment,

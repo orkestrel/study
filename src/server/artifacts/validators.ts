@@ -7,6 +7,11 @@ import { matchesArtifactCredential } from './helpers.js'
 /** Checks whether a key names portable, non-credential members within a closure.
  * @param value - The untrusted slash-separated key.
  * @returns True if every segment is safe and contained; false otherwise.
+ * @example
+ * ```ts
+ * isArtifactKey('dist/index.js') // true
+ * isArtifactKey('dist/../index.js') // false
+ * ```
  */
 export function isArtifactKey(value: unknown): value is string {
 	return (
@@ -33,6 +38,10 @@ export function isArtifactKey(value: unknown): value is string {
 /** Checks the bounded loader selections retained in a publication.
  * @param value - The decoded selections.
  * @returns True if required selections and optional groups have their declared shapes; false otherwise.
+ * @example
+ * ```ts
+ * isArtifactLoaderOptions({}) // false
+ * ```
  */
 export function isArtifactLoaderOptions(value: unknown): value is ArtifactLoaderOptions {
 	return holds(
@@ -61,6 +70,10 @@ export function isArtifactLoaderOptions(value: unknown): value is ArtifactLoader
 /** Checks the exact file identity and provenance of a closure member.
  * @param value - The decoded member.
  * @returns True if the member has a safe key, source, digest and bounded size; false otherwise.
+ * @example
+ * ```ts
+ * isArtifactMember({}) // false
+ * ```
  */
 export function isArtifactMember(value: unknown): value is ArtifactMember {
 	return holds(
@@ -78,6 +91,10 @@ export function isArtifactMember(value: unknown): value is ArtifactMember {
 /** Checks a bounded materialization record before any path is used.
  * @param value - The decoded record.
  * @returns True if its selections and member records have the declared shapes; false otherwise.
+ * @example
+ * ```ts
+ * isArtifactClosure({}) // false
+ * ```
  */
 export function isArtifactClosure(value: unknown): value is ArtifactClosure {
 	return holds(

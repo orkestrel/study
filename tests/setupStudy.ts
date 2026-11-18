@@ -1,15 +1,8 @@
-import { StudyError } from '../src/core/errors.js'
-import type { StudyContractCase } from './setup.js'
-import { createContract } from '@orkestrel/contract'
-import * as shapes from '../src/core/shapers.js'
-import * as guards from '../src/core/validators.js'
-import { parseStudyRubric, parseStudyLabels } from '../src/core/parsers.js'
-
 import type { JSONValue } from '@orkestrel/contract'
 import type {
 	StudyAttempt,
 	StudyProvider,
-	StudyBounds,
+	StudyAllowance,
 	StudyCriterion,
 	StudyDefinition,
 	StudyDriverInterface,
@@ -18,6 +11,7 @@ import type {
 	StudyFailure,
 	StudyGoal,
 	StudyJudgment,
+	StudyJudgmentMethod,
 	StudyManifest,
 	StudyObservation,
 	StudyProduct,
@@ -29,21 +23,37 @@ import type {
 	StudyTrial,
 	StudyStop,
 	StudyCharge,
+	StudyVerdict,
 } from '../src/core/types.js'
 import type {
+	AgentObserverFixture,
+	AgentRefusalFixture,
+	OllamaFetchFixture,
+	OllamaReplyFixture,
+	OllamaRequestFixture,
+	OllamaRowFixture,
+	ProviderStreamFixture,
 	StudyAdmissionCase,
+	StudyContractCase,
 	StudyDriverFixture,
 	StudyDriverFixtureOptions,
 	StudyErrorCopy,
+	StudyLatchFixture,
 	StudyLeaseFixture,
 	StudyMeterFixture,
 	StudyStoreFixture,
 } from './setup.js'
-import type { StudyExecutionCase } from './setupServer.js'
 import type {
 	OllamaMetadataFailureFixture,
 	OllamaWireReplyFixture,
+	StudyAgentSeriesResult,
+	StudyAgentTraceFixture,
+	StudyExecutionCase,
 	StudyMCPAnswer,
+	StudyOllamaMessageFixture,
+	StudyScriptFixture,
+	StudySinkFixture,
+	StudySinkFixtureOptions,
 } from './setupServer.js'
 import type { OllamaFixtureHandler, OllamaFixtureOptions } from '@orkestrel/ollama/server'
 import type {
@@ -59,33 +69,19 @@ import type {
 	AgentOptions,
 	AgentResult,
 } from '@orkestrel/agent'
-import type {
-	AgentObserverFixture,
-	AgentRefusalFixture,
-	OllamaFetchFixture,
-	OllamaReplyFixture,
-	OllamaRequestFixture,
-	OllamaRowFixture,
-	ProviderStreamFixture,
-	StudyLatchFixture,
-} from './setup.js'
-import type {
-	StudyAgentTraceFixture,
-	StudySinkFixture,
-	StudyScriptFixture,
-	StudySinkFixtureOptions,
-	StudyOllamaMessageFixture,
-	StudyAgentSeriesResult,
-} from './setupServer.js'
 import type { StudyAgentResponse } from '../src/server/agents/types.js'
 import type { ToolCall } from '@orkestrel/tool'
 import type { StudyAgentMeasurement, StudyAgentRuntime } from '../src/core/agents/types.js'
 import { Agent, estimateRequest, measureRequest } from '@orkestrel/agent'
-import { isRecord, parseJSON } from '@orkestrel/contract'
+import { createContract, isRecord, parseJSON } from '@orkestrel/contract'
 import { createOllama, createOllamaJudge } from '@orkestrel/ollama'
 import { buildOllamaAnswer, buildOllamaReadout, buildOllamaReply } from '@orkestrel/ollama/server'
 import { createRecorder, waitForDelay } from '@orkestrel/test'
 import { vi } from 'vitest'
+import { StudyError } from '../src/core/errors.js'
+import * as shapes from '../src/core/shapers.js'
+import * as guards from '../src/core/validators.js'
+import { parseStudyRubric, parseStudyLabelSheet } from '../src/core/parsers.js'
 import { StudyControl, StudyDeadline, StudyMeter, StudyScope } from '../src/core/engines/index.js'
 import { StudyTrialLease } from '../src/core/engines/StudyTrialLease.js'
 import { buildStudySchedule } from '../src/core/helpers.js'
@@ -473,8 +469,8 @@ export function buildStudyAssessment(
 export function buildStudyJudgment(
 	trial: string,
 	criterion = 'first-write',
-	verdict: StudyJudgment['verdict'] = 'achieved',
-	method: StudyJudgment['method'] = 'state',
+	verdict: StudyVerdict = 'achieved',
+	method: StudyJudgmentMethod = 'state',
 ): StudyJudgment {
 	return {
 		trial,
@@ -492,7 +488,7 @@ export function buildStudyJudgment(
  * @returns Owned control, scopes, and meter with cleanup.
  */
 export function createStudyMeterFixture(
-	bounds: Partial<StudyBounds> = {},
+	bounds: Partial<StudyAllowance> = {},
 	signal?: AbortSignal,
 ): StudyMeterFixture {
 	const limit = { duration: 1000, calls: 4, tokens: 100, bytes: 100 }
@@ -654,7 +650,7 @@ export function buildCompactCustodyManifest(): StudyManifest {
  * @returns The independently owned manifest whose other tier limits stay unchanged
  */
 export function buildStudyCapacityManifest(
-	bytes: Readonly<Record<keyof StudyBounds, number>>,
+	bytes: Readonly<Record<keyof StudyAllowance, number>>,
 ): StudyManifest {
 	const manifest = buildCompactCustodyManifest()
 	return {
@@ -2491,10 +2487,10 @@ export function buildStudyContractCases(): readonly StudyContractCase[] {
 			},
 			{
 				name: 'labels',
-				wire: createContract(shapes.studyLabelsShape),
-				guard: guards.isStudyLabels,
+				wire: createContract(shapes.studyLabelSheetShape),
+				guard: guards.isStudyLabelSheet,
 				positive: labels,
-				restore: parseStudyLabels,
+				restore: parseStudyLabelSheet,
 			},
 		],
 		(row) => ({

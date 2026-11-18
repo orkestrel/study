@@ -32,7 +32,7 @@ describe('StudyDeadline', () => {
 			})
 			await expect(new StudyDeadline({ duration: 10, label }).wait(late)).rejects.toMatchObject({
 				code: 'DEADLINE',
-				failure: { cause: 'deadline', message: `${label} deadline expired`, role: undefined },
+				context: { cause: 'deadline', message: `${label} deadline expired`, role: undefined },
 			})
 			await waitForDelay(40)
 		}
@@ -51,7 +51,7 @@ describe('StudyDeadline', () => {
 			const stalled = deadline.wait(new Promise<never>(() => undefined))
 			const concurrent = deadline.wait(waitForDelay(5).then(() => 'closed'))
 			expect(await concurrent).toBe('closed')
-			await expect(stalled).rejects.toMatchObject({ failure: { cause: 'deadline' } })
+			await expect(stalled).rejects.toMatchObject({ context: { cause: 'deadline' } })
 			expect(await deadline.wait(Promise.resolve('retried'))).toBe('retried')
 			expect(caller.failure?.message).toBe('Series cancelled')
 		} finally {

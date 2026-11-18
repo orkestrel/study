@@ -19,6 +19,10 @@ import { isStudyAdapter } from './validators.js'
 /** Reads a complete adapter from an admitted module namespace.
  * @param namespace - The captured consumer module.
  * @returns The validated adapter instance.
+ * @example
+ * ```ts
+ * readStudyAdapter({}) // throws a CONFIG StudyError: the module exports no createStudyAdapter
+ * ```
  */
 export function readStudyAdapter(namespace: unknown): StudyAdapterInterface {
 	if (!isRecord(namespace) || typeof namespace.createStudyAdapter !== 'function')

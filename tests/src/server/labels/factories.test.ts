@@ -3,11 +3,14 @@ import { isRecord, parseJSON } from '@orkestrel/contract'
 import { requireValue } from '@orkestrel/test'
 import { createScratch } from '@orkestrel/test/server'
 import { describe, expect, it } from 'vitest'
-import { parseStudyLabels } from '../../../../src/core/parsers.js'
+import { parseStudyLabelSheet } from '../../../../src/core/parsers.js'
 import { StudyError } from '../../../../src/core/errors.js'
 import { hashStudyBytes } from '../../../../src/server/helpers.js'
 import { STUDY_LABEL_DISPUTE } from '../../../../src/server/labels/constants.js'
-import { createStudyLabelPool, createStudyLabels } from '../../../../src/server/labels/factories.js'
+import {
+	createStudyLabelPool,
+	createStudyLabelSheet,
+} from '../../../../src/server/labels/factories.js'
 import { translateStudyPacketLabels } from '../../../../src/server/stores/helpers.js'
 import {
 	STUDY_LABEL_CONTROLS,
@@ -237,7 +240,7 @@ describe('createStudyLabelPool', () => {
 	})
 })
 
-describe('createStudyLabels', () => {
+describe('createStudyLabelSheet', () => {
 	const options = { created: STUDY_LABEL_CREATED, version: 'fixture' }
 
 	it('round trips each row to its own source pair through the packet translation', async () => {
@@ -260,7 +263,7 @@ describe('createStudyLabels', () => {
 					}
 				})
 			const disputed = requireValue(map.links[0])
-			const built = createStudyLabels(
+			const built = createStudyLabelSheet(
 				map,
 				[
 					{ labeler: 'first', method: 'model', rows },
@@ -280,7 +283,7 @@ describe('createStudyLabels', () => {
 				fixture.result,
 				fixture.rubric,
 				fixture.digest,
-				parseStudyLabels(built.labels[0]),
+				parseStudyLabelSheet(built.labels[0]),
 			)
 			expect(translated).toHaveLength(map.links.length)
 			expect(
@@ -309,7 +312,7 @@ describe('createStudyLabels', () => {
 
 	it('settles agreement, dispute, and references per verdict', () => {
 		const map = buildStudyLabelMap(['work', 'work', 'work'])
-		const { labels, disputes, omitted } = createStudyLabels(
+		const { labels, disputes, omitted } = createStudyLabelSheet(
 			map,
 			[
 				{
@@ -335,7 +338,7 @@ describe('createStudyLabels', () => {
 		)
 		expect(disputes).toEqual([1])
 		expect(omitted).toBe(0)
-		expect(parseStudyLabels(labels[0])).toEqual({
+		expect(parseStudyLabelSheet(labels[0])).toEqual({
 			packet: 'a'.repeat(64),
 			labeler: 'first+second',
 			version: 'fixture',
@@ -380,7 +383,7 @@ describe('createStudyLabels', () => {
 			{ row: 1, verdict: 'unsuccessful', reason: 'Right one' },
 			{ row: 2, verdict: 'unsuccessful', reason: 'Right two' },
 		] as const
-		const { labels, disputes } = createStudyLabels(
+		const { labels, disputes } = createStudyLabelSheet(
 			map,
 			[
 				{ labeler: 'first', method: 'model', rows: left },
@@ -405,7 +408,7 @@ describe('createStudyLabels', () => {
 			['unknown', STUDY_LABEL_DISPUTE],
 		])
 		expect(() =>
-			createStudyLabels(
+			createStudyLabelSheet(
 				map,
 				[
 					{ labeler: 'first', method: 'model', rows: left },
@@ -425,7 +428,7 @@ describe('createStudyLabels', () => {
 
 	it('names a single lane and leaves an omitted or blank row absent', () => {
 		const map = buildStudyLabelMap(['work', 'work', 'completion'])
-		const single = createStudyLabels(
+		const single = createStudyLabelSheet(
 			map,
 			[
 				{
@@ -442,8 +445,8 @@ describe('createStudyLabels', () => {
 		expect(single.labels[0]?.labeler).toBe('first single-labeled')
 		expect(single.labels[0]?.judgments.map((entry) => entry.trial)).toEqual(['t-1'])
 		expect(single.omitted).toBe(2)
-		expect(parseStudyLabels(single.labels[0]).judgments).toHaveLength(1)
-		const double = createStudyLabels(
+		expect(parseStudyLabelSheet(single.labels[0]).judgments).toHaveLength(1)
+		const double = createStudyLabelSheet(
 			map,
 			[
 				{
@@ -479,7 +482,7 @@ describe('createStudyLabels', () => {
 				{ row: 3, request: 0, verdict: 'unsuccessful' },
 			],
 		}
-		const { labels, missed, omitted } = createStudyLabels(
+		const { labels, missed, omitted } = createStudyLabelSheet(
 			map,
 			[
 				{
@@ -519,7 +522,7 @@ describe('createStudyLabels', () => {
 			{ row: 1, verdict: 'achieved', reason: 'One' },
 			{ row: 2, verdict: 'unsuccessful', reason: 'Two' },
 		] as const
-		const { labels } = createStudyLabels(
+		const { labels } = createStudyLabelSheet(
 			map,
 			[{ labeler: 'first', method: 'model', rows }],
 			options,
@@ -529,15 +532,15 @@ describe('createStudyLabels', () => {
 			['b'.repeat(64), ['b'.repeat(64)]],
 		])
 		expect(() =>
-			createStudyLabels(
+			createStudyLabelSheet(
 				map,
 				[{ labeler: 'first', method: 'model', rows: [...rows, ...rows] }],
 				options,
 			),
 		).toThrow(/repeats/)
-		expect(() => createStudyLabels(map, [], options)).toThrow(/lane/)
+		expect(() => createStudyLabelSheet(map, [], options)).toThrow(/lane/)
 		expect(() =>
-			createStudyLabels(
+			createStudyLabelSheet(
 				map,
 				[
 					{ labeler: 'first', method: 'model', rows },
@@ -553,7 +556,7 @@ describe('createStudyLabels', () => {
 		const map = buildStudyLabelMap(['work', 'work'])
 		const lane = { labeler: 'first', method: 'model', rows: [] } as const
 		expect(() =>
-			createStudyLabels(map, [lane], { created: STUDY_LABEL_CREATED, version: '1' }),
+			createStudyLabelSheet(map, [lane], { created: STUDY_LABEL_CREATED, version: '1' }),
 		).toThrow(
 			expect.objectContaining({
 				code: 'EVIDENCE',
@@ -561,7 +564,11 @@ describe('createStudyLabels', () => {
 			}),
 		)
 		expect(
-			createStudyLabels(map, [lane], { created: STUDY_LABEL_CREATED, version: '1', partial: true }),
+			createStudyLabelSheet(map, [lane], {
+				created: STUDY_LABEL_CREATED,
+				version: '1',
+				partial: true,
+			}),
 		).toMatchObject({ omitted: 2, labels: [{ judgments: [] }] })
 	})
 
@@ -583,7 +590,7 @@ describe('createStudyLabels', () => {
 				{ row: 2, verdict: 'unsuccessful', reason: 'Missed it' },
 			],
 		} as const
-		const { labels } = createStudyLabels(map, [person, model], {
+		const { labels } = createStudyLabelSheet(map, [person, model], {
 			created: STUDY_LABEL_CREATED,
 			version: '1',
 			third: {
@@ -607,7 +614,7 @@ describe('createStudyLabels', () => {
 			[[{ ...lane, method: 'state' }], fields, 'judgments.0.method'],
 			[[{ ...lane, rows: [{ ...rows[0], verdict: 'oracle' }] }], fields, 'judgments.0.verdict'],
 		] as const) {
-			expect(() => Reflect.apply(createStudyLabels, undefined, [map, lanes, change])).toThrow(
+			expect(() => Reflect.apply(createStudyLabelSheet, undefined, [map, lanes, change])).toThrow(
 				expect.objectContaining({ code: 'EVIDENCE', message: expect.stringContaining(path) }),
 			)
 		}
@@ -619,7 +626,7 @@ describe('createStudyLabels', () => {
 			],
 		}
 		expect(() =>
-			createStudyLabels(twin, [{ ...lane, rows: [...rows, { ...rows[0], row: 2 }] }], fields),
+			createStudyLabelSheet(twin, [{ ...lane, rows: [...rows, { ...rows[0], row: 2 }] }], fields),
 		).toThrow(/repeats its trial and criterion/)
 	})
 })

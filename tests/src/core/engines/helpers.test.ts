@@ -1,19 +1,20 @@
-import { StudyAccessorCeiling } from '../../../setupStudy.js'
 import type { StudyFailure } from '../../../../src/core/types.js'
 import { Budget, BudgetError } from '@orkestrel/budget'
+import { waitForAbort } from '@orkestrel/test'
+import { describe, expect, it } from 'vitest'
 import {
 	computeStudyAdmittedStop,
 	computeStudyOutputStop,
-} from '../../../../src/core/engines/helpers.js'
-import { waitForAbort } from '@orkestrel/test'
-import { describe, expect, it } from 'vitest'
-import { StudyError } from '../../../../src/core/errors.js'
-import {
 	failStudyTicket,
 	failureToStudyError,
 	readStudyFailure,
 } from '../../../../src/core/engines/helpers.js'
-import { createStudyMeterFixture, importStudyErrorCopy } from '../../../setupStudy.js'
+import { StudyError } from '../../../../src/core/errors.js'
+import {
+	StudyAccessorCeiling,
+	createStudyMeterFixture,
+	importStudyErrorCopy,
+} from '../../../setupStudy.js'
 
 describe('study engine error attribution', () => {
 	it('retains attribution from a stop implemented through inherited class accessors', () => {

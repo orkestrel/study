@@ -19,7 +19,7 @@ export const studyTextShape = stringShape({ pattern: /\S/ })
 /** Describes a lowercase SHA-256 digest, the set `isStudyDigest` admits. */
 export const studyDigestShape = stringShape({ pattern: /^[a-f0-9]{64}$/ })
 
-/** Describes a canonical UTC millisecond timestamp's form; `scanStudyLabelsFaults` proves its instant. */
+/** Describes a canonical UTC millisecond timestamp's form; `scanStudyLabelSheetFaults` proves its instant. */
 export const studyTimestampShape = stringShape({
 	pattern: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
 })
@@ -76,8 +76,8 @@ export const studyLabelJudgmentShape = objectShape({
 	references: arrayShape(studyTextShape),
 })
 
-/** Describes imported semantic labels; `scanStudyLabelsFaults` holds what a shape cannot express. */
-export const studyLabelsShape = objectShape({
+/** Describes imported semantic labels; `scanStudyLabelSheetFaults` holds what a shape cannot express. */
+export const studyLabelSheetShape = objectShape({
 	packet: studyDigestShape,
 	labeler: studyTextShape,
 	version: studyTextShape,

@@ -11,11 +11,13 @@ import type {
 	StudyTrial,
 } from '@src/core'
 import type {
+	StudyOllamaInventory,
 	StudyOllamaMetadata,
 	StudyOllamaModel,
 	StudyOllamaStage,
 	StudyOllamaStep,
 } from '../ollama/types.js'
+import type { StudyLabelSource } from '../labels/types.js'
 import type { FileHandle } from 'node:fs/promises'
 import type { JSONValue } from '@orkestrel/contract'
 
@@ -27,7 +29,7 @@ export interface StudyResultStoreOptions {
 
 /** Owns execution custody from exclusive creation through complete sealing. */
 export interface StudyResultStoreInterface extends StudyStoreInterface {
-	/** Exclusively creates the result directory and initial manifest bytes.
+	/** Creates the result directory and initial manifest bytes exclusively.
 	 * @returns A promise that resolves after the manifest is synchronized.
 	 */
 	create(): Promise<void>
@@ -72,6 +74,15 @@ export interface StudyExchangeBytes {
 	readonly size: number
 }
 
+/** Names every Ollama HTTP path an exchange sidecar records, without origin, query, or fragment. */
+export type StudyExchangePath =
+	| '/api/chat'
+	| '/api/generate'
+	| '/v1/systemone'
+	| '/api/version'
+	| '/api/tags'
+	| '/api/show'
+
 /** Binds one HTTP exchange to its trial-local position and declared execution stage.
  * @remarks
  * Ordinal is contiguous and one-based across all HTTP exchanges, including metadata and
@@ -85,13 +96,7 @@ export interface StudyExchangeIdentity {
 	readonly ordinal: number
 	readonly goal: string
 	readonly role: StudyRole
-	readonly path:
-		| '/api/chat'
-		| '/api/generate'
-		| '/v1/systemone'
-		| '/api/version'
-		| '/api/tags'
-		| '/api/show'
+	readonly path: StudyExchangePath
 	readonly method: 'GET' | 'POST'
 	readonly stage: StudyOllamaStage
 	readonly step?: number
@@ -109,7 +114,7 @@ export interface StudyExchangeIdentity {
 export interface StudyExchangeDeclaration {
 	readonly phase: 'declaration'
 	readonly trial: string
-	readonly models: Readonly<Record<string, StudyOllamaModel>>
+	readonly models: StudyOllamaInventory
 	readonly metadata: StudyOllamaMetadata
 	/** Bounds the sidecar bytes, execution calls, and summed model time. */
 	readonly record: StudyRecord
@@ -327,15 +332,15 @@ export interface StudyPacketEntry {
 export interface StudyPacketLink {
 	readonly trial: string
 	readonly criterion: string
-	readonly source: {
-		readonly trial: string
-		readonly criterion: string
-	}
+	readonly source: StudyLabelSource
 }
+
+/** Reserves serialized bytes against shared custody, or throws when the allowance cannot hold them. */
+export type StudyCustodyReserveFunction = (bytes: number) => void
 
 /** Holds the evidence sink's shared admission budget. */
 export interface StudyCustodyBudget {
-	readonly reserve: (bytes: number) => void
+	readonly reserve: StudyCustodyReserveFunction
 }
 
 /** Holds the trial sink's admitted writes and terminal lifecycle. */

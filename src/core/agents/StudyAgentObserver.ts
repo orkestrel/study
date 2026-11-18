@@ -10,7 +10,22 @@ import type {
 import type { StudyAgentObserverOptions } from './types.js'
 import { projectStudyAgentRequest, validateStudyAgentUsage } from './helpers.js'
 
-/** Reads each Agent request's size before delegating it unchanged to the real provider. */
+/**
+ * Reads each Agent request's size before delegating it unchanged to the real provider.
+ * @example
+ * ```ts
+ * declare const provider: ProviderInterface
+ * declare const runtime: StudyAgentEstimator
+ * const observer = new StudyAgentObserver({
+ * 	provider,
+ * 	runtime,
+ * 	gauge: undefined,
+ * 	enforced: false,
+ * 	record: () => undefined,
+ * })
+ * observer.model === provider.model // true
+ * ```
+ */
 export class StudyAgentObserver implements ProviderInterface {
 	readonly #options: StudyAgentObserverOptions
 

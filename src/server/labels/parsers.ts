@@ -1,4 +1,4 @@
-import type { StudyLabelLane, StudyLabelPool } from './types.js'
+import type { StudyLabelLane, StudyLabelOrigin, StudyLabelPool } from './types.js'
 import { canonicalStringify } from '@orkestrel/contract'
 import { parseStudyContract } from '@src/core'
 import { studyLabelAnswersContract, studyLabelPoolContract } from './contracts.js'
@@ -14,10 +14,7 @@ import { studyLabelAnswersContract, studyLabelPoolContract } from './contracts.j
  * parseStudyLabelLane({ rows: [{ row: 1, verdict: 'unknown', reason: 'No evidence' }] }, { labeler: 'first', method: 'model' })
  * ```
  */
-export function parseStudyLabelLane(
-	value: unknown,
-	origin: Pick<StudyLabelLane, 'labeler' | 'method'>,
-): StudyLabelLane {
+export function parseStudyLabelLane(value: unknown, origin: StudyLabelOrigin): StudyLabelLane {
 	const { rows } = parseStudyContract(value, {
 		code: 'EVIDENCE',
 		noun: 'study label answers',

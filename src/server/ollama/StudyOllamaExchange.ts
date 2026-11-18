@@ -1,28 +1,47 @@
+import type { StudyAgentDispatch, StudyTicketInterface } from '@src/core'
 import type { OllamaTiming } from '@orkestrel/ollama'
-import type { StudyOllamaTerminal, StudyOllamaWire } from './types.js'
-import type { StudyExchangeReply } from '../stores/types.js'
+import type { TimeoutInterface } from '@orkestrel/timeout'
+import type {
+	StudyOllamaActivity,
+	StudyOllamaDecoder,
+	StudyOllamaExchangeOptions,
+	StudyOllamaRequest,
+	StudyOllamaTerminal,
+	StudyOllamaWire,
+} from './types.js'
+import type { StudyExchangeIdentity, StudyExchangeReply } from '../stores/types.js'
 import { StudyError } from '@src/core'
 import { buildStudyOllamaBytes } from './helpers.js'
 
-/** Tracks one owned HTTP response through its counted bytes, decoded rows, terminal and settlement. */
+/**
+ * Tracks one owned HTTP response through its counted bytes, decoded rows, terminal and settlement.
+ * @example
+ * ```ts
+ * declare const options: StudyOllamaExchangeOptions
+ * const exchange = new StudyOllamaExchange(options)
+ * exchange.decode(new TextEncoder().encode('{"done":false}\n{"do'))
+ * exchange.take(false) // ['{"done":false}']
+ * exchange.settle()
+ * ```
+ */
 export class StudyOllamaExchange implements StudyOllamaWire {
-	readonly deadline: StudyOllamaWire['deadline']
-	readonly slot: StudyOllamaWire['slot']
-	readonly identity: StudyOllamaWire['identity']
-	readonly headers: StudyOllamaWire['headers']
+	readonly deadline: TimeoutInterface | undefined
+	readonly slot: symbol
+	readonly identity: StudyExchangeIdentity | undefined
+	readonly headers: ReadonlyArray<readonly [string, string]>
 	readonly ceiling: number
-	readonly activity: StudyOllamaWire['activity']
-	readonly request: StudyOllamaWire['request']
-	readonly ticket: StudyOllamaWire['ticket']
-	readonly signal: StudyOllamaWire['signal']
-	readonly reader: StudyOllamaWire['reader']
-	readonly decoder: StudyOllamaWire['decoder']
-	readonly status: StudyOllamaWire['status']
-	readonly started: StudyOllamaWire['started']
-	readonly id: StudyOllamaWire['id']
-	readonly sent: StudyOllamaWire['sent']
-	readonly dispatch: StudyOllamaWire['dispatch']
-	readonly served: StudyOllamaWire['served']
+	readonly activity: StudyOllamaActivity
+	readonly request: StudyOllamaRequest
+	readonly ticket: StudyTicketInterface
+	readonly signal: AbortSignal
+	readonly reader: ReadableStreamDefaultReader<Uint8Array>
+	readonly decoder: StudyOllamaDecoder
+	readonly status: number
+	readonly started: number
+	readonly id: number
+	readonly sent: number
+	readonly dispatch: StudyAgentDispatch | undefined
+	readonly served: boolean
 	#bytes: number
 	#text = ''
 	#terminal: StudyOllamaTerminal | undefined
@@ -30,34 +49,12 @@ export class StudyOllamaExchange implements StudyOllamaWire {
 	#settled = false
 	readonly #chunks: Uint8Array[] = []
 	#recorded = false
-	readonly #cancellation = new AbortController()
+	readonly #abort = new AbortController()
 
 	/** Binds the facts of one dispatched request and its open response.
 	 * @param wire - The request, accounting boundary, reader and identities; its byte count starts the tally.
 	 */
-	constructor(
-		wire: Pick<
-			StudyOllamaWire,
-			| 'activity'
-			| 'request'
-			| 'ticket'
-			| 'signal'
-			| 'reader'
-			| 'decoder'
-			| 'status'
-			| 'started'
-			| 'id'
-			| 'sent'
-			| 'dispatch'
-			| 'bytes'
-			| 'slot'
-			| 'identity'
-			| 'headers'
-			| 'ceiling'
-			| 'deadline'
-			| 'served'
-		>,
-	) {
+	constructor(wire: StudyOllamaExchangeOptions) {
 		this.deadline = wire.deadline
 		this.slot = wire.slot
 		this.identity = wire.identity
@@ -108,9 +105,9 @@ export class StudyOllamaExchange implements StudyOllamaWire {
 		return this.#recorded
 	}
 
-	/** Holds consumer cancellation independently of native accounting and its first reason. */
-	get cancellation(): AbortSignal {
-		return this.#cancellation.signal
+	/** Reports whether the consumer aborted the response; native accounting continues independently. */
+	get aborted(): boolean {
+		return this.#abort.signal.aborted
 	}
 
 	/** Holds the exact bounded bytes and native chunk lengths observed so far. */
@@ -123,11 +120,18 @@ export class StudyOllamaExchange implements StudyOllamaWire {
 		}
 	}
 
-	/** Communicates consumer cancellation to the finalizer without aborting known EOF accounting.
-	 * @param reason - The normalized consumer reason; the first cancellation keeps its identity.
+	/** Marks the response aborted by its consumer for the finalizer; known EOF accounting continues.
+	 * @param reason - The normalized consumer reason; the first abort keeps its identity.
 	 */
-	cancel(reason: unknown): void {
-		this.#cancellation.abort(reason)
+	abort(reason: unknown): void {
+		this.#abort.abort(reason)
+	}
+
+	/** Refuses further response work after the consumer aborted.
+	 * @throws unknown - Thrown with the reason the first abort carried.
+	 */
+	check(): void {
+		this.#abort.signal.throwIfAborted()
 	}
 
 	/** Retains one bounded chunk before decoding changes its representation.

@@ -7,10 +7,10 @@ import type {
 	StudyLabelMap,
 	StudyLabelPool,
 	StudyLabelPoolOptions,
-	StudyLabelRow,
 	StudyLabelSegment,
+	StudyLabelText,
 } from './types.js'
-import { StudyError, parseStudyLabels } from '@src/core'
+import { StudyError, parseStudyLabelSheet } from '@src/core'
 import { decodeStudyJSON, hashStudyBytes } from '../helpers.js'
 import { STUDY_LABEL_DISPUTE } from './constants.js'
 import { collectStudyLabelAnswers } from './helpers.js'
@@ -63,7 +63,7 @@ export function createStudyLabelPool(
 					'EVIDENCE',
 					`Criterion ${source.criterion} holds no goal and class to pool under`,
 				)
-			const text: Omit<StudyLabelRow, 'row'> = {
+			const text: StudyLabelText = {
 				input: entry.input,
 				...(entry.product === undefined ? {} : { product: entry.product }),
 				assertion: entry.assertion,
@@ -102,7 +102,7 @@ export function createStudyLabelPool(
 		})),
 		...controls.map((control, index) => {
 			const rank = hashStudyBytes(`${order}\ncontrol/${String(index)}`)
-			const text: Omit<StudyLabelRow, 'row'> = {
+			const text: StudyLabelText = {
 				input: control.input,
 				product: control.product,
 				assertion: control.assertion,
@@ -157,10 +157,10 @@ export function createStudyLabelPool(
  * @throws StudyError - Thrown with `EVIDENCE` on no lane or more than two, a row outside the map, a repeated row, a third-lane row holding no dispute, a missing answer without `partial`, or a file that breaks its contract
  * @example
  * ```ts
- * createStudyLabels({ links: [], checks: [] }, [{ labeler: 'first', method: 'model', rows: [] }], { created: '2026-11-02T00:00:00.000Z', version: '1' }).labels // []
+ * createStudyLabelSheet({ links: [], checks: [] }, [{ labeler: 'first', method: 'model', rows: [] }], { created: '2026-11-02T00:00:00.000Z', version: '1' }).labels // []
  * ```
  */
-export function createStudyLabels(
+export function createStudyLabelSheet(
 	map: StudyLabelMap,
 	lanes: readonly StudyLabelLane[],
 	options: StudyLabelImportOptions,
@@ -227,7 +227,7 @@ export function createStudyLabels(
 	const names = every.map((lane) => lane.labeler).join('+')
 	return {
 		labels: [...new Set(map.links.map((link) => link.packet))].map((packet) =>
-			parseStudyLabels({
+			parseStudyLabelSheet({
 				packet,
 				labeler: lanes.length === 1 ? `${names} single-labeled` : names,
 				version: options.version,

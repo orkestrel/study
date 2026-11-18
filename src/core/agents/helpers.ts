@@ -11,6 +11,10 @@ import { parseStudyMeasurement } from '../parsers.js'
  * @param gauge - The declared scale and overhead
  * @param estimate - The runtime's estimate of one complete request
  * @returns The projected prompt tokens, rounded up
+ * @example
+ * ```ts
+ * projectStudyAgentRequest({ scale: 1.5, overhead: 10 }, 100) // 160
+ * ```
  */
 export function projectStudyAgentRequest(gauge: LedgerGauge, estimate: number): number {
 	return Math.ceil(gauge.overhead + gauge.scale * estimate)
@@ -24,6 +28,11 @@ export function projectStudyAgentRequest(gauge: LedgerGauge, estimate: number): 
  * @param role - The responsibility whose request was dispatched; the failure retains it
  * @returns Nothing when the prompt count is finite and positive
  * @throws StudyError - Thrown with code `FAULT` when the prompt count is missing, not finite, or not positive
+ * @example
+ * ```ts
+ * validateStudyAgentUsage({ prompt: 120, completion: 8 }, 'agent') // returns
+ * validateStudyAgentUsage({ prompt: 0, completion: 8 }, 'agent') // throws a FAULT StudyError
+ * ```
  */
 export function validateStudyAgentUsage(usage: ProviderResult['usage'], role: StudyRole): void {
 	const prompt = usage?.prompt
@@ -52,7 +61,7 @@ export function validateStudyAgentUsage(usage: ProviderResult['usage'], role: St
  * @example
  * ```ts
  * translateStudyAgentStop({ layer: 'meter', id: 'meter', max: 2000, consumed: 2001 })
- * // a CAPACITY StudyError whose failure.stop is { layer: 'meter', id: 'meter', max: 2000, consumed: 2001 }
+ * // a CAPACITY StudyError whose context.stop is { layer: 'meter', id: 'meter', max: 2000, consumed: 2001 }
  * ```
  */
 export function translateStudyAgentStop(stop: unknown): StudyError | undefined {
@@ -112,6 +121,11 @@ export function translateStudyAgentStop(stop: unknown): StudyError | undefined {
  * Projects a request's structural components onto plain JSON without storing a total.
  * @param measure - The runtime's disjoint per-message, tools and schema estimates
  * @returns The same components in request order
+ * @example
+ * ```ts
+ * declare const measure: RequestMeasure
+ * buildStudyAgentParts(measure) // { messages, tools, schema }
+ * ```
  */
 export function buildStudyAgentParts(measure: RequestMeasure): JSONValue {
 	return {
@@ -133,6 +147,10 @@ export function buildStudyAgentParts(measure: RequestMeasure): JSONValue {
  * Builds the evidence join of a wire request to its canonical dispatch.
  * @param dispatch - The measured dispatch, or undefined when the caller measured none
  * @returns The dispatch id and revision, each null when unknown
+ * @example
+ * ```ts
+ * buildStudyAgentDispatch(undefined) // { canonical: null, revision: null }
+ * ```
  */
 export function buildStudyAgentDispatch(
 	dispatch: StudyAgentDispatch | undefined,

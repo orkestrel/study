@@ -1,7 +1,7 @@
 import type {
 	StudyRole,
 	StudyStop,
-	StudyTicket,
+	StudyTicketInterface,
 	StudyAgentDispatch,
 	StudyLatchInterface,
 } from '@src/core'
@@ -18,6 +18,7 @@ import type {
 	StudyOllamaTransportOptions,
 } from './types.js'
 import type { StudyExchangeIdentity, StudyExchangeDeclaration } from '../stores/types.js'
+import type { StudyFault } from '../types.js'
 import {
 	StudyError,
 	isStudyError,
@@ -52,7 +53,19 @@ import {
 	buildStudyOllamaBytes,
 } from './helpers.js'
 
-/** Admits and accounts Ollama wire requests under declared policies and latches failure. */
+/**
+ * Admits and accounts Ollama wire requests under declared policies and latches failure.
+ * @example
+ * ```ts
+ * declare const options: StudyOllamaTransportOptions
+ * declare const activity: StudyOllamaActivity
+ * const transport = new StudyOllamaTransport(options)
+ * transport.prepare(activity)
+ * const response = await transport.fetch('metadata', new URL('/api/tags', options.url))
+ * transport.clear()
+ * await transport.close()
+ * ```
+ */
 export class StudyOllamaTransport implements StudyLatchInterface {
 	readonly #options: StudyOllamaTransportOptions
 	readonly #declaration: StudyExchangeDeclaration | undefined
@@ -64,7 +77,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 	readonly #finalizations = new WeakMap<StudyOllamaExchange, Promise<void>>()
 	readonly #drains = new Set<Promise<void>>()
 	#shutdown: Promise<void> | undefined
-	#drainFailure: { readonly error: unknown } | undefined
+	#drainFailure: StudyFault | undefined
 	readonly #requests = new Set<symbol>()
 	readonly #verifications = new Set<symbol>()
 	readonly #metadataControl: StudyControl
@@ -74,7 +87,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 	// The bound goal; `prepare` binds it and `clear` or `close` releases it. An admitted request keeps the goal it was admitted under.
 	#goal: StudyOllamaGoal | undefined
 	// Wraps the first retained failure so a thrown undefined or null is still a presence.
-	#fault: { readonly error: unknown } | undefined
+	#fault: StudyFault | undefined
 	#count = 0
 	// The model of the preceding model dispatch; it spans goals, so the next goal's first dispatch reports a switch.
 	#previous: string | undefined
@@ -473,7 +486,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		return new Response(
 			new ReadableStream<Uint8Array>({
 				pull: (controller) => this.#pull(wire, controller),
-				cancel: (reason: unknown) => this.#cancelResponse(wire, reason),
+				cancel: (reason: unknown) => this.#abortResponse(wire, reason),
 			}),
 			{
 				status: wire.status,
@@ -567,7 +580,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		try {
 			wire.signal.throwIfAborted()
 			const chunk = await this.#read(wire)
-			wire.cancellation.throwIfAborted()
+			wire.check()
 			wire.signal.throwIfAborted()
 			if (!chunk.done) {
 				wire.count(chunk.value.byteLength, wire.ceiling)
@@ -613,7 +626,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 			if (wire.request.role !== 'metadata' && wire.terminal === undefined)
 				throw new StudyError('FAULT', 'Ollama response has no terminal row')
 			await this.#finish(wire)
-			wire.cancellation.throwIfAborted()
+			wire.check()
 			wire.signal.throwIfAborted()
 			if (wire.request.role === 'metadata' && this.#remaining < 0) {
 				const message = 'Metadata duration allowance exhausted'
@@ -630,9 +643,9 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				})
 			}
 			if (wire.terminal !== undefined) await this.#judge(wire, wire.terminal)
-			// The following admission commits the terminal synchronously; cancellation after it only
-			// joins retention.
-			wire.cancellation.throwIfAborted()
+			// The following admission commits the terminal synchronously; an abort after it only joins
+			// retention.
+			wire.check()
 			if (wire.identity !== undefined) {
 				this.check()
 				await this.#options.exchanges?.append({
@@ -643,7 +656,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				wire.record()
 			}
 			this.#requests.delete(wire.slot)
-			if (!wire.cancellation.aborted) controller.close()
+			if (!wire.aborted) controller.close()
 		} catch (error) {
 			this.fail(error)
 			try {
@@ -657,13 +670,14 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		}
 	}
 
-	#cancelResponse(wire: StudyOllamaExchange, reason: unknown): Promise<void> {
+	// Aborts the exchange when the consumer cancels the platform stream; the platform hook keeps its `cancel` name.
+	#abortResponse(wire: StudyOllamaExchange, reason: unknown): Promise<void> {
 		// Only undefined denotes absence; null and every other thrown value keep their identity.
 		const error =
 			reason === undefined
 				? new StudyError('FAULT', 'Ollama response cancelled before its end')
 				: reason
-		wire.cancel(error)
+		wire.abort(error)
 		return isBudgetError(error) ? this.#cut(wire, error) : this.#failWire(wire, error)
 	}
 
@@ -743,7 +757,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 	async #send(
 		role: StudyRole,
 		goal: StudyOllamaGoal,
-		ticket: StudyTicket,
+		ticket: StudyTicketInterface,
 		request: StudyOllamaRequest,
 		snapshot: StudyOllamaSnapshot,
 		signal: AbortSignal,

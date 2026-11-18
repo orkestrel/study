@@ -1,11 +1,23 @@
-import type { StudyCharge, StudyFailure, StudyTicket, StudyUsage } from '../types.js'
+import type { StudyCharge, StudyFailure, StudyTicketInterface, StudyUsage } from '../types.js'
 import type { StudyMeterInterface, StudyMeterOptions } from './types.js'
 import { StudyError } from '../errors.js'
 import { isStudyLimit, isStudyRole } from '../validators.js'
 import { failureToStudyError } from './helpers.js'
 import { StudyRequest } from './StudyRequest.js'
 
-/** Admits request ceilings across every enclosing scope before dispatch. */
+/**
+ * Admits request ceilings across every enclosing scope before dispatch.
+ * @example
+ * ```ts
+ * const control = new StudyControl()
+ * const limit = { duration: 1000, calls: 4, tokens: 100, bytes: 100 }
+ * const scope = new StudyScope({ limit, control, label: 'Goal' })
+ * const meter = new StudyMeter({ request: { ...limit, calls: 1 }, scopes: [scope], control })
+ * const ticket = meter.admit({ role: 'agent', tokens: 10, bytes: 10 })
+ * ticket.finish({ role: 'agent', calls: 1, tokens: 8, bytes: 6, duration: 5 })
+ * meter.close()
+ * ```
+ */
 export class StudyMeter implements StudyMeterInterface {
 	#options: StudyMeterOptions
 	readonly #pending = new Set<symbol>()
@@ -37,7 +49,7 @@ export class StudyMeter implements StudyMeterInterface {
 	 * @returns A request ticket that must settle before the goal completes.
 	 * @throws Thrown before dispatch if the request exceeds available capacity.
 	 */
-	admit(charge: StudyCharge): StudyTicket {
+	admit(charge: StudyCharge): StudyTicketInterface {
 		if (this.#closed) throw new StudyError('FAULT', 'Study meter is closed')
 		if (this.#options.control.failure !== undefined)
 			throw failureToStudyError(this.#options.control.failure)

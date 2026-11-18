@@ -270,7 +270,7 @@ process.on('message', frame => {
 			failStudyTicket(ticket, new Error('Work escaped after the parent aborted'))
 			expect(ticket.settled).toBe(false)
 			expect(control.failure).toEqual(failure)
-			await expect(deadline.wait(meter.close())).rejects.toMatchObject({ failure })
+			await expect(deadline.wait(meter.close())).rejects.toMatchObject({ context: failure })
 			expect(meter.usage).toEqual([])
 			expect(readFileSync(join(scratch.path, 'receipt.log'), 'utf8')).toBe('admit\n')
 		} finally {
@@ -303,7 +303,7 @@ process.on('message', frame => {
 			await expect(meter.admit({ role: 'tool', tokens: 0, bytes: 0 })).rejects.toThrow(
 				/parent denied/,
 			)
-			await expect(meter.close()).rejects.toMatchObject({ failure: { cause: 'capacity' } })
+			await expect(meter.close()).rejects.toMatchObject({ context: { cause: 'capacity' } })
 			expect(meter.usage).toEqual([])
 		} finally {
 			channel.close()

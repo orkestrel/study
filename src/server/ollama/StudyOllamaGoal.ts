@@ -1,7 +1,16 @@
 import type { JSONValue } from '@orkestrel/contract'
 import type { StudyOllamaActivity } from './types.js'
 
-/** Holds one goal's accounting boundary and whether its checkpoint has joined a dispatch row. */
+/**
+ * Holds one goal's accounting boundary and whether its checkpoint has joined a dispatch row.
+ * @example
+ * ```ts
+ * declare const activity: StudyOllamaActivity
+ * const goal = new StudyOllamaGoal(activity)
+ * goal.attach() // the checkpoint, on the first dispatch only
+ * goal.attach() // undefined
+ * ```
+ */
 export class StudyOllamaGoal {
 	readonly #activity: StudyOllamaActivity
 	#attached = false

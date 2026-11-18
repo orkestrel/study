@@ -59,7 +59,7 @@ describe('translateStudyAgentStop', () => {
 		expect(meter).toMatchObject({
 			code: 'CAPACITY',
 			message: 'Agent meter allowance reached its ceiling',
-			failure: {
+			context: {
 				cause: 'capacity',
 				role: 'agent',
 				stop: { layer: 'meter', id: 'estimate', max: 2.5, consumed: 3 },
@@ -70,7 +70,7 @@ describe('translateStudyAgentStop', () => {
 		).toMatchObject({
 			code: 'CAPACITY',
 			message: 'Agent budget reached its ceiling',
-			failure: { stop: { layer: 'budget', id: 'cost', max: -1, consumed: 0 } },
+			context: { stop: { layer: 'budget', id: 'cost', max: -1, consumed: 0 } },
 		})
 	})
 
@@ -109,7 +109,7 @@ describe('translateStudyAgentStop', () => {
 		})
 		expect(translateStudyAgentStop(stop)).toMatchObject({
 			code: 'CAPACITY',
-			failure: { stop: { layer: 'meter' } },
+			context: { stop: { layer: 'meter' } },
 		})
 		expect(reads.calls).toEqual([['layer'], ['id'], ['max'], ['consumed']])
 		const completion = createRecorder<readonly []>()
@@ -142,7 +142,7 @@ describe('translateStudyAgentStop', () => {
 			),
 		).toMatchObject({
 			message: 'Agent model reached its own token limit',
-			failure: { stop: { layer: 'model', id: 'provider', max: undefined, consumed: 7 } },
+			context: { stop: { layer: 'model', id: 'provider', max: undefined, consumed: 7 } },
 		})
 		expect(completion.calls).toEqual([[]])
 	})
@@ -152,7 +152,7 @@ describe('translateStudyAgentStop', () => {
 		for (const stop of STUDY_AGENT_INVALID_STOPS) {
 			expect(translateStudyAgentStop(stop)).toMatchObject({
 				code: 'FAULT',
-				failure: {
+				context: {
 					cause: 'infrastructure',
 					message: 'Agent stop record is malformed',
 					role: 'agent',
@@ -161,11 +161,11 @@ describe('translateStudyAgentStop', () => {
 			})
 		}
 		expect(translateStudyAgentStop({ layer: 'model', id: 'provider' })).toMatchObject({
-			failure: { stop: { max: undefined, consumed: undefined } },
+			context: { stop: { max: undefined, consumed: undefined } },
 		})
 		expect(
 			translateStudyAgentStop({ layer: 'model', id: 'provider', usage: { completion: Infinity } }),
-		).toMatchObject({ failure: { stop: { consumed: undefined } } })
+		).toMatchObject({ context: { stop: { consumed: undefined } } })
 	})
 })
 

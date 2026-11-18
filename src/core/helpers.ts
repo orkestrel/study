@@ -4,7 +4,7 @@ import type {
 	StudyCriterion,
 	StudyGoal,
 	StudyJudgment,
-	StudyLabels,
+	StudyLabelSheet,
 	StudyManifest,
 	StudyProfile,
 	StudyRange,
@@ -84,11 +84,11 @@ export function scanStudyRubricFaults(rubric: StudyRubric): readonly string[] {
  * @returns One line per fault, each naming its path
  * @example
  * ```ts
- * scanStudyLabelsFaults({ packet: 'a'.repeat(64), labeler: 'first', version: '1', created: '2026-02-30T00:00:00.000Z', usage: [], judgments: [] })
+ * scanStudyLabelSheetFaults({ packet: 'a'.repeat(64), labeler: 'first', version: '1', created: '2026-02-30T00:00:00.000Z', usage: [], judgments: [] })
  * // ['created: names no real instant']
  * ```
  */
-export function scanStudyLabelsFaults(labels: StudyLabels): readonly string[] {
+export function scanStudyLabelSheetFaults(labels: StudyLabelSheet): readonly string[] {
 	const pairs = labels.judgments.map((judgment) =>
 		canonicalStringify([judgment.trial, judgment.criterion]),
 	)

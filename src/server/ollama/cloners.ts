@@ -1,8 +1,7 @@
 import type { StudyAgentDispatch } from '@src/core'
 import type {
 	StudyOllamaModel,
-	StudyOllamaPolicy,
-	StudyOllamaRole,
+	StudyOllamaRolePolicy,
 	StudyOllamaSnapshot,
 	StudyOllamaTransportOptions,
 } from './types.js'
@@ -17,6 +16,11 @@ import { StudyError } from '@src/core'
  * @param options - The caller's transport configuration
  * @returns The owned configuration, not yet validated
  * @throws StudyError - Thrown with code `CONFIG` when `roles` declares a key other than `agent`, `judge`, or `triage`, an undefined policy included
+ * @example
+ * ```ts
+ * declare const options: StudyOllamaTransportOptions
+ * Object.isFrozen(buildStudyOllamaTransportOptions(options).roles) // true
+ * ```
  */
 export function buildStudyOllamaTransportOptions(
 	options: StudyOllamaTransportOptions,
@@ -48,20 +52,19 @@ export function buildStudyOllamaTransportOptions(
 			Object.freeze({ name, digest }),
 		]),
 	)
-	const policies: Partial<Record<Exclude<StudyOllamaRole, 'triage'>, StudyOllamaPolicy>> =
-		Object.fromEntries(
-			(['agent', 'judge'] as const).flatMap((role) => {
-				const policy = roles[role]
-				if (policy === undefined) return []
-				const { model, options: wire, think, strict, length } = policy
-				return [
-					[
-						role,
-						Object.freeze({ model, options: Object.freeze({ ...wire }), think, strict, length }),
-					] as const,
-				]
-			}),
-		)
+	const policies: StudyOllamaRolePolicy = Object.fromEntries(
+		(['agent', 'judge'] as const).flatMap((role) => {
+			const policy = roles[role]
+			if (policy === undefined) return []
+			const { model, options: wire, think, strict, length } = policy
+			return [
+				[
+					role,
+					Object.freeze({ model, options: Object.freeze({ ...wire }), think, strict, length }),
+				] as const,
+			]
+		}),
+	)
 	const { context, safety } = room
 	const triage = roles.triage
 	const { duration, bytes } = limit
@@ -97,6 +100,11 @@ export function buildStudyOllamaTransportOptions(
  * @param dispatch - The canonical dispatch the caller measured
  * @returns The owned request facts
  * @throws StudyError - Thrown with code `CONFIG` when the input is a `Request`
+ * @example
+ * ```ts
+ * buildStudyOllamaSnapshot('http://127.0.0.1:11500/api/tags', undefined, undefined)
+ * // { url: 'http://127.0.0.1:11500/api/tags', init: undefined, dispatch: undefined }
+ * ```
  */
 export function buildStudyOllamaSnapshot(
 	input: string | URL | Request,

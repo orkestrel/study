@@ -3,20 +3,20 @@ import { StudyError } from '../../../src/core/errors.js'
 import { describe, expect, it } from 'vitest'
 import {
 	studyJudgmentContract,
-	studyLabelsContract,
+	studyLabelSheetContract,
 	studyRubricContract,
 } from '../../../src/core/contracts.js'
 import {
 	scanStudyJudgmentFaults,
-	scanStudyLabelsFaults,
+	scanStudyLabelSheetFaults,
 	scanStudyRubricFaults,
 } from '../../../src/core/helpers.js'
 import {
 	parseStudyJudgments,
-	parseStudyLabels,
+	parseStudyLabelSheet,
 	parseStudyRubric,
 } from '../../../src/core/parsers.js'
-import { isStudyJudgment, isStudyLabels, isStudyRubric } from '../../../src/core/validators.js'
+import { isStudyJudgment, isStudyLabelSheet, isStudyRubric } from '../../../src/core/validators.js'
 import {
 	STUDY_JUDGMENT_LOCKSTEP,
 	STUDY_LABELS_LOCKSTEP,
@@ -42,11 +42,11 @@ describe('study filled shapes in lockstep with their hand guards', () => {
 	})
 
 	it.each(STUDY_LABELS_LOCKSTEP)('labels: $name', ({ value, accepted }) => {
-		expect(isStudyLabels(value)).toBe(accepted)
-		expect(studyLabelsContract.is(value) && scanStudyLabelsFaults(value).length === 0).toBe(
+		expect(isStudyLabelSheet(value)).toBe(accepted)
+		expect(studyLabelSheetContract.is(value) && scanStudyLabelSheetFaults(value).length === 0).toBe(
 			accepted,
 		)
-		expect(captureError(() => parseStudyLabels(value)) === undefined).toBe(accepted)
+		expect(captureError(() => parseStudyLabelSheet(value)) === undefined).toBe(accepted)
 	})
 })
 
@@ -136,7 +136,7 @@ describe('study filled refusals name the field', () => {
 			'judgments.1: repeats its trial and criterion',
 		],
 	])('labels %#', (value, path) => {
-		expect(() => parseStudyLabels(value)).toThrow(
+		expect(() => parseStudyLabelSheet(value)).toThrow(
 			expect.objectContaining({ code: 'EVIDENCE', message: expect.stringContaining(path) }),
 		)
 	})
@@ -162,14 +162,14 @@ describe('study filled refusals name the field', () => {
 				return labels.packet
 			},
 		})
-		expect(() => parseStudyLabels(hostile)).toThrow(/unreadable/)
+		expect(() => parseStudyLabelSheet(hostile)).toThrow(/unreadable/)
 		expect(reads).toEqual([])
 	})
 })
 
 describe('study published JSON Schemas', () => {
 	it('publishes the closed labels schema a labeler fills', () => {
-		expect(studyLabelsContract.schema).toMatchObject({
+		expect(studyLabelSheetContract.schema).toMatchObject({
 			type: 'object',
 			additionalProperties: false,
 			required: ['packet', 'labeler', 'version', 'created', 'usage', 'judgments'],
@@ -207,7 +207,7 @@ describe('study filled refusals without a JSON form', () => {
 			/version: holds no JSON value/,
 		)
 		expect(() =>
-			parseStudyLabels({ ...buildStudyLockstepLabels(), judgments: [{ trial: undefined }] }),
+			parseStudyLabelSheet({ ...buildStudyLockstepLabels(), judgments: [{ trial: undefined }] }),
 		).toThrow(/judgments\.0\.trial: holds no JSON value/)
 	})
 
@@ -236,7 +236,7 @@ describe('study filled refusals without a JSON form', () => {
 				},
 			},
 		)
-		for (const parse of [parseStudyRubric, parseStudyLabels])
+		for (const parse of [parseStudyRubric, parseStudyLabelSheet])
 			expect(() => parse(hostile)).toThrow(StudyError)
 		expect(() => parseStudyJudgments([hostile])).toThrow(
 			expect.objectContaining({ code: 'FAULT', message: expect.stringContaining('0: unreadable') }),

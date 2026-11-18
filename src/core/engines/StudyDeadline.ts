@@ -2,7 +2,14 @@ import type { StudyDeadlineInterface, StudyDeadlineOptions } from './types.js'
 import { StudyControl } from './StudyControl.js'
 import { StudyScope } from './StudyScope.js'
 
-/** Bounds each independent operation with a fresh failure owner and deadline. */
+/**
+ * Bounds each independent operation with a fresh failure owner and deadline.
+ * @example
+ * ```ts
+ * const deadline = new StudyDeadline({ duration: 1000, label: 'Cleanup' })
+ * await deadline.wait(Promise.resolve('closed')) // 'closed'
+ * ```
+ */
 export class StudyDeadline implements StudyDeadlineInterface {
 	#options: StudyDeadlineOptions
 

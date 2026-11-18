@@ -14,7 +14,7 @@ import { Budget } from '@orkestrel/budget'
 import { canonicalStringify, cloneJSONValue } from '@orkestrel/contract'
 import { isStudyError, StudyError } from '../errors.js'
 import { buildStudySchedule, filterStudySchedule } from '../helpers.js'
-import { isStudyBounds, isStudyProduct } from '../validators.js'
+import { isStudyAllowance, isStudyProduct } from '../validators.js'
 import { computeStudyOutputStop, readStudyFailure } from './helpers.js'
 import { StudyControl } from './StudyControl.js'
 import { StudyDeadline } from './StudyDeadline.js'
@@ -22,7 +22,15 @@ import { StudyMeter } from './StudyMeter.js'
 import { StudyScope } from './StudyScope.js'
 import { StudyTrialLease } from './StudyTrialLease.js'
 
-/** Executes a frozen serial study schedule with finite admission and sticky failures. */
+/**
+ * Executes a frozen serial study schedule with finite admission and sticky failures.
+ * @example
+ * ```ts
+ * declare const options: StudySeriesOptions
+ * const attempts = await new StudySeries(options).execute()
+ * attempts.length === options.manifest.schedule.length // true
+ * ```
+ */
 export class StudySeries {
 	#options: StudySeriesOptions
 	#executed = false
@@ -48,7 +56,7 @@ export class StudySeries {
 			manifest.selection?.trial,
 		)
 		if (
-			!isStudyBounds(manifest.bounds) ||
+			!isStudyAllowance(manifest.bounds) ||
 			canonicalStringify(expected) !== canonicalStringify(manifest.schedule)
 		)
 			throw new StudyError('CONFIG', 'Study manifest schedule or bounds are invalid')

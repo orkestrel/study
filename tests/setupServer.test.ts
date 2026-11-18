@@ -1,3 +1,4 @@
+import type { StudyObservation } from '../src/core/types.js'
 import { createRecorder, requireValue, waitForCondition, waitForEvent } from '@orkestrel/test'
 import { BudgetError, isBudgetError } from '@orkestrel/budget'
 import { createScratch, isRunning } from '@orkestrel/test/server'
@@ -6,15 +7,14 @@ import { basename, dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { isArray, isRecord, parseJSON } from '@orkestrel/contract'
-import type { StudyObservation } from '../src/core/types.js'
 import { createMCPClient, HTTPClientTransport } from '@orkestrel/mcp'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
-import { isStudyBounds } from '../src/core/validators.js'
+import { isStudyAllowance } from '../src/core/validators.js'
 import { parseStudyProfile } from '../src/core/parsers.js'
 import { STUDY_LAUNCH_BYTES } from '../src/server/launchers/constants.js'
-import { buildStudyRubric } from './setupStudy.js'
 import {
 	buildStudyDaemonRefusals,
+	buildStudyRubric,
 	createOllamaReply,
 	OllamaReplyQueue,
 	STUDY_OLLAMA_FIXTURE,
@@ -376,7 +376,7 @@ describe('study server fixtures', () => {
 			expect(options.directory).toBe(join(scratch.path, 'trials'))
 			expect(scratch.has('trials')).toBe(true)
 			expect(options.trial).toMatchObject({ scenario: 'first', arm: 'large', repetition: 0 })
-			expect(isStudyBounds(options.profile.bounds)).toBe(true)
+			expect(isStudyAllowance(options.profile.bounds)).toBe(true)
 			expect(options.signal).toBe(controller.signal)
 			controller.abort('fixture cancellation')
 			expect(options.signal.reason).toBe('fixture cancellation')
@@ -596,9 +596,9 @@ describe('study server fixtures', () => {
 			})
 			const reply: unknown = JSON.parse(checked.stdout)
 			expect(checked.status).toBe(0)
-			expect(isRecord(reply) && isStudyBounds(reply.bounds) && reply.bounds.series.duration).toBe(
-				86400000,
-			)
+			expect(
+				isRecord(reply) && isStudyAllowance(reply.bounds) && reply.bounds.series.duration,
+			).toBe(86400000)
 			expect(isRecord(reply) && reply.fingerprint).toBe(STUDY_CHECK_FINGERPRINT)
 			const executed = spawnSync(process.execPath, [entry, 'study-command', 'execute', 'files'], {
 				encoding: 'utf8',
@@ -675,7 +675,7 @@ describe('study server fixtures', () => {
 	})
 	it('builds a check reply that declares the requested series duration and the fixture fingerprint', () => {
 		const reply: unknown = JSON.parse(buildStudyCheckReply(4200))
-		expect(isRecord(reply) && isStudyBounds(reply.bounds) && reply.bounds.series.duration).toBe(
+		expect(isRecord(reply) && isStudyAllowance(reply.bounds) && reply.bounds.series.duration).toBe(
 			4200,
 		)
 		expect(isRecord(reply) && reply.fingerprint).toBe(STUDY_CHECK_FINGERPRINT)

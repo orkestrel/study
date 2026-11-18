@@ -26,6 +26,10 @@ export function isStudyAgentGauge(value: unknown): value is LedgerGauge {
  * conversation factories passes. A throwing accessor returns false.
  * @param value - The admitted namespace
  * @returns True if every required capability is a function; false otherwise
+ * @example
+ * ```ts
+ * isStudyAgentRuntime({ estimateRequest: () => 0 }) // false
+ * ```
  */
 export function isStudyAgentRuntime(value: unknown): value is StudyAgentRuntime {
 	return holds(

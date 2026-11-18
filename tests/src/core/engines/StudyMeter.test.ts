@@ -374,7 +374,7 @@ describe('StudyMeter', () => {
 		})
 		const waiting = fixture.control.wait(work)
 		parent.abort()
-		await expect(waiting).rejects.toMatchObject({ failure: { cause: 'interrupted' } })
+		await expect(waiting).rejects.toMatchObject({ context: { cause: 'interrupted' } })
 		fixture.control.fail({
 			cause: 'infrastructure',
 			message: 'Cleanup also failed',

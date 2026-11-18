@@ -31,7 +31,7 @@ import type {
 	StudyCriterion,
 	StudyEvidence,
 	StudyAssessment,
-	StudyLabels,
+	StudyLabelSheet,
 	StudyManifest,
 	StudyObservation,
 	StudyRole,
@@ -2158,7 +2158,7 @@ export function buildCustodyPacketLabels(
 	result: StudySealedResult,
 	rubric: StudyRubric,
 	labeler = 'human-v1',
-): StudyLabels {
+): StudyLabelSheet {
 	const original = buildCustodyLabels(result, labeler)
 	const packet = buildStudyPacket(result, rubric, hashStudyBytes(encodeStudyJSON(rubric)))
 	const link = buildStudyPacketLinks(result, rubric).find(
@@ -2267,7 +2267,7 @@ export function buildStudyReportResult(
 export function buildCustodyAssessment(
 	result: StudySealedResult,
 	rubric: StudyRubric = buildStudyRubric(),
-	labels?: StudyLabels,
+	labels?: StudyLabelSheet,
 ): StudyAssessment {
 	return {
 		result: result.seal.id,
@@ -2307,7 +2307,10 @@ export function buildCustodyAssessment(
  * @param labeler - The supplied accountable labeler
  * @returns The inert labels artifact
  */
-export function buildCustodyLabels(result: StudySealedResult, labeler = 'human-v1'): StudyLabels {
+export function buildCustodyLabels(
+	result: StudySealedResult,
+	labeler = 'human-v1',
+): StudyLabelSheet {
 	const trial = result.manifest.schedule[0]
 	if (trial === undefined) throw new Error('Fixture has no trial')
 	return {

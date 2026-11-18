@@ -1,7 +1,15 @@
 import type { JudgeInterface, JudgeRequest, JudgeResult } from '@orkestrel/agent'
 import type { StudyLatchInterface } from './types.js'
 
-/** Latches a real judge's failure before an enclosing runtime can treat it as absent. */
+/**
+ * Latches a real judge's failure before an enclosing runtime can treat it as absent.
+ * @example
+ * ```ts
+ * declare const judge: JudgeInterface
+ * declare const latch: StudyLatchInterface
+ * new StudyAgentJudge(judge, latch).model === judge.model // true
+ * ```
+ */
 export class StudyAgentJudge implements JudgeInterface {
 	readonly #judge: JudgeInterface
 	readonly #latch: StudyLatchInterface

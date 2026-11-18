@@ -1,4 +1,4 @@
-import type { StudyBounds, StudyProfile, StudyProvider } from '@src/core'
+import type { StudyAllowance, StudyProfile, StudyProviderDigest } from '@src/core'
 import type { StudyExecutionRequest } from '../commands/types.js'
 import { StudyError, parseStudyProfile } from '@src/core'
 import { isAbsolute } from 'node:path'
@@ -51,7 +51,7 @@ export function buildStudySelectors(
 export function buildStudyFixtureProfile(
 	profile: StudyProfile,
 	url: string,
-	digests: StudyProvider['digest'],
+	digests: StudyProviderDigest,
 ): StudyProfile {
 	if (profile.provider === undefined)
 		throw new StudyError(
@@ -93,13 +93,13 @@ export function scanStudyAbsolutePaths(profile: StudyProfile): readonly string[]
  * @returns The deadline in milliseconds
  * @example Compute the execute deadline
  * ```ts
- * import type { StudyBounds } from '@orkestrel/study'
+ * import type { StudyAllowance } from '@orkestrel/study'
  * import { computeStudyExecutionDuration } from '@orkestrel/study/server'
  *
- * declare const bounds: StudyBounds
+ * declare const bounds: StudyAllowance
  * computeStudyExecutionDuration({ ...bounds, series: { ...bounds.series, duration: 600000 } }) // 675000
  * ```
  */
-export function computeStudyExecutionDuration(bounds: StudyBounds): number {
+export function computeStudyExecutionDuration(bounds: StudyAllowance): number {
 	return bounds.series.duration + STUDY_LAUNCH_CLEANUP + STUDY_LAUNCH_DURATION
 }

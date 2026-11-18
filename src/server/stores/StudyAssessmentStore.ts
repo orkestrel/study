@@ -1,10 +1,10 @@
-import type { StudyAssessment, StudyLabels, StudyRubric } from '@src/core'
+import type { StudyAssessment, StudyLabelSheet, StudyRubric } from '@src/core'
 import type { StudyAssessmentStoreOptions, StudyPacketBundle, StudySealedResult } from './types.js'
 import {
 	StudyError,
 	computeStudyScores,
 	parseStudyAssessment,
-	parseStudyLabels,
+	parseStudyLabelSheet,
 	parseStudyRubric,
 	isStudyDigest,
 } from '@src/core'
@@ -23,14 +23,25 @@ import {
 	writeStudyBytes,
 } from './helpers.js'
 
-/** Retains immutable deterministic grading versions independently of execution bytes. */
+/**
+ * Retains immutable deterministic grading versions independently of execution bytes.
+ * @example
+ * ```ts
+ * declare const result: StudySealedResult
+ * declare const rubric: Uint8Array
+ * declare const assessment: StudyAssessment
+ * const versions = new StudyAssessmentStore({ result, rubric })
+ * const id = await versions.write(assessment)
+ * await versions.read(id) // the retained assessment
+ * ```
+ */
 export class StudyAssessmentStore {
 	readonly #directory: string
 	readonly #seal: string
 	readonly #rubric: StudyRubric
 	readonly #rubricBytes: Uint8Array
 	readonly #rubricDigest: string
-	readonly #labels: StudyLabels | undefined
+	readonly #labels: StudyLabelSheet | undefined
 	readonly #labelsBytes: Uint8Array | undefined
 	readonly #labelsDigest: string | undefined
 	readonly #packet: StudyPacketBundle | undefined
@@ -61,7 +72,7 @@ export class StudyAssessmentStore {
 		this.#labels =
 			this.#labelsBytes === undefined
 				? undefined
-				: parseStudyLabels(decodeStudyJSON(this.#labelsBytes))
+				: parseStudyLabelSheet(decodeStudyJSON(this.#labelsBytes))
 		if (
 			options.packet !== undefined &&
 			(options.packet.content.byteLength > STUDY_CUSTODY_BYTES ||
@@ -168,14 +179,14 @@ export class StudyAssessmentStore {
 		return assessment
 	}
 
-	async #retrieve(directory: string, digest: string): Promise<StudyLabels> {
+	async #retrieve(directory: string, digest: string): Promise<StudyLabelSheet> {
 		const bytes = await readStudyBytes(
 			join(directory, `${digest}.labels.json`),
 			STUDY_CUSTODY_BYTES,
 		)
 		if (hashStudyBytes(bytes) !== digest)
 			throw new StudyError('CUSTODY', 'Labels bytes differ from the grading identity')
-		return parseStudyLabels(decodeStudyJSON(bytes))
+		return parseStudyLabelSheet(decodeStudyJSON(bytes))
 	}
 
 	async #write(assessment: StudyAssessment, bytes: Uint8Array): Promise<string> {
@@ -236,7 +247,7 @@ export class StudyAssessmentStore {
 		assessment: StudyAssessment,
 		result: StudySealedResult,
 		rubric: StudyRubric,
-		labels: StudyLabels | undefined,
+		labels: StudyLabelSheet | undefined,
 		packet: StudyPacketBundle | undefined,
 	): void {
 		if (assessment.result !== result.seal.id)

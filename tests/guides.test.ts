@@ -306,7 +306,7 @@ await new GuideCommand({
 			core.translateStudyAgentStop({ layer: 'meter', id: 'meter', max: 2000, consumed: 2001 }),
 		).toMatchObject({
 			code: 'CAPACITY',
-			failure: { stop: { layer: 'meter', id: 'meter', max: 2000, consumed: 2001 } },
+			context: { stop: { layer: 'meter', id: 'meter', max: 2000, consumed: 2001 } },
 		})
 		expect(core.parseStudyMeasurement(2048)).toBe(2048)
 		expect(core.parseStudyMeasurement(NaN)).toBeUndefined()

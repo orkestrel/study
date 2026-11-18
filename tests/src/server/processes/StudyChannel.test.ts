@@ -76,7 +76,7 @@ describe('StudyChannel', () => {
 			)
 			expect(operations).toEqual([])
 			expect(channel.signal.reason).toMatchObject({
-				failure: {
+				context: {
 					cause: 'infrastructure',
 					message: 'Out-of-order or excessive study IPC request',
 				},
@@ -156,7 +156,7 @@ process.on('message', frame => {
 			)
 			for (const response of pending) void response.catch(() => undefined)
 			await expect(channel.request('goal', { index: STUDY_PENDING_LIMIT })).rejects.toMatchObject({
-				failure: { cause: 'infrastructure', message: 'Study IPC pending limit exceeded' },
+				context: { cause: 'infrastructure', message: 'Study IPC pending limit exceeded' },
 			})
 			expect(channel.signal.aborted).toBe(false)
 			// IPC sends preserve order; release follows the 64 accepted request frames.
@@ -201,7 +201,7 @@ process.on('message', frame => {
 				Array.from({ length: STUDY_PENDING_LIMIT }, (_, index) => index + 1),
 			)
 			expect(channel.signal.reason).toMatchObject({
-				failure: {
+				context: {
 					cause: 'infrastructure',
 					message: 'Out-of-order or excessive study IPC request',
 				},
@@ -302,7 +302,7 @@ process.on('message', frame => {
 			await waitForAbort(channel.signal)
 			expect(active.calls).toEqual(accepted)
 			expect(channel.signal.reason).toMatchObject({
-				failure: {
+				context: {
 					cause: 'infrastructure',
 					message: 'Out-of-order or excessive study IPC request',
 				},
@@ -311,7 +311,7 @@ process.on('message', frame => {
 				{
 					status: 'rejected',
 					reason: {
-						failure: {
+						context: {
 							cause: 'infrastructure',
 							message: 'Out-of-order or excessive study IPC request',
 						},

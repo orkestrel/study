@@ -2,7 +2,7 @@ import type {
 	StudyAttempt,
 	StudyEvidence,
 	StudyJudgment,
-	StudyLabels,
+	StudyLabelSheet,
 	StudyManifest,
 	StudyProgress,
 	StudyProgressUsage,
@@ -50,6 +50,11 @@ import {
  * @param expected - The recorded bytes.
  * @param actual - The executing bytes.
  * @returns The zero-based byte offset, or undefined when the bodies are equal.
+ * @example
+ * ```ts
+ * computeStudyExchangeOffset(Buffer.from('abc'), Buffer.from('abd')) // 2
+ * computeStudyExchangeOffset(Buffer.from('abc'), Buffer.from('abc')) // undefined
+ * ```
  */
 export function computeStudyExchangeOffset(
 	expected: Uint8Array,
@@ -63,6 +68,12 @@ export function computeStudyExchangeOffset(
  * @param history - The history already read by the strict sealed reader.
  * @param rows - Replay rows already read by the strict row reader.
  * @returns The first divergence, or undefined after equal complete requests.
+ * @example
+ * ```ts
+ * declare const history: StudyExchangeHistory
+ * declare const rows: readonly StudyExchangeRow[]
+ * scanStudyDivergence(history, rows)?.ordinal // the first changed request's ordinal, if any
+ * ```
  */
 export function scanStudyDivergence(
 	history: StudyExchangeHistory,
@@ -246,7 +257,7 @@ export function translateStudyPacketLabels(
 	result: StudySealedResult,
 	rubric: StudyRubric,
 	digest: string,
-	labels: StudyLabels,
+	labels: StudyLabelSheet,
 ): readonly StudyJudgment[] {
 	const packet = buildStudyPacket(result, rubric, digest)
 	if (packet === undefined || labels.packet !== hashStudyBytes(packet.content))
@@ -292,6 +303,15 @@ export async function checkStudyDirectory(directory: string): Promise<string> {
  * @param target - The buffer to fill from the start of the file
  * @param offset - The position in the file and the buffer to continue from; Default: 0
  * @returns The bytes read, as the whole buffer when the file filled it or as its leading part when the file ended first
+ * @example
+ * ```ts
+ * import { open } from 'node:fs/promises'
+ *
+ * declare const path: string
+ * const handle = await open(path, 'r')
+ * const head = await readStudyHandle(handle, Buffer.alloc(16)) // up to the file's first 16 bytes
+ * await handle.close()
+ * ```
  */
 export async function readStudyHandle(
 	handle: FileHandle,
@@ -426,6 +446,12 @@ export async function scanStudyExecution(
  * @param allowance - The series bytes that remain before this directory
  * @returns The admitted files in read order: this directory's files, then each admitted subdirectory's, last listed first
  * @throws StudyError - Thrown when the tree holds a link, an unknown directory or file, or a file beyond the remaining allowance
+ * @example
+ * ```ts
+ * declare const directory: string
+ * const files = await scanStudyTree(directory, '', new Set(['r1-s1-a1']), 1048576)
+ * files.map((file) => file.path) // each admitted file's custody path
+ * ```
  */
 export async function scanStudyTree(
 	directory: string,
@@ -1006,6 +1032,11 @@ export async function readStudyProgress(
  * @param declaration - The validated opening row.
  * @param execution - The retained execution attempt count, including the current attempt.
  * @returns Maintenance, preflight, optional declared model steps and offset postflight identities.
+ * @example
+ * ```ts
+ * declare const declaration: StudyExchangeDeclaration
+ * buildStudyExchangeSequence(declaration, 0)[0]?.stage // 'maintenance' when a daemon is owned, else 'preflight'
+ * ```
  */
 export function buildStudyExchangeSequence(
 	declaration: StudyExchangeDeclaration,
@@ -1064,6 +1095,11 @@ export function buildStudyExchangeSequence(
 /** Projects only the repeated identity fields of a retained HTTP exchange.
  * @param identity - The row whose body and lifecycle fields are omitted.
  * @returns The identity repeated by its attempt and terminal.
+ * @example
+ * ```ts
+ * declare const attempt: StudyExchangeAttempt
+ * projectStudyExchangeIdentity(attempt) // { ordinal, goal, role, path, method, stage, step? } without the body bytes
+ * ```
  */
 export function projectStudyExchangeIdentity(
 	identity: StudyExchangeIdentity,
@@ -1084,6 +1120,12 @@ export function projectStudyExchangeIdentity(
  * @param request - The admitted request to join.
  * @param execution - The retained execution attempt count.
  * @returns Nothing after identity, exact-body or capture-length validation.
+ * @example
+ * ```ts
+ * declare const declaration: StudyExchangeDeclaration
+ * declare const attempt: StudyExchangeAttempt
+ * validateStudyExchangeRequest(declaration, attempt, 0) // throws a CUSTODY StudyError when the attempt is out of sequence
+ * ```
  */
 export function validateStudyExchangeRequest(
 	declaration: StudyExchangeDeclaration,
@@ -1234,6 +1276,11 @@ export function advanceStudyExchangeProgress(
  * @param complete - If true, requires successful completion; if false, admits an unfinished prefix.
  * @returns The progress after the last row.
  * @throws StudyError - Thrown with `CUSTODY` when a row does not join its preceding attempt and declared sequence.
+ * @example
+ * ```ts
+ * declare const rows: readonly StudyExchangeRow[]
+ * validateStudyExchangeRows(rows, false).attempts // the attempts the prefix holds
+ * ```
  */
 export function validateStudyExchangeRows(
 	rows: readonly StudyExchangeRow[],
@@ -1255,6 +1302,11 @@ export function validateStudyExchangeRows(
  * @param bytes - The bounded retained sidecar bytes.
  * @param complete - If true, requires completion; if false, admits a verified unfinished prefix.
  * @returns Owned rows in physical order.
+ * @example
+ * ```ts
+ * declare const bytes: Uint8Array
+ * readStudyExchangeRows(bytes)[0]?.phase // 'declaration'
+ * ```
  */
 export function readStudyExchangeRows(
 	bytes: Uint8Array,
@@ -1286,6 +1338,12 @@ export function readStudyExchangeRows(
 /** Validates complete history envelopes again before a replay may perform dependent work.
  * @param history - The strict-reader result, treated as untrusted at this boundary.
  * @returns Nothing after complete row, file and declaration verification.
+ * @example
+ * ```ts
+ * declare const history: StudyExchangeHistory
+ * validateStudyExchangeHistory(history) // returns for a history the strict reader produced
+ * validateStudyExchangeHistory({ ...history, exchanges: [] }) // throws a CUSTODY StudyError
+ * ```
  */
 export function validateStudyExchangeHistory(history: StudyExchangeHistory): void {
 	if (
@@ -1312,6 +1370,12 @@ export function validateStudyExchangeHistory(history: StudyExchangeHistory): voi
  * @param rows - The complete successful sidecar rows.
  * @param evidence - The validated trial evidence rows.
  * @returns Nothing when all retained exchange identities have exact evidence counterparts.
+ * @example
+ * ```ts
+ * declare const rows: readonly StudyExchangeRow[]
+ * declare const evidence: readonly StudyEvidence[]
+ * validateStudyExchangeEvidence(rows, evidence) // throws a CUSTODY StudyError when an ordinal has no evidence row
+ * ```
  */
 export function validateStudyExchangeEvidence(
 	rows: readonly StudyExchangeRow[],
@@ -1346,6 +1410,13 @@ export function validateStudyExchangeEvidence(
  * @param trial - The exact scheduled trial id.
  * @param file - The inventory identity read for this sidecar.
  * @returns Complete rows after byte, declaration and evidence joins.
+ * @example
+ * ```ts
+ * declare const result: StudySealedResult
+ * declare const file: StudyFile
+ * const rows = await readStudyTrialExchanges(result.directory, result.manifest, 'r1-s1-a1', file)
+ * rows.at(-1)?.phase // 'complete'
+ * ```
  */
 export async function readStudyTrialExchanges(
 	directory: string,
@@ -1406,6 +1477,12 @@ export async function readStudyTrialExchanges(
  * @param result - The sealed execution selected for replay.
  * @param trial - The scheduled trial id.
  * @returns Complete ordered request and response pairs with their verified file and seal identities.
+ * @example
+ * ```ts
+ * declare const result: StudySealedResult
+ * const history = await readStudyExchanges(result, 'r1-s1-a1')
+ * history.seal === result.seal.id // true
+ * ```
  */
 export async function readStudyExchanges(
 	result: StudySealedResult,

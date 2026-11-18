@@ -3,7 +3,16 @@ import type { StudyControlInterface } from './types.js'
 import { Abort } from '@orkestrel/abort'
 import { failureToStudyError } from './helpers.js'
 
-/** Retains the first operational failure while bounding asynchronous waits. */
+/**
+ * Retains the first operational failure while bounding asynchronous waits.
+ * @example
+ * ```ts
+ * const control = new StudyControl()
+ * control.fail({ cause: 'capacity', message: 'Goal tokens', role: 'agent', stop: undefined })
+ * control.signal.aborted // true
+ * control.close()
+ * ```
+ */
 export class StudyControl implements StudyControlInterface {
 	#abort: Abort
 	#listeners = new Abort()

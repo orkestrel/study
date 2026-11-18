@@ -1,5 +1,3 @@
-import { retainStudyExchangeFixture } from '../../../setupServer.js'
-import { STUDY_ATTEMPT_PART, STUDY_CUSTODY_BYTES } from '../../../../src/server/stores/constants.js'
 import type { StudyProgressTarget } from '../../../../src/server/adapters/types.js'
 import type { Socket } from 'node:net'
 import { parseJSON } from '@orkestrel/contract'
@@ -20,13 +18,19 @@ import {
 	buildStudyHole,
 	buildStudyRubric,
 	buildStudySparse,
+	STUDY_EXCHANGE_MUTATIONS,
+	STUDY_OPEN_EXCHANGE_MUTATIONS,
 } from '../../../setupStudy.js'
 import {
 	STUDY_PROGRESS_SCALE,
 	buildCustodyPacketLabels,
 	buildOllamaDeclaration,
+	buildOpenStudyExchangeRows,
+	buildStudyExchangeRows,
 	buildStudyProgressManifest,
 	buildStudyProgressRows,
+	mutateStudyExchangeRows,
+	retainStudyExchangeFixture,
 	retainStudyFixture,
 	buildStudyExchangeHistory,
 	spawnStudyScript,
@@ -36,6 +40,8 @@ import {
 import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
 import { STUDY_FRAME_BYTES } from '../../../../src/server/processes/constants.js'
 import { valueToWire } from '../../../../src/server/processes/helpers.js'
+import { STUDY_ATTEMPT_PART, STUDY_CUSTODY_BYTES } from '../../../../src/server/stores/constants.js'
+import * as exchangeStores from '../../../../src/server/stores/index.js'
 import { StudyResultStore } from '../../../../src/server/stores/StudyResultStore.js'
 import { isStudyExchangeDeclaration } from '../../../../src/server/stores/validators.js'
 import {
@@ -63,6 +69,10 @@ import {
 	writeStudyBytes,
 	computeStudyExchangeOffset,
 	scanStudyDivergence,
+	buildStudyExchangeSequence,
+	validateStudyExchangeEvidence,
+	validateStudyExchangeHistory,
+	validateStudyExchangeRequest,
 } from '../../../../src/server/stores/helpers.js'
 
 describe('study custody helpers', () => {
@@ -1102,13 +1112,6 @@ describe('readStudyProgress', () => {
 		}
 	})
 })
-import * as exchangeStores from '../../../../src/server/stores/index.js'
-import {
-	buildStudyExchangeRows,
-	buildOpenStudyExchangeRows,
-	mutateStudyExchangeRows,
-} from '../../../setupServer.js'
-import { STUDY_EXCHANGE_MUTATIONS, STUDY_OPEN_EXCHANGE_MUTATIONS } from '../../../setupStudy.js'
 describe('strict exchange rows', () => {
 	it('O5 reads the independent complete open journal control', () => {
 		const rows = buildOpenStudyExchangeRows()
@@ -1140,6 +1143,123 @@ describe('strict exchange rows', () => {
 				mutateStudyExchangeRows(buildStudyExchangeRows(), mutation),
 			),
 		).toThrow(/\S/)
+	})
+})
+
+describe('buildStudyExchangeSequence', () => {
+	it('places preflight, the declared steps, and postflight after the retained execution count', () => {
+		const [declaration] = buildStudyExchangeRows()
+		if (declaration?.phase !== 'declaration') throw new Error('Fixture opens without a declaration')
+		expect(
+			buildStudyExchangeSequence(declaration, 1).map(({ ordinal, goal, stage, path, method }) => [
+				ordinal,
+				goal,
+				stage,
+				path,
+				method,
+			]),
+		).toEqual([
+			[1, 'write', 'preflight', '/api/version', 'GET'],
+			[2, 'write', 'preflight', '/api/tags', 'GET'],
+			[3, 'write', 'preflight', '/api/show', 'POST'],
+			[4, 'write', 'execution', '/api/chat', 'POST'],
+			[5, 'read', 'postflight', '/api/version', 'GET'],
+			[6, 'read', 'postflight', '/api/tags', 'GET'],
+			[7, 'read', 'postflight', '/api/show', 'POST'],
+		])
+		expect(buildStudyExchangeSequence(declaration, 3).at(-1)?.ordinal).toBe(9)
+	})
+
+	it('opens with one maintenance exchange per declared model and refuses an invalid count or horizon', () => {
+		const [declaration] = buildStudyExchangeRows()
+		if (declaration?.phase !== 'declaration') throw new Error('Fixture opens without a declaration')
+		const pin = { name: 'model', digest: 'a'.repeat(64) }
+		const owned = { ...declaration, maintenance: [pin, pin] }
+		expect(
+			buildStudyExchangeSequence(owned, 1)
+				.slice(0, 3)
+				.map(({ ordinal, stage, path }) => [ordinal, stage, path]),
+		).toEqual([
+			[1, 'maintenance', '/api/generate'],
+			[2, 'maintenance', '/api/generate'],
+			[3, 'preflight', '/api/version'],
+		])
+		expect(() => buildStudyExchangeSequence(declaration, -1)).toThrow(
+			'Invalid execution exchange count',
+		)
+		expect(() => buildStudyExchangeSequence({ ...declaration, goals: [] }, 0)).toThrow(
+			'Exchange procedure is empty',
+		)
+	})
+})
+
+describe('validateStudyExchangeRequest', () => {
+	it('admits each recorded attempt at its declared position and refuses a moved or changed one', () => {
+		const rows = buildStudyExchangeRows()
+		const [declaration] = rows
+		if (declaration?.phase !== 'declaration') throw new Error('Fixture opens without a declaration')
+		const attempts = rows.filter((row) => row.phase === 'attempt')
+		for (const attempt of attempts)
+			expect(() =>
+				validateStudyExchangeRequest(declaration, attempt, attempt.stage === 'preflight' ? 0 : 1),
+			).not.toThrow()
+		const step = requireValue(attempts.find((attempt) => attempt.stage === 'execution'))
+		expect(() =>
+			validateStudyExchangeRequest(declaration, { ...step, ordinal: step.ordinal + 1 }, 1),
+		).toThrow('Exchange differs from its declared order')
+		expect(() =>
+			validateStudyExchangeRequest(
+				declaration,
+				{ ...step, body: Buffer.from('{"model":"other"}').toString('base64') },
+				1,
+			),
+		).toThrow(expect.objectContaining({ code: 'CUSTODY' }))
+	})
+})
+
+describe('validateStudyExchangeHistory', () => {
+	it('admits the independent fixture history and refuses changed file identities', () => {
+		const history = buildStudyExchangeHistory()
+		expect(() => validateStudyExchangeHistory(history)).not.toThrow()
+		expect(() =>
+			validateStudyExchangeHistory({
+				...history,
+				file: { ...history.file, digest: 'f'.repeat(64) },
+			}),
+		).toThrow('Replay history differs from its retained file identity')
+		expect(() =>
+			validateStudyExchangeHistory({
+				...history,
+				file: { ...history.file, path: 'trials/r2-first-small/exchanges.jsonl' },
+			}),
+		).toThrow('Replay requires a verified sealed exchange history')
+		expect(() =>
+			validateStudyExchangeHistory({ ...history, exchanges: history.exchanges.slice(1) }),
+		).toThrow(expect.objectContaining({ code: 'CUSTODY' }))
+	})
+})
+
+describe('validateStudyExchangeEvidence', () => {
+	it('joins each attempt to exactly one dispatch and one wire row and refuses a missing join', () => {
+		const rows = buildStudyExchangeRows()
+		const attempts = rows.filter((row) => row.phase === 'attempt')
+		const evidence = ['dispatch', 'wire'].flatMap((event) =>
+			attempts.map((attempt) => ({
+				event,
+				goal: attempt.goal,
+				value: { ordinal: attempt.ordinal, role: attempt.role, path: attempt.path },
+			})),
+		)
+		expect(() => validateStudyExchangeEvidence(rows, evidence)).not.toThrow()
+		expect(() => validateStudyExchangeEvidence(rows, evidence.slice(0, -1))).toThrow(
+			'Exchange sidecar and evidence ordinals do not join exactly',
+		)
+		expect(() =>
+			validateStudyExchangeEvidence(
+				rows,
+				evidence.map((row, index) => (index === 0 ? { ...row, goal: 'read' } : row)),
+			),
+		).toThrow('Exchange sidecar and evidence ordinals do not join exactly')
 	})
 })
 
