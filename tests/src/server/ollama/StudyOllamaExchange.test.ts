@@ -80,12 +80,12 @@ describe('StudyOllamaExchange', () => {
 		const fixture = await createOllamaExchange()
 		try {
 			expect(fixture.exchange.terminal).toBeUndefined()
-			expect(fixture.exchange.timing).toBeUndefined()
+			expect(fixture.exchange.telemetry).toBeUndefined()
 			expect(fixture.exchange.settled).toBe(false)
 			const terminal = { prompt: 3, completion: 4, reason: 'stop' }
 			fixture.exchange.observe(terminal, undefined)
 			expect(fixture.exchange.terminal).toBe(terminal)
-			expect(fixture.exchange.timing).toBeUndefined()
+			expect(fixture.exchange.telemetry).toBeUndefined()
 			fixture.exchange.settle()
 			expect(fixture.exchange.settled).toBe(true)
 		} finally {

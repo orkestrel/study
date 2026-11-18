@@ -40,9 +40,12 @@ import {
 	holds,
 	canonicalStringify,
 	isArray,
+	isBoolean,
 	isJSONValue,
 	isNonEmptyString,
+	isNumber,
 	isRecord,
+	isString,
 } from '@orkestrel/contract'
 import { STUDY_RESERVED_NAME } from './constants.js'
 import { hashStudyBytes } from '../helpers.js'
@@ -135,7 +138,7 @@ export function isStudyExchangeAncestor(value: unknown): value is StudyExchangeA
 			isStudyAncestor({ result: value.result, seal: value.seal, identity: value.identity }) &&
 			isStudyCustodyFile(value.file) &&
 			Number.isSafeInteger(value.prefix) &&
-			typeof value.prefix === 'number' &&
+			isNumber(value.prefix) &&
 			value.prefix > 0,
 	)
 }
@@ -155,7 +158,7 @@ export function isStudyKeyedSource(value: unknown): value is StudyKeyedSource {
 			isRecord(value) &&
 			matchesStudyKeys(value, ['result', 'seal', 'identity', 'roles', 'offline']) &&
 			isStudyAncestor({ result: value.result, seal: value.seal, identity: value.identity }) &&
-			typeof value.offline === 'boolean' &&
+			isBoolean(value.offline) &&
 			matchesStudyKeyedRoles(value.roles, value.offline),
 	)
 }
@@ -197,7 +200,7 @@ export function isStudyCustodyManifest(value: unknown): value is StudyManifest {
 			(value.identity.provider !== undefined && !isStudyDigest(value.identity.provider)) ||
 			(value.qualification !== undefined && !isStudyDigest(value.qualification)) ||
 			!isRecord(value.host) ||
-			!Object.values(value.host).every((entry) => typeof entry === 'string') ||
+			!Object.values(value.host).every((entry) => isString(entry)) ||
 			!isArray(value.schedule)
 		)
 			return false
@@ -247,7 +250,7 @@ export function isStudyCustodyTrial(value: unknown): value is StudyTrial {
 			isStudyCustodyName(value.id) &&
 			isStudyName(value.scenario) &&
 			isStudyName(value.arm) &&
-			typeof value.repetition === 'number' &&
+			isNumber(value.repetition) &&
 			Number.isSafeInteger(value.repetition) &&
 			value.repetition >= 0
 		)
@@ -318,11 +321,11 @@ export function isStudyCustodyObservation(value: unknown): value is StudyObserva
 			!isStudyName(value.goal) ||
 			!isArray(value.usage) ||
 			!value.usage.every(isStudyUsage) ||
-			typeof value.duration !== 'number' ||
+			!isNumber(value.duration) ||
 			!Number.isSafeInteger(value.duration) ||
 			value.duration < 0 ||
 			(value.failure !== undefined && !isStudyCustodyFailure(value.failure)) ||
-			typeof value.executed !== 'boolean' ||
+			!isBoolean(value.executed) ||
 			(value.executed === false &&
 				(value.product !== undefined ||
 					value.failure === undefined ||
@@ -335,7 +338,7 @@ export function isStudyCustodyObservation(value: unknown): value is StudyObserva
 			isRecord(value.product) &&
 			matchesStudyKeys(value.product, ['value', 'partial']) &&
 			isJSONValue(value.product.value) &&
-			typeof value.product.partial === 'boolean'
+			isBoolean(value.product.partial)
 		)
 	})
 }
@@ -365,7 +368,7 @@ export function isStudyCustodyAttempt(
 			!isStudyCustodyTrial(value.trial) ||
 			!isArray(value.observations) ||
 			!value.observations.every(isStudyCustodyObservation) ||
-			typeof value.duration !== 'number' ||
+			!isNumber(value.duration) ||
 			!Number.isSafeInteger(value.duration) ||
 			value.duration < 0 ||
 			(value.failure !== undefined && !isStudyCustodyFailure(value.failure))
@@ -385,7 +388,7 @@ export function isStudyCustodyAttempt(
 		)
 			return false
 		const executed = value.executed
-		if (typeof executed !== 'boolean') return false
+		if (!isBoolean(executed)) return false
 		// A terminal record without a failure holds only executed goals that did not fail.
 		if (
 			value.failure === undefined &&
@@ -419,13 +422,13 @@ export function isStudyCustodyFile(value: unknown): value is StudyFile {
 		return (
 			isRecord(value) &&
 			matchesStudyKeys(value, ['path', 'bytes', 'digest']) &&
-			typeof value.path === 'string' &&
+			isString(value.path) &&
 			(value.path === 'manifest.json' ||
 				/^trials\/[a-z0-9]+(?:-[a-z0-9]+)*\/(?:evidence.jsonl|attempt.json|exchanges.jsonl)$/.test(
 					value.path,
 				)) &&
 			value.path.split('/').every((name) => !STUDY_RESERVED_NAME.test(name)) &&
-			typeof value.bytes === 'number' &&
+			isNumber(value.bytes) &&
 			Number.isSafeInteger(value.bytes) &&
 			value.bytes >= 0 &&
 			isStudyDigest(value.digest)
@@ -469,8 +472,8 @@ export function isStudyExchangeBytes(value: unknown): value is StudyExchangeByte
 	return holds(() => {
 		if (
 			!isRecord(value) ||
-			typeof value.body !== 'string' ||
-			typeof value.size !== 'number' ||
+			!isString(value.body) ||
+			!isNumber(value.size) ||
 			!Number.isSafeInteger(value.size) ||
 			value.size < 0 ||
 			!isStudyDigest(value.digest)
@@ -497,7 +500,7 @@ export function isStudyExchangeIdentity(value: unknown): value is StudyExchangeI
 	return holds(() => {
 		if (
 			!isRecord(value) ||
-			typeof value.ordinal !== 'number' ||
+			!isNumber(value.ordinal) ||
 			!Number.isSafeInteger(value.ordinal) ||
 			value.ordinal <= 0 ||
 			!isStudyName(value.goal) ||
@@ -515,7 +518,7 @@ export function isStudyExchangeIdentity(value: unknown): value is StudyExchangeI
 						: value.role === 'judge'
 							? '/api/generate'
 							: '/api/chat') &&
-				typeof value.step === 'number' &&
+				isNumber(value.step) &&
 				Number.isSafeInteger(value.step) &&
 				value.step > 0
 			)
@@ -548,7 +551,7 @@ export function isStudyExchangeReply(value: unknown): value is StudyExchangeRepl
 			isRecord(value) &&
 			isStudyExchangeBytes(value) &&
 			'status' in value &&
-			typeof value.status === 'number' &&
+			isNumber(value.status) &&
 			Number.isSafeInteger(value.status) &&
 			value.status >= 200 &&
 			value.status <= 599 &&
@@ -559,18 +562,14 @@ export function isStudyExchangeReply(value: unknown): value is StudyExchangeRepl
 					isArray(header) &&
 					header.length === 2 &&
 					(header[0] === 'content-type' || header[0] === 'content-encoding') &&
-					typeof header[1] === 'string' &&
+					isString(header[1]) &&
 					!/[\r\n]/.test(header[1]),
 			) &&
 			'chunks' in value &&
 			isArray(value.chunks) &&
-			value.chunks.every(
-				(size) => typeof size === 'number' && Number.isSafeInteger(size) && size > 0,
-			) &&
-			value.chunks.reduce<number>(
-				(total, size) => total + (typeof size === 'number' ? size : 0),
-				0,
-			) === value.size,
+			value.chunks.every((size) => isNumber(size) && Number.isSafeInteger(size) && size > 0) &&
+			value.chunks.reduce<number>((total, size) => total + (isNumber(size) ? size : 0), 0) ===
+				value.size,
 	)
 }
 
@@ -651,7 +650,7 @@ export function isStudyExchangeRow(value: unknown): value is StudyExchangeRow {
 		if (value.phase === 'complete')
 			return (
 				matchesStudyKeys(value, ['phase', 'count']) &&
-				typeof value.count === 'number' &&
+				isNumber(value.count) &&
 				Number.isSafeInteger(value.count) &&
 				value.count > 0
 			)
@@ -675,7 +674,7 @@ export function isStudyExchangeRow(value: unknown): value is StudyExchangeRow {
 		return (
 			value.phase === 'failure' &&
 			matchesStudyKeys(value, [...identity, 'reason'], ['step', 'response']) &&
-			typeof value.reason === 'string' &&
+			isString(value.reason) &&
 			(value.response === undefined || isStudyExchangeReply(value.response))
 		)
 	})

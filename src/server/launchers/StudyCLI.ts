@@ -1,6 +1,6 @@
-import type { StudyLaunchOptions } from './types.js'
+import type { StudyCommandOptions } from '../commands/types.js'
 import { StudyError } from '@src/core'
-import { isRecord } from '@orkestrel/contract'
+import { isRecord, isString } from '@orkestrel/contract'
 import { StudyCommand } from '../commands/StudyCommand.js'
 import { STUDY_COMMAND_HELP } from '../commands/constants.js'
 import {
@@ -23,11 +23,11 @@ import { StudyLauncher } from './StudyLauncher.js'
  * ```
  */
 export class StudyCLI {
-	#options: StudyLaunchOptions
+	#options: StudyCommandOptions
 	/** Owns the installed executable path and consumer working directory.
 	 * @param options - Exact runtime entry and consumer root, snapshotted at construction.
 	 */
-	constructor(options: StudyLaunchOptions) {
+	constructor(options: StudyCommandOptions) {
 		this.#options = { ...options }
 	}
 	/** Executes one route with truthful public exit semantics.
@@ -90,9 +90,7 @@ export class StudyCLI {
 			}
 		} catch (error) {
 			const code =
-				error instanceof Error && 'code' in error && typeof error.code === 'string'
-					? error.code
-					: 'FAULT'
+				error instanceof Error && 'code' in error && isString(error.code) ? error.code : 'FAULT'
 			process.stderr.write(
 				`study: ${code}: ${error instanceof Error ? error.message : String(error)}\n`,
 			)

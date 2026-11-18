@@ -1,22 +1,37 @@
-import { ArtifactError } from '../src/server/artifacts/errors.js'
-import type { StudyChannelOptions } from '../src/server/processes/types.js'
-import type { AgentResult } from '@orkestrel/agent'
+import type { AgentResult, ProviderInterface } from '@orkestrel/agent'
+import type { BudgetError, BudgetErrorContext } from '@orkestrel/budget'
+import type { JSONValue } from '@orkestrel/contract'
+import type { OllamaFixtureInterface } from '@orkestrel/ollama/server'
 import type { RecorderInterface } from '@orkestrel/test'
-import type { StudySinkInterface } from '../src/core/types.js'
+import type { ScratchInterface } from '@orkestrel/test/server'
+import type { ChildProcess } from 'node:child_process'
+import type { FileHandle } from 'node:fs/promises'
+import type {
+	StudyAssessment,
+	StudyAttempt,
+	StudyCause,
+	StudyContext,
+	StudyCriterion,
+	StudyEvidence,
+	StudyLabelSheet,
+	StudyManifest,
+	StudyObservation,
+	StudyProfile,
+	StudyRecord,
+	StudyRole,
+	StudyRubric,
+	StudySinkInterface,
+	StudyUsage,
+} from '../src/core/types.js'
+import type { StudyAgentDispatch } from '../src/core/agents/types.js'
+import type { StudyAdjudication, StudyGradeFunction } from '../src/server/adapters/types.js'
 import type { StudyAgentPlan } from '../src/server/agents/types.js'
 import type { StudyAgentTrace } from '../src/server/agents/StudyAgentTrace.js'
-import type { StudyProfile } from '../src/core/types.js'
-import type { StudyCause, StudyContext, StudyUsage } from '../src/core/types.js'
-import type { StudyOllamaMetadata, StudyOllamaPolicy } from '../src/server/ollama/types.js'
-import type { FileHandle } from 'node:fs/promises'
-import type { StudyMeterFixture } from './setup.js'
-import type { StudyResultStoreInterface } from '../src/server/stores/types.js'
-import type { BudgetError, BudgetErrorContext } from '@orkestrel/budget'
-import type { DistributionObservation, DistributionStage } from './setupDistribution.js'
-import type { StudyInstallResult, StudyLaunchOptions } from '../src/server/launchers/types.js'
-import type { ScratchInterface } from '@orkestrel/test/server'
 import type { ArtifactLoaderOptions } from '../src/server/artifacts/types.js'
-import type { ChildProcess } from 'node:child_process'
+import type {
+	StudyCommandOptions,
+	StudyDaemonSessionOptions,
+} from '../src/server/commands/types.js'
 import type {
 	StudyLabelAnswer,
 	StudyLabelControl,
@@ -25,45 +40,67 @@ import type {
 	StudyLabelSegment,
 	StudyLabelSource,
 } from '../src/server/labels/types.js'
-
+import type { StudyInstallResult } from '../src/server/launchers/types.js'
 import type {
-	StudyAttempt,
-	StudyCriterion,
-	StudyEvidence,
-	StudyAssessment,
-	StudyLabelSheet,
-	StudyManifest,
-	StudyObservation,
-	StudyRole,
-	StudyRubric,
-	StudyRecord,
-} from '../src/core/types.js'
-import type { StudyAdjudication, StudyGradeFunction } from '../src/server/adapters/types.js'
-import type {
-	StudyExchangeDeclaration,
-	StudyExchangeHistory,
-	StudyExchangeIdentity,
-	StudySealedResult,
-} from '../src/server/stores/types.js'
-
-import type {
-	StudyProcessSessionOptions,
-	StudyTaskOptions,
-	StudyTaskRequest,
-} from '../src/server/processes/types.js'
-import type { StudyDaemonSessionOptions } from '../src/server/commands/types.js'
-
-import type { ProviderInterface } from '@orkestrel/agent'
-import type { StudyAgentDispatch } from '../src/core/agents/types.js'
-import type {
+	StudyOllamaMetadata,
+	StudyOllamaPolicy,
 	StudyOllamaRole,
 	StudyOllamaStep,
 	StudyOllamaTransportOptions,
 } from '../src/server/ollama/types.js'
-import type { StudyExchangeRow, StudyExchangeSinkInterface } from '../src/server/stores/types.js'
-import type { JSONValue } from '@orkestrel/contract'
-import type { OllamaReplyFixture } from './setup.js'
-
+import type {
+	StudyChannelOptions,
+	StudyProcessSessionOptions,
+	StudyTaskOptions,
+	StudyTaskRequest,
+} from '../src/server/processes/types.js'
+import type {
+	StudyExchangeDeclaration,
+	StudyExchangeHistory,
+	StudyExchangeIdentity,
+	StudyExchangeRow,
+	StudyExchangeSinkInterface,
+	StudyResultStoreInterface,
+	StudySealedResult,
+} from '../src/server/stores/types.js'
+import type { OllamaReplyFixture, StudyMeterFixture } from './setup.js'
+import type { DistributionObservation, DistributionStage } from './setupDistribution.js'
+import { BudgetError as LocalBudgetError, isBudgetError } from '@orkestrel/budget'
+import { isArray, isInteger, isObject, isRecord, parseJSON } from '@orkestrel/contract'
+import { createMCPLegacy, createMCPServer } from '@orkestrel/mcp'
+import { createMCPRoutes } from '@orkestrel/mcp/server'
+import { createOllama, extractTiming } from '@orkestrel/ollama'
+import { createOllamaFixture } from '@orkestrel/ollama/server'
+import { createDispatcher } from '@orkestrel/router'
+import { createServer as createHost } from '@orkestrel/server'
+import { createTool, createToolManager } from '@orkestrel/tool'
+import { createServer } from 'node:http'
+import { createServer as createPortServer } from 'node:net'
+import { ArtifactError } from '../src/server/artifacts/errors.js'
+import { StudyOllamaExchange } from '../src/server/ollama/StudyOllamaExchange.js'
+import { StudyOllamaTransport } from '../src/server/ollama/StudyOllamaTransport.js'
+import { buildStudyOllamaBytes } from '../src/server/ollama/helpers.js'
+import {
+	buildCompactCustodyManifest,
+	buildCustodyAttempt,
+	buildCustodyManifest,
+	buildStudyRubric,
+	buildStudyDefinition,
+	buildStudyProfile,
+	buildStudyDaemonProvider,
+	buildStudyScenario,
+	buildOllamaCall,
+	buildOllamaRow,
+	buildOllamaStream,
+	createOllamaReply,
+	createStudyMeterFixture,
+	OllamaReplyQueue,
+	StudyLog,
+	STUDY_OLLAMA_FIXTURE,
+	STUDY_JUDGE_OPTIONS,
+	STUDY_OLLAMA_OPTIONS,
+	STUDY_OLLAMA_PARTIAL_ROW,
+} from './setupStudy.js'
 import {
 	DISTRIBUTION_FORMATS,
 	DISTRIBUTION_RESOLUTIONS,
@@ -76,7 +113,6 @@ import {
 	writeDistributionFile,
 	writeDistributionProject,
 } from './setupDistribution.js'
-import { isArray, isInteger, isRecord, parseJSON } from '@orkestrel/contract'
 import { createScratch, isRunning, readInventory } from '@orkestrel/test/server'
 import { createTeardown, requireValue, waitForCondition, waitForEvent } from '@orkestrel/test'
 import { fork, spawn } from 'node:child_process'
@@ -363,16 +399,16 @@ export async function createStudyContinuationFixture(
 		const history = await readStudyExchanges(result, requireValue(result.manifest.schedule[0]).id)
 		scratch.write('studies/files/scenarios/first.json', scenario)
 		scratch.write('studies/assessment/rubric.json', rubric)
-		const executing = {
+		const variant = {
 			...profile,
 			record: { bytes: 131072, calls: 4, duration: 30000 },
 			bounds: { ...profile.bounds, series: { ...profile.bounds.series, duration: 120000 } },
 		}
-		scratch.write('studies/files/profiles/local.json', JSON.stringify(executing))
+		scratch.write('studies/files/profiles/local.json', JSON.stringify(variant))
 		return {
 			...fixture,
 			url: server?.url ?? fixture.url,
-			profile: executing,
+			profile: variant,
 			server,
 			entry,
 			command,
@@ -618,42 +654,6 @@ export const STUDY_REPLAY_DIVERGENCE_CASES = Object.freeze([
 	'extra',
 	'early',
 ] as const)
-import { BudgetError as LocalBudgetError, isBudgetError } from '@orkestrel/budget'
-import { isObject } from '@orkestrel/contract'
-import { createOllama, extractTiming } from '@orkestrel/ollama'
-import { createOllamaFixture } from '@orkestrel/ollama/server'
-import type { OllamaFixtureInterface } from '@orkestrel/ollama/server'
-import { createMCPLegacy, createMCPServer } from '@orkestrel/mcp'
-import { createMCPRoutes } from '@orkestrel/mcp/server'
-import { createDispatcher } from '@orkestrel/router'
-import { createServer as createHost } from '@orkestrel/server'
-import { createTool, createToolManager } from '@orkestrel/tool'
-import { StudyOllamaExchange } from '../src/server/ollama/StudyOllamaExchange.js'
-import { StudyOllamaTransport } from '../src/server/ollama/StudyOllamaTransport.js'
-import { buildStudyOllamaBytes } from '../src/server/ollama/helpers.js'
-import { createServer } from 'node:http'
-import { createServer as createPortServer } from 'node:net'
-import {
-	buildCompactCustodyManifest,
-	buildCustodyAttempt,
-	buildCustodyManifest,
-	buildStudyRubric,
-	buildStudyDefinition,
-	buildStudyProfile,
-	buildStudyDaemonProvider,
-	buildStudyScenario,
-	buildOllamaCall,
-	buildOllamaRow,
-	buildOllamaStream,
-	createOllamaReply,
-	createStudyMeterFixture,
-	OllamaReplyQueue,
-	StudyLog,
-	STUDY_OLLAMA_FIXTURE,
-	STUDY_JUDGE_OPTIONS,
-	STUDY_OLLAMA_OPTIONS,
-	STUDY_OLLAMA_PARTIAL_ROW,
-} from './setupStudy.js'
 
 /** Names the version the recorded exchange journal's `/api/version` replies report. */
 export const STUDY_OLLAMA_VERSION = '0.40.3'
@@ -815,42 +815,42 @@ export function buildStudyExchangeRows(
  * @param trial - The trial identity.
  * @param record - The sidecar bounds.
  * @param count - The execution population; Default: 3.
- * @param padding - Request and reply padding bytes; Default: 0.
+ * @param filler - Request and reply filler bytes; Default: 0.
  * @returns A complete open journal over the fixture's protocol bytes.
  */
 export function buildOpenStudyExchangeRows(
 	trial = 'r1-first-small',
 	record: StudyRecord = { bytes: 32768, calls: 256, duration: 15000 },
 	count = 3,
-	padding = 0,
+	filler = 0,
 ): readonly StudyExchangeRow[] {
 	const rows = buildStudyExchangeRows(trial, false, record)
-	const opening = rows[0]
+	const head = rows[0]
 	const request = rows.find((row) => row.phase === 'attempt' && row.stage === 'execution')
 	const response = rows.find((row) => row.phase === 'response' && row.stage === 'execution')
 	if (
-		opening?.phase !== 'declaration' ||
+		head?.phase !== 'declaration' ||
 		request?.phase !== 'attempt' ||
 		response?.phase !== 'response'
 	)
 		throw new Error('Missing independent row fixture')
-	const { procedure: _procedure, ...declaration } = opening
+	const { procedure: _procedure, ...declaration } = head
 	const body =
-		padding === 0
+		filler === 0
 			? Buffer.from(request.body, 'base64')
 			: Buffer.from(
 					JSON.stringify({
 						model: 'model',
-						prompt: 'x'.repeat(padding),
+						prompt: 'x'.repeat(filler),
 						options: { num_ctx: 32, num_predict: 8 },
 						stream: true,
 						think: false,
 					}),
 				)
 	const reply =
-		padding === 0
+		filler === 0
 			? Buffer.from(response.body, 'base64')
-			: Buffer.from(buildOllamaRow({ content: 'x'.repeat(padding * 3) }))
+			: Buffer.from(buildOllamaRow({ content: 'x'.repeat(filler * 3) }))
 	return [
 		declaration,
 		...rows.filter(
@@ -1269,7 +1269,7 @@ export function createStudyAdapter() { return {
  validate() { appendFileSync(${JSON.stringify(join(scratch.path, 'validations.log'))}, String(process.pid) + '\\n') },
  driver({ subject, provider, profile, exchanges, replay }) { return { async open(trial, signal) {
   appendFileSync(${JSON.stringify(join(scratch.path, 'workers.log'))}, String(process.pid) + '\\n')
-  const transport = new subject.StudyOllamaTransport({ url: profile.provider.url, room: profile.room, limit: profile.bounds.request, models: { model: { name: profile.provider.model, digest: profile.provider.digest.model }, ...(profile.provider.judge === undefined ? {} : { judge: { name: profile.provider.judge, digest: profile.provider.digest.judge } }), ...(profile.provider.triage === undefined ? {} : { triage: { name: profile.provider.triage, digest: profile.provider.digest.triage } }) }, roles: profile.settings.roles ?? { agent: profile.settings.procedure[0].policy }, metadata: profile.settings.metadata, exchanges, signal, observe: false, timing: provider.extractTiming, ...(replay === undefined ? {} : { replay }) })
+  const transport = new subject.StudyOllamaTransport({ url: profile.provider.url, room: profile.room, limit: profile.bounds.request, models: { model: { name: profile.provider.model, digest: profile.provider.digest.model }, ...(profile.provider.judge === undefined ? {} : { judge: { name: profile.provider.judge, digest: profile.provider.digest.judge } }), ...(profile.provider.triage === undefined ? {} : { triage: { name: profile.provider.triage, digest: profile.provider.digest.triage } }) }, roles: profile.settings.roles ?? { agent: profile.settings.procedure[0].policy }, metadata: profile.settings.metadata, exchanges, signal, observe: false, extract: provider.extractTiming, ...(replay === undefined ? {} : { replay }) })
   return {
    async execute(goal, context) {
     transport.prepare({ goal: goal.id, context })
@@ -1544,12 +1544,12 @@ export function buildStudyRecordedSessionOptions(
 	signal: AbortSignal,
 ): StudyProcessSessionOptions {
 	const options = buildStudySessionOptions(scratch, entry, signal)
-	const opening = buildOllamaDeclaration()
+	const declaration = buildOllamaDeclaration()
 	const profile = {
 		...options.profile,
 		provider: buildStudyDaemonProvider(),
-		record: opening.record,
-		settings: { metadata: { ...opening.metadata } },
+		record: declaration.record,
+		settings: { metadata: { ...declaration.metadata } },
 	}
 	return {
 		...options,
@@ -1895,6 +1895,31 @@ export const STUDY_TASK_STOPS = ['deadline', 'abort'] as const
 /** Names the scratch file where a task adapter records its pid. */
 export const STUDY_TASK_PID = 'task-pid.txt'
 
+/** Supplies a real consumer adapter module that accepts every declaration and projects each target's trial, goal, and row count. */
+export const STUDY_TASK_WORKER_ADAPTER = `export function createStudyAdapter() {
+	return {
+		validate() {},
+		driver() {
+			throw new Error('The task worker never opens a driver')
+		},
+		grade() {
+			return []
+		},
+		progress(target) {
+			return { trial: target.trial.id, goal: target.goal, rows: target.evidence.length }
+		},
+	}
+}
+`
+
+/** Supplies the scheduled trial a task worker progress target names. */
+export const STUDY_TASK_WORKER_TRIAL = Object.freeze({
+	id: 'r1-first-small',
+	scenario: 'first',
+	arm: 'small',
+	repetition: 0,
+})
+
 /** Writes a finite adapter that records its pid on its first request and answers by mode.
  * @param scratch - The owned temporary resource holding the adapter and its pid record.
  * @param mode - How the adapter answers; a held adapter never answers.
@@ -2203,9 +2228,9 @@ export async function retainStudyFixture(
 		await results.finish(buildCustodyAttempt(manifest, trial))
 	}
 	await results.seal()
-	const reading = await readStudyResult(directory)
-	if (reading.status !== 'sealed') throw new Error('Fixture execution did not seal')
-	return reading
+	const result = await readStudyResult(directory)
+	if (result.status !== 'sealed') throw new Error('Fixture execution did not seal')
+	return result
 }
 
 /**
@@ -2895,7 +2920,7 @@ export class StudyInstallRecorder extends StudyInstall {
 	readonly #calls: RecorderInterface<readonly [readonly string[], number | undefined]>
 
 	constructor(
-		options: StudyLaunchOptions,
+		options: StudyCommandOptions,
 		calls: RecorderInterface<readonly [readonly string[], number | undefined]>,
 	) {
 		super(options)
@@ -2944,7 +2969,7 @@ export function buildOllamaTransportOptions(
 		},
 		signal: new AbortController().signal,
 		observe: false,
-		timing: extractTiming,
+		extract: extractTiming,
 		...change,
 	}
 }
@@ -3145,9 +3170,9 @@ export async function createOpenOllamaRecordingFixture(
 	change: Partial<StudyOllamaTransportOptions> = {},
 	declaration: Partial<StudyExchangeDeclaration> = {},
 ): Promise<OllamaRecordingFixture> {
-	const { procedure: _procedure, ...opening } = buildOllamaDeclaration()
+	const { procedure: _procedure, ...base } = buildOllamaDeclaration()
 	const sink = new OllamaExchangeRecorder({
-		...opening,
+		...base,
 		...(change.metadata === undefined ? {} : { metadata: change.metadata }),
 		...(change.models === undefined ? {} : { models: change.models }),
 		...declaration,
@@ -3648,15 +3673,15 @@ export function sumStudyCalls(observation: StudyObservation, role: StudyRole): n
  */
 export function collectStudyRoots(names: readonly string[]): readonly string[] {
 	const roots = new Set<string>()
-	const pending = names.map((name) => resolveStudyPackage(resolve('.'), name))
-	while (pending.length > 0) {
-		const root = pending.pop()
+	const stack = names.map((name) => resolveStudyPackage(resolve('.'), name))
+	while (stack.length > 0) {
+		const root = stack.pop()
 		if (root === undefined || roots.has(root)) continue
 		roots.add(root)
 		const manifest = parseJSON(readFileSync(join(root, 'package.json'), 'utf8'))
 		if (!isRecord(manifest) || !isRecord(manifest.dependencies)) continue
 		for (const dependency of Object.keys(manifest.dependencies))
-			pending.push(resolveStudyPackage(root, dependency))
+			stack.push(resolveStudyPackage(root, dependency))
 	}
 	return [...roots]
 }
@@ -4596,14 +4621,26 @@ export const STUDY_PROGRESS_SCALE = Object.freeze({
 export function buildStudyProgressRows(goal: string, index: number): readonly StudyEvidence[] {
 	const scale = STUDY_PROGRESS_SCALE
 	const start = index * 2 + Math.floor(index / scale.cadence) * scale.burst
-	const timing = {
+	const sample = {
 		durations: { total: scale.total, load: null, prompt: null, decode: null },
 		counts: { prompt: scale.prompt, decode: scale.completion, cached: scale.cached },
 		invalid: false,
 	}
 	const requests = [
-		{ role: 'agent', finish: 'stop', prompt: scale.prompt, completion: scale.completion, timing },
-		{ role: 'agent', finish: 'length', prompt: scale.prompt, completion: scale.completion, timing },
+		{
+			role: 'agent',
+			finish: 'stop',
+			prompt: scale.prompt,
+			completion: scale.completion,
+			telemetry: sample,
+		},
+		{
+			role: 'agent',
+			finish: 'length',
+			prompt: scale.prompt,
+			completion: scale.completion,
+			telemetry: sample,
+		},
 		...Array.from(
 			{ length: index % scale.cadence === scale.cadence - 1 ? scale.burst : 0 },
 			() => ({
@@ -4611,13 +4648,13 @@ export function buildStudyProgressRows(goal: string, index: number): readonly St
 				finish: 'stop',
 				prompt: scale.judge,
 				completion: null,
-				timing: null,
+				telemetry: null,
 			}),
 		),
 	]
 	return [
 		{ event: 'note', goal, value: { index } },
-		...requests.flatMap(({ role, finish, prompt, completion, timing: reading }, position) => {
+		...requests.flatMap(({ role, finish, prompt, completion, telemetry }, position) => {
 			const request = { role, path: '/api/chat', model: 'fixture', options: {} }
 			const ordinal = start + position + 1
 			return [
@@ -4636,7 +4673,7 @@ export function buildStudyProgressRows(goal: string, index: number): readonly St
 						completion,
 						bytes: scale.raw,
 						ordinal,
-						timing: reading,
+						timing: telemetry,
 					},
 				},
 			]
@@ -4703,13 +4740,13 @@ export async function writeStudyProgressResult(
  * Retains a sealed copy of an executed result whose trials append padding rows after their own rows, under byte bounds wide enough to hold them.
  * @param directory - The nonexistent result directory inside an owned scratch resource.
  * @param source - The sealed executed result whose manifest, attempts, and evidence rows the copy keeps.
- * @param padding - The `note` rows of one MiB each that every trial appends to its last goal after its own rows.
+ * @param filler - The `note` rows of one MiB each that every trial appends to its last goal after its own rows.
  * @returns The independently verified sealed copy.
  */
 export async function retainStudyPaddedResult(
 	directory: string,
 	source: StudySealedResult,
-	padding: number,
+	filler: number,
 ): Promise<StudySealedResult> {
 	const bounds = source.manifest.bounds
 	const manifest: StudyManifest = {
@@ -4734,7 +4771,7 @@ export async function retainStudyPaddedResult(
 		const sink = await results.start(trial)
 		for (const row of [
 			...(evidence[trial.id] ?? []),
-			...Array.from({ length: padding }, (_, index) => ({
+			...Array.from({ length: filler }, (_, index) => ({
 				event: 'note',
 				goal,
 				value: { index, raw },
@@ -4744,9 +4781,9 @@ export async function retainStudyPaddedResult(
 		await results.finish(attempt)
 	}
 	await results.seal()
-	const reading = await readStudyResult(directory)
-	if (reading.status !== 'sealed') throw new Error('Padded execution did not seal')
-	return reading
+	const result = await readStudyResult(directory)
+	if (result.status !== 'sealed') throw new Error('Padded execution did not seal')
+	return result
 }
 
 /** Writes the live observed progress fixture that `STUDY_PROGRESS_SCALE` sizes.
@@ -5389,7 +5426,7 @@ export async function createStudyLabelFixture(
 			result: result.seal.id,
 			arm: 'full',
 			packet: packet.content,
-			mapping: packet.mapping,
+			legend: packet.legend,
 		},
 	}
 }

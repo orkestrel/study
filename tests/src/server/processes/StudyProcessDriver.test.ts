@@ -268,9 +268,9 @@ describe('StudyProcessDriver', () => {
 			})
 			const controller = new AbortController()
 			const opened = driver.open(trial, controller.signal)
-			const aborting = waitForDelay(30).then(() => controller.abort())
+			const trigger = waitForDelay(30).then(() => controller.abort())
 			await expect(opened).rejects.toMatchObject({ context: { cause: 'interrupted' } })
-			await aborting
+			await trigger
 		} finally {
 			scratch.destroy()
 		}
@@ -296,9 +296,9 @@ describe('StudyProcessDriver', () => {
 			}
 			const fresh = await driver.open(trial, signal)
 			try {
-				const opening = parseJSON(requireValue(scratch.read('worker-opening.json')))
-				expect(opening).toMatchObject({ trial })
-				expect(opening).not.toHaveProperty('seed')
+				const frame = parseJSON(requireValue(scratch.read('worker-opening.json')))
+				expect(frame).toMatchObject({ trial })
+				expect(frame).not.toHaveProperty('seed')
 			} finally {
 				await fresh.close()
 			}

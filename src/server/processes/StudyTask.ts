@@ -5,7 +5,16 @@ import { STUDY_FRAME_BYTES, STUDY_TASK_DURATION } from './constants.js'
 import { valueToWire } from './helpers.js'
 import { StudyTaskChild } from './StudyTaskChild.js'
 
-/** Bounds adapter evaluation by an independent native parent timer. */
+/**
+ * Bounds adapter evaluation by an independent native parent timer.
+ * @example
+ * ```ts
+ * declare const options: StudyTaskOptions
+ * declare const request: StudyTaskRequest
+ * const result = await new StudyTask(options).execute(request, new AbortController().signal)
+ * result.instrument // the active instrumentation digest
+ * ```
+ */
 export class StudyTask {
 	#options: StudyTaskOptions
 	/** Owns the built child route and captured source selection.

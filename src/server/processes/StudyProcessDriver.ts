@@ -6,6 +6,7 @@ import type {
 	StudyTrialPreparationFunction,
 } from './types.js'
 import { StudyError } from '@src/core'
+import { isFunction } from '@orkestrel/contract'
 import {
 	readStudyPreparedDestination,
 	readStudyReplayHistory,
@@ -14,7 +15,16 @@ import {
 import { isStudyExchangeDestination } from './validators.js'
 import { StudyProcessSession } from './StudyProcessSession.js'
 
-/** Opens one fresh native child for each scheduled trial. */
+/**
+ * Opens one fresh native child for each scheduled trial.
+ * @example
+ * ```ts
+ * declare const options: StudyProcessDriverOptions
+ * declare const trial: StudyTrial
+ * const session = await new StudyProcessDriver(options).open(trial, new AbortController().signal)
+ * await session.close()
+ * ```
+ */
 export class StudyProcessDriver implements StudyDriverInterface {
 	#options: StudyProcessOptions
 	readonly #prepare: StudyTrialPreparationFunction | undefined
@@ -24,7 +34,7 @@ export class StudyProcessDriver implements StudyDriverInterface {
 	 */
 	constructor(options: StudyProcessDriverOptions) {
 		const { prepare, ...configuration } = options
-		if (prepare !== undefined && typeof prepare !== 'function')
+		if (prepare !== undefined && !isFunction(prepare))
 			throw new StudyError('CONFIG', 'Trial preparation must be callable')
 		if (options.replay !== undefined && options.keyed !== undefined)
 			throw new StudyError('CONFIG', 'A prefix replay and a keyed replay are mutually exclusive')

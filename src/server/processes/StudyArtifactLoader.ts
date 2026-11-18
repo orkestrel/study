@@ -1,9 +1,6 @@
-import type {
-	StudyArtifactIdentity,
-	StudyArtifactModule,
-	StudyArtifactLoaderOptions,
-} from './types.js'
-import type { StudyAdapterInterface } from '../adapters/types.js'
+import type { StudyArtifactIdentity } from '@src/core'
+import type { StudyArtifactLoaderOptions } from './types.js'
+import type { StudyAdapterInterface, StudyArtifactModule } from '../adapters/types.js'
 import { StudyError } from '@src/core'
 import { dirname, isAbsolute } from 'node:path'
 import { readFileSync } from 'node:fs'
@@ -24,7 +21,16 @@ import {
 	validateStudyRuntime,
 } from './helpers.js'
 
-/** Binds consumer instrumentation separately from selected executable identities. */
+/**
+ * Binds consumer instrumentation separately from selected executable identities.
+ * @example
+ * ```ts
+ * declare const options: StudyArtifactLoaderOptions
+ * const artifacts = new StudyArtifactLoader(options)
+ * const identity = await artifacts.inspect()
+ * artifacts.verify()
+ * ```
+ */
 export class StudyArtifactLoader {
 	#options: StudyArtifactLoaderOptions
 	#loader: ArtifactLoader | undefined

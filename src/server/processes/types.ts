@@ -1,7 +1,6 @@
 import type {
 	StudyAttempt,
 	StudyIdentity,
-	StudyManifest,
 	StudyProfile,
 	StudyRubric,
 	StudyTicketInterface,
@@ -16,7 +15,7 @@ import type { JSONValue } from '@orkestrel/contract'
 import type { ChildProcess } from 'node:child_process'
 import type { StudyValidation, StudyProgressTarget } from '../adapters/types.js'
 import type { StudyClosure } from '../commands/types.js'
-import type { StudyExchangeDestination, StudySeal } from '../stores/types.js'
+import type { StudyExchangeDestination, StudySealedCustody } from '../stores/types.js'
 import type { StudyOllamaKeyedSelection, StudyOllamaReplaySelection } from '../ollama/types.js'
 
 /** Holds a bounded adapter-only native operation. */
@@ -35,22 +34,36 @@ export interface StudyTaskOptions {
  * The child reads each scheduled trial's `evidence.jsonl` under `directory` within the manifest's
  * trial byte bound, and refuses with `CUSTODY` a file whose digest differs from its `seal` entry.
  */
-export interface StudyGradeInput {
-	readonly directory: string
-	readonly manifest: StudyManifest
+export interface StudyGradeInput extends StudySealedCustody {
 	readonly attempts: readonly StudyAttempt[]
-	readonly seal: StudySeal
 	readonly rubric: StudyRubric
 }
 
+/** Holds the progress targets an adapter child reads, each one listed goal's complete evidence rows. */
+export interface StudyTaskTargets {
+	readonly targets: readonly StudyProgressTarget[]
+}
+
+/** Requests an adapter child's validation of a study's declarations. */
+export interface StudyTaskValidate {
+	readonly operation: 'validate'
+	readonly input: StudyValidation
+}
+
+/** Requests an adapter child's grading of a verified sealed result. */
+export interface StudyTaskGrade {
+	readonly operation: 'grade'
+	readonly input: StudyGradeInput
+}
+
+/** Requests an adapter child's progress projection of listed goals. */
+export interface StudyTaskProgress {
+	readonly operation: 'progress'
+	readonly input: StudyTaskTargets
+}
+
 /** Carries declarations, a sealed result's custody, or progress evidence to an adapter child. */
-export type StudyTaskRequest =
-	| { readonly operation: 'validate'; readonly input: StudyValidation }
-	| { readonly operation: 'grade'; readonly input: StudyGradeInput }
-	| {
-			readonly operation: 'progress'
-			readonly input: { readonly targets: readonly StudyProgressTarget[] }
-	  }
+export type StudyTaskRequest = StudyTaskValidate | StudyTaskGrade | StudyTaskProgress
 
 /** Returns adapter output with the exact active instrumentation digest. */
 export interface StudyTaskResult {
@@ -66,23 +79,6 @@ export interface StudyArtifactLoaderOptions {
 	readonly adapter: string
 	/** Selects relocated captured bytes and their checked identity instead of original paths. */
 	readonly closure?: StudyClosure
-}
-
-/** Holds the separately bound instrument and selected module inventory identities. */
-export interface StudyArtifactIdentity {
-	readonly runtime: string
-	readonly content: string
-	readonly agent: string
-	readonly subject: string
-	readonly provider: string | undefined
-	readonly instrument: string
-}
-
-/** Holds actual namespaces loaded only during worker execution. */
-export interface StudyArtifactModule {
-	readonly agent: unknown
-	readonly subject: unknown
-	readonly provider: unknown
 }
 
 /** Holds the parent-owned fresh trial process configuration. */
@@ -124,12 +120,33 @@ export interface StudyProcessDriverOptions extends StudyProcessOptions {
 /** Names the bounded transport's domain operations. */
 export type StudyOperation = 'open' | 'goal' | 'close' | 'admit' | 'finish' | 'fail' | 'evidence'
 
+/** Names a frame's operation: a domain request, or the reply, error, or cancellation that answers one. */
+export type StudyFrameOperation = StudyOperation | 'reply' | 'error' | 'abort'
+
+/** Names the two operations that settle an admitted ticket. */
+export type StudySettleOperation = Extract<StudyOperation, 'finish' | 'fail'>
+
 /** Holds a correlated JSON request, reply or cancellation notification. */
 export interface StudyFrame {
 	readonly id: number
-	readonly operation: StudyOperation | 'reply' | 'error' | 'abort'
+	readonly operation: StudyFrameOperation
 	readonly value: JSONValue
 }
+
+/** Receives the value of a cancellation frame the peer sent. */
+export type StudyAbortHandler = (value: JSONValue) => void
+
+/** Receives the value a peer's reply carries to an outstanding request. */
+export type StudyReplyHandler = (value: JSONValue) => void
+
+/** Receives the error that ends an outstanding request. */
+export type StudyRejectHandler = (error: unknown) => void
+
+/** Records one transported ticket's settlement with its parent. */
+export type StudySettleHandler = (
+	operation: StudySettleOperation,
+	value: StudyUsage | StudyFailure,
+) => void
 
 /** Handles validated transport requests at their owning domain boundary. */
 export type StudyMessageHandler = (
@@ -141,13 +158,13 @@ export type StudyMessageHandler = (
 export interface StudyChannelOptions {
 	readonly endpoint: ChildProcess | NodeJS.Process
 	readonly handle: StudyMessageHandler
-	readonly abort: (value: JSONValue) => void
+	readonly abort: StudyAbortHandler
 }
 
 /** Holds an outstanding bounded IPC response. */
 export interface StudyResponse {
-	readonly resolve: (value: JSONValue) => void
-	readonly reject: (error: unknown) => void
+	readonly resolve: StudyReplyHandler
+	readonly reject: StudyRejectHandler
 }
 
 /** Holds one fresh child trial's launch parameters and cancellation. */
@@ -188,5 +205,5 @@ export interface StudyRemoteMeterInterface extends StudyAdmissionInterface {
 export interface StudyRemoteTicketOptions {
 	readonly id: number
 	readonly signal: AbortSignal
-	readonly settle: (operation: 'finish' | 'fail', value: StudyUsage | StudyFailure) => void
+	readonly settle: StudySettleHandler
 }

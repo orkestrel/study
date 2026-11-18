@@ -14,12 +14,12 @@ import type {
 import type { StudyAttributionSource, StudyCommandArtifact, StudyDeclaration } from './types.js'
 import type {
 	StudyClosure,
-	StudyFreezeRequest,
-	StudyPreparation,
+	StudyFreezeInput,
 	StudySeedResult,
+	StudyTargetSelector,
 } from './types.js'
 import type { ArtifactClosure, ArtifactLoaderOptions } from '../artifacts/types.js'
-import type { StudySealedResult } from '../stores/types.js'
+import type { StudySealedCustody, StudySealedResult } from '../stores/types.js'
 import type { JSONValue } from '@orkestrel/contract'
 import {
 	STUDY_CAUSES,
@@ -61,12 +61,12 @@ import { isStudyClosure } from './validators.js'
  * @throws StudyError - Thrown when no Study package owns the entry or a declaration path is malformed or resolves outside its directory
  * @example Select the freeze members
  * ```ts
- * import type { StudyPreparation } from '@orkestrel/study/server'
+ * import type { StudyFreezeInput } from '@orkestrel/study/server'
  * import { ArtifactLoader, buildStudyFreezeOptions } from '@orkestrel/study/server'
  *
  * declare const root: string
  * declare const entry: string
- * declare const preparation: StudyPreparation
+ * declare const preparation: StudyFreezeInput
  * const request = { target: 'assessment', profile: 'local' }
  * new ArtifactLoader(buildStudyFreezeOptions(root, entry, request, preparation)).inspect()
  * ```
@@ -74,8 +74,8 @@ import { isStudyClosure } from './validators.js'
 export function buildStudyFreezeOptions(
 	root: string,
 	entry: string,
-	request: Pick<StudyFreezeRequest, 'target' | 'profile'>,
-	preparation: Pick<StudyPreparation, 'bundle' | 'definition' | 'profile'>,
+	request: StudyTargetSelector,
+	preparation: StudyFreezeInput,
 ): ArtifactLoaderOptions {
 	const instrument = resolveStudyInstrument(entry)
 	const directory = resolveStudyPath(join(root, 'studies'), request.target)
@@ -102,6 +102,11 @@ export function buildStudyFreezeOptions(
  * @param directory - The canonical closure destination.
  * @returns The verified publication and its copied physical forest.
  * @throws StudyError - Thrown when publication or its command inputs are invalid.
+ * @example
+ * ```ts
+ * declare const directory: string
+ * readStudyClosure(directory).fingerprint // the relocated check result the freeze published
+ * ```
  */
 export function readStudyClosure(directory: string): StudyClosure {
 	const marker = readArtifact(join(directory, 'closure.json'), STUDY_CUSTODY_BYTES)
@@ -126,6 +131,13 @@ export function readStudyClosure(directory: string): StudyClosure {
  * @param path - The profile's absolute or consumer-relative selection.
  * @param closure - The optional verified physical forest.
  * @returns The active canonical selection.
+ * @example
+ * ```ts
+ * import { join } from 'node:path'
+ *
+ * declare const root: string
+ * resolveStudyClosurePath(root, 'dist/index.js') === join(root, 'dist', 'index.js') // true without a closure
+ * ```
  */
 export function resolveStudyClosurePath(
 	root: string,
@@ -378,7 +390,7 @@ export function computeStudyFixtureDigest(
  * ```
  */
 export async function collectStudyEvidence(
-	result: Pick<StudySealedResult, 'directory' | 'manifest' | 'seal'>,
+	result: StudySealedCustody,
 ): Promise<Readonly<Record<string, readonly StudyEvidence[]>>> {
 	const retained: Array<readonly [string, readonly StudyEvidence[]]> = []
 	for (const trial of result.manifest.schedule) {

@@ -546,19 +546,19 @@ describe('StudyOllamaTransport', () => {
 			const provider = createOllamaTransportProvider(fixture.transport, fixture.server.url)
 			const stream = provider.stream(STUDY_AGENT_MESSAGES, new AbortController().signal)
 			expect(await stream.next()).toMatchObject({ done: false })
-			const ending = stream.return({ content: '' })
+			const end = stream.return({ content: '' })
 			await entered.promise
-			const closing = fixture.transport.close()
-			expect(fixture.transport.close()).toBe(closing)
+			const shutdown = fixture.transport.close()
+			expect(fixture.transport.close()).toBe(shutdown)
 			const rows = readStudyExchangeRows(await readFile(fixture.path), false)
 			expect(
 				rows.filter((row) => row.phase === 'failure' && row.stage === 'execution'),
 			).toHaveLength(1)
-			expect(await readSettled(closing)).toBe(false)
-			expect(await readSettled(ending)).toBe(false)
+			expect(await readSettled(shutdown)).toBe(false)
+			expect(await readSettled(end)).toBe(false)
 			release.resolve()
-			await ending
-			await expect(closing).resolves.toBeUndefined()
+			await end
+			await expect(shutdown).resolves.toBeUndefined()
 			await expect(fixture.sink?.close()).resolves.toBeUndefined()
 			expect(fixture.goal.usage()).toEqual([
 				{ role: 'agent', calls: 1, tokens: undefined, bytes: undefined },
@@ -632,18 +632,18 @@ describe('StudyOllamaTransport', () => {
 				method: 'POST',
 				body: STUDY_OLLAMA_CHAT_BODY,
 			})
-			const reading = response.text().then(
+			const consumption = response.text().then(
 				() => undefined,
 				(error: unknown) => error,
 			)
 			await entered.promise
-			const closing = fixture.transport.close()
-			expect(fixture.transport.close()).toBe(closing)
+			const shutdown = fixture.transport.close()
+			expect(fixture.transport.close()).toBe(shutdown)
 			await readFile(fixture.path)
-			expect(await readSettled(closing)).toBe(false)
+			expect(await readSettled(shutdown)).toBe(false)
 			release.resolve()
-			expect(await reading).toMatchObject({ message: 'Ollama transport closed' })
-			await expect(closing).resolves.toBeUndefined()
+			expect(await consumption).toMatchObject({ message: 'Ollama transport closed' })
+			await expect(shutdown).resolves.toBeUndefined()
 			await fixture.sink?.close()
 			expect(fixture.goal.usage()).toEqual([
 				{
@@ -709,12 +709,12 @@ describe('StudyOllamaTransport', () => {
 				})
 				const reader = requireValue(response.body).getReader()
 				expect(await reader.read()).toMatchObject({ done: false })
-				const reading = reader.read()
+				const chunk = reader.read()
 				await entered.promise
-				const cancelling = reader.cancel(reason)
+				const teardown = reader.cancel(reason)
 				release.resolve()
-				await expect(reading).resolves.toEqual({ done: true, value: undefined })
-				await expect(cancelling).resolves.toBeUndefined()
+				await expect(chunk).resolves.toEqual({ done: true, value: undefined })
+				await expect(teardown).resolves.toBeUndefined()
 				// Close must not supply the cancellation this owner was required to observe.
 				expect(captureError(() => fixture.transport.check())).toBe(
 					!recorded && budget ? undefined : reason,
@@ -791,14 +791,14 @@ describe('StudyOllamaTransport', () => {
 			})
 			const reader = requireValue(response.body).getReader()
 			expect(await reader.read()).toMatchObject({ done: false })
-			const reading = reader.read()
+			const chunk = reader.read()
 			await entered.promise
-			const cancelling = reader.cancel(new Error('Cleanup after successful terminal admission'))
+			const teardown = reader.cancel(new Error('Cleanup after successful terminal admission'))
 			await readFile(fixture.path)
-			expect(await readSettled(cancelling)).toBe(false)
+			expect(await readSettled(teardown)).toBe(false)
 			release.resolve()
-			await reading
-			await cancelling
+			await chunk
+			await teardown
 			expect(() => transport.check()).not.toThrow()
 			expect(fixture.goal.usage()).toEqual([{ role: 'agent', calls: 1, tokens: 9, bytes: 265 }])
 			const rows = readStudyExchangeRows(await readFile(fixture.path), false)
@@ -834,9 +834,9 @@ describe('StudyOllamaTransport', () => {
 				(error: unknown) => error,
 			)
 			expect(failure).toMatchObject({ code: 'EBADF' })
-			const closing = fixture.transport.close()
-			expect(fixture.transport.close()).toBe(closing)
-			await expect(closing).rejects.toBe(failure)
+			const shutdown = fixture.transport.close()
+			expect(fixture.transport.close()).toBe(shutdown)
+			await expect(shutdown).rejects.toBe(failure)
 			await expect(fixture.close()).rejects.toMatchObject({
 				errors: [failure, expect.objectContaining({ code: 'EBADF' })],
 			})
@@ -1851,12 +1851,12 @@ describe('StudyOllamaTransport', () => {
 			})
 			try {
 				await fixture.transport.verify()
-				const sending = fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
+				const delivery = fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, {
 					method: 'POST',
 					body: STUDY_OLLAMA_CHAT_BODY,
 					signal: caller.signal,
 				})
-				const outcome = sending.catch((error: unknown) => error)
+				const outcome = delivery.catch((error: unknown) => error)
 				await waitForCondition('capture collaborator send', () => entered.count === 1)
 				expect(entered.calls).toEqual([[]])
 				caller.abort(reason)
@@ -2291,7 +2291,7 @@ describe('StudyOllamaTransport', () => {
 		})
 		const caller = new AbortController()
 		const reason = new Error('Caller aborted before native headers')
-		const pending = fixture.transport
+		const promise = fixture.transport
 			.fetch('agent', `${fixture.server.url}/api/chat`, {
 				method: 'POST',
 				body: STUDY_OLLAMA_CHAT_BODY,
@@ -2302,7 +2302,7 @@ describe('StudyOllamaTransport', () => {
 			await entered.promise
 			expect(fixture.goal.usage()).toEqual([])
 			caller.abort(reason)
-			expect(await pending).toBe(reason)
+			expect(await promise).toBe(reason)
 			expect(calls.calls.map(([role]) => role)).toEqual(['agent'])
 			expect(requireValue(calls.calls[0])[2].signal?.reason).toBe(reason)
 			expect(captureError(() => fixture.transport.check())).toBe(reason)
@@ -2313,7 +2313,7 @@ describe('StudyOllamaTransport', () => {
 			expect(fixture.goal.usage()).toHaveLength(1)
 		} finally {
 			caller.abort(reason)
-			await pending
+			await promise
 			await fixture.close()
 		}
 	})
@@ -2332,7 +2332,7 @@ describe('StudyOllamaTransport', () => {
 		})
 		const caller = new AbortController()
 		const reason = new Error('Caller aborted before response')
-		const pending = fixture.transport
+		const promise = fixture.transport
 			.fetch('agent', `${fixture.server.url}/api/chat`, {
 				method: 'POST',
 				body: STUDY_OLLAMA_CHAT_BODY,
@@ -2373,7 +2373,7 @@ describe('StudyOllamaTransport', () => {
 			expect(fixture.server.requests).toEqual([])
 		} finally {
 			release.resolve(late)
-			await pending
+			await promise
 			await fixture.close()
 		}
 	})
@@ -2391,7 +2391,7 @@ describe('StudyOllamaTransport', () => {
 				return release.promise
 			},
 		})
-		const pending = fixture.transport
+		const promise = fixture.transport
 			.fetch('agent', `${fixture.server.url}/api/chat`, {
 				method: 'POST',
 				body: STUDY_OLLAMA_CHAT_BODY,
@@ -2426,7 +2426,7 @@ describe('StudyOllamaTransport', () => {
 			expect(captureError(() => fixture.transport.check())).toBe(reason)
 		} finally {
 			release.resolve(late)
-			await pending
+			await promise
 			await fixture.close()
 		}
 	})
@@ -2443,7 +2443,7 @@ describe('StudyOllamaTransport', () => {
 				return release.promise
 			},
 		})
-		const pending = fixture.transport
+		const promise = fixture.transport
 			.fetch('agent', `${fixture.server.url}/api/chat`, {
 				method: 'POST',
 				body: STUDY_OLLAMA_CHAT_BODY,
@@ -2456,7 +2456,7 @@ describe('StudyOllamaTransport', () => {
 			await waitForCondition('collaborator entry', () => calls.count === 1)
 			expect(settled.calls).toEqual([])
 			expect(fixture.goal.usage()).toEqual([])
-			const closing = fixture.transport.close()
+			const shutdown = fixture.transport.close()
 			expect(calls.calls.map(([role]) => role)).toEqual(['agent'])
 			const signal = requireValue(requireValue(calls.calls[0])[2].signal)
 			const reason: unknown = signal.reason
@@ -2464,7 +2464,7 @@ describe('StudyOllamaTransport', () => {
 			await waitForCondition('close settles pending collaborator', () => settled.count === 1, {
 				budget: 500,
 			})
-			await closing
+			await shutdown
 			expect(settled.calls).toEqual([['rejected', reason]])
 			expect(captureError(() => fixture.transport.check())).toBe(reason)
 			expect(fixture.goal.usage()).toEqual([
@@ -2479,7 +2479,7 @@ describe('StudyOllamaTransport', () => {
 			expect(captureError(() => fixture.transport.check())).toBe(reason)
 		} finally {
 			release.resolve(late)
-			await pending
+			await promise
 			await fixture.close()
 		}
 	})
@@ -3063,7 +3063,7 @@ describe('StudyOllamaTransport', () => {
 					})
 					const init = { method: 'POST', body: STUDY_OLLAMA_CHAT_BODY, headers }
 					const dispatch = { id: 1, revision: 'f'.repeat(64) }
-					const pending = fixture.transport.fetch('agent', url, init, dispatch)
+					const promise = fixture.transport.fetch('agent', url, init, dispatch)
 					if (axis === 'path') url.pathname = '/outside'
 					else if (axis === 'origin') url.port = '1'
 					else if (axis === 'body')
@@ -3082,7 +3082,7 @@ describe('StudyOllamaTransport', () => {
 						Reflect.set(dispatch, 'id', 99)
 						Reflect.set(dispatch, 'revision', '0'.repeat(64))
 					}
-					const response = await pending
+					const response = await promise
 					await response.text()
 					expect(fixture.server.requests.map(({ path, body }) => ({ path, body }))).toEqual([
 						{ path: '/api/chat', body: STUDY_OLLAMA_CHAT_BODY },
@@ -3112,9 +3112,9 @@ describe('StudyOllamaTransport', () => {
 			try {
 				const controller = new AbortController()
 				const init = { method: 'POST', body: STUDY_OLLAMA_CHAT_BODY, signal: controller.signal }
-				const pending = fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, init)
+				const promise = fixture.transport.fetch('agent', `${fixture.server.url}/api/chat`, init)
 				controller.abort(new Error('Caller cancelled'))
-				const outcome = await pending.then(
+				const outcome = await promise.then(
 					() => undefined,
 					(error: unknown) => error,
 				)
@@ -3235,8 +3235,8 @@ describe('StudyOllamaTransport', () => {
 			const fixture = await createOllamaTransportFixture()
 			try {
 				const calls = createRecorder<[]>()
-				const failing = createRejectedStudyJudge(thrown, calls.handler)
-				const judge = new StudyAgentJudge(failing, fixture.transport)
+				const rejected = createRejectedStudyJudge(thrown, calls.handler)
+				const judge = new StudyAgentJudge(rejected, fixture.transport)
 				const signal = new AbortController().signal
 				const outcomes: Array<{ readonly error: unknown }> = []
 				for (const request of [STUDY_JUDGE_REQUEST, STUDY_JUDGE_REQUEST]) {
@@ -3399,7 +3399,7 @@ describe('StudyOllamaTransport', () => {
 			try {
 				const url = `${fixture.server.url}/api/chat`
 				const init = { method: 'POST', body: STUDY_OLLAMA_CHAT_BODY }
-				const pending = fixture.transport.fetch('agent', url, init)
+				const promise = fixture.transport.fetch('agent', url, init)
 				// Both calls pass: no wire exists yet, so the request is suspended in its admission.
 				fixture.transport.clear()
 				fixture.transport.prepare({
@@ -3407,7 +3407,7 @@ describe('StudyOllamaTransport', () => {
 					context: second.context,
 					checkpoint: { view: 'second' },
 				})
-				await (await pending).text()
+				await (await promise).text()
 				await (await fixture.transport.fetch('agent', url, init)).text()
 				expect(fixture.goal.evidence.map((row) => [row.event, row.goal])).toEqual([
 					['dispatch', 'first'],
@@ -3500,7 +3500,7 @@ describe('StudyOllamaTransport', () => {
 		const extractions = createRecorder<readonly [Readonly<Record<string, unknown>>]>()
 		const fixture = await createOllamaTransportFixture([{ path: '/api/chat', body: reply }], {
 			observe: true,
-			timing: (record) => {
+			extract: (record) => {
 				extractions.handler(record)
 				return extractTiming(record)
 			},

@@ -4,13 +4,14 @@ import type { JSONValue } from '@orkestrel/contract'
 /** Names who answered a labeled row: a person or a model. */
 export type StudyLabelMethod = Extract<StudyJudgmentMethod, 'human' | 'model'>
 
-/** Holds one sealed segment's retained packet and mapping bytes and the arm it belongs to. */
+/** Holds one sealed segment's retained packet and legend bytes and the arm it belongs to. */
 export interface StudyLabelSegment {
-	/** Holds the sealed result's seal id, which the mapping names. */
+	/** Holds the sealed result's seal id, which the legend names. */
 	readonly result: string
 	readonly arm: string
 	readonly packet: Uint8Array
-	readonly mapping: Uint8Array
+	/** Holds the packet's legend, the bytes of its `<packet>.mapping.json`. */
+	readonly legend: Uint8Array
 }
 
 /** Holds one authored fictional row that catches an inattentive labeler. */

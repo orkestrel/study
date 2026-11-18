@@ -19,7 +19,7 @@ import { StudyDaemonTrial } from './StudyDaemonTrial.js'
 export class StudyDaemonSession {
 	readonly #options: StudyDaemonSessionOptions
 	#daemon: OllamaDaemonInterface | undefined
-	#stopping: Promise<void> | undefined
+	#shutdown: Promise<void> | undefined
 	readonly #trials = new Set<StudyDaemonTrial>()
 
 	/** Captures resolved declarations without loading the daemon runtime.
@@ -51,7 +51,7 @@ export class StudyDaemonSession {
 			import('@orkestrel/ollama/server'),
 			readFile(daemon.executable),
 		])
-		if (this.#stopping !== undefined) throw new StudyError('FAULT', 'Daemon session has stopped')
+		if (this.#shutdown !== undefined) throw new StudyError('FAULT', 'Daemon session has stopped')
 		this.#daemon ??= createOllamaDaemon({
 			executable: { path: daemon.executable, digest: hashStudyBytes(executable) },
 			url: provider.url,
@@ -123,8 +123,8 @@ export class StudyDaemonSession {
 	 * @returns Completion after daemon and emitter teardown.
 	 */
 	stop(): Promise<void> {
-		this.#stopping ??= this.#finish()
-		return this.#stopping
+		this.#shutdown ??= this.#finish()
+		return this.#shutdown
 	}
 
 	async #finish(): Promise<void> {

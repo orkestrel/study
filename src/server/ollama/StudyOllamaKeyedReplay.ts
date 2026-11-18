@@ -7,6 +7,7 @@ import type { StudyExchangeReply, StudyRecordedExchange } from '../stores/types.
 import type { StudyFault } from '../types.js'
 import { StudyError } from '@src/core'
 import { isBudgetError } from '@orkestrel/budget'
+import { isFunction } from '@orkestrel/contract'
 import { validateStudyExchangeHistory } from '../stores/helpers.js'
 import {
 	buildStudyOllamaKey,
@@ -54,7 +55,7 @@ export class StudyOllamaKeyedReplay implements StudyOllamaReplayInterface {
 			location.hash !== '' ||
 			location.pathname !== '/' ||
 			roles.length === 0 ||
-			(fetch !== undefined && typeof fetch !== 'function')
+			(fetch !== undefined && !isFunction(fetch))
 		)
 			throw new StudyError('CONFIG', 'Keyed replay requires listed roles and an explicit origin')
 		signal.throwIfAborted()

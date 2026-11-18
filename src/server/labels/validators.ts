@@ -16,8 +16,8 @@ export const isStudyLabelPacket = objectOf({
 	),
 })
 
-/** Checks whether a value holds a retained mapping's result and links. */
-export const isStudyLabelMapping = objectOf({
+/** Checks whether a value holds a retained legend's result and links, the content of a packet's `<packet>.mapping.json`. */
+export const isStudyLabelLegend = objectOf({
 	result: isString,
 	entries: arrayOf(
 		objectOf({

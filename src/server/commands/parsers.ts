@@ -1,6 +1,6 @@
 import type { StudyCommandRequest } from './types.js'
 import { StudyError, isStudyDigest, isStudyName } from '@src/core'
-import { isRecord, parseJSON } from '@orkestrel/contract'
+import { isNumber, isRecord, parseJSON } from '@orkestrel/contract'
 import { isAbsolute, resolve } from 'node:path'
 import { isStudyCustodyName } from '../stores/validators.js'
 import { STUDY_OLLAMA_KEYED_ROLES } from '../ollama/constants.js'
@@ -182,7 +182,7 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 				!Object.entries(replay).every(
 					([trial, count]) =>
 						isStudyCustodyName(trial) &&
-						typeof count === 'number' &&
+						isNumber(count) &&
 						Number.isSafeInteger(count) &&
 						count > 0,
 				) ||

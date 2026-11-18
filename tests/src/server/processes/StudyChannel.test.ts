@@ -151,10 +151,10 @@ process.on('message', frame => {
 		const diagnostics = createRecorder<readonly [chunk: unknown]>()
 		peer.child.stderr?.on('data', diagnostics.handler)
 		try {
-			const pending = Array.from({ length: STUDY_PENDING_LIMIT }, (_, index) =>
+			const requests = Array.from({ length: STUDY_PENDING_LIMIT }, (_, index) =>
 				channel.request('goal', { index }),
 			)
-			for (const response of pending) void response.catch(() => undefined)
+			for (const response of requests) void response.catch(() => undefined)
 			await expect(channel.request('goal', { index: STUDY_PENDING_LIMIT })).rejects.toMatchObject({
 				context: { cause: 'infrastructure', message: 'Study IPC pending limit exceeded' },
 			})
@@ -163,7 +163,7 @@ process.on('message', frame => {
 			peer.child.send({ control: 'release' })
 			await expect(
 				new StudyDeadline({ duration: 3000, label: 'outbound pending replies' }).wait(
-					Promise.all(pending),
+					Promise.all(requests),
 				),
 			).resolves.toEqual(Array.from({ length: STUDY_PENDING_LIMIT }, (_, index) => ({ index })))
 			// The peer registers its listeners once, so Node reports no leak; the pipe is complete once the peer closes.

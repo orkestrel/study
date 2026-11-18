@@ -8,7 +8,7 @@ import type {
 	StudyRow,
 } from './types.js'
 import { StudyError, isStudyJudgment, isStudyRubric } from '@src/core'
-import { isArray, isRecord } from '@orkestrel/contract'
+import { isArray, isFunction, isRecord } from '@orkestrel/contract'
 import {
 	isStudyCustodyAttempt,
 	isStudyCustodyEvidence,
@@ -25,7 +25,7 @@ import { isStudyAdapter } from './validators.js'
  * ```
  */
 export function readStudyAdapter(namespace: unknown): StudyAdapterInterface {
-	if (!isRecord(namespace) || typeof namespace.createStudyAdapter !== 'function')
+	if (!isRecord(namespace) || !isFunction(namespace.createStudyAdapter))
 		throw new StudyError('CONFIG', 'Consumer module must export createStudyAdapter')
 	const adapter: unknown = namespace.createStudyAdapter()
 	if (!isStudyAdapter(adapter))

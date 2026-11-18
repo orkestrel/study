@@ -15,11 +15,11 @@ import { decodeStudyJSON, hashStudyBytes } from '../helpers.js'
 import { STUDY_LABEL_DISPUTE } from './constants.js'
 import { collectStudyLabelAnswers } from './helpers.js'
 import { parseStudyLabelPool } from './parsers.js'
-import { isStudyLabelMapping, isStudyLabelPacket } from './validators.js'
+import { isStudyLabelLegend, isStudyLabelPacket } from './validators.js'
 
 /**
  * Pools sealed packets into one request per goal and arm under neutral row numbers, every identity in a separate map.
- * @param segments - Each segment's retained packet and mapping bytes
+ * @param segments - Each segment's retained packet and legend bytes
  * @param options - The order, the controls, and the partition of each source pair
  * @returns The blind requests and their map, through the pool's contract
  * @throws StudyError - Thrown with `EVIDENCE` when the bytes are malformed, a mapping names another result or does not cover its packet, a pair holds no partition, a control holds no request to join, or the pool breaks its contract
@@ -35,21 +35,21 @@ export function createStudyLabelPool(
 	const { order, controls, partition } = options
 	const members = segments.flatMap((segment) => {
 		const packet = decodeStudyJSON(segment.packet)
-		const mapping = decodeStudyJSON(segment.mapping)
+		const legend = decodeStudyJSON(segment.legend)
 		if (!isStudyLabelPacket(packet))
 			throw new StudyError('EVIDENCE', `The packet of ${segment.result} is malformed`)
-		if (!isStudyLabelMapping(mapping))
+		if (!isStudyLabelLegend(legend))
 			throw new StudyError('EVIDENCE', `The mapping of ${segment.result} is malformed`)
-		if (mapping.result !== segment.result)
+		if (legend.result !== segment.result)
 			throw new StudyError(
 				'EVIDENCE',
-				`The mapping names ${mapping.result}, and its segment holds ${segment.result}`,
+				`The mapping names ${legend.result}, and its segment holds ${segment.result}`,
 			)
-		if (mapping.entries.length !== packet.entries.length)
+		if (legend.entries.length !== packet.entries.length)
 			throw new StudyError('EVIDENCE', `The mapping of ${segment.result} does not cover its packet`)
 		const digest = hashStudyBytes(segment.packet)
 		return packet.entries.map((entry) => {
-			const source = mapping.entries.find(
+			const source = legend.entries.find(
 				(link) => link.trial === entry.trial && link.criterion === entry.criterion,
 			)?.source
 			if (source === undefined)

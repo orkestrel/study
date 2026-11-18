@@ -33,7 +33,7 @@ export class StudyTrialLease {
 	readonly #deadline: StudyDeadline
 	#scope: StudyScope | undefined
 	#evidence: StudySinkInterface | undefined
-	#pending: Promise<StudySessionInterface> | undefined
+	#promise: Promise<StudySessionInterface> | undefined
 	#session: StudySessionInterface | undefined
 
 	/** Binds one scheduled trial to the series' owned inputs, failure owner, series scope and cleanup deadline.
@@ -92,9 +92,9 @@ export class StudyTrialLease {
 		this.#evidence = await this.#start()
 		this.#series.check()
 		scope.check()
-		const pending = this.#launch()
-		this.#pending = pending
-		this.#session = await control.wait(pending)
+		const promise = this.#launch()
+		this.#promise = promise
+		this.#session = await control.wait(promise)
 	}
 
 	/** Closes the opened session, or a session that opened late, then the trial scope.
@@ -109,7 +109,7 @@ export class StudyTrialLease {
 	// Closes the session or awaits and closes a late opening; a session close failure is latched, a late one only reported when it differs.
 	async #release(): Promise<StudyFailure | undefined> {
 		const session = this.#session
-		const pending = this.#pending
+		const promise = this.#promise
 		if (session !== undefined) {
 			try {
 				await this.#deadline.wait(session.close())
@@ -120,9 +120,9 @@ export class StudyTrialLease {
 				return cleanup
 			}
 		}
-		if (pending === undefined) return undefined
+		if (promise === undefined) return undefined
 		try {
-			const late = await this.#deadline.wait(pending)
+			const late = await this.#deadline.wait(promise)
 			await this.#deadline.wait(late.close())
 			return undefined
 		} catch (error) {
@@ -146,10 +146,10 @@ export class StudyTrialLease {
 	async #start(): Promise<StudySinkInterface> {
 		const control = this.#control
 		try {
-			const pending = this.#options.store.start(this.#trial)
+			const sink = this.#options.store.start(this.#trial)
 			return control.failure === undefined
-				? await control.wait(pending)
-				: await this.#deadline.wait(pending)
+				? await control.wait(sink)
+				: await this.#deadline.wait(sink)
 		} catch (error) {
 			control.fail(readStudyFailure(error))
 			const failure = control.failure ?? readStudyFailure(error)

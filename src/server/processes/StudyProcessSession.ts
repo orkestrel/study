@@ -11,7 +11,7 @@ import {
 	isStudyProduct,
 	isStudyUsage,
 } from '@src/core'
-import { isRecord } from '@orkestrel/contract'
+import { isNumber, isRecord } from '@orkestrel/contract'
 import { execFile, fork } from 'node:child_process'
 import { mkdtemp } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
@@ -31,7 +31,16 @@ import {
 	isStudyProcessFailure,
 } from './validators.js'
 
-/** Keeps admission and evidence custody in the parent of one fresh trial process. */
+/**
+ * Keeps admission and evidence custody in the parent of one fresh trial process.
+ * @example
+ * ```ts
+ * declare const options: StudyProcessSessionOptions
+ * const session = new StudyProcessSession(options)
+ * await session.start()
+ * await session.close()
+ * ```
+ */
 export class StudyProcessSession implements StudySessionInterface {
 	#options: StudyProcessSessionOptions
 	#control: StudyControl
@@ -56,7 +65,12 @@ export class StudyProcessSession implements StudySessionInterface {
 		this.#control = new StudyControl(signal)
 	}
 
-	/** Starts the child and verifies its artifact-bound readiness. */
+	/** Starts the child and verifies its artifact-bound readiness.
+	 * @remarks
+	 * The child's process group is platform-defined: a detached child gets its own process group on
+	 * POSIX only, so the child is detached there alone and termination signals that group; a Windows
+	 * child stays attached and is terminated by its process tree.
+	 */
 	async start(): Promise<void> {
 		if (this.#started || this.#shutdown !== undefined)
 			throw new StudyError('FAULT', 'Study process start is single use')
@@ -160,8 +174,8 @@ export class StudyProcessSession implements StudySessionInterface {
 		if (this.#goals.size !== 0 || this.#shutdown !== undefined || this.#channel === undefined)
 			throw new StudyError('FAULT', 'Study process cannot execute in its current state')
 		if (this.#control.failure !== undefined) throw failureToStudyError(this.#control.failure)
-		const running = new StudyProcessGoal(context)
-		this.#goals.add(running)
+		const state = new StudyProcessGoal(context)
+		this.#goals.add(state)
 		const listeners = new AbortController()
 		const control = new StudyControl(context.signal)
 		this.#control.signal.addEventListener(
@@ -187,7 +201,7 @@ export class StudyProcessSession implements StudySessionInterface {
 		} finally {
 			listeners.abort()
 			control.close()
-			this.#goals.delete(running)
+			this.#goals.delete(state)
 		}
 	}
 
@@ -198,13 +212,13 @@ export class StudyProcessSession implements StudySessionInterface {
 	}
 
 	async #handle(operation: StudyOperation, value: JSONValue): Promise<JSONValue> {
-		const [running] = this.#goals
-		if (running === undefined) throw new StudyError('FAULT', 'Worker requested work outside a goal')
-		const context = running.context
+		const [state] = this.#goals
+		if (state === undefined) throw new StudyError('FAULT', 'Worker requested work outside a goal')
+		const context = state.context
 		if (operation === 'admit') {
 			if (!isRecord(value) || !isStudyCharge(value.charge))
 				throw new StudyError('FAULT', 'Invalid worker admission')
-			const id = running.issue(value.id)
+			const id = state.issue(value.id)
 			if (id === undefined) throw new StudyError('FAULT', 'Invalid worker admission')
 			const ticket = await context.meter.admit(value.charge)
 			const listeners = new AbortController()
@@ -221,7 +235,7 @@ export class StudyProcessSession implements StudySessionInterface {
 			return { id }
 		}
 		if (operation === 'finish' || operation === 'fail') {
-			if (!isRecord(value) || typeof value.id !== 'number')
+			if (!isRecord(value) || !isNumber(value.id))
 				throw new StudyError('FAULT', 'Invalid worker settlement')
 			const entry = this.#tickets.get(value.id)
 			if (entry === undefined)
@@ -299,6 +313,7 @@ export class StudyProcessSession implements StudySessionInterface {
 		}
 	}
 
+	// Ends the child by its platform's unit: the process tree on Windows, the process group on POSIX.
 	async #terminate(): Promise<void> {
 		clearTimeout(this.#deadline)
 		const child = this.#child

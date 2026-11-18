@@ -222,7 +222,7 @@ export const DISTRIBUTION_FORMATS: ReadonlyArray<
 export interface DistributionEntry {
 	readonly subpath: string
 	readonly specifier: string
-	readonly mapping: unknown
+	readonly definition: unknown
 	readonly declaration: {
 		readonly importable: boolean
 		readonly requirable: boolean
@@ -758,7 +758,7 @@ export function filterDistributionEntries(
 ): readonly DistributionEntry[] {
 	return entries.filter(
 		(entry) =>
-			resolveDistributionTarget(entry.mapping, conditions) !== undefined &&
+			resolveDistributionTarget(entry.definition, conditions) !== undefined &&
 			(!conditions.includes('require') || entry.loadable),
 	)
 }
@@ -799,9 +799,9 @@ export function filterDistributionUntypable(
 	return entries.filter(
 		(entry) =>
 			entry.requirable &&
-			isRecord(entry.mapping) &&
-			Object.hasOwn(entry.mapping, 'require') &&
-			!declaresDistributionCommonJS(entry.mapping, installed),
+			isRecord(entry.definition) &&
+			Object.hasOwn(entry.definition, 'require') &&
+			!declaresDistributionCommonJS(entry.definition, installed),
 	)
 }
 
@@ -955,14 +955,14 @@ export function writeDistributionConsumerProbe(
 	specifiers: readonly string[],
 ): void {
 	const modules = specifiers.map((specifier, index) => ({
-		binding: `entry${String(index)}`,
+		alias: `entry${String(index)}`,
 		specifier,
 	}))
-	const bindings = modules.map(
-		({ binding, specifier }) => `import * as ${binding} from ${JSON.stringify(specifier)}`,
+	const imports = modules.map(
+		({ alias, specifier }) => `import * as ${alias} from ${JSON.stringify(specifier)}`,
 	)
-	const names = modules.map(({ binding }) => binding)
-	const source = `${bindings.join('\n')}\nexport const surface = [${names.join(', ')}]\n`
+	const names = modules.map(({ alias }) => alias)
+	const source = `${imports.join('\n')}\nexport const surface = [${names.join(', ')}]\n`
 	writeDistributionFile(join(stage.consumer, path), source)
 }
 
@@ -1132,9 +1132,9 @@ export function classifyDistributionStage(
 ): DistributionClassification {
 	if (!isRecord(manifest.exports))
 		throw new Error('The installed manifest publishes no exports map')
-	const readings = Object.entries(manifest.exports).map(([subpath, mapping]) => {
-		const files = collectDistributionTargets(mapping)
-		const declaration = readDistributionDeclaration(mapping, installed)
+	const readings = Object.entries(manifest.exports).map(([subpath, definition]) => {
+		const files = collectDistributionTargets(definition)
+		const declaration = readDistributionDeclaration(definition, installed)
 		// A subpath resolving no declaration is partitioned rather than dropped. It is a
 		// defect when a runtime loads one of its targets for names, because a consumer
 		// importing it compiles against nothing under `node16`. It is an excluded
@@ -1147,23 +1147,26 @@ export function classifyDistributionStage(
 		) {
 			return { subpath, files, entry: undefined }
 		}
-		const importTarget = resolveDistributionTarget(mapping, DISTRIBUTION_RUNTIME_CONDITIONS.module)
+		const importTarget = resolveDistributionTarget(
+			definition,
+			DISTRIBUTION_RUNTIME_CONDITIONS.module,
+		)
 		const requireTarget = resolveDistributionTarget(
-			mapping,
+			definition,
 			DISTRIBUTION_RUNTIME_CONDITIONS.commonjs,
 		)
 		const browserTarget = resolveDistributionTarget(
-			mapping,
+			definition,
 			DISTRIBUTION_RUNTIME_CONDITIONS.browser,
 		)
-		const browsable = resolvesDistributionBrowser(mapping)
+		const browsable = resolvesDistributionBrowser(definition)
 		const shadowed = browsable && requireTarget === browserTarget
 		const requirable = requireTarget !== undefined && !shadowed
-		const loadable = requirable && resolvesDistributionCommonJS(mapping, installed)
+		const loadable = requirable && resolvesDistributionCommonJS(definition, installed)
 		const entry: DistributionEntry = {
 			subpath,
 			specifier: subpath === '.' ? name : `${name}${subpath.slice(1)}`,
-			mapping,
+			definition,
 			declaration: {
 				importable: declaration.module !== undefined,
 				requirable: declaration.commonjs !== undefined,
@@ -1354,10 +1357,10 @@ export function readDistributionNames(path: string): readonly string[] {
 				: statement
 		if (declaration === null) return []
 		if (declaration.type === 'VariableDeclaration') {
-			return declaration.declarations.map((binding) => {
-				if (binding.id.type !== 'Identifier')
+			return declaration.declarations.map((declarator) => {
+				if (declarator.id.type !== 'Identifier')
 					throw new Error(`Unreadable declaration binding at ${path}`)
-				return binding.id.name
+				return declarator.id.name
 			})
 		}
 		if (
@@ -1619,9 +1622,9 @@ export function buildDistributionCases(
 				return {
 					actual: {
 						populated: relative.length > 0,
-						missing: relative.filter((target) => !existsSync(join(stage.installed, target))),
+						absent: relative.filter((target) => !existsSync(join(stage.installed, target))),
 					},
-					expected: { populated: true, missing: [] },
+					expected: { populated: true, absent: [] },
 				}
 			},
 		},

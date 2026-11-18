@@ -40,7 +40,14 @@ import {
 	valueToWire,
 } from './helpers.js'
 
-/** Evaluates only admitted instrumentation in a disposable native child. */
+/**
+ * Evaluates only admitted instrumentation in a disposable native child.
+ * @example
+ * ```ts
+ * // Inside a child forked with an IPC channel, answer its one request and exit.
+ * await new StudyTaskWorker().execute()
+ * ```
+ */
 export class StudyTaskWorker {
 	/** Processes exactly one inherited request and returns a bounded response. */
 	async execute(): Promise<void> {
@@ -66,8 +73,8 @@ export class StudyTaskWorker {
 		if (
 			!isRecord(value) ||
 			Buffer.byteLength(JSON.stringify(value)) > STUDY_FRAME_BYTES ||
-			typeof value.adapter !== 'string' ||
-			typeof value.entry !== 'string' ||
+			!isString(value.adapter) ||
+			!isString(value.entry) ||
 			!arrayOf(isString)(value.roots) ||
 			!isRecord(value.input)
 		)
@@ -130,7 +137,7 @@ export class StudyTaskWorker {
 	async #adjudicate(input: Readonly<Record<string, unknown>>): Promise<StudyAdjudication> {
 		const { directory, manifest, seal } = input
 		if (
-			typeof directory !== 'string' ||
+			!isString(directory) ||
 			!isAbsolute(directory) ||
 			!isStudyCustodyManifest(manifest) ||
 			!isStudyCustodySeal(seal) ||
@@ -176,7 +183,7 @@ export class StudyTaskWorker {
 				(target): target is StudyProgressTarget =>
 					isRecord(target) &&
 					isStudyCustodyTrial(target.trial) &&
-					typeof target.goal === 'string' &&
+					isString(target.goal) &&
 					isArray(target.evidence) &&
 					target.evidence.every(isStudyCustodyEvidence),
 			)

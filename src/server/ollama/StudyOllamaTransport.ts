@@ -31,20 +31,20 @@ import {
 } from '@src/core'
 import { Abort } from '@orkestrel/abort'
 import { isBudgetError } from '@orkestrel/budget'
-import { isFunction, isNonEmptyString, isRecord, parseJSON } from '@orkestrel/contract'
+import { isFunction, isNonEmptyString, isRecord, isString, parseJSON } from '@orkestrel/contract'
 import { MAX_TIMEOUT_MS, Timeout } from '@orkestrel/timeout'
 import { buildStudyOllamaSnapshot, buildStudyOllamaTransportOptions } from './cloners.js'
 import { StudyOllamaExchange } from './StudyOllamaExchange.js'
 import { StudyOllamaGoal } from './StudyOllamaGoal.js'
 import {
 	buildStudyOllamaRaw,
-	buildStudyOllamaTiming,
+	buildStudyOllamaTelemetry,
 	readStudyOllamaDigest,
 	readStudyOllamaFailure,
 	readStudyOllamaRequest,
 	readStudyOllamaSupport,
 	readStudyOllamaTerminal,
-	readStudyOllamaTiming,
+	readStudyOllamaTelemetry,
 	validateStudyOllamaCompletion,
 	validateStudyOllamaInventory,
 	validateStudyOllamaRoles,
@@ -175,7 +175,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 			if (this.#goal === undefined)
 				throw new StudyError('FAULT', 'Model dispatch outside an active goal')
 			const declaration = this.#declaration
-			if (declaration !== undefined && this.#passes === 1 && this.#modelRemaining < 0)
+			if (declaration !== undefined && this.#passes === 1 && this.#modelBalance < 0)
 				throw this.#durationFailure(undefined)
 			if (
 				declaration !== undefined &&
@@ -280,8 +280,8 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 			this.#requests.add(slot)
 			// Everything the request depends on is owned before the first await; the caller's originals are never read again.
 			const snapshot = buildStudyOllamaSnapshot(input, init, original)
-			const settings = snapshot.init
-			const request = readStudyOllamaRequest(this.#options, role, snapshot.url, settings)
+			const copy = snapshot.init
+			const request = readStudyOllamaRequest(this.#options, role, snapshot.url, copy)
 			const declaration = this.#declaration
 			if (declaration !== undefined && role !== 'metadata') {
 				if (this.#passes !== 1)
@@ -308,13 +308,13 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 							consumed: this.#executions.length + 1,
 						},
 					})
-				if (this.#modelRemaining <= 0) throw this.#durationFailure(role)
+				if (this.#modelBalance <= 0) throw this.#durationFailure(role)
 				if (declaration.procedure !== undefined)
 					validateStudyOllamaStep(
 						declaration.procedure[this.#executions.length],
 						activity.goal,
 						request,
-						settings?.body,
+						copy?.body,
 					)
 			}
 			if (
@@ -370,12 +370,12 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 	}
 
 	#finalize(wire: StudyOllamaExchange, work: () => Promise<void>): Promise<void> {
-		const existing = this.#finalizations.get(wire)
-		if (existing !== undefined) return existing
+		const entry = this.#finalizations.get(wire)
+		if (entry !== undefined) return entry
 		// Publish ownership before ticket settlement can synchronously abort another pull.
-		const pending = Promise.resolve().then(work)
-		this.#finalizations.set(wire, pending)
-		return this.#track(pending)
+		const finalization = Promise.resolve().then(work)
+		this.#finalizations.set(wire, finalization)
+		return this.#track(finalization)
 	}
 
 	async #request(
@@ -386,7 +386,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		snapshot: StudyOllamaSnapshot,
 	): Promise<Response> {
 		const activity = goal.activity
-		const settings = snapshot.init
+		const init = snapshot.init
 		const metadata = role === 'metadata'
 		const available =
 			this.#options.metadata.bytes -
@@ -394,8 +394,8 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				(total, usage) => total + (usage.bytes ?? this.#options.metadata.bytes),
 				0,
 			)
-		const remaining = this.#remaining
-		if (metadata && remaining <= 0)
+		const balance = this.#metadataBalance
+		if (metadata && balance <= 0)
 			throw new StudyError('DEADLINE', 'Metadata duration allowance exhausted', {
 				cause: 'deadline',
 				message: 'Metadata duration allowance exhausted',
@@ -404,12 +404,12 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 					layer: 'scope',
 					id: 'Metadata duration',
 					max: this.#options.metadata.duration,
-					consumed: this.#options.metadata.duration - remaining,
+					consumed: this.#options.metadata.duration - balance,
 				},
 			})
 		const limit = {
 			duration: metadata
-				? Math.min(this.#options.limit.duration, Math.ceil(remaining))
+				? Math.min(this.#options.limit.duration, Math.ceil(balance))
 				: this.#options.limit.duration,
 			bytes: metadata ? Math.min(this.#options.limit.bytes, available) : this.#options.limit.bytes,
 		}
@@ -441,7 +441,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 			...(metadata ? [this.#metadataMeter.signal] : [activity.context.meter.signal]),
 			ticket.signal,
 			AbortSignal.timeout(limit.duration),
-			...(settings?.signal === undefined || settings.signal === null ? [] : [settings.signal]),
+			...(init?.signal === undefined || init.signal === null ? [] : [init.signal]),
 		])
 		const identity: StudyExchangeIdentity | undefined =
 			this.#options.exchanges === undefined
@@ -462,7 +462,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 									: role === 'judge'
 										? '/api/generate'
 										: '/api/chat',
-						method: settings?.method === 'GET' ? 'GET' : 'POST',
+						method: init?.method === 'GET' ? 'GET' : 'POST',
 						stage:
 							role === 'metadata' ? (this.#passes === 0 ? 'preflight' : 'postflight') : 'execution',
 						...(role === 'metadata' ? {} : { step: this.#executions.length + 1 }),
@@ -500,14 +500,14 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		)
 	}
 
-	get #remaining(): number {
+	get #metadataBalance(): number {
 		return (
 			this.#options.metadata.duration -
 			this.#metadataMeter.usage.reduce((total, usage) => total + usage.duration, 0)
 		)
 	}
 
-	get #modelRemaining(): number {
+	get #modelBalance(): number {
 		return (
 			(this.#declaration?.record.duration ?? Infinity) -
 			this.#executions.reduce((total, execution) => total + execution.duration, 0)
@@ -523,7 +523,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				layer: 'scope',
 				id: 'Recording duration',
 				max: this.#declaration?.record.duration,
-				consumed: (this.#declaration?.record.duration ?? 0) - Math.min(0, this.#modelRemaining),
+				consumed: (this.#declaration?.record.duration ?? 0) - Math.min(0, this.#modelBalance),
 			},
 		})
 	}
@@ -628,7 +628,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 			await this.#finish(wire)
 			wire.check()
 			wire.signal.throwIfAborted()
-			if (wire.request.role === 'metadata' && this.#remaining < 0) {
+			if (wire.request.role === 'metadata' && this.#metadataBalance < 0) {
 				const message = 'Metadata duration allowance exhausted'
 				throw new StudyError('DEADLINE', message, {
 					cause: 'deadline',
@@ -638,7 +638,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 						layer: 'scope',
 						id: 'Metadata duration',
 						max: this.#options.metadata.duration,
-						consumed: this.#options.metadata.duration - this.#remaining,
+						consumed: this.#options.metadata.duration - this.#metadataBalance,
 					},
 				})
 			}
@@ -737,7 +737,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		}
 	}
 
-	// Validates a row against the wire's request and retains it; the timing extractor runs only on a terminal row.
+	// Validates a row against the wire's request and retains it; the telemetry extractor runs only on a terminal row.
 	#observe(wire: StudyOllamaExchange, row: unknown): void {
 		const terminal = readStudyOllamaTerminal(row, wire.request)
 		wire.observe(
@@ -746,10 +746,10 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		)
 	}
 
-	// Reads the daemon timing of a terminal row when timing is observed.
+	// Reads the daemon telemetry of a terminal row when observation is on.
 	#time(row: unknown): OllamaTiming | undefined {
 		return this.#options.observe && isRecord(row)
-			? readStudyOllamaTiming(this.#options.timing, row)
+			? readStudyOllamaTelemetry(this.#options.extract, row)
 			: undefined
 	}
 
@@ -767,11 +767,11 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		identity: StudyExchangeIdentity | undefined,
 		ceiling: number,
 	): Promise<StudyOllamaExchange> {
-		const { url, init: settings, dispatch } = snapshot
-		const remaining = this.#modelRemaining
+		const { url, init, dispatch } = snapshot
+		const balance = this.#modelBalance
 		const deadline =
-			role !== 'metadata' && remaining <= this.#options.limit.duration
-				? new Timeout({ ms: Math.min(MAX_TIMEOUT_MS, Math.max(0, Math.ceil(remaining))), signal })
+			role !== 'metadata' && balance <= this.#options.limit.duration
+				? new Timeout({ ms: Math.min(MAX_TIMEOUT_MS, Math.max(0, Math.ceil(balance))), signal })
 				: undefined
 		const expiry = new AbortController()
 		const bounded = AbortSignal.any([signal, expiry.signal])
@@ -786,9 +786,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				await this.#options.exchanges?.append({
 					phase: 'attempt',
 					...identity,
-					...buildStudyOllamaBytes(
-						new TextEncoder().encode(typeof settings?.body === 'string' ? settings.body : ''),
-					),
+					...buildStudyOllamaBytes(new TextEncoder().encode(isString(init?.body) ? init.body : '')),
 				})
 			await goal.activity.context.evidence.append({
 				event: 'dispatch',
@@ -800,7 +798,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 					options: { ...request.options },
 					bytes: request.bytes,
 					...(identity === undefined ? {} : { ordinal: identity.ordinal }),
-					...(this.#options.observe ? this.#dispatch(goal, request, id, settings, dispatch) : {}),
+					...(this.#options.observe ? this.#dispatch(goal, request, id, init, dispatch) : {}),
 				},
 			})
 			signal.throwIfAborted()
@@ -809,8 +807,8 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 			deadline?.start()
 			const response =
 				this.#sender === undefined
-					? await globalThis.fetch(url, { ...settings, signal: bounded, redirect: 'error' })
-					: await this.#fetch(this.#sender, role, url, settings, bounded)
+					? await globalThis.fetch(url, { ...init, signal: bounded, redirect: 'error' })
+					: await this.#fetch(this.#sender, role, url, init, bounded)
 			if (bounded.aborted) {
 				void response.body?.cancel(bounded.reason).catch(() => undefined)
 				bounded.throwIfAborted()
@@ -913,7 +911,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		fetch: StudyOllamaFetchFunction,
 		role: StudyRole,
 		url: string,
-		settings: RequestInit | undefined,
+		init: RequestInit | undefined,
 		signal: AbortSignal,
 	): Promise<Response> {
 		const listeners = new Abort()
@@ -923,7 +921,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 				signal: listeners.signal,
 			})
 			signal.throwIfAborted()
-			fetch(role, url, { ...settings, signal, redirect: 'error' }).then((response) => {
+			fetch(role, url, { ...init, signal, redirect: 'error' }).then((response) => {
 				if (signal.aborted) {
 					void response.body?.cancel(signal.reason).catch(() => undefined)
 					reject(signal.reason)
@@ -953,9 +951,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 			previous: previous ?? null,
 			changed: model && previous !== undefined && previous !== request.model,
 			...(request.strict ? { strict: true } : {}),
-			...(checkpoint === undefined
-				? {}
-				: { body: typeof init?.body === 'string' ? init.body : null }),
+			...(checkpoint === undefined ? {} : { body: isString(init?.body) ? init.body : null }),
 			...(snapshot === undefined ? {} : { snapshot }),
 		}
 	}
@@ -983,7 +979,7 @@ export class StudyOllamaTransport implements StudyLatchInterface {
 		if (wire.settled) throw new StudyError('FAULT', 'Duplicate wire accounting')
 		const terminal = wire.terminal
 		const observation = this.#options.observe
-			? { ...this.#timeline(wire), timing: buildStudyOllamaTiming(wire.timing) }
+			? { ...this.#timeline(wire), timing: buildStudyOllamaTelemetry(wire.telemetry) }
 			: {}
 		await wire.activity.context.evidence.append({
 			event: 'wire',

@@ -7,7 +7,7 @@ import type {
 	ArtifactInventory,
 	ArtifactLoaderOptions,
 } from './types.js'
-import { isRecord, parseJSON } from '@orkestrel/contract'
+import { isRecord, isString, parseJSON } from '@orkestrel/contract'
 import {
 	closeSync,
 	fstatSync,
@@ -363,7 +363,7 @@ export function verifyArtifactClosure(closure: ArtifactClosure, published = fals
 	const packages = closure.options.roots.map((root): ArtifactPackage => {
 		const manifest = readArtifact(join(root, 'package.json'))
 		const value = parseJSON(Buffer.from(manifest.source).toString('utf8'))
-		if (!isRecord(value) || typeof value.name !== 'string' || typeof value.version !== 'string')
+		if (!isRecord(value) || !isString(value.name) || !isString(value.version))
 			throw new ArtifactError('Artifact closure manifest is invalid', 'DRIFT')
 		return { root, name: value.name, version: value.version }
 	})

@@ -6,12 +6,13 @@ import type {
 	StudyOllamaTransportOptions,
 } from './types.js'
 import { StudyError } from '@src/core'
+import { isString } from '@orkestrel/contract'
 
 /**
  * Builds a frozen owned copy of transport configuration that later caller mutation cannot reach.
  * @remarks
  * Every caller member is read once, outer fields before nested data. Every nested data object is
- * copied and frozen; the caller's objects are never frozen. The cancellation signal, timing
+ * copied and frozen; the caller's objects are never frozen. The cancellation signal, telemetry
  * extractor, and fetch collaborator keep their live identity.
  * @param options - The caller's transport configuration
  * @returns The owned configuration, not yet validated
@@ -33,7 +34,7 @@ export function buildStudyOllamaTransportOptions(
 		roles,
 		signal,
 		observe,
-		timing,
+		extract,
 		fetch,
 		replay,
 		metadata,
@@ -81,7 +82,7 @@ export function buildStudyOllamaTransportOptions(
 		}),
 		signal,
 		observe,
-		timing,
+		extract,
 		metadata: Object.freeze({ ...metadata }),
 		...(exchanges === undefined ? {} : { exchanges }),
 		...(fetch === undefined ? {} : { fetch }),
@@ -115,7 +116,7 @@ export function buildStudyOllamaSnapshot(
 		throw new StudyError('CONFIG', 'Ollama transport requires explicit URL requests')
 	const copy = init === undefined ? undefined : { ...init }
 	return {
-		url: typeof input === 'string' ? input : input.href,
+		url: isString(input) ? input : input.href,
 		init:
 			copy === undefined || copy.headers === undefined
 				? copy

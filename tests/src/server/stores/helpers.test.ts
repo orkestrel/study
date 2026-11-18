@@ -130,7 +130,7 @@ describe('study custody helpers', () => {
 			expect(new TextDecoder().decode(packet.content)).not.toContain('"arm"')
 			expect(new TextDecoder().decode(packet.content)).not.toContain('small')
 			expect(computeStudyPacketDigest(packet)).not.toBe(hashStudyBytes(packet.content))
-			expect(computeStudyPacketDigest({ ...packet, mapping: encodeStudyJSON({}) })).not.toBe(
+			expect(computeStudyPacketDigest({ ...packet, legend: encodeStudyJSON({}) })).not.toBe(
 				computeStudyPacketDigest(packet),
 			)
 			const labels = buildCustodyPacketLabels(result, rubric)
@@ -659,7 +659,7 @@ describe('readStudyProgress', () => {
 					['read', 'agent', 'stop', 1, 2, 6, [10, 4]],
 					['read', 'agent', 'stop', 3, 4, 7, [20, 6]],
 				] as const
-			).map(([goal, role, finish, prompt, completion, ordinal, timing]) => ({
+			).map(([goal, role, finish, prompt, completion, ordinal, telemetry]) => ({
 				event: 'wire',
 				goal,
 				value: {
@@ -671,11 +671,11 @@ describe('readStudyProgress', () => {
 					bytes: 9,
 					ordinal,
 					timing:
-						timing === undefined
+						telemetry === undefined
 							? null
 							: {
-									durations: { total: timing[0], load: null, prompt: null, decode: null },
-									counts: { prompt: 1, decode: 1, cached: timing[1] },
+									durations: { total: telemetry[0], load: null, prompt: null, decode: null },
+									counts: { prompt: 1, decode: 1, cached: telemetry[1] },
 									invalid: false,
 								},
 				},
@@ -817,8 +817,8 @@ describe('readStudyProgress', () => {
 			const rows = [{ event: 'saved', goal: 'write', value: 1 }]
 			await writeStudyProgressResult(directory, manifest, { [trial.id]: rows })
 			const path = join(directory, 'execution', 'trials', trial.id, 'attempt.json')
-			const running = await readStudyProgress(directory)
-			expect(running.trials[0]).toMatchObject({ ended: false, failure: undefined })
+			const progress = await readStudyProgress(directory)
+			expect(progress.trials[0]).toMatchObject({ ended: false, failure: undefined })
 			const part = join(directory, 'execution', 'trials', trial.id, STUDY_ATTEMPT_PART)
 			await writeFile(part, '{"partial":')
 			expect((await readStudyProgress(directory)).trials[0]?.ended).toBe(false)

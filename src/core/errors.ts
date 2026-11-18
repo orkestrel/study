@@ -1,5 +1,5 @@
 import type { StudyErrorCode, StudyFailure } from './types.js'
-import { holds, INTRINSICS, isNumber, isObject, isFunction } from '@orkestrel/contract'
+import { holds, INTRINSICS, isNumber, isObject, isFunction, isString } from '@orkestrel/contract'
 import { STUDY_ERROR_BRAND } from './constants.js'
 import { isStudyCause, isStudyErrorCode, isStudyLayer, isStudyRole } from './validators.js'
 
@@ -71,8 +71,8 @@ export function isStudyError(value: unknown): value is StudyError {
 		if (
 			brand !== value ||
 			!isStudyErrorCode(code) ||
-			typeof INTRINSICS.reflect.read(value, 'message') !== 'string' ||
-			(stack !== undefined && typeof stack !== 'string')
+			!isString(INTRINSICS.reflect.read(value, 'message')) ||
+			(stack !== undefined && !isString(stack))
 		)
 			return false
 		if (failure === undefined) return true
@@ -81,11 +81,7 @@ export function isStudyError(value: unknown): value is StudyError {
 		const message: unknown = INTRINSICS.reflect.read(failure, 'message')
 		const role: unknown = INTRINSICS.reflect.read(failure, 'role')
 		const stop: unknown = INTRINSICS.reflect.read(failure, 'stop')
-		if (
-			!isStudyCause(cause) ||
-			typeof message !== 'string' ||
-			(role !== undefined && !isStudyRole(role))
-		)
+		if (!isStudyCause(cause) || !isString(message) || (role !== undefined && !isStudyRole(role)))
 			return false
 		if (stop === undefined) return true
 		if (!isObject(stop) && !isFunction(stop)) return false
@@ -95,7 +91,7 @@ export function isStudyError(value: unknown): value is StudyError {
 		const consumed: unknown = INTRINSICS.reflect.read(stop, 'consumed')
 		return (
 			isStudyLayer(layer) &&
-			typeof id === 'string' &&
+			isString(id) &&
 			(max === undefined || isNumber(max)) &&
 			(consumed === undefined || isNumber(consumed))
 		)

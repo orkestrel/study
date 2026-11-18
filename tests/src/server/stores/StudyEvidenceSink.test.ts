@@ -21,9 +21,9 @@ describe('StudyEvidenceSink', () => {
 				budget: { reserve: createRecorder<readonly [number]>().handler },
 			}
 			const sink = new StudyEvidenceSink(options)
-			const appending = sink.append({ event: 'saved', goal: 'write', value: true })
+			const write = sink.append({ event: 'saved', goal: 'write', value: true })
 			options.file = second
-			await appending
+			await write
 			await sink.close()
 			expect(await readFile(join(scratch.path, 'first.jsonl'), 'utf8')).toBe(
 				'{"event":"saved","goal":"write","value":true}\n',

@@ -15,7 +15,7 @@ import type { StudyOllamaKeyedSelection, StudyOllamaReplaySelection } from '../o
 import type { JSONValue } from '@orkestrel/contract'
 import type { ChildProcess } from 'node:child_process'
 import { StudyError } from '@src/core'
-import { canonicalStringify, isJSONValue, isRecord } from '@orkestrel/contract'
+import { canonicalStringify, isJSONValue, isRecord, isString } from '@orkestrel/contract'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -41,6 +41,13 @@ import {
  * @param ancestor - The sealed replay source and selected exchange prefix, when replaying.
  * @param keyed - The recording a keyed replay serves from, when one is selected.
  * @returns A validated opening row, with no inferred metadata or replay allowance.
+ * @example
+ * ```ts
+ * declare const profile: StudyProfile
+ * declare const trial: StudyTrial
+ * declare const scenario: StudyScenario
+ * buildStudyExchangeDeclaration(profile, trial, scenario, false).maintenance // []
+ * ```
  */
 export function buildStudyExchangeDeclaration(
 	profile: StudyProfile,
@@ -78,6 +85,11 @@ export function buildStudyExchangeDeclaration(
 /** Binds room, driver settings and daemon configuration independently of paths and resource ceilings.
  * @param profile - The executing profile.
  * @returns The canonical configuration's SHA-256 digest.
+ * @example
+ * ```ts
+ * declare const profile: StudyProfile
+ * computeStudyConfigurationDigest(profile) === computeStudyConfigurationDigest({ ...profile, roots: [] }) // true
+ * ```
  */
 export function computeStudyConfigurationDigest(profile: StudyProfile): string {
 	const { executable: _executable, ...daemon } = profile.provider?.daemon ?? {}
@@ -102,6 +114,13 @@ export function computeStudyConfigurationDigest(profile: StudyProfile): string {
  * @param trial - The reader's scheduled trial.
  * @param scenario - The complete horizon when the reader holds it.
  * @returns Nothing after checking every member the reader can independently verify.
+ * @example
+ * ```ts
+ * declare const declaration: StudyExchangeDeclaration
+ * declare const profile: StudyProfile
+ * declare const trial: StudyTrial
+ * validateStudyCaptureDeclaration(declaration, profile, trial) // returns when the declaration matches the reader
+ * ```
  */
 export function validateStudyCaptureDeclaration(
 	declaration: StudyExchangeDeclaration,
@@ -137,6 +156,10 @@ export function validateStudyCaptureDeclaration(
  * @param original - The parent-reserved destination, or undefined without recording.
  * @param prepared - The callback's retained destination.
  * @returns The validated destination for the worker.
+ * @example
+ * ```ts
+ * readStudyPreparedDestination(undefined, undefined) // undefined without recording
+ * ```
  */
 export function readStudyPreparedDestination(
 	original: StudyExchangeDestination | undefined,
@@ -159,6 +182,14 @@ export function readStudyPreparedDestination(
  * @param trial - The trial whose history must be present.
  * @param declaration - The worker's executing declaration, when available.
  * @returns Complete verified history before any dependent sender or worker starts.
+ * @example
+ * ```ts
+ * declare const selection: StudyOllamaReplaySelection
+ * declare const profile: StudyProfile
+ * declare const trial: StudyTrial
+ * const history = await readStudyReplayHistory(selection, profile, trial)
+ * history.exchanges.length >= (selection.prefix[trial.id] ?? 0) // true
+ * ```
  */
 export async function readStudyReplayHistory(
 	selection: StudyOllamaReplaySelection,
@@ -275,6 +306,11 @@ export function valueToWire(value: unknown): JSONValue {
 /** Creates attributable protocol infrastructure failure.
  * @param message - The refused operation or broken boundary.
  * @returns A domain failure that never awards task credit.
+ * @example
+ * ```ts
+ * createStudyProcessFailure('Study IPC is unavailable')
+ * // { cause: 'infrastructure', message: 'Study IPC is unavailable', role: undefined, stop: undefined }
+ * ```
  */
 export function createStudyProcessFailure(message: string): StudyFailure {
 	return { cause: 'infrastructure', message, role: undefined, stop: undefined }
@@ -283,6 +319,11 @@ export function createStudyProcessFailure(message: string): StudyFailure {
 /** Binds the canonical fully resolved execution profile carried over IPC.
  * @param profile - The resolved execution settings, with optional absent leaves.
  * @returns The SHA256 digest of the canonical JSON wire representation.
+ * @example
+ * ```ts
+ * declare const profile: StudyProfile
+ * computeStudyProfileDigest(profile) // the 64-character SHA-256 hex digest of its canonical wire form
+ * ```
  */
 export function computeStudyProfileDigest(profile: StudyProfile): string {
 	const encoded = canonicalStringify(valueToWire(profile))
@@ -294,6 +335,11 @@ export function computeStudyProfileDigest(profile: StudyProfile): string {
  * @param profile - The resolved execution profile.
  * @returns The agent, subject, and provider entries without repeating a shared entry.
  * @remarks The declared roles stay separate in the profile; only capture and loading deduplicate.
+ * @example
+ * ```ts
+ * declare const profile: StudyProfile
+ * collectStudyEntries({ ...profile, provider: undefined, subject: profile.agent }) // [profile.agent]
+ * ```
  */
 export function collectStudyEntries(profile: StudyProfile): readonly string[] {
 	return [
@@ -309,6 +355,10 @@ export function collectStudyEntries(profile: StudyProfile): readonly string[] {
  * @param entry - The SHA-256 identity of the trusted runtime entry bytes.
  * @param inventory - The captured adapter inventory digest.
  * @returns The identity that validation, assessment, and trial children must share.
+ * @example
+ * ```ts
+ * computeStudyInstrumentDigest('a'.repeat(64), 'b'.repeat(64)) // a 64-character SHA-256 hex digest
+ * ```
  */
 export function computeStudyInstrumentDigest(entry: string, inventory: string): string {
 	return hashStudyBytes(JSON.stringify([entry, inventory]))
@@ -317,6 +367,11 @@ export function computeStudyInstrumentDigest(entry: string, inventory: string): 
 /** Resolves the actual host package from its trusted executable entry.
  * @param entry - The runtime's own executable, never a consumer-supplied module.
  * @returns The canonical study package root.
+ * @example
+ * ```ts
+ * declare const entry: string
+ * resolveStudyInstrument(entry) // the canonical root of the Study package that owns entry
+ * ```
  */
 export function resolveStudyInstrument(entry: string): string {
 	const root = collectStudyAncestors(dirname(realpathSync(entry))).find((directory) => {
@@ -345,7 +400,7 @@ export function readStudyVersion(entry: string): string {
 	const value: unknown = JSON.parse(
 		readFileSync(join(resolveStudyInstrument(entry), 'package.json'), 'utf8'),
 	)
-	if (!isRecord(value) || typeof value.version !== 'string' || value.version.length === 0)
+	if (!isRecord(value) || !isString(value.version) || value.version.length === 0)
 		throw new StudyError('CONFIG', 'Study runtime package declares no version')
 	return value.version
 }
@@ -353,6 +408,12 @@ export function readStudyVersion(entry: string): string {
 /** Collects a directory and each of its ancestors up to the filesystem root, nearest first.
  * @param directory - The absolute directory to start from.
  * @returns The directory followed by every parent directory, ending at the root.
+ * @example
+ * ```ts
+ * import { parse } from 'node:path'
+ *
+ * collectStudyAncestors(process.cwd()).at(-1) === parse(process.cwd()).root // true
+ * ```
  */
 export function collectStudyAncestors(directory: string): readonly string[] {
 	const parent = dirname(directory)
@@ -362,12 +423,18 @@ export function collectStudyAncestors(directory: string): readonly string[] {
 /** Refuses a profile that omits the actual host runtime's declared dependency bytes.
  * @param instrument - The canonical package owning the trusted runtime entry.
  * @param roots - Explicitly admitted package roots, including the instrument.
+ * @example
+ * ```ts
+ * declare const entry: string
+ * const instrument = resolveStudyInstrument(entry)
+ * validateStudyRuntime(instrument, [instrument]) // returns when the roots hold the runtime's dependencies
+ * ```
  */
 export function validateStudyRuntime(instrument: string, roots: readonly string[]): void {
-	const pending = [instrument]
+	const stack = [instrument]
 	const visited = new Set<string>()
-	while (pending.length > 0) {
-		const root = pending.pop()
+	while (stack.length > 0) {
+		const root = stack.pop()
 		if (root === undefined || visited.has(root)) continue
 		visited.add(root)
 		if (!roots.includes(root))
@@ -379,13 +446,20 @@ export function validateStudyRuntime(instrument: string, roots: readonly string[
 			throw new StudyError('CONFIG', 'Runtime dependency declarations are invalid')
 		const resolver = createRequire(manifest)
 		for (const dependency of Object.keys(value.dependencies))
-			pending.push(dirname(realpathSync(resolver.resolve(`${dependency}/package.json`))))
+			stack.push(dirname(realpathSync(resolver.resolve(`${dependency}/package.json`))))
 	}
 }
 
 /** Releases inherited output handles a bounded time after the later of native exit and this call.
  * @param child - A spawned child, running or exited; an exited child starts the wait immediately.
  * @remarks A descendant that outlives an exited root is outside discoverable-tree cleanup; this only stops the parent from waiting on its pipes.
+ * @example
+ * ```ts
+ * import { spawn } from 'node:child_process'
+ *
+ * const child = spawn(process.execPath, ['--version'])
+ * drainStudyChild(child) // releases its pipes a bounded time after it exits
+ * ```
  */
 export function drainStudyChild(child: ChildProcess): void {
 	const closed = new AbortController()
@@ -408,6 +482,17 @@ export function drainStudyChild(child: ChildProcess): void {
 
 /** Terminates the recorded native process tree under a finite cleanup allowance.
  * @param child - The exclusively owned child process.
+ * @remarks
+ * Termination is platform-defined. On Windows, `taskkill /T /F` ends the child's process tree,
+ * because a Windows child is terminated by its process tree. On POSIX, the descendants a `ps`
+ * table reaches from the child are each sent `SIGKILL`, the latest discovered first.
+ * @example
+ * ```ts
+ * import { spawn } from 'node:child_process'
+ *
+ * const child = spawn(process.execPath, ['--eval', 'setInterval(() => {}, 1000)'])
+ * terminateStudyChild(child) // the child and its descendants end
+ * ```
  */
 export function terminateStudyChild(child: ChildProcess): void {
 	if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return
@@ -424,16 +509,19 @@ export function terminateStudyChild(child: ChildProcess): void {
 				encoding: 'utf8',
 				maxBuffer: 1024 * 1024,
 			})
-				.trim()
 				.split(/\r\n|\n/)
-				.map((row) => row.trim().split(/\s+/).map(Number))
+				.map((row) => row.trim())
+				.filter((row) => row !== '')
+				.map((row) => row.split(/\s+/).map(Number))
 			const descendants = new Set([child.pid])
-			// One pass per row bounds the depth of any parent chain the table can hold.
-			rows.forEach(() => {
-				for (const [pid, parent] of rows)
-					if (pid !== undefined && parent !== undefined && descendants.has(parent))
+			// The worklist grows by every child of each visited process, so the walk reaches each descendant once.
+			const queue = [child.pid]
+			for (const parent of queue)
+				for (const [pid, owner] of rows)
+					if (pid !== undefined && owner === parent && !descendants.has(pid)) {
 						descendants.add(pid)
-			})
+						queue.push(pid)
+					}
 			for (const pid of [...descendants].reverse()) {
 				try {
 					process.kill(pid, 'SIGKILL')

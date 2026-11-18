@@ -5,7 +5,7 @@ import type {
 	StudyOllamaStep,
 	StudySystemOnePolicy,
 } from './types.js'
-import { holds, isRecord } from '@orkestrel/contract'
+import { holds, isBoolean, isNumber, isRecord, isString } from '@orkestrel/contract'
 import { STUDY_NAME } from '@src/core'
 import { hashStudyBytes } from '../helpers.js'
 
@@ -21,13 +21,13 @@ export function isStudyOllamaMetadata(value: unknown): value is StudyOllamaMetad
 	return holds(
 		() =>
 			isRecord(value) &&
-			typeof value.calls === 'number' &&
+			isNumber(value.calls) &&
 			Number.isSafeInteger(value.calls) &&
 			value.calls > 0 &&
-			typeof value.bytes === 'number' &&
+			isNumber(value.bytes) &&
 			Number.isSafeInteger(value.bytes) &&
 			value.bytes > 0 &&
-			typeof value.duration === 'number' &&
+			isNumber(value.duration) &&
 			Number.isFinite(value.duration) &&
 			value.duration > 0,
 	)
@@ -45,9 +45,9 @@ export function isStudyOllamaModel(value: unknown): value is StudyOllamaModel {
 	return holds(
 		() =>
 			isRecord(value) &&
-			typeof value.name === 'string' &&
+			isString(value.name) &&
 			value.name.length > 0 &&
-			typeof value.digest === 'string' &&
+			isString(value.digest) &&
 			/^[a-f0-9]{64}$/.test(value.digest),
 	)
 }
@@ -64,16 +64,14 @@ export function isStudyOllamaPolicy(value: unknown): value is StudyOllamaPolicy 
 	return holds(
 		() =>
 			isRecord(value) &&
-			typeof value.model === 'string' &&
+			isString(value.model) &&
 			value.model.length > 0 &&
-			typeof value.think === 'boolean' &&
-			typeof value.strict === 'boolean' &&
-			typeof value.length === 'boolean' &&
+			isBoolean(value.think) &&
+			isBoolean(value.strict) &&
+			isBoolean(value.length) &&
 			isRecord(value.options) &&
-			Object.values(value.options).every(
-				(entry) => typeof entry === 'number' && Number.isFinite(entry),
-			) &&
-			typeof value.options.num_predict === 'number' &&
+			Object.values(value.options).every((entry) => isNumber(entry) && Number.isFinite(entry)) &&
+			isNumber(value.options.num_predict) &&
 			Number.isSafeInteger(value.options.num_predict) &&
 			value.options.num_predict > 0,
 	)
@@ -91,9 +89,9 @@ export function isStudySystemOnePolicy(value: unknown): value is StudySystemOneP
 	return holds(
 		() =>
 			isRecord(value) &&
-			typeof value.model === 'string' &&
+			isString(value.model) &&
 			value.model.length > 0 &&
-			typeof value.tokens === 'number' &&
+			isNumber(value.tokens) &&
 			Number.isSafeInteger(value.tokens) &&
 			value.tokens > 0,
 	)
@@ -111,10 +109,10 @@ export function isStudyOllamaStep(value: unknown): value is StudyOllamaStep {
 	return holds(() => {
 		if (
 			!isRecord(value) ||
-			typeof value.ordinal !== 'number' ||
+			!isNumber(value.ordinal) ||
 			!Number.isSafeInteger(value.ordinal) ||
 			value.ordinal <= 0 ||
-			typeof value.goal !== 'string' ||
+			!isString(value.goal) ||
 			!STUDY_NAME.test(value.goal) ||
 			(value.role !== 'agent' && value.role !== 'judge' && value.role !== 'triage')
 		)
@@ -129,7 +127,7 @@ export function isStudyOllamaStep(value: unknown): value is StudyOllamaStep {
 			return false
 		if (value.admission === 'capture')
 			return (
-				typeof value.bytes === 'number' &&
+				isNumber(value.bytes) &&
 				Number.isSafeInteger(value.bytes) &&
 				value.bytes > 0 &&
 				!Object.hasOwn(value, 'body') &&
@@ -137,9 +135,9 @@ export function isStudyOllamaStep(value: unknown): value is StudyOllamaStep {
 			)
 		return (
 			value.admission === 'exact' &&
-			typeof value.body === 'string' &&
+			isString(value.body) &&
 			value.body.length > 0 &&
-			typeof value.input === 'string' &&
+			isString(value.input) &&
 			value.input === hashStudyBytes(value.body) &&
 			!Object.hasOwn(value, 'bytes')
 		)

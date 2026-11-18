@@ -108,13 +108,13 @@ describe('StudyResultStore', () => {
 				false,
 			)
 			await expect(unrecorded.store.seal()).rejects.toMatchObject({ code: 'CUSTODY' })
-			const missing = await retainStudyExchangeFixture(
+			const gap = await retainStudyExchangeFixture(
 				join(scratch.path, 'missing'),
 				'complete',
 				true,
 				false,
 			)
-			await expect(missing.store.seal()).rejects.toMatchObject({ code: 'CUSTODY' })
+			await expect(gap.store.seal()).rejects.toMatchObject({ code: 'CUSTODY' })
 			const unknown = await retainStudyExchangeFixture(join(scratch.path, 'unknown'))
 			scratch.write('unknown/execution/unexpected.json', '{}')
 			await expect(unknown.store.seal()).rejects.toMatchObject({ code: 'CUSTODY' })
@@ -134,9 +134,9 @@ describe('StudyResultStore', () => {
 			const results = new StudyResultStore({ directory, manifest })
 			await results.create()
 			const copy = { ...original }
-			const starting = results.start(copy)
+			const start = results.start(copy)
 			copy.id = 'mutated'
-			const first = await starting
+			const first = await start
 			if (first instanceof StudyEvidenceSink) sinks.push(first)
 			await results.finish(buildCustodyAttempt(manifest, original))
 			for (const trial of manifest.schedule.slice(1)) {
@@ -145,9 +145,9 @@ describe('StudyResultStore', () => {
 				await results.finish(buildCustodyAttempt(manifest, trial))
 			}
 			await results.seal()
-			const reading = await readStudyResult(directory)
-			expect(reading.status).toBe('sealed')
-			expect(reading.attempts.map((attempt) => attempt.trial.id)).toEqual(
+			const snapshot = await readStudyResult(directory)
+			expect(snapshot.status).toBe('sealed')
+			expect(snapshot.attempts.map((attempt) => attempt.trial.id)).toEqual(
 				manifest.schedule.map((trial) => trial.id),
 			)
 			expect(scratch.has('result/execution/trials/mutated')).toBe(false)
@@ -313,12 +313,12 @@ describe('StudyResultStore', () => {
 				})
 			}
 			const seal = await results.seal()
-			const reading = await readStudyResult(join(scratch.path, 'result'))
-			expect(reading.status).toBe('sealed')
-			if (reading.status !== 'sealed') throw new Error('Missing seal')
-			expect(reading.seal.id).toBe(seal.id)
+			const snapshot = await readStudyResult(join(scratch.path, 'result'))
+			expect(snapshot.status).toBe('sealed')
+			if (snapshot.status !== 'sealed') throw new Error('Missing seal')
+			expect(snapshot.seal.id).toBe(seal.id)
 			expect(
-				reading.attempts.every((attempt) =>
+				snapshot.attempts.every((attempt) =>
 					attempt.observations.every((observation) => observation.product === undefined),
 				),
 			).toBe(true)
@@ -434,7 +434,7 @@ describe('StudyResultStore', () => {
 					signal: new AbortController().signal,
 				}).execute()
 				await results.seal()
-				const reading = await readStudyResult(directory)
+				const snapshot = await readStudyResult(directory)
 				expect(driver.executed.calls[0]).toEqual(['write'])
 				const first = attempts[0]?.observations[0]
 				if (first === undefined) throw new Error('Missing first observation')
@@ -446,10 +446,10 @@ describe('StudyResultStore', () => {
 					manifest.schedule.map((trial) => trial.id),
 				)
 				for (const attempt of attempts) expect(attempt.observations).toHaveLength(2)
-				expect(reading.status).toBe('sealed')
-				if (reading.status !== 'sealed') throw new Error('Missing seal')
-				expect(reading.attempts).toEqual(attempts)
-				expect(reading.attempts[0]?.observations[0]?.product).toEqual(first.product)
+				expect(snapshot.status).toBe('sealed')
+				if (snapshot.status !== 'sealed') throw new Error('Missing seal')
+				expect(snapshot.attempts).toEqual(attempts)
+				expect(snapshot.attempts[0]?.observations[0]?.product).toEqual(first.product)
 			} finally {
 				scratch.destroy()
 			}
@@ -503,14 +503,14 @@ describe('StudyResultStore', () => {
 				])
 			}
 			const seal = await results.seal()
-			const reading = await readStudyResult(directory)
-			expect(reading.status).toBe('sealed')
-			if (reading.status !== 'sealed') throw new Error('Missing seal')
-			expect(reading.seal.id).toBe(seal.id)
-			expect(reading.attempts.map((attempt) => attempt.trial.id)).toEqual(
+			const snapshot = await readStudyResult(directory)
+			expect(snapshot.status).toBe('sealed')
+			if (snapshot.status !== 'sealed') throw new Error('Missing seal')
+			expect(snapshot.seal.id).toBe(seal.id)
+			expect(snapshot.attempts.map((attempt) => attempt.trial.id)).toEqual(
 				manifest.schedule.map((trial) => trial.id),
 			)
-			expect(reading.attempts[0]?.observations[0]?.product).toBeUndefined()
+			expect(snapshot.attempts[0]?.observations[0]?.product).toBeUndefined()
 		} finally {
 			scratch.destroy()
 		}
@@ -628,9 +628,9 @@ describe('StudyResultStore', () => {
 		try {
 			const result = await retainStudyFixture(join(scratch.path, 'result'))
 			await rm(join(result.directory, 'seal.json'))
-			const reading = await readStudyResult(result.directory)
-			expect(reading.status).toBe('interrupted')
-			expect(reading.attempts.map((attempt) => attempt.trial.id)).toEqual(
+			const snapshot = await readStudyResult(result.directory)
+			expect(snapshot.status).toBe('interrupted')
+			expect(snapshot.attempts.map((attempt) => attempt.trial.id)).toEqual(
 				result.manifest.schedule.map((trial) => trial.id),
 			)
 		} finally {

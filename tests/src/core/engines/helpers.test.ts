@@ -24,12 +24,12 @@ describe('study engine error attribution', () => {
 			role: 'agent',
 			stop: new StudyAccessorCeiling(),
 		}
-		const reading = readStudyFailure(new StudyError('CAPACITY', 'Class stop', failure))
-		expect(reading).toBe(failure)
-		expect(reading.cause).toBe('capacity')
-		expect(reading.message).toBe('Reached')
-		expect(reading.role).toBe('agent')
-		expect(reading.stop).toBe(failure.stop)
+		const result = readStudyFailure(new StudyError('CAPACITY', 'Class stop', failure))
+		expect(result).toBe(failure)
+		expect(result.cause).toBe('capacity')
+		expect(result.message).toBe('Reached')
+		expect(result.role).toBe('agent')
+		expect(result.stop).toBe(failure.stop)
 	})
 
 	it('preserves an existing operational reading and classifies uncategorized errors', () => {

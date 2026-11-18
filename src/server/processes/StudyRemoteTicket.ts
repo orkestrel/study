@@ -1,8 +1,20 @@
 import type { StudyFailure, StudyTicketInterface, StudyUsage } from '@src/core'
-import type { StudyRemoteTicketOptions } from './types.js'
+import type { StudyRemoteTicketOptions, StudySettleOperation } from './types.js'
 import { StudyError } from '@src/core'
 
-/** Transmits one settlement without inventing local admission authority. */
+/**
+ * Transmits one settlement without inventing local admission authority.
+ * @example
+ * ```ts
+ * const ticket = new StudyRemoteTicket({
+ * 	id: 1,
+ * 	signal: new AbortController().signal,
+ * 	settle: () => undefined,
+ * })
+ * ticket.finish({ role: 'agent', calls: 1, tokens: 8, bytes: 6, duration: 5 })
+ * ticket.settled // true
+ * ```
+ */
 export class StudyRemoteTicket implements StudyTicketInterface {
 	#options: StudyRemoteTicketOptions
 	#settled = false
@@ -34,7 +46,7 @@ export class StudyRemoteTicket implements StudyTicketInterface {
 		this.#settle('fail', failure)
 	}
 
-	#settle(operation: 'finish' | 'fail', value: StudyUsage | StudyFailure): void {
+	#settle(operation: StudySettleOperation, value: StudyUsage | StudyFailure): void {
 		if (this.#settled) {
 			this.#options.settle('fail', {
 				cause: 'infrastructure',

@@ -109,13 +109,13 @@ export class StudyExchangeSink implements StudyExchangeSinkInterface {
 				throw new StudyError('CAPACITY', 'Serialized exchange bytes exceed the trial allowance')
 			this.#progress = progress
 			this.#bytes += bytes.length
-			const pending = this.#write(bytes)
-			this.#writes.add(pending)
-			void pending.then(
-				() => this.#writes.delete(pending),
-				() => this.#writes.delete(pending),
+			const write = this.#write(bytes)
+			this.#writes.add(write)
+			void write.then(
+				() => this.#writes.delete(write),
+				() => this.#writes.delete(write),
 			)
-			return pending
+			return write
 		} catch (error) {
 			this.#fault ??= { error }
 			return Promise.reject(error)

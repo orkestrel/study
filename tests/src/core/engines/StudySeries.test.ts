@@ -258,8 +258,8 @@ describe('StudySeries', () => {
 	it('closes a session that opens after the parent aborted exactly once', async () => {
 		const manifest = buildCompactCustodyManifest()
 		const parent = new AbortController()
-		const opening = Promise.withResolvers<void>()
-		const driver = createStudyDriverFixture({ delay: opening.promise })
+		const gate = Promise.withResolvers<void>()
+		const driver = createStudyDriverFixture({ delay: gate.promise })
 		const custody = createStudyStoreFixture()
 		const task = new StudySeries({
 			manifest,
@@ -270,7 +270,7 @@ describe('StudySeries', () => {
 		try {
 			await waitForCondition('driver open called', () => driver.opened.count === 1)
 			parent.abort()
-			opening.resolve()
+			gate.resolve()
 			const attempts = await task
 			expect(attempts).toHaveLength(2)
 			expect(attempts.map((attempt) => attempt.failure?.cause)).toEqual([
@@ -296,7 +296,7 @@ describe('StudySeries', () => {
 			expect(driver.opened.count).toBe(1)
 			expect(driver.closed.calls).toEqual([[manifest.schedule[0]?.id]])
 		} finally {
-			opening.resolve()
+			gate.resolve()
 			parent.abort()
 			await Promise.allSettled([task])
 		}

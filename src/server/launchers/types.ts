@@ -1,13 +1,7 @@
 import type { StudyAllowance, StudyProviderDigest } from '@src/core'
-import type { StudyExecutionRequest } from '../commands/types.js'
+import type { StudyExecutionSelector } from '../commands/types.js'
 import type { StudyResultView } from '../stores/types.js'
 import type { StudyInstall } from './StudyInstall.js'
-
-/** Selects the native command entry and the caller's consumer root. */
-export interface StudyLaunchOptions {
-	readonly root: string
-	readonly entry: string
-}
 
 /** Retains the bounded command exit and the text each captured stream carried. */
 export interface StudyLaunchResult {
@@ -105,7 +99,7 @@ export interface StudyRehearsalOptions {
 	readonly study: string
 	readonly profile: string
 	readonly directory: string
-	readonly selection?: Pick<StudyExecutionRequest, 'trial' | 'goals' | 'seed'>
+	readonly selection?: StudyExecutionSelector
 }
 
 /**

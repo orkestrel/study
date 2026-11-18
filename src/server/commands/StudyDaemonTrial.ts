@@ -22,7 +22,7 @@ import { hashStudyBytes } from '../helpers.js'
  */
 export class StudyDaemonTrial {
 	readonly #options: StudyDaemonTrialOptions
-	readonly #pending = new Map<StudyExchangeIdentity, StudyExchangeReply>()
+	readonly #replies = new Map<StudyExchangeIdentity, StudyExchangeReply>()
 	#sink: StudyExchangeSinkInterface | undefined
 
 	/** Owns the declaration and reserved destination for one preparation.
@@ -135,7 +135,7 @@ export class StudyDaemonTrial {
 				reader?.releaseLock()
 			}
 			const bytes = Buffer.concat(chunks)
-			this.#pending.set(identity, {
+			this.#replies.set(identity, {
 				status: response.status,
 				headers,
 				chunks: chunks.map((chunk) => chunk.byteLength),
@@ -157,7 +157,7 @@ export class StudyDaemonTrial {
 	}
 
 	async #finish(error?: unknown): Promise<void> {
-		for (const [identity, reply] of this.#pending) {
+		for (const [identity, reply] of this.#replies) {
 			try {
 				await this.#sink?.append(
 					error === undefined
@@ -170,7 +170,7 @@ export class StudyDaemonTrial {
 							},
 				)
 			} finally {
-				this.#pending.delete(identity)
+				this.#replies.delete(identity)
 			}
 		}
 	}

@@ -16,19 +16,23 @@ import {
 	isStudyCustodyName,
 	isStudyExchangeDeclaration,
 } from '../stores/validators.js'
-import { holds, isJSONValue, isRecord } from '@orkestrel/contract'
+import { holds, isBoolean, isJSONValue, isNumber, isRecord, isString } from '@orkestrel/contract'
 import { matchesStudyKeyedRoles } from '../ollama/helpers.js'
 
 /** Checks whether a worker destination has an absolute sidecar path and finite reservation.
  * @param value - The decoded destination.
  * @returns True if its path, allowance and optional retained identity are valid; false otherwise.
+ * @example
+ * ```ts
+ * isStudyExchangeDestination({}) // false
+ * ```
  */
 export function isStudyExchangeDestination(value: unknown): value is StudyExchangeDestination {
 	return holds(
 		() =>
 			isRecord(value) &&
 			matchesStudyKeys(value, ['path', 'declaration'], ['retained']) &&
-			typeof value.path === 'string' &&
+			isString(value.path) &&
 			isAbsolute(value.path) &&
 			basename(value.path) === 'exchanges.jsonl' &&
 			isStudyExchangeDeclaration(value.declaration) &&
@@ -49,9 +53,9 @@ export function isStudyKeyedSelection(value: unknown): value is StudyOllamaKeyed
 		() =>
 			isRecord(value) &&
 			matchesStudyKeys(value, ['result', 'roles', 'offline']) &&
-			typeof value.result === 'string' &&
+			isString(value.result) &&
 			value.result.length > 0 &&
-			typeof value.offline === 'boolean' &&
+			isBoolean(value.offline) &&
 			matchesStudyKeyedRoles(value.roles, value.offline),
 	)
 }
@@ -59,23 +63,24 @@ export function isStudyKeyedSelection(value: unknown): value is StudyOllamaKeyed
 /** Checks whether replay explicitly selects a sealed directory and per-trial prefix counts.
  * @param value - The decoded replay selection.
  * @returns True if result, offline and every prefix are declared; false otherwise.
+ * @example
+ * ```ts
+ * isStudyReplaySelection({ result: 'recorded', prefix: { 'trial-1': 2 }, offline: true }) // true
+ * ```
  */
 export function isStudyReplaySelection(value: unknown): value is StudyOllamaReplaySelection {
 	return holds(
 		() =>
 			isRecord(value) &&
 			matchesStudyKeys(value, ['result', 'prefix', 'offline']) &&
-			typeof value.result === 'string' &&
+			isString(value.result) &&
 			value.result.length > 0 &&
-			typeof value.offline === 'boolean' &&
+			isBoolean(value.offline) &&
 			isRecord(value.prefix) &&
 			Object.keys(value.prefix).length > 0 &&
 			Object.entries(value.prefix).every(
 				([trial, count]) =>
-					isStudyCustodyName(trial) &&
-					typeof count === 'number' &&
-					Number.isSafeInteger(count) &&
-					count > 0,
+					isStudyCustodyName(trial) && isNumber(count) && Number.isSafeInteger(count) && count > 0,
 			),
 	)
 }
@@ -83,6 +88,10 @@ export function isStudyReplaySelection(value: unknown): value is StudyOllamaRepl
 /** Checks the complete transport envelope before domain handling.
  * @param value - Native IPC decoded value.
  * @returns True if the envelope is bounded in shape and JSON-compatible; false otherwise.
+ * @example
+ * ```ts
+ * isStudyFrame({ id: 1, operation: 'goal', value: null }) // true
+ * ```
  */
 export function isStudyFrame(value: unknown): value is StudyFrame {
 	return holds(
@@ -92,10 +101,10 @@ export function isStudyFrame(value: unknown): value is StudyFrame {
 			Object.hasOwn(value, 'id') &&
 			Object.hasOwn(value, 'operation') &&
 			Object.hasOwn(value, 'value') &&
-			typeof value.id === 'number' &&
+			isNumber(value.id) &&
 			Number.isSafeInteger(value.id) &&
 			value.id >= 0 &&
-			typeof value.operation === 'string' &&
+			isString(value.operation) &&
 			[
 				'open',
 				'goal',
@@ -115,12 +124,16 @@ export function isStudyFrame(value: unknown): value is StudyFrame {
 /** Checks operational failure attribution arriving over IPC.
  * @param value - Decoded failure value.
  * @returns True if the failure carries a known cause, an optional role, and an optional stop that satisfies `isStudyStop` on a `capacity` or `deadline` cause; false otherwise.
+ * @example
+ * ```ts
+ * isStudyProcessFailure({ cause: 'infrastructure', message: 'Socket closed' }) // true
+ * ```
  */
 export function isStudyProcessFailure(value: unknown): value is StudyFailure {
 	return holds(
 		() =>
 			isRecord(value) &&
-			typeof value.message === 'string' &&
+			isString(value.message) &&
 			isStudyCause(value.cause) &&
 			(value.role === undefined || isStudyRole(value.role)) &&
 			(value.stop === undefined ||
@@ -131,16 +144,20 @@ export function isStudyProcessFailure(value: unknown): value is StudyFailure {
 /** Checks a request's declared role and finite cost ceilings.
  * @param value - Decoded charge.
  * @returns True if all charge leaves are valid; false otherwise.
+ * @example
+ * ```ts
+ * isStudyCharge({ role: 'agent', tokens: 10, bytes: 10 }) // true
+ * ```
  */
 export function isStudyCharge(value: unknown): value is StudyCharge {
 	return holds(
 		() =>
 			isRecord(value) &&
 			isStudyRole(value.role) &&
-			typeof value.tokens === 'number' &&
+			isNumber(value.tokens) &&
 			Number.isSafeInteger(value.tokens) &&
 			value.tokens >= 0 &&
-			typeof value.bytes === 'number' &&
+			isNumber(value.bytes) &&
 			Number.isSafeInteger(value.bytes) &&
 			value.bytes >= 0,
 	)
@@ -149,6 +166,10 @@ export function isStudyCharge(value: unknown): value is StudyCharge {
 /** Checks append-only public evidence.
  * @param value - Decoded evidence.
  * @returns True if event, goal and payload are valid; false otherwise.
+ * @example
+ * ```ts
+ * isStudyEvidence({ event: 'note', goal: 'open-order', value: 'kept' }) // true
+ * ```
  */
 export function isStudyEvidence(value: unknown): value is StudyEvidence {
 	return holds(
@@ -163,6 +184,10 @@ export function isStudyEvidence(value: unknown): value is StudyEvidence {
 /** Checks a fresh trial's declared identifiers.
  * @param value - Decoded trial.
  * @returns True if every identifier and repetition is valid; false otherwise.
+ * @example
+ * ```ts
+ * isStudyTrial({ id: 'trial-1', scenario: 'checkout', arm: 'control', repetition: 0 }) // true
+ * ```
  */
 export function isStudyTrial(value: unknown): value is StudyTrial {
 	return holds(
@@ -171,7 +196,7 @@ export function isStudyTrial(value: unknown): value is StudyTrial {
 			isStudyName(value.id) &&
 			isStudyName(value.scenario) &&
 			isStudyName(value.arm) &&
-			typeof value.repetition === 'number' &&
+			isNumber(value.repetition) &&
 			Number.isSafeInteger(value.repetition) &&
 			value.repetition >= 0,
 	)
@@ -180,6 +205,10 @@ export function isStudyTrial(value: unknown): value is StudyTrial {
 /** Checks the exact digest fields carried by the execution declaration.
  * @param value - Decoded identity.
  * @returns True if all required identities are digests; false otherwise.
+ * @example
+ * ```ts
+ * isStudyIdentity({}) // false
+ * ```
  */
 export function isStudyIdentity(value: unknown): value is StudyIdentity {
 	return holds(

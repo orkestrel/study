@@ -67,9 +67,9 @@ describe('StudyAgentJudge', () => {
 	] as const)(
 		'hands a thrown %s to the failure owner and rethrows that same value',
 		async (_name, thrown) => {
-			const failing = createRejectedStudyJudge(thrown)
+			const rejected = createRejectedStudyJudge(thrown)
 			const latch = createStudyLatch()
-			const judge = new StudyAgentJudge(failing, latch)
+			const judge = new StudyAgentJudge(rejected, latch)
 			const outcome = await judge.ask(STUDY_JUDGE_REQUEST, new AbortController().signal).then(
 				() => undefined,
 				(error: unknown) => ({ error }),

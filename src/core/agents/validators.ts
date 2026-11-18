@@ -1,6 +1,6 @@
 import type { StudyAgentRuntime } from './types.js'
 import type { LedgerGauge } from '@orkestrel/agent'
-import { holds, isFiniteNumber, isObject } from '@orkestrel/contract'
+import { holds, isFiniteNumber, isFunction, isObject } from '@orkestrel/contract'
 
 /**
  * Checks whether a value is a gauge with a finite positive scale and a finite nonnegative overhead.
@@ -36,8 +36,8 @@ export function isStudyAgentRuntime(value: unknown): value is StudyAgentRuntime 
 		() =>
 			isObject(value) &&
 			'estimateRequest' in value &&
-			typeof value.estimateRequest === 'function' &&
+			isFunction(value.estimateRequest) &&
 			'measureRequest' in value &&
-			typeof value.measureRequest === 'function',
+			isFunction(value.measureRequest),
 	)
 }

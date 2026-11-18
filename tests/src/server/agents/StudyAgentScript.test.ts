@@ -193,8 +193,8 @@ describe('StudyAgentScript', () => {
 				await stream.next()
 				const reason = createForeignBudgetError()
 				controller.abort(reason)
-				const ending = abandoned ? stream.return({ content: 'partial' }) : stream.next()
-				const outcome: unknown = await ending.catch((error: unknown) => error)
+				const end = abandoned ? stream.return({ content: 'partial' }) : stream.next()
+				const outcome: unknown = await end.catch((error: unknown) => error)
 				expect(outcome).toEqual(abandoned ? { done: true, value: { content: 'partial' } } : reason)
 				expect(readStudyFailure(reason).stop).toEqual({
 					layer: 'budget',
@@ -364,8 +364,8 @@ describe('StudyAgentScript', () => {
 				buildStudyScriptResponse({ content: 'second' }),
 			])
 			script.prepare(fixture.plan)
-			const running = script.stream(STUDY_SCRIPT_MESSAGES, meter.control.signal)
-			expect(await running.next()).toEqual({
+			const iterator = script.stream(STUDY_SCRIPT_MESSAGES, meter.control.signal)
+			expect(await iterator.next()).toEqual({
 				done: false,
 				value: { channel: 'content', text: 'first' },
 			})
@@ -375,7 +375,7 @@ describe('StudyAgentScript', () => {
 			await expect(script.generate(STUDY_SCRIPT_MESSAGES, meter.control.signal)).rejects.toThrow(
 				'Scripted provider is unavailable',
 			)
-			expect(await running.next()).toEqual({ done: true, value: { content: 'first' } })
+			expect(await iterator.next()).toEqual({ done: true, value: { content: 'first' } })
 			expect(await script.generate(STUDY_SCRIPT_MESSAGES, meter.control.signal)).toEqual({
 				content: 'second',
 			})
@@ -458,8 +458,8 @@ describe('StudyAgentScript', () => {
 			const first = createStudyScriptFixture(meter, [buildStudyScriptResponse({ content: 'a1' })])
 			const second = createStudyScriptFixture(meter, [buildStudyScriptResponse({ content: 'b1' })])
 			script.prepare(first.plan)
-			const running = script.stream(STUDY_SCRIPT_MESSAGES, meter.control.signal)
-			expect(await running.next()).toEqual({
+			const iterator = script.stream(STUDY_SCRIPT_MESSAGES, meter.control.signal)
+			expect(await iterator.next()).toEqual({
 				done: false,
 				value: { channel: 'content', text: 'a1' },
 			})
@@ -467,7 +467,7 @@ describe('StudyAgentScript', () => {
 			expect(() => script.prepare(second.plan)).toThrow(
 				'Cannot replace a running scripted workload',
 			)
-			expect(await running.next()).toEqual({ done: true, value: { content: 'a1' } })
+			expect(await iterator.next()).toEqual({ done: true, value: { content: 'a1' } })
 			expect(first.rows.calls.map(([row]) => [row.event, row.goal])).toEqual([
 				['provider', 'script'],
 			])
@@ -555,11 +555,11 @@ describe('StudyAgentScript', () => {
 	it('refuses a request beyond the encoded bound exactly at the boundary before admission', async () => {
 		const meter = createStudyScriptMeter()
 		try {
-			const measuring = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
-			measuring.prepare(
+			const probe = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
+			probe.prepare(
 				createStudyScriptFixture(meter, [buildStudyScriptResponse({ content: 'ok' })]).plan,
 			)
-			await measuring.generate(STUDY_SCRIPT_MESSAGES, meter.control.signal)
+			await probe.generate(STUDY_SCRIPT_MESSAGES, meter.control.signal)
 			const encoded = meter.meter.usage[0]?.bytes ?? 0
 			expect(encoded).toBeGreaterThan(0)
 			const exact = new StudyAgentScript({ bytes: encoded, model: STUDY_SCRIPT_MODEL })
@@ -796,27 +796,27 @@ describe('StudyAgentScript', () => {
 		const streamed = createStudyScriptMeter(1000, 100, 2)
 		const generated = createStudyScriptMeter(1000, 100, 2)
 		try {
-			const streaming = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
-			const generating = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
+			const streamer = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
+			const generator = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 			const streamFixture = createStudyScriptFixture(streamed, responses)
 			const generateFixture = createStudyScriptFixture(generated, responses)
-			streaming.prepare(streamFixture.plan)
-			generating.prepare(generateFixture.plan)
+			streamer.prepare(streamFixture.plan)
+			generator.prepare(generateFixture.plan)
 			const first = await readProviderStream(
-				streaming.stream(STUDY_SCRIPT_MESSAGES, streamed.control.signal),
+				streamer.stream(STUDY_SCRIPT_MESSAGES, streamed.control.signal),
 			)
 			const second = await readProviderStream(
-				streaming.stream(STUDY_SCRIPT_MESSAGES, streamed.control.signal),
+				streamer.stream(STUDY_SCRIPT_MESSAGES, streamed.control.signal),
 			)
 			expect(first.deltas).toEqual([{ channel: 'content', text: 'looking' }])
 			expect(first.result).toEqual({ content: 'looking', tools: [STUDY_SCRIPT_CALL] })
 			// A response without content yields no delta and no tools member.
 			expect(second.deltas).toEqual([])
 			expect(second.result).toEqual({ content: '' })
-			expect(await generating.generate(STUDY_SCRIPT_MESSAGES, generated.control.signal)).toEqual(
+			expect(await generator.generate(STUDY_SCRIPT_MESSAGES, generated.control.signal)).toEqual(
 				first.result,
 			)
-			expect(await generating.generate(STUDY_SCRIPT_MESSAGES, generated.control.signal)).toEqual(
+			expect(await generator.generate(STUDY_SCRIPT_MESSAGES, generated.control.signal)).toEqual(
 				second.result,
 			)
 			expect(generateFixture.rows.calls).toEqual(streamFixture.rows.calls)

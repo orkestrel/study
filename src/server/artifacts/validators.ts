@@ -1,5 +1,5 @@
 import type { ArtifactClosure, ArtifactLoaderOptions, ArtifactMember } from './types.js'
-import { arrayOf, holds, isArray, isRecord, isString } from '@orkestrel/contract'
+import { arrayOf, holds, isArray, isNumber, isRecord, isString } from '@orkestrel/contract'
 import { isStudyDigest } from '@src/core'
 import { ARTIFACT_FILES, ARTIFACT_ROOTS } from './constants.js'
 import { matchesArtifactCredential } from './helpers.js'
@@ -15,7 +15,7 @@ import { matchesArtifactCredential } from './helpers.js'
  */
 export function isArtifactKey(value: unknown): value is string {
 	return (
-		typeof value === 'string' &&
+		isString(value) &&
 		value !== '' &&
 		!/[\\<>:"|?*]/u.test(value) &&
 		!Array.from(value).some(
@@ -82,7 +82,7 @@ export function isArtifactMember(value: unknown): value is ArtifactMember {
 			isString(value.source) &&
 			isArtifactKey(value.key) &&
 			isStudyDigest(value.digest) &&
-			typeof value.size === 'number' &&
+			isNumber(value.size) &&
 			Number.isSafeInteger(value.size) &&
 			value.size >= 0,
 	)

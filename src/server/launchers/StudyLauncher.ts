@@ -1,4 +1,5 @@
-import type { StudyLaunchOptions, StudyLaunchResult } from './types.js'
+import type { StudyLaunchResult } from './types.js'
+import type { StudyCommandOptions } from '../commands/types.js'
 import { StudyError } from '@src/core'
 import { spawn } from 'node:child_process'
 import { STUDY_COMMAND_DURATION } from '../commands/constants.js'
@@ -27,7 +28,7 @@ export class StudyLauncher {
 	/** Owns the trusted runtime entry and caller working directory.
 	 * @param options - Native entry and consumer root.
 	 */
-	constructor(options: StudyLaunchOptions) {
+	constructor(options: StudyCommandOptions) {
 		this.#root = options.root
 		this.#entry = options.entry
 		this.#signal = this.#interruption.abort.bind(this.#interruption)

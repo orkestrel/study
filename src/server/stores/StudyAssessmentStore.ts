@@ -76,7 +76,7 @@ export class StudyAssessmentStore {
 		if (
 			options.packet !== undefined &&
 			(options.packet.content.byteLength > STUDY_CUSTODY_BYTES ||
-				options.packet.mapping.byteLength > STUDY_CUSTODY_BYTES)
+				options.packet.legend.byteLength > STUDY_CUSTODY_BYTES)
 		)
 			throw new StudyError('CAPACITY', 'Packet exceeds the grading metadata allowance')
 		this.#packet =
@@ -84,7 +84,7 @@ export class StudyAssessmentStore {
 				? undefined
 				: {
 						content: new Uint8Array(options.packet.content),
-						mapping: new Uint8Array(options.packet.mapping),
+						legend: new Uint8Array(options.packet.legend),
 					}
 	}
 
@@ -169,7 +169,7 @@ export class StudyAssessmentStore {
 							join(directory, `${assessment.packet}.packet.json`),
 							STUDY_CUSTODY_BYTES,
 						),
-						mapping: await readStudyBytes(
+						legend: await readStudyBytes(
 							join(directory, `${assessment.packet}.mapping.json`),
 							STUDY_CUSTODY_BYTES,
 						),
@@ -207,10 +207,10 @@ export class StudyAssessmentStore {
 			await mkdir(directory)
 		} catch (error) {
 			if (!matchesSystemError(error, 'EEXIST')) throw error
-			const existing = await this.read(id)
+			const copy = await this.read(id)
 			if (
-				existing === undefined ||
-				canonicalStringify(existing) !== canonicalStringify(assessment) ||
+				copy === undefined ||
+				canonicalStringify(copy) !== canonicalStringify(assessment) ||
 				hashStudyBytes(
 					await readStudyBytes(join(directory, 'grading.json'), STUDY_CUSTODY_BYTES),
 				) !== id
@@ -226,7 +226,7 @@ export class StudyAssessmentStore {
 			)
 			await writeStudyBytes(
 				join(directory, `${assessment.packet}.mapping.json`),
-				this.#packet.mapping,
+				this.#packet.legend,
 			)
 		}
 		if (this.#labelsBytes !== undefined && this.#labelsDigest !== undefined)
@@ -260,7 +260,7 @@ export class StudyAssessmentStore {
 			if (
 				expected === undefined ||
 				hashStudyBytes(expected.content) !== hashStudyBytes(packet.content) ||
-				hashStudyBytes(expected.mapping) !== hashStudyBytes(packet.mapping)
+				hashStudyBytes(expected.legend) !== hashStudyBytes(packet.legend)
 			)
 				throw new StudyError('CUSTODY', 'Grading packet differs from the sealed semantic horizon')
 		}

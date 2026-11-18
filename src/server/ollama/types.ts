@@ -278,7 +278,7 @@ export interface StudyOllamaAdmission {
  * wire policy of every model role the consumer dispatches; an undeclared role is refused.
  * `signal` cancels all work. `observe`: if `true`, existing evidence rows gain passive timing and
  * correlation fields; if `false`, passive fields are absent. Recording always retains exchange
- * ordinals and raw bytes independently of observation. `timing` extracts daemon timing; the selected Ollama runtime supplies the extractor and the transport imports none.
+ * ordinals and raw bytes independently of observation. `extract` reads the daemon telemetry, the Ollama timing of a terminal row; the selected Ollama runtime supplies the extractor and the transport imports none.
  * `fetch` optionally sends the validated request under its role. Default: native fetch. Study keeps
  * response validation and accounting; the collaborator returns a native response and settles no ticket.
  * `replay` sends through a replay instead, which also tells the transport which replies a recording
@@ -289,7 +289,7 @@ export interface StudyOllamaTransportOptions extends StudyOllamaAdmission {
 	readonly limit: StudyOllamaAllowance
 	readonly signal: AbortSignal
 	readonly observe: boolean
-	readonly timing: typeof extractTiming
+	readonly extract: typeof extractTiming
 	readonly fetch?: StudyOllamaFetchFunction | undefined
 	readonly replay?: StudyOllamaReplayInterface | undefined
 	/** Bounds both metadata passes independently of every model quota. */
@@ -389,8 +389,8 @@ export interface StudyOllamaWire extends StudyOllamaExchangeOptions {
 	/** Holds the decoded response text not yet consumed as complete rows. */
 	readonly text: string
 	readonly terminal: StudyOllamaTerminal | undefined
-	/** Holds the daemon timing of the terminal row after observation. */
-	readonly timing: OllamaTiming | undefined
+	/** Holds the daemon telemetry, the Ollama timing of the terminal row, after observation. */
+	readonly telemetry: OllamaTiming | undefined
 	/** Reports whether the request was accounted, finished or failed. */
 	readonly settled: boolean
 }

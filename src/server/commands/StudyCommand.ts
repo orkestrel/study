@@ -95,7 +95,18 @@ import {
 import { parseStudyArguments } from './parsers.js'
 import { isStudyReplaySelection } from '../processes/validators.js'
 
-/** Executes validated study operations with execution and grading custody kept independent. */
+/**
+ * Executes validated study operations with execution and grading custody kept independent.
+ * @example
+ * ```ts
+ * declare const entry: string
+ * const command = new StudyCommand({ root: process.cwd(), entry })
+ * const reply = await command.execute(
+ * 	['check', 'assessment', '--profile', 'local'],
+ * 	new AbortController().signal,
+ * )
+ * ```
+ */
 export class StudyCommand {
 	readonly #root: string
 	readonly #entry: string
@@ -1051,7 +1062,7 @@ export class StudyCommand {
 							join(directory, `${assessment.packet}.packet.json`),
 							STUDY_CUSTODY_BYTES,
 						),
-						mapping: await readStudyBytes(
+						legend: await readStudyBytes(
 							join(directory, `${assessment.packet}.mapping.json`),
 							STUDY_CUSTODY_BYTES,
 						),

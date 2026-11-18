@@ -1,5 +1,5 @@
 import type { StudyAdapterInterface } from './types.js'
-import { holds } from '@orkestrel/contract'
+import { holds, isFunction, isObject } from '@orkestrel/contract'
 
 /** Checks whether a factory returned the complete consumer adapter contract.
  * @param value - The unknown factory result.
@@ -15,17 +15,14 @@ import { holds } from '@orkestrel/contract'
 export function isStudyAdapter(value: unknown): value is StudyAdapterInterface {
 	return holds(() => {
 		return (
-			typeof value === 'object' &&
-			value !== null &&
+			isObject(value) &&
 			'validate' in value &&
-			typeof value.validate === 'function' &&
+			isFunction(value.validate) &&
 			'driver' in value &&
-			typeof value.driver === 'function' &&
+			isFunction(value.driver) &&
 			'grade' in value &&
-			typeof value.grade === 'function' &&
-			(!('progress' in value) ||
-				value.progress === undefined ||
-				typeof value.progress === 'function')
+			isFunction(value.grade) &&
+			(!('progress' in value) || value.progress === undefined || isFunction(value.progress))
 		)
 	})
 }

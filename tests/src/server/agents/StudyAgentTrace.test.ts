@@ -17,21 +17,21 @@ const second: ProviderRequest = {
 	messages: [...STUDY_AGENT_MESSAGES, { id: 'm2', role: 'assistant', content: 'Two orders' }],
 	tools: STUDY_AGENT_TOOLS,
 }
-const reading = { estimate: 40, projected: 141 }
+const measurement = { estimate: 40, projected: 141 }
 
 describe('StudyAgentTrace', () => {
 	it('numbers agent dispatches and keeps counters and the role identity across goals', async () => {
 		const { trace } = createStudyAgentTrace(true)
 		const sink = createStudySinkFixture()
 		trace.start('write')
-		trace.record(reading, first)
-		trace.dispatch('agent', second, reading)
+		trace.record(measurement, first)
+		trace.dispatch('agent', second, measurement)
 		expect(trace.canonical('agent')).toEqual({ id: 2, revision: buildStudyAgentRevision(second) })
 		expect(Object.isFrozen(trace.canonical('agent'))).toBe(true)
 		await trace.flush(sink.sink)
 		expect(trace.canonical('agent')?.id).toBe(2)
 		trace.start('read')
-		trace.record(reading, first)
+		trace.record(measurement, first)
 		expect(trace.canonical('agent')).toEqual({ id: 3, revision: buildStudyAgentRevision(first) })
 		await trace.flush(sink.sink)
 		const sequence = sink.rows.map((row) => {
@@ -52,7 +52,7 @@ describe('StudyAgentTrace', () => {
 		const sink = createStudySinkFixture()
 		const revision = buildStudyAgentRevision(second)
 		trace.start('write')
-		trace.record(reading, second)
+		trace.record(measurement, second)
 		await trace.flush(sink.sink)
 		const [context, estimate] = sink.rows
 		expect(context?.event).toBe('context')
@@ -113,9 +113,9 @@ describe('StudyAgentTrace', () => {
 		const { trace } = createStudyAgentTrace(false)
 		const sink = createStudySinkFixture()
 		trace.start('write')
-		expect(trace.measure('dispatch', 'agent', first, reading, 1)).toBe(undefined)
-		trace.record(reading, first)
-		trace.dispatch('agent', second, reading)
+		expect(trace.measure('dispatch', 'agent', first, measurement, 1)).toBe(undefined)
+		trace.record(measurement, first)
+		trace.dispatch('agent', second, measurement)
 		expect(trace.canonical('agent')).toBe(undefined)
 		trace.append('lookup', { id: 'order-1', found: true })
 		trace.append('note', { sources: ['m1'], content: 'Kept' })
@@ -129,13 +129,13 @@ describe('StudyAgentTrace', () => {
 	it('measures only while a goal is active', async () => {
 		const watched = createStudyAgentTrace(true).trace
 		expect(watched.goal).toBe(undefined)
-		expect(watched.measure('dispatch', 'agent', first, reading, 1)).toBe(undefined)
+		expect(watched.measure('dispatch', 'agent', first, measurement, 1)).toBe(undefined)
 		watched.start('write')
 		expect(watched.goal).toBe('write')
-		expect(watched.measure('dispatch', 'agent', first, reading, 1)?.ordinal).toBe(1)
+		expect(watched.measure('dispatch', 'agent', first, measurement, 1)?.ordinal).toBe(1)
 		await watched.flush(createStudySinkFixture().sink)
 		expect(watched.goal).toBe(undefined)
-		expect(watched.measure('dispatch', 'agent', first, reading, 1)).toBe(undefined)
+		expect(watched.measure('dispatch', 'agent', first, measurement, 1)).toBe(undefined)
 	})
 
 	it('drops a row appended outside a goal and starts each goal with empty rows', async () => {
@@ -213,7 +213,7 @@ describe('StudyAgentTrace', () => {
 		const sink = createStudySinkFixture({ hook: () => held.promise })
 		trace.start('write')
 		trace.append('first', { id: 1 })
-		const pending = trace.flush(sink.sink)
+		const promise = trace.flush(sink.sink)
 		await expect(trace.flush(sink.sink)).rejects.toMatchObject({
 			code: 'CONFIG',
 			message: 'Trace flush is already pending',
@@ -221,7 +221,7 @@ describe('StudyAgentTrace', () => {
 		expect(() => trace.start('read')).toThrow('Trace goal is already active')
 		trace.append('late', { id: 2 })
 		held.resolve()
-		await pending
+		await promise
 		expect(sink.rows.map((row) => row.event)).toEqual(['first', 'late'])
 		expect(trace.goal).toBe(undefined)
 	})
@@ -231,23 +231,23 @@ describe('StudyAgentTrace', () => {
 		const appended = createRecorder<readonly [StudyEvidence]>()
 		trace.start('write')
 		trace.append('first', { id: 1 })
-		const pending = trace.flush({
+		const promise = trace.flush({
 			append: async (row) => {
 				appended.handler(row)
 			},
 		})
 		expect(appended.calls).toEqual([[{ event: 'first', goal: 'write', value: { id: 1 } }]])
-		await pending
+		await promise
 		expect(trace.goal).toBe(undefined)
 	})
 
 	it('ends a goal with no rows before the flush call returns', async () => {
 		const { trace } = createStudyAgentTrace(true)
 		trace.start('write')
-		const pending = trace.flush(createStudySinkFixture().sink)
+		const promise = trace.flush(createStudySinkFixture().sink)
 		expect(trace.goal).toBe(undefined)
 		expect(() => trace.start('read')).not.toThrow()
-		await pending
+		await promise
 		expect(trace.goal).toBe('read')
 	})
 
@@ -280,15 +280,15 @@ describe('StudyAgentTrace', () => {
 	it('clears the rows and the pending phase when custody refuses, so the next goal starts clean and continues the counters', async () => {
 		const { trace } = createStudyAgentTrace(true)
 		const refusal = new Error('Custody refused')
-		const failing = createStudySinkFixture({ refuse: { error: refusal, row: 0 } })
+		const barrier = createStudySinkFixture({ refuse: { error: refusal, row: 0 } })
 		trace.start('write')
-		trace.record(reading, first)
-		await expect(trace.flush(failing.sink)).rejects.toBe(refusal)
+		trace.record(measurement, first)
+		await expect(trace.flush(barrier.sink)).rejects.toBe(refusal)
 		const sink = createStudySinkFixture()
 		await trace.flush(sink.sink)
 		expect(sink.rows).toEqual([])
 		trace.start('read')
-		trace.record(reading, first)
+		trace.record(measurement, first)
 		await trace.flush(sink.sink)
 		expect(sink.rows.map((row) => requireStudyRecord(row.value).dispatch)).toEqual([2, 2])
 		expect(trace.canonical('agent')?.id).toBe(2)

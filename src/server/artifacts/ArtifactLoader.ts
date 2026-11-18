@@ -143,14 +143,14 @@ export class ArtifactLoader implements ArtifactLoaderInterface {
 			}
 		}
 		sources.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0))
-		const settings = process.env.NODE_OPTIONS
+		const options = process.env.NODE_OPTIONS
 		const evidence = {
 			node: process.version,
 			runtime: Object.freeze({
 				arguments: Object.freeze([...process.execArgv]),
 				platform: process.platform,
 				architecture: process.arch,
-				...(settings === undefined ? {} : { options: settings }),
+				...(options === undefined ? {} : { options }),
 			}),
 			entries: Object.freeze(
 				[

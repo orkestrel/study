@@ -15,7 +15,16 @@ import type {
 	StudyTrial,
 } from './types.js'
 import type { JSONValue } from '@orkestrel/contract'
-import { holds, canonicalStringify, isArray, isRecord } from '@orkestrel/contract'
+import {
+	holds,
+	canonicalStringify,
+	isArray,
+	isBoolean,
+	isNumber,
+	isObject,
+	isRecord,
+	isString,
+} from '@orkestrel/contract'
 import { StudyError } from './errors.js'
 import {
 	isStudyDefinition,
@@ -116,14 +125,15 @@ export function scanStudyLabelSheetFaults(labels: StudyLabelSheet): readonly str
 export function scanStudyJSONFaults(value: unknown, path = ''): readonly string[] {
 	if (
 		value === null ||
-		typeof value === 'string' ||
-		typeof value === 'boolean' ||
-		(typeof value === 'number' && Number.isFinite(value))
+		isString(value) ||
+		isBoolean(value) ||
+		(isNumber(value) && Number.isFinite(value))
 	)
 		return []
-	if (typeof value !== 'object') return [`${path || 'value'}: holds no JSON value`]
+	// The null exit above leaves `isObject` refusing exactly the non-object values.
+	if (!isObject(value)) return [`${path || 'value'}: holds no JSON value`]
 	return Reflect.ownKeys(value).flatMap((key) => {
-		if (typeof key !== 'string') return [`${path || 'value'}: holds a symbol key`]
+		if (!isString(key)) return [`${path || 'value'}: holds a symbol key`]
 		if (key === 'length' && isArray(value)) return []
 		const child = path === '' ? key : `${path}.${key}`
 		const descriptor = Reflect.getOwnPropertyDescriptor(value, key)
@@ -205,8 +215,7 @@ export function matchesStudyKeys(
 		return (
 			required.every((key) => Object.hasOwn(value, key)) &&
 			keys.every((key) => {
-				if (typeof key !== 'string' || (!required.includes(key) && !optional.includes(key)))
-					return false
+				if (!isString(key) || (!required.includes(key) && !optional.includes(key))) return false
 				const descriptor = Object.getOwnPropertyDescriptor(value, key)
 				return (
 					descriptor !== undefined &&

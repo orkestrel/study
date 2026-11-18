@@ -2,7 +2,7 @@ import type { JSONValue } from '@orkestrel/contract'
 import type { LedgerGauge, ProviderResult, RequestMeasure } from '@orkestrel/agent'
 import type { StudyRole, StudyStop } from '../types.js'
 import type { StudyAgentDispatch } from './types.js'
-import { attempt, isNonEmptyString, isObject } from '@orkestrel/contract'
+import { attempt, isNonEmptyString, isNumber, isObject } from '@orkestrel/contract'
 import { StudyError } from '../errors.js'
 import { parseStudyMeasurement } from '../parsers.js'
 
@@ -36,7 +36,7 @@ export function projectStudyAgentRequest(gauge: LedgerGauge, estimate: number): 
  */
 export function validateStudyAgentUsage(usage: ProviderResult['usage'], role: StudyRole): void {
 	const prompt = usage?.prompt
-	if (typeof prompt !== 'number' || !Number.isFinite(prompt) || prompt <= 0) {
+	if (!isNumber(prompt) || !Number.isFinite(prompt) || prompt <= 0) {
 		const message = 'Gauged request returned no usable prompt count'
 		throw new StudyError('FAULT', message, {
 			cause: 'infrastructure',

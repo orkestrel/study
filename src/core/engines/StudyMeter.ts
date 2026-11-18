@@ -20,7 +20,7 @@ import { StudyRequest } from './StudyRequest.js'
  */
 export class StudyMeter implements StudyMeterInterface {
 	#options: StudyMeterOptions
-	readonly #pending = new Set<symbol>()
+	readonly #tickets = new Set<symbol>()
 	#usage: readonly StudyUsage[] = []
 	#closed = false
 
@@ -89,14 +89,14 @@ export class StudyMeter implements StudyMeterInterface {
 		for (const scope of this.#options.scopes) scope.check(charge)
 		const id = Symbol('request')
 		for (const scope of this.#options.scopes) scope.reserve(id, charge)
-		this.#pending.add(id)
+		this.#tickets.add(id)
 		return new StudyRequest({
 			charge,
 			duration: this.#options.request.duration,
 			control: this.#options.control,
 			settle: (usage) => {
 				for (const scope of this.#options.scopes) scope.settle(id, usage)
-				this.#pending.delete(id)
+				this.#tickets.delete(id)
 				this.#usage = [...this.#usage, usage]
 			},
 		})
@@ -106,7 +106,7 @@ export class StudyMeter implements StudyMeterInterface {
 	close(): void {
 		if (this.#closed) return
 		this.#closed = true
-		if (this.#pending.size > 0)
+		if (this.#tickets.size > 0)
 			this.#options.control.fail({
 				cause: 'infrastructure',
 				message: 'Goal completed with unsettled requests',

@@ -111,8 +111,8 @@ describe('gradeStudyEvidence', () => {
 				},
 			)
 			expect(judgments).toHaveLength(6)
-			const missing = judgments.filter((judgment) => judgment.trial === 'r1-s2-a1')
-			expect(missing.map((judgment) => [judgment.verdict, judgment.references])).toEqual([
+			const unknowns = judgments.filter((judgment) => judgment.trial === 'r1-s2-a1')
+			expect(unknowns.map((judgment) => [judgment.verdict, judgment.references])).toEqual([
 				['unknown', []],
 				['unknown', []],
 				['unknown', []],

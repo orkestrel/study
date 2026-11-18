@@ -7,6 +7,7 @@ import type {
 import type { StudyFault } from '../types.js'
 import { StudyError } from '@src/core'
 import { isBudgetError } from '@orkestrel/budget'
+import { isFunction } from '@orkestrel/contract'
 import { validateStudyExchangeHistory } from '../stores/helpers.js'
 import { isStudyOllamaMetadata } from './validators.js'
 import { describeStudyReplayDifference, splitStudyOllamaChunks } from './helpers.js'
@@ -30,7 +31,7 @@ import { describeStudyReplayDifference, splitStudyOllamaChunks } from './helpers
 export class StudyOllamaReplay implements StudyOllamaReplayInterface {
 	readonly #options: StudyOllamaReplayOptions
 	readonly #readers = new Set<ReadableStream<Uint8Array>>()
-	readonly #pending = new Set<Promise<Response>>()
+	readonly #responses = new Set<Promise<Response>>()
 	readonly #served = new WeakSet<Response>()
 	readonly #started = performance.now()
 	#cursor: number
@@ -58,7 +59,7 @@ export class StudyOllamaReplay implements StudyOllamaReplayInterface {
 			owned.prefix <= 0 ||
 			owned.prefix > owned.history.exchanges.length ||
 			(fetch === undefined && owned.prefix !== owned.history.exchanges.length) ||
-			(fetch !== undefined && typeof fetch !== 'function') ||
+			(fetch !== undefined && !isFunction(fetch)) ||
 			!isStudyOllamaMetadata(owned.limit)
 		)
 			throw new StudyError(
@@ -91,7 +92,7 @@ export class StudyOllamaReplay implements StudyOllamaReplayInterface {
 		if (
 			this.#closed ||
 			this.#fault !== undefined ||
-			this.#pending.size !== 0 ||
+			this.#responses.size !== 0 ||
 			this.#readers.size !== 0
 		) {
 			const error =
@@ -103,17 +104,17 @@ export class StudyOllamaReplay implements StudyOllamaReplayInterface {
 			this.#fault ??= { error }
 			return Promise.reject(error)
 		}
-		const pending = this.#fetch(role, input, init).catch((error: unknown) => {
+		const response = this.#fetch(role, input, init).catch((error: unknown) => {
 			// An Agent budget's cut is reported by Agent's own result, so nothing is retained to re-raise.
 			if (!isBudgetError(error)) this.#fault ??= { error }
 			throw error
 		})
-		this.#pending.add(pending)
-		void pending.then(
-			() => this.#pending.delete(pending),
-			() => this.#pending.delete(pending),
+		this.#responses.add(response)
+		void response.then(
+			() => this.#responses.delete(response),
+			() => this.#responses.delete(response),
 		)
-		return pending
+		return response
 	}
 
 	/** Reports whether this replay answered a response from the recording.
@@ -128,7 +129,11 @@ export class StudyOllamaReplay implements StudyOllamaReplayInterface {
 	check(): void {
 		if (this.#fault !== undefined) throw this.#fault.error
 		this.#options.signal.throwIfAborted()
-		if (this.#cursor < this.#options.prefix || this.#readers.size !== 0 || this.#pending.size !== 0)
+		if (
+			this.#cursor < this.#options.prefix ||
+			this.#readers.size !== 0 ||
+			this.#responses.size !== 0
+		)
 			throw new StudyError('FAULT', 'Replay prefix is incomplete or still being read')
 	}
 
@@ -139,7 +144,7 @@ export class StudyOllamaReplay implements StudyOllamaReplayInterface {
 		this.#closed = true
 		await Promise.allSettled([...this.#readers].map((reader) => reader.cancel()))
 		this.#readers.clear()
-		await Promise.allSettled([...this.#pending])
+		await Promise.allSettled([...this.#responses])
 	}
 
 	async #fetch(role: StudyRole, input: string | URL, init: RequestInit): Promise<Response> {

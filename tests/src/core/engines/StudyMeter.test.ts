@@ -372,9 +372,9 @@ describe('StudyMeter', () => {
 		const work = waitForDelay(15).then(() => {
 			throw new Error('Late rejection')
 		})
-		const waiting = fixture.control.wait(work)
+		const promise = fixture.control.wait(work)
 		parent.abort()
-		await expect(waiting).rejects.toMatchObject({ context: { cause: 'interrupted' } })
+		await expect(promise).rejects.toMatchObject({ context: { cause: 'interrupted' } })
 		fixture.control.fail({
 			cause: 'infrastructure',
 			message: 'Cleanup also failed',

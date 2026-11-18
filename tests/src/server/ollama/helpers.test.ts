@@ -12,13 +12,13 @@ import {
 	collectStudyOllamaModels,
 	buildStudyOllamaRaw,
 	buildStudyOllamaOptions,
-	buildStudyOllamaTiming,
+	buildStudyOllamaTelemetry,
 	readStudyOllamaDigest,
 	readStudyOllamaFailure,
 	readStudyOllamaRequest,
 	readStudyOllamaSupport,
 	readStudyOllamaTerminal,
-	readStudyOllamaTiming,
+	readStudyOllamaTelemetry,
 	validateStudyOllamaCompletion,
 	validateStudyOllamaInventory,
 	validateStudyOllamaRoles,
@@ -718,32 +718,32 @@ describe('readStudyOllamaDigest', () => {
 
 describe('timing and raw observations', () => {
 	it('keeps unreported timing members null and lets a throwing extractor observe nothing', () => {
-		const timing = extractTiming({
+		const telemetry = extractTiming({
 			done: true,
 			total_duration: 5,
 			load_duration: -1,
 			prompt_eval_cached_count: 3,
 		})
-		expect(buildStudyOllamaTiming(undefined)).toBeNull()
-		expect(buildStudyOllamaTiming(timing)).toEqual({
+		expect(buildStudyOllamaTelemetry(undefined)).toBeNull()
+		expect(buildStudyOllamaTelemetry(telemetry)).toEqual({
 			durations: { total: 5, load: null, prompt: null, decode: null },
 			counts: { prompt: null, decode: null, cached: 3 },
 			invalid: ['load_duration'],
 		})
 		// An unreported total stays null beside a reported member, never zero.
-		expect(buildStudyOllamaTiming(extractTiming({ done: true, load_duration: 7 }))).toEqual({
+		expect(buildStudyOllamaTelemetry(extractTiming({ done: true, load_duration: 7 }))).toEqual({
 			durations: { total: null, load: 7, prompt: null, decode: null },
 			counts: { prompt: null, decode: null, cached: null },
 			invalid: [],
 		})
-		const refused = readStudyOllamaTiming(() => {
+		const refused = readStudyOllamaTelemetry(() => {
 			throw new Error('Refused timing')
 		}, {})
 		expect(refused).toBeUndefined()
 	})
 
 	it('retains every reported timing member of a complete terminal as its literal value', () => {
-		const timing = extractTiming({
+		const telemetry = extractTiming({
 			done: true,
 			total_duration: 1234567,
 			load_duration: 234567,
@@ -753,7 +753,7 @@ describe('timing and raw observations', () => {
 			eval_count: 13,
 			prompt_eval_cached_count: 3,
 		})
-		expect(buildStudyOllamaTiming(timing)).toEqual({
+		expect(buildStudyOllamaTelemetry(telemetry)).toEqual({
 			durations: { total: 1234567, load: 234567, prompt: 345678, decode: 456789 },
 			counts: { prompt: 11, decode: 13, cached: 3 },
 			invalid: [],

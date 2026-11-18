@@ -68,7 +68,7 @@ describe('study command arguments', () => {
 	)
 
 	it('refuses a sparse token array at its absent flag or value exactly as a dense one that ends early', () => {
-		const trailing = Object.assign(new Array<string>(4), { 0: 'check', 1: 'files' })
+		const flag = Object.assign(new Array<string>(4), { 0: 'check', 1: 'files' })
 		const value = Object.assign(new Array<string>(4), { 0: 'check', 1: 'files', 2: '--profile' })
 		const interior = Object.assign(new Array<string>(6), {
 			0: 'check',
@@ -77,9 +77,9 @@ describe('study command arguments', () => {
 			3: 'local',
 			5: 'tail',
 		})
-		expect(1 in trailing).toBe(true)
-		expect(2 in trailing).toBe(false)
-		expect(() => parseStudyArguments(trailing)).toThrow(/"<end>" is not a check flag.*study check/)
+		expect(1 in flag).toBe(true)
+		expect(2 in flag).toBe(false)
+		expect(() => parseStudyArguments(flag)).toThrow(/"<end>" is not a check flag.*study check/)
 		expect(() => parseStudyArguments(value)).toThrow(
 			/--profile requires a value before "<end>".*study check/,
 		)

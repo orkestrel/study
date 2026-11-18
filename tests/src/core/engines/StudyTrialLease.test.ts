@@ -34,8 +34,8 @@ describe('StudyTrialLease', () => {
 	})
 
 	it('returns and latches the failure of a session close', async () => {
-		const closing = new Error('Close refused')
-		const fixture = createStudyLeaseFixture({ failure: closing })
+		const refusal = new Error('Close refused')
+		const fixture = createStudyLeaseFixture({ failure: refusal })
 		try {
 			await fixture.lease.open()
 			const cleanup = await fixture.lease.close()
@@ -49,14 +49,14 @@ describe('StudyTrialLease', () => {
 
 	it('awaits and closes a session that opens after the parent aborted and reports a differing close failure', async () => {
 		const parent = new AbortController()
-		const opening = Promise.withResolvers<void>()
+		const gate = Promise.withResolvers<void>()
 		const fixture = createStudyLeaseFixture(
-			{ delay: opening.promise, failure: new Error('Late close refused') },
+			{ delay: gate.promise, failure: new Error('Late close refused') },
 			parent.signal,
 		)
 		try {
-			const pending = fixture.lease.open()
-			const settled = pending.then(
+			const promise = fixture.lease.open()
+			const settled = promise.then(
 				() => undefined,
 				(error: unknown) => error,
 			)
@@ -64,13 +64,13 @@ describe('StudyTrialLease', () => {
 			parent.abort()
 			expect(await settled).toMatchObject({ code: 'FAULT' })
 			expect(fixture.lease.session).toBeUndefined()
-			opening.resolve()
+			gate.resolve()
 			const cleanup = await fixture.lease.close()
 			expect(fixture.driver.closed.count).toBe(1)
 			expect(cleanup).toMatchObject({ message: 'Late close refused' })
 			expect(fixture.control.failure?.cause).toBe('interrupted')
 		} finally {
-			opening.resolve()
+			gate.resolve()
 			fixture.close()
 		}
 	})

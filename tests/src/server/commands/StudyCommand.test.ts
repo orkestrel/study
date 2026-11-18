@@ -1291,9 +1291,9 @@ describe('recording and replay command handoff', () => {
 			const live = await command
 				.execute(['execute', 'assessment', '--out', original], new AbortController().signal)
 				.catch(async (error: unknown) => {
-					const reading = await readStudyResult(original).catch(() => undefined)
+					const snapshot = await readStudyResult(original).catch(() => undefined)
 					throw new Error(
-						`${error instanceof Error ? error.message : String(error)}; retained failures: ${JSON.stringify(reading?.attempts.map((attempt) => attempt.failure))}; peer routes: ${server.requests.map((request) => request.path).join(', ')}`,
+						`${error instanceof Error ? error.message : String(error)}; retained failures: ${JSON.stringify(snapshot?.attempts.map((attempt) => attempt.failure))}; peer routes: ${server.requests.map((request) => request.path).join(', ')}`,
 					)
 				})
 			expect(live).toMatchObject({ status: 'completed' })
@@ -1539,11 +1539,11 @@ describe('selection', () => {
 			const graded = await command.execute(['grade', output, '--rubric', rubric], signal)
 			if (!isRecord(graded) || typeof graded.assessment !== 'string')
 				throw new Error('Missing one-trial grading')
-			const grading = parseJSON(
+			const record = parseJSON(
 				requireValue(scratch.read(`selected/grades/${graded.assessment}/grading.json`)),
 			)
-			expect(grading).toMatchObject({ rubric: tracked })
-			expect(grading).not.toHaveProperty('unselected')
+			expect(record).toMatchObject({ rubric: tracked })
+			expect(record).not.toHaveProperty('unselected')
 			const reported = await command.execute(
 				['report', output, '--assessment', graded.assessment],
 				signal,
@@ -1620,14 +1620,14 @@ describe('selection', () => {
 			if (!isRecord(graded) || typeof graded.assessment !== 'string')
 				throw new Error('Missing goal-range grading')
 			const directory = `ranged/grades/${graded.assessment}`
-			const grading = parseJSON(requireValue(scratch.read(`${directory}/grading.json`)))
-			if (!isRecord(grading) || typeof grading.rubric !== 'string')
+			const record = parseJSON(requireValue(scratch.read(`${directory}/grading.json`)))
+			if (!isRecord(record) || typeof record.rubric !== 'string')
 				throw new Error('Missing goal-range grading record')
-			expect(grading.rubric).not.toBe(tracked)
+			expect(record.rubric).not.toBe(tracked)
 			const unselected = ['first-g1', 'first-g2', 'first-g6', 'first-g7', 'first-g8']
-			expect(grading.unselected).toEqual(unselected)
+			expect(record.unselected).toEqual(unselected)
 			const projected = parseJSON(
-				requireValue(scratch.read(`${directory}/${grading.rubric}.rubric.json`)),
+				requireValue(scratch.read(`${directory}/${record.rubric}.rubric.json`)),
 			)
 			expect(projected).toMatchObject({
 				criteria: [{ id: 'first-g3' }, { id: 'first-g4' }, { id: 'first-g5' }],
@@ -1928,8 +1928,8 @@ describe('selection', () => {
 			const entry = await buildStudyCLI(scratch)
 			const command = new StudyCommand({ root: scratch.path, entry })
 			const freeze = ['freeze', 'selection', '--profile', 'local', '--to']
-			const missing = join(scratch.path, 'closures', 'absent')
-			await expect(command.execute([...freeze, missing], signal)).rejects.toMatchObject({
+			const destination = join(scratch.path, 'closures', 'absent')
+			await expect(command.execute([...freeze, destination], signal)).rejects.toMatchObject({
 				code: 'PARENT',
 				message: `Artifact destination parent is missing: ${join(scratch.path, 'closures')}`,
 			})
@@ -1937,12 +1937,17 @@ describe('selection', () => {
 				command.execute([...freeze, join(scratch.path, 'dist', 'frozen')], signal),
 			).rejects.toMatchObject({ code: 'OVERLAP' })
 			scratch.ensure('closures')
-			const frozen = await command.execute([...freeze, missing], signal)
-			const checked = await command.execute(['check', 'selection', '--closure', missing], signal)
+			const frozen = await command.execute([...freeze, destination], signal)
+			const checked = await command.execute(
+				['check', 'selection', '--closure', destination],
+				signal,
+			)
 			if (!isRecord(frozen) || !isRecord(checked)) throw new Error('Missing closure check')
 			expect(checked.fingerprint).toBe(frozen.fingerprint)
 			expect(
-				readStudyClosure(missing).closure.members.some(({ key }) => key.startsWith('closures/')),
+				readStudyClosure(destination).closure.members.some(({ key }) =>
+					key.startsWith('closures/'),
+				),
 			).toBe(false)
 		} finally {
 			scratch.destroy()
@@ -2009,9 +2014,9 @@ describe('selection', () => {
 			).resolves.toMatchObject({ status: 'completed' })
 			expect(server.requests.length).toBe(before)
 			const workers = scratch.read('workers.log')
-			const differing = ['--goals', 'write..recall', '--out', join(scratch.path, 'differing')]
+			const variant = ['--goals', 'write..recall', '--out', join(scratch.path, 'differing')]
 			await expect(
-				command.execute(['execute', 'assessment', ...differing, ...replay], signal),
+				command.execute(['execute', 'assessment', ...variant, ...replay], signal),
 			).rejects.toMatchObject({ code: 'CONFIG' })
 			expect(scratch.read('workers.log')).toBe(workers)
 			expect(scratch.has('differing')).toBe(false)

@@ -30,14 +30,14 @@ describe('StudyControl', () => {
 		const control = new StudyControl()
 		try {
 			expect(await control.wait(Promise.resolve('opened'))).toBe('opened')
-			const pending = control.wait(new Promise<never>(() => undefined))
+			const promise = control.wait(new Promise<never>(() => undefined))
 			control.fail({
 				cause: 'deadline',
 				message: 'Trial deadline',
 				role: undefined,
 				stop: undefined,
 			})
-			await expect(pending).rejects.toMatchObject({
+			await expect(promise).rejects.toMatchObject({
 				code: 'DEADLINE',
 				context: { cause: 'deadline', message: 'Trial deadline' },
 			})

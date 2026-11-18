@@ -55,7 +55,7 @@ export class StudyRequest implements StudyTicketInterface {
 	 * @throws Thrown when settlement is late, repeated, invalid, or beyond admission.
 	 */
 	finish(usage: StudyUsage): void {
-		this.#checkPending()
+		this.#checkSettlement()
 		if (!isStudyUsage(usage) || usage.role !== this.#options.charge.role || usage.calls !== 1) {
 			const failure: StudyFailure = {
 				cause: 'infrastructure',
@@ -103,7 +103,7 @@ export class StudyRequest implements StudyTicketInterface {
 	 * @throws Thrown when this request was already settled.
 	 */
 	fail(failure: StudyFailure): void {
-		this.#checkPending()
+		this.#checkSettlement()
 		this.#complete({
 			role: this.#options.charge.role,
 			calls: 1,
@@ -121,7 +121,7 @@ export class StudyRequest implements StudyTicketInterface {
 		this.#options.settle(Object.freeze({ ...usage }))
 	}
 
-	#checkPending(): void {
+	#checkSettlement(): void {
 		if (this.#settled) {
 			this.#options.control.fail({
 				cause: 'infrastructure',

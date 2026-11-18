@@ -8,11 +8,11 @@ describe('StudyDeadline', () => {
 		const result = { closed: true }
 		const work = Promise.withResolvers<{ closed: boolean }>()
 		const before = process.getActiveResourcesInfo().filter((type) => type === 'Timeout').length
-		const pending = deadline.wait(work.promise)
-		const during = process.getActiveResourcesInfo().filter((type) => type === 'Timeout').length
+		const promise = deadline.wait(work.promise)
+		const count = process.getActiveResourcesInfo().filter((type) => type === 'Timeout').length
 		work.resolve(result)
-		expect(await pending).toBe(result)
-		expect(during).toBe(before + 1)
+		expect(await promise).toBe(result)
+		expect(count).toBe(before + 1)
 		expect(process.getActiveResourcesInfo().filter((type) => type === 'Timeout').length).toBe(
 			before,
 		)
@@ -61,10 +61,10 @@ describe('StudyDeadline', () => {
 
 	it('rejects a nonfinite or out-of-range duration without throwing synchronously', async () => {
 		for (const duration of [0, -1, 1.5, NaN, Infinity, 2147483648]) {
-			const pending = new StudyDeadline({ duration, label: 'Process lifecycle' }).wait(
+			const promise = new StudyDeadline({ duration, label: 'Process lifecycle' }).wait(
 				Promise.resolve(true),
 			)
-			await expect(pending).rejects.toMatchObject({ code: 'CONFIG' })
+			await expect(promise).rejects.toMatchObject({ code: 'CONFIG' })
 		}
 	})
 

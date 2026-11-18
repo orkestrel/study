@@ -39,11 +39,25 @@ export interface StudyDaemonTrialOptions {
 	readonly signal: AbortSignal
 }
 
-/** Holds a checked execution selection with optional output custody. */
-export interface StudyExecutionRequest {
-	readonly command: 'check' | 'execute'
+/** Selects the study a command reads and the profile it reads it under. */
+export interface StudyTargetSelector {
 	readonly target: string
 	readonly profile: string
+}
+
+/** Selects the segment of a declared population an execution runs: one trial, a goal range, and a seed. */
+export interface StudyExecutionSelector {
+	/** Selects one scheduled trial by its id. */
+	readonly trial?: string
+	/** Projects every selected scenario to an inclusive goal range. */
+	readonly goals?: StudyRange
+	/** Opens the selected trial from a sealed source's checkpoint row. */
+	readonly seed?: StudySeedSelection
+}
+
+/** Holds a checked execution selection with optional output custody. */
+export interface StudyExecutionRequest extends StudyTargetSelector, StudyExecutionSelector {
+	readonly command: 'check' | 'execute'
 	/** Selects an absolute output or a portable path contained by the consumer root. */
 	readonly out: string | undefined
 	readonly expected: string | undefined
@@ -55,12 +69,6 @@ export interface StudyExecutionRequest {
 	readonly keyed?: StudyOllamaKeyedSelection
 	/** Extends a sealed open recording with a strict continuation of every scenario's goals. */
 	readonly extend?: string
-	/** Selects one scheduled trial by its id. */
-	readonly trial?: string
-	/** Projects every selected scenario to an inclusive goal range. */
-	readonly goals?: StudyRange
-	/** Opens the selected trial from a sealed source's checkpoint row. */
-	readonly seed?: StudySeedSelection
 }
 
 /** Names the sealed source result, source trial, and goal whose checkpoint row seeds an execution. */
@@ -96,10 +104,8 @@ export interface StudyContinuation {
 }
 
 /** Requests exclusive materialization and captured validation before publishing closure.json. */
-export interface StudyFreezeRequest {
+export interface StudyFreezeRequest extends StudyTargetSelector {
 	readonly command: 'freeze'
-	readonly target: string
-	readonly profile: string
 	/** Names the absent absolute destination supplied by --to. */
 	readonly destination: string
 }
@@ -189,6 +195,13 @@ export interface StudyDeclaration {
 	readonly scenarios: readonly StudyScenario[]
 	readonly fixtures: readonly StudyCommandArtifact[]
 	readonly rubric: StudyRubric
+}
+
+/** Holds the study bundle, its definition, and the resolved profile whose members a freeze copies. */
+export interface StudyFreezeInput {
+	readonly bundle: string
+	readonly definition: StudyDefinition
+	readonly profile: StudyProfile
 }
 
 /** Holds checked public declarations and reproducible executable identities. */

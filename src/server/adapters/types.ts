@@ -25,11 +25,15 @@ export interface StudyValidation {
 	readonly profile: StudyProfile
 }
 
-/** Supplies admitted modules and an exclusive scratch parent without grader truth. */
-export interface StudyDriverOptions {
+/** Holds actual namespaces loaded only during worker execution. */
+export interface StudyArtifactModule {
 	readonly agent: unknown
 	readonly subject: unknown
 	readonly provider: unknown
+}
+
+/** Supplies admitted modules and an exclusive scratch parent without grader truth. */
+export interface StudyDriverOptions extends StudyArtifactModule {
 	readonly profile: StudyProfile
 	readonly directory: string
 	/** Supplies the worker-owned sidecar sink whenever the profile declares recording. */

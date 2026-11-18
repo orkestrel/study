@@ -293,13 +293,17 @@ export interface StudyInterruptedResult {
 	readonly attempts: readonly StudyAttempt[]
 }
 
-/** Holds independently verified sealed execution bytes. */
-export interface StudySealedResult {
-	readonly status: 'sealed'
+/** Holds a verified sealed result's directory, manifest, and seal, which locate and verify its evidence. */
+export interface StudySealedCustody {
 	readonly directory: string
 	readonly manifest: StudyManifest
-	readonly attempts: readonly StudyAttempt[]
 	readonly seal: StudySeal
+}
+
+/** Holds independently verified sealed execution bytes. */
+export interface StudySealedResult extends StudySealedCustody {
+	readonly status: 'sealed'
+	readonly attempts: readonly StudyAttempt[]
 }
 
 /** Holds an offline execution reading discriminated by custody completeness. */
@@ -313,10 +317,11 @@ export interface StudyAssessmentStoreOptions {
 	readonly packet?: StudyPacketBundle
 }
 
-/** Holds exact neutral public packet bytes and private mapping bytes. */
+/** Holds exact neutral public packet bytes and the private legend bytes, retained as `<packet>.mapping.json`. */
 export interface StudyPacketBundle {
 	readonly content: Uint8Array
-	readonly mapping: Uint8Array
+	/** Holds the legend: the private bytes that name each neutral entry's sealed trial and criterion. */
+	readonly legend: Uint8Array
 }
 
 /** Holds one neutral semantic grading input without treatment or model identifiers. */

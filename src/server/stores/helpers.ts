@@ -28,7 +28,7 @@ import type { JSONValue } from '@orkestrel/contract'
 import type { FileHandle } from 'node:fs/promises'
 import type { StudyProgressFunction, StudyProgressTarget } from '../adapters/types.js'
 import { STUDY_ROLES, StudyError, isStudyStop, parseStudyMeasurement } from '@src/core'
-import { attempt, canonicalStringify, isRecord, parseJSON } from '@orkestrel/contract'
+import { attempt, canonicalStringify, isNumber, isRecord, parseJSON } from '@orkestrel/contract'
 import { constants } from 'node:fs'
 import { lstat, open, readdir, rename } from 'node:fs/promises'
 import { dirname, join, parse, relative, resolve, sep } from 'node:path'
@@ -185,7 +185,7 @@ export function buildStudyPacket(
 ): StudyPacketBundle | undefined {
 	const links = buildStudyPacketLinks(result, rubric)
 	if (links.length === 0) return undefined
-	const opening = encodeStudyJSON({ disclosure: STUDY_PACKET_DISCLOSURE, entries: [] }).byteLength
+	const overhead = encodeStudyJSON({ disclosure: STUDY_PACKET_DISCLOSURE, entries: [] }).byteLength
 	// Each link is looked up, refused or counted before the next one is read; each record carries the
 	// encoded bytes of every entry up to and including its own.
 	const records: Array<{ readonly entry: StudyPacketEntry; readonly length: number }> = []
@@ -206,7 +206,7 @@ export function buildStudyPacket(
 			product: observation.product,
 			assertion: criterion.assertion,
 		}
-		const length = (records.at(-1)?.length ?? opening) + encodeStudyJSON(entry).byteLength
+		const length = (records.at(-1)?.length ?? overhead) + encodeStudyJSON(entry).byteLength
 		if (length > STUDY_CUSTODY_BYTES)
 			throw new StudyError('CAPACITY', 'Semantic packet content exceeds its custody allowance')
 		records.push({ entry, length })
@@ -214,7 +214,7 @@ export function buildStudyPacket(
 	const entries = records.map(({ entry }) => entry)
 	return Object.freeze({
 		content: encodeStudyJSON({ disclosure: STUDY_PACKET_DISCLOSURE, entries }),
-		mapping: encodeStudyJSON({
+		legend: encodeStudyJSON({
 			result: result.seal.id,
 			rubric: digest,
 			entries: links,
@@ -235,7 +235,7 @@ export function computeStudyPacketDigest(packet: StudyPacketBundle): string {
 	return hashStudyBytes(
 		encodeStudyJSON({
 			content: hashStudyBytes(packet.content),
-			mapping: hashStudyBytes(packet.mapping),
+			mapping: hashStudyBytes(packet.legend),
 		}),
 	)
 }
@@ -496,11 +496,11 @@ export async function scanStudyTree(
 		)
 		files.push(Object.freeze({ path, bytes: bytes.byteLength, digest: hashStudyBytes(bytes) }))
 	}
-	const remaining = files.reduce((left, file) => left - file.bytes, allowance)
+	const balance = files.reduce((left, file) => left - file.bytes, allowance)
 	// Each step carries the allowance its subtree left, computed once from the step before it.
 	const steps: Array<{ readonly found: readonly StudyFile[]; readonly left: number }> = []
 	for (const child of [...directories].reverse()) {
-		const before = steps.at(-1)?.left ?? remaining
+		const before = steps.at(-1)?.left ?? balance
 		const found = await scanStudyTree(directory, child, known, before, recorded)
 		steps.push({ found, left: found.reduce((left, file) => left - file.bytes, before) })
 	}
@@ -965,16 +965,15 @@ export async function readStudyProgress(
 						const values = wires.filter((value) => value.role === role)
 						const spent = values.filter(
 							(value) =>
-								value.replayed !== true &&
-								!(typeof value.ordinal === 'number' && value.ordinal <= prefix),
+								value.replayed !== true && !(isNumber(value.ordinal) && value.ordinal <= prefix),
 						)
-						const timings = spent.map((value) =>
+						const samples = spent.map((value) =>
 							isRecord(value.timing) ? value.timing : undefined,
 						)
 						const [prompt, cached, completion] = [
 							spent.map((value) => parseStudyMeasurement(value.prompt)),
-							timings.map((timing) =>
-								isRecord(timing?.counts) ? parseStudyMeasurement(timing.counts.cached) : undefined,
+							samples.map((sample) =>
+								isRecord(sample?.counts) ? parseStudyMeasurement(sample.counts.cached) : undefined,
 							),
 							spent.map((value) => parseStudyMeasurement(value.completion)),
 						].map((measurements) =>
@@ -992,11 +991,11 @@ export async function readStudyProgress(
 										prompt,
 										cached,
 										completion,
-										total: timings.reduce(
-											(total, timing) =>
+										total: samples.reduce(
+											(total, sample) =>
 												total +
-												((isRecord(timing?.durations)
-													? parseStudyMeasurement(timing.durations.total)
+												((isRecord(sample?.durations)
+													? parseStudyMeasurement(sample.durations.total)
 													: undefined) ?? 0),
 											0,
 										),

@@ -2,15 +2,18 @@ import { STUDY_STOP_CAUSES, STUDY_OTHER_CAUSES } from '../../../setupStudy.js'
 import { buildStudyStop, STUDY_INVALID_STOPS } from '../../../setupStudy.js'
 import { createRecorder } from '@orkestrel/test'
 import { buildStudyManifest } from '../../../setupStudy.js'
-import { STUDY_PROCESS_GUARDS } from '../../../setupServer.js'
+import { STUDY_PROCESS_GUARDS, buildOllamaDeclaration } from '../../../setupServer.js'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+	isStudyExchangeDestination,
 	isStudyKeyedSelection,
 	isStudyCharge,
 	isStudyEvidence,
 	isStudyFrame,
 	isStudyIdentity,
 	isStudyProcessFailure,
+	isStudyReplaySelection,
 	isStudyTrial,
 } from '../../../../src/server/processes/validators.js'
 
@@ -120,5 +123,50 @@ describe('isStudyKeyedSelection', () => {
 			{ ...selection, roles: ['metadata', 'judge'], offline: false },
 		])
 			expect(isStudyKeyedSelection(invalid)).toBe(false)
+	})
+})
+
+describe('isStudyExchangeDestination', () => {
+	it('admits an absolute exchange sidecar with a valid declaration and refuses every other destination', () => {
+		const destination = {
+			path: resolve('trials', 'r1-first-small', 'exchanges.jsonl'),
+			declaration: buildOllamaDeclaration(),
+		}
+		const retained = {
+			path: 'trials/r1-first-small/exchanges.jsonl',
+			bytes: 0,
+			digest: 'e'.repeat(64),
+		}
+		expect(isStudyExchangeDestination(destination)).toBe(true)
+		expect(isStudyExchangeDestination({ ...destination, retained })).toBe(true)
+		for (const invalid of [
+			{},
+			{ ...destination, path: 'exchanges.jsonl' },
+			{ ...destination, path: resolve('trials', 'r1-first-small', 'evidence.jsonl') },
+			{ ...destination, declaration: { ...destination.declaration, phase: 'attempt' } },
+			{ ...destination, retained: { ...retained, path: 'other.json' } },
+			{ ...destination, extra: true },
+		])
+			expect(isStudyExchangeDestination(invalid)).toBe(false)
+	})
+})
+
+describe('isStudyReplaySelection', () => {
+	it('admits a sealed source with positive per-trial prefixes and refuses every other selection', () => {
+		const selection = { result: 'recorded', prefix: { 'r1-first-small': 2 }, offline: true }
+		expect(isStudyReplaySelection(selection)).toBe(true)
+		expect(isStudyReplaySelection({ ...selection, offline: false })).toBe(true)
+		for (const invalid of [
+			{},
+			{ ...selection, result: '' },
+			{ ...selection, prefix: {} },
+			{ ...selection, prefix: { 'r1-first-small': 0 } },
+			{ ...selection, prefix: { 'r1-first-small': 1.5 } },
+			{ ...selection, prefix: { con: 1 } },
+			{ ...selection, prefix: { 'Bad Name': 1 } },
+			{ ...selection, offline: 'true' },
+			{ ...selection, roles: ['judge'] },
+		])
+			expect(isStudyReplaySelection(invalid)).toBe(false)
 	})
 })

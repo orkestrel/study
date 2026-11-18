@@ -1,9 +1,5 @@
-import type {
-	StudyInstallResult,
-	StudyLaunchOptions,
-	StudyRehearsal,
-	StudyRehearsalOptions,
-} from './types.js'
+import type { StudyInstallResult, StudyRehearsal, StudyRehearsalOptions } from './types.js'
+import type { StudyCommandOptions } from '../commands/types.js'
 import { StudyError, isStudyDigest } from '@src/core'
 import { isRecord, parseJSON } from '@orkestrel/contract'
 import { spawn } from 'node:child_process'
@@ -39,7 +35,7 @@ export class StudyInstall {
 	/** Binds the install root each command runs in and the Study executable it runs.
 	 * @param options - The install root and the executable entry.
 	 */
-	constructor(options: StudyLaunchOptions) {
+	constructor(options: StudyCommandOptions) {
 		this.#root = options.root
 		this.#entry = options.entry
 	}

@@ -89,7 +89,7 @@ describe('buildStudyOllamaTransportOptions', () => {
 		const owned = buildStudyOllamaTransportOptions(options)
 		expect(owned).toEqual(options)
 		expect(owned.signal).toBe(options.signal)
-		expect(owned.timing).toBe(options.timing)
+		expect(owned.extract).toBe(options.extract)
 		const members = [
 			owned,
 			owned.room,

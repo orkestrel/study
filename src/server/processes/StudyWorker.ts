@@ -17,7 +17,7 @@ import {
 	isStudyProduct,
 	isStudyProfile,
 } from '@src/core'
-import { canonicalStringify, isJSONValue, isRecord } from '@orkestrel/contract'
+import { canonicalStringify, isJSONValue, isNumber, isRecord, isString } from '@orkestrel/contract'
 import { open } from 'node:fs/promises'
 import { STUDY_PROCESS_LABEL } from './constants.js'
 import {
@@ -47,7 +47,14 @@ import {
 	isStudyTrial,
 } from './validators.js'
 
-/** Executes one verified trial behind parent-authorized admission and custody. */
+/**
+ * Executes one verified trial behind parent-authorized admission and custody.
+ * @example
+ * ```ts
+ * // Inside a trial child forked with an IPC channel, serve its parent until it closes.
+ * await new StudyWorker().execute()
+ * ```
+ */
 export class StudyWorker {
 	#control = new StudyControl()
 	#channel: StudyChannel | undefined
@@ -135,11 +142,11 @@ export class StudyWorker {
 		this.#opened = true
 		if (
 			!isRecord(value) ||
-			typeof value.entry !== 'string' ||
-			typeof value.root !== 'string' ||
-			typeof value.directory !== 'string' ||
-			typeof value.driver !== 'string' ||
-			typeof value.adapter !== 'string' ||
+			!isString(value.entry) ||
+			!isString(value.root) ||
+			!isString(value.directory) ||
+			!isString(value.driver) ||
+			!isString(value.adapter) ||
 			!isStudyProfile(value.profile) ||
 			!isStudyIdentity(value.identity) ||
 			!isStudyTrial(value.trial)
@@ -356,7 +363,7 @@ export class StudyWorker {
 			this.#control.failure !== undefined
 		)
 			return Promise.reject(new StudyError('FAULT', 'Worker evidence is outside an active goal'))
-		const pending = this.#channel
+		const delivery = this.#channel
 			.request('evidence', value)
 			.then((acknowledged) => {
 				if (acknowledged !== true)
@@ -366,12 +373,12 @@ export class StudyWorker {
 				this.#control.fail(readStudyFailure(error))
 				throw error
 			})
-		this.#evidence.add(pending)
-		void pending.then(
-			() => this.#evidence.delete(pending),
-			() => this.#evidence.delete(pending),
+		this.#evidence.add(delivery)
+		void delivery.then(
+			() => this.#evidence.delete(delivery),
+			() => this.#evidence.delete(delivery),
 		)
-		return pending
+		return delivery
 	}
 
 	#abort(value: JSONValue): void {
@@ -380,7 +387,7 @@ export class StudyWorker {
 		if (value.id === undefined) this.#control.fail(value.failure)
 		else {
 			const [meter] = this.#meters
-			if (typeof value.id !== 'number' || meter === undefined)
+			if (!isNumber(value.id) || meter === undefined)
 				throw new StudyError('FAULT', 'Worker ticket cancellation is foreign')
 			meter.abort(value.id, value.failure)
 		}

@@ -950,17 +950,17 @@ describe('study server fixtures', () => {
 			reply: createOllamaReply(queue),
 		})
 		try {
-			expect(queue.remaining).toEqual(queued)
+			expect(queue.backlog).toEqual(queued)
 			// A path that is not at the head of the queue is answered by default and leaves the queue whole.
 			const early = await fetch(`${peer.url}/api/chat`, { method: 'POST', body: '{}' })
 			expect(await early.text()).not.toBe('second')
-			expect(queue.remaining).toEqual(queued)
+			expect(queue.backlog).toEqual(queued)
 			const tags = await fetch(`${peer.url}/api/tags`, { method: 'POST', body: '{}' })
 			expect(await tags.text()).toBe('first')
-			expect(queue.remaining).toEqual([queued[1]])
+			expect(queue.backlog).toEqual([queued[1]])
 			const chat = await fetch(`${peer.url}/api/chat`, { method: 'POST', body: '{}' })
 			expect(await chat.text()).toBe('second')
-			expect(queue.remaining).toEqual([])
+			expect(queue.backlog).toEqual([])
 		} finally {
 			await peer.destroy()
 		}

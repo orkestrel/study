@@ -5,11 +5,26 @@ import { STUDY_FRAME_BYTES, STUDY_PENDING_LIMIT } from './constants.js'
 import { createStudyProcessFailure, valueToWire } from './helpers.js'
 import { isStudyFrame, isStudyProcessFailure } from './validators.js'
 
-/** Correlates bounded IPC work and rejects every outstanding request on transport failure. */
+/**
+ * Correlates bounded IPC work and rejects every outstanding request on transport failure.
+ * @example
+ * ```ts
+ * import { fork } from 'node:child_process'
+ *
+ * declare const entry: string
+ * const channel = new StudyChannel({
+ * 	endpoint: fork(entry),
+ * 	handle: async () => null,
+ * 	abort: () => undefined,
+ * })
+ * const reply = await channel.request('evidence', null)
+ * channel.close()
+ * ```
+ */
 export class StudyChannel {
 	#options: StudyChannelOptions
 	#control = new StudyControl()
-	readonly #pending = new Map<number, StudyResponse>()
+	readonly #responses = new Map<number, StudyResponse>()
 	#next = 0
 	#received = 0
 	readonly #requests = new Set<symbol>()
@@ -34,14 +49,6 @@ export class StudyChannel {
 		return this.#control.signal
 	}
 
-	#onMessage(value: unknown): void {
-		void this.#receive(value).catch((error: unknown) => this.close(error))
-	}
-
-	#onDisconnect(): void {
-		this.close(failureToStudyError(createStudyProcessFailure('Study process disconnected')))
-	}
-
 	/** Sends one correlated domain request.
 	 * @param operation - The domain operation expected by the peer.
 	 * @param value - Public JSON payload.
@@ -50,13 +57,13 @@ export class StudyChannel {
 	request(operation: StudyOperation, value: JSONValue): Promise<JSONValue> {
 		if (this.#control.failure !== undefined)
 			return Promise.reject(failureToStudyError(this.#control.failure))
-		if (this.#pending.size >= STUDY_PENDING_LIMIT)
+		if (this.#responses.size >= STUDY_PENDING_LIMIT)
 			return Promise.reject(
 				failureToStudyError(createStudyProcessFailure('Study IPC pending limit exceeded')),
 			)
 		const id = ++this.#next
 		return new Promise<JSONValue>((resolve, reject) => {
-			this.#pending.set(id, { resolve, reject })
+			this.#responses.set(id, { resolve, reject })
 			this.#send({ id, operation, value }).catch((error: unknown) => this.close(error))
 		})
 	}
@@ -80,10 +87,18 @@ export class StudyChannel {
 		this.#options.endpoint.removeListener('message', this.#message)
 		this.#options.endpoint.removeListener('disconnect', this.#disconnect)
 		this.#options.endpoint.removeListener('error', this.#error)
-		for (const pending of this.#pending.values())
-			pending.reject(failureToStudyError(this.#control.failure ?? readStudyFailure(error)))
-		this.#pending.clear()
+		for (const response of this.#responses.values())
+			response.reject(failureToStudyError(this.#control.failure ?? readStudyFailure(error)))
+		this.#responses.clear()
 		this.#control.close()
+	}
+
+	#onMessage(value: unknown): void {
+		void this.#receive(value).catch((error: unknown) => this.close(error))
+	}
+
+	#onDisconnect(): void {
+		this.close(failureToStudyError(createStudyProcessFailure('Study process disconnected')))
 	}
 
 	async #send(frame: StudyFrame): Promise<void> {
@@ -108,16 +123,16 @@ export class StudyChannel {
 			return
 		}
 		if (value.operation === 'reply' || value.operation === 'error') {
-			const pending = this.#pending.get(value.id)
-			if (pending === undefined)
+			const response = this.#responses.get(value.id)
+			if (response === undefined)
 				throw failureToStudyError(createStudyProcessFailure('Unknown study IPC reply'))
-			if (value.operation === 'reply') pending.resolve(value.value)
+			if (value.operation === 'reply') response.resolve(value.value)
 			else {
 				if (!isStudyProcessFailure(value.value))
 					throw failureToStudyError(createStudyProcessFailure('Invalid study IPC failure'))
-				pending.reject(failureToStudyError(value.value))
+				response.reject(failureToStudyError(value.value))
 			}
-			this.#pending.delete(value.id)
+			this.#responses.delete(value.id)
 			return
 		}
 		if (value.id !== this.#received + 1 || this.#requests.size >= STUDY_PENDING_LIMIT)

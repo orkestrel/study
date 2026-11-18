@@ -54,13 +54,13 @@ describe('StudyAgentObserver', () => {
 				mode === 'generate'
 					? await plain.inner.generate(messages, signal, tools, options)
 					: await readProviderStream(plain.inner.stream(messages, signal, tools, options))
-			const pending =
+			const promise =
 				mode === 'generate'
 					? watched.observer.generate(messages, signal, tools, options)
 					: readProviderStream(watched.observer.stream(messages, signal, tools, options))
 			expect(watched.measurements).toHaveLength(1)
 			expect(watchedWire.requests).toEqual([])
-			expect(await pending).toEqual(expected)
+			expect(await promise).toEqual(expected)
 			expect(watchedWire.requests).toHaveLength(1)
 			expect(watchedWire.requests).toEqual(plainWire.requests)
 			const sent = parseJSON(watchedWire.requests[0]?.body ?? '')

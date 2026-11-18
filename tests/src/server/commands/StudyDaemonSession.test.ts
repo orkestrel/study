@@ -512,7 +512,7 @@ console.log('captured-server-loaded')`,
 				)
 				const entry = await buildStudyCLI(fixture.scratch)
 				const command = new StudyCommand({ root: fixture.scratch.path, entry })
-				const running = command
+				const execution = command
 					.execute(
 						['execute', 'assessment', '--out', join(fixture.scratch.path, 'result')],
 						controller.signal,
@@ -528,13 +528,13 @@ console.log('captured-server-loaded')`,
 							() => fixture.scratch.read('daemon-requests.jsonl')?.includes('/api/chat') === true,
 							{ budget: 60000, interval: 20, signal: controller.signal },
 						),
-						running.then((result) => {
+						execution.then((result) => {
 							throw new Error(`Execution ended before cancellation: ${JSON.stringify(result)}`)
 						}),
 					])
 					controller.abort(new Error('Staging cancellation'))
 				}
-				const result = await running
+				const result = await execution
 				expect(
 					'error' in result ||
 						('value' in result &&

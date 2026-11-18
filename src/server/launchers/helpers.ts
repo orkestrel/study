@@ -1,5 +1,5 @@
 import type { StudyAllowance, StudyProfile, StudyProviderDigest } from '@src/core'
-import type { StudyExecutionRequest } from '../commands/types.js'
+import type { StudyExecutionSelector } from '../commands/types.js'
 import { StudyError, parseStudyProfile } from '@src/core'
 import { isAbsolute } from 'node:path'
 import { STUDY_LAUNCH_CLEANUP, STUDY_LAUNCH_DURATION } from './constants.js'
@@ -16,9 +16,7 @@ import { STUDY_LAUNCH_CLEANUP, STUDY_LAUNCH_DURATION } from './constants.js'
  * // ['--trial', 'r1-s1-a1', '--goals', 'open..save']
  * ```
  */
-export function buildStudySelectors(
-	selection: Pick<StudyExecutionRequest, 'trial' | 'goals' | 'seed'>,
-): readonly string[] {
+export function buildStudySelectors(selection: StudyExecutionSelector): readonly string[] {
 	const { trial, goals, seed } = selection
 	return [
 		...(trial === undefined ? [] : ['--trial', trial]),

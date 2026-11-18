@@ -8,8 +8,11 @@ import {
 	canonicalStringify,
 	cloneJSONValue,
 	isArray,
+	isBoolean,
+	isNumber,
 	isObject,
 	isRecord,
+	isString,
 } from '@orkestrel/contract'
 import { isToolCall } from '@orkestrel/tool'
 import { hashStudyBytes } from '../helpers.js'
@@ -60,7 +63,7 @@ export function buildStudyAgentToolResult(call: unknown, result: unknown): JSONV
 	const returned = attempt(() => {
 		if (!isObject(result)) return undefined
 		const success = 'success' in result ? result.success : undefined
-		if (typeof success !== 'boolean') return undefined
+		if (!isBoolean(success)) return undefined
 		return success
 			? { success, value: 'value' in result ? result.value : undefined }
 			: { success, error: 'error' in result ? result.error : undefined }
@@ -83,7 +86,7 @@ export function buildStudyAgentToolResult(call: unknown, result: unknown): JSONV
 			value: valueCopy.value,
 		}
 	}
-	if (typeof outcome.error !== 'string')
+	if (!isString(outcome.error))
 		throw new StudyError('FAULT', 'Admitted Agent supplied invalid tool error')
 	return {
 		id,
@@ -107,7 +110,7 @@ export function buildStudyAgentToolResult(call: unknown, result: unknown): JSONV
  */
 export function buildStudyAgentToolDenial(call: unknown, reason: unknown): JSONValue {
 	const { id, name } = readStudyAgentToolCall(call)
-	return { id, name, ...(typeof reason === 'string' ? { reason } : {}) }
+	return { id, name, ...(isString(reason) ? { reason } : {}) }
 }
 
 /**
@@ -144,19 +147,18 @@ export function buildStudyAgentAttempts(result: unknown): JSONValue {
 	return result.attempts.flatMap((entry): JSONValue[] =>
 		!isObject(entry) ||
 		!('key' in entry) ||
-		typeof entry.key !== 'string' ||
+		!isString(entry.key) ||
 		!('phase' in entry) ||
-		typeof entry.phase !== 'string' ||
+		!isString(entry.phase) ||
 		!('outcome' in entry) ||
-		typeof entry.outcome !== 'string'
+		!isString(entry.outcome)
 			? []
 			: [
 					{
 						key: entry.key,
 						phase: entry.phase,
 						outcome: entry.outcome,
-						duration:
-							'duration' in entry && typeof entry.duration === 'number' ? entry.duration : null,
+						duration: 'duration' in entry && isNumber(entry.duration) ? entry.duration : null,
 					},
 				],
 	)
@@ -185,7 +187,7 @@ export function resolveStudyAgentContent(
 	const prior = request.findLast(
 		(message) => isRecord(message) && message.role === 'tool' && message.call === response.consume,
 	)
-	if (!isRecord(prior) || typeof prior.content !== 'string')
+	if (!isRecord(prior) || !isString(prior.content))
 		throw new StudyError('FAULT', 'Continuation has no actual referenced tool result')
 	return prior.content
 }
@@ -229,11 +231,7 @@ export function readStudyAgentMessages(value: unknown): readonly JSONValue[] {
 			const role = 'role' in message ? message.role : undefined
 			const content = 'content' in message ? message.content : undefined
 			const call = 'call' in message ? message.call : undefined
-			if (
-				typeof role !== 'string' ||
-				typeof content !== 'string' ||
-				(call !== undefined && typeof call !== 'string')
-			)
+			if (!isString(role) || !isString(content) || (call !== undefined && !isString(call)))
 				throw new StudyError('FAULT', 'Provider message fields are invalid')
 			return Object.freeze({
 				role,

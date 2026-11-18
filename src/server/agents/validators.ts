@@ -1,6 +1,14 @@
 import type { StudyAgentResponse } from './types.js'
 import { matchesStudyKeys } from '@src/core'
-import { holds, isArray, isJSONValue, isRecord } from '@orkestrel/contract'
+import {
+	holds,
+	isArray,
+	isBoolean,
+	isJSONValue,
+	isNumber,
+	isRecord,
+	isString,
+} from '@orkestrel/contract'
 import { isToolCall } from '@orkestrel/tool'
 
 /**
@@ -26,18 +34,17 @@ export function isStudyAgentResponse(value: unknown): value is StudyAgentRespons
 				['content', 'calls'],
 				['consume', 'abort', 'tokens', 'bytes', 'truncated'],
 			) &&
-			typeof value.content === 'string' &&
+			isString(value.content) &&
 			isArray(value.calls) &&
 			value.calls.every(isToolCall) &&
 			isJSONValue(value.calls) &&
-			(value.consume === undefined ||
-				(typeof value.consume === 'string' && value.consume.length > 0)) &&
-			(value.abort === undefined || typeof value.abort === 'boolean') &&
-			(value.truncated === undefined || typeof value.truncated === 'boolean') &&
+			(value.consume === undefined || (isString(value.consume) && value.consume.length > 0)) &&
+			(value.abort === undefined || isBoolean(value.abort)) &&
+			(value.truncated === undefined || isBoolean(value.truncated)) &&
 			['tokens', 'bytes'].every(
 				(key) =>
 					value[key] === undefined ||
-					(typeof value[key] === 'number' && Number.isSafeInteger(value[key]) && value[key] >= 0),
+					(isNumber(value[key]) && Number.isSafeInteger(value[key]) && value[key] >= 0),
 			),
 	)
 }

@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-	isStudyLabelMapping,
-	isStudyLabelPacket,
-} from '../../../../src/server/labels/validators.js'
+import { isStudyLabelLegend, isStudyLabelPacket } from '../../../../src/server/labels/validators.js'
 
 describe('isStudyLabelPacket', () => {
 	it('admits entries with and without a product', () => {
@@ -38,10 +35,10 @@ describe('isStudyLabelPacket', () => {
 	})
 })
 
-describe('isStudyLabelMapping', () => {
+describe('isStudyLabelLegend', () => {
 	it('admits a result and links with their source pairs', () => {
 		expect(
-			isStudyLabelMapping({
+			isStudyLabelLegend({
 				result: 'a'.repeat(64),
 				entries: [
 					{
@@ -60,16 +57,16 @@ describe('isStudyLabelMapping', () => {
 			criterion: 'row-1',
 			source: { trial: 'r1-s1-a1', criterion: 'first-write' },
 		}
-		expect(isStudyLabelMapping({ entries: [link] })).toBe(false)
-		expect(isStudyLabelMapping({ result: 'a'.repeat(64), entries: [{ ...link, trial: 1 }] })).toBe(
+		expect(isStudyLabelLegend({ entries: [link] })).toBe(false)
+		expect(isStudyLabelLegend({ result: 'a'.repeat(64), entries: [{ ...link, trial: 1 }] })).toBe(
 			false,
 		)
 		expect(
-			isStudyLabelMapping({
+			isStudyLabelLegend({
 				result: 'a'.repeat(64),
 				entries: [{ ...link, source: { trial: 'r1-s1-a1' } }],
 			}),
 		).toBe(false)
-		expect(isStudyLabelMapping({ result: 'a'.repeat(64), entries: link })).toBe(false)
+		expect(isStudyLabelLegend({ result: 'a'.repeat(64), entries: link })).toBe(false)
 	})
 })

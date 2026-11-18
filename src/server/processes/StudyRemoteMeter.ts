@@ -1,18 +1,32 @@
 import type { StudyCharge, StudyFailure, StudyTicketInterface, StudyUsage } from '@src/core'
-import type { StudyRemoteMeterInterface, StudyRemoteMeterOptions } from './types.js'
+import type {
+	StudyRemoteMeterInterface,
+	StudyRemoteMeterOptions,
+	StudySettleOperation,
+} from './types.js'
 import { failureToStudyError, readStudyFailure, StudyError, isStudyUsage } from '@src/core'
 import { isRecord } from '@orkestrel/contract'
 import { createStudyProcessFailure, valueToWire } from './helpers.js'
 import { StudyRemoteTicket } from './StudyRemoteTicket.js'
 import { isStudyProcessFailure } from './validators.js'
 
-/** Waits for authoritative parent admission and drains acknowledged settlements. */
+/**
+ * Waits for authoritative parent admission and drains acknowledged settlements.
+ * @example
+ * ```ts
+ * declare const channel: StudyChannel
+ * const meter = new StudyRemoteMeter({ channel, control: new StudyControl() })
+ * const ticket = await meter.admit({ role: 'agent', tokens: 10, bytes: 10 })
+ * ticket.finish({ role: 'agent', calls: 1, tokens: 8, bytes: 6, duration: 5 })
+ * await meter.close()
+ * ```
+ */
 export class StudyRemoteMeter implements StudyRemoteMeterInterface {
 	#options: StudyRemoteMeterOptions
 	#next = 0
 	#admissions = 0
 	readonly #tickets = new Map<number, AbortController>()
-	readonly #pending = new Set<Promise<void>>()
+	readonly #settlements = new Set<Promise<void>>()
 	#usage: StudyUsage[] = []
 	#closed = false
 
@@ -81,12 +95,12 @@ export class StudyRemoteMeter implements StudyRemoteMeterInterface {
 			this.#options.control.fail(
 				createStudyProcessFailure('Worker goal ended with unfinished requests'),
 			)
-		await Promise.all(this.#pending)
+		await Promise.all(this.#settlements)
 		if (this.#options.control.failure !== undefined)
 			throw failureToStudyError(this.#options.control.failure)
 	}
 
-	#settle(id: number, operation: 'finish' | 'fail', value: StudyUsage | StudyFailure): void {
+	#settle(id: number, operation: StudySettleOperation, value: StudyUsage | StudyFailure): void {
 		if (!this.#tickets.delete(id)) {
 			this.#options.control.fail(
 				createStudyProcessFailure('Worker ticket settlement is repeated or foreign'),
@@ -109,8 +123,8 @@ export class StudyRemoteMeter implements StudyRemoteMeterInterface {
 					this.#options.control.fail(readStudyFailure(error))
 				},
 			)
-		this.#pending.add(work)
-		void work.finally(() => this.#pending.delete(work))
+		this.#settlements.add(work)
+		void work.finally(() => this.#settlements.delete(work))
 		if (operation === 'fail' && isStudyProcessFailure(accepted))
 			this.#options.control.fail(accepted)
 	}

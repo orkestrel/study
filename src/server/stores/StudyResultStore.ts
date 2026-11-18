@@ -215,12 +215,12 @@ export class StudyResultStore implements StudyResultStoreInterface {
 		this.#phase = 'sealing'
 		try {
 			await Promise.all([...this.#trials.values()].map((trial) => trial.terminal))
-			const reading = await readStudyResult(this.#directory)
+			const result = await readStudyResult(this.#directory)
 			if (
-				reading.status !== 'interrupted' ||
-				reading.manifest === undefined ||
-				reading.attempts.length !== this.#manifest.schedule.length ||
-				canonicalStringify(reading.manifest) !== canonicalStringify(this.#manifest)
+				result.status !== 'interrupted' ||
+				result.manifest === undefined ||
+				result.attempts.length !== this.#manifest.schedule.length ||
+				canonicalStringify(result.manifest) !== canonicalStringify(this.#manifest)
 			)
 				throw new StudyError('CUSTODY', 'Execution changed before sealing')
 			const files = await scanStudyExecution(join(this.#directory, 'execution'), this.#manifest)

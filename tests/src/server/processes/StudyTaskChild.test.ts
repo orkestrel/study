@@ -85,14 +85,16 @@ describe('StudyTaskChild', () => {
 			5000,
 			new AbortController().signal,
 		)
-		const running = child.execute({ operation: 'validate' })
+		const execution = child.execute({ operation: 'validate' })
 		try {
 			expect(() => child.execute({ operation: 'validate' })).toThrow(
 				'Study task child can execute only once',
 			)
-			await new StudyDeadline({ duration: 8000, label: 'StudyTaskChild single run' }).wait(running)
+			await new StudyDeadline({ duration: 8000, label: 'StudyTaskChild single run' }).wait(
+				execution,
+			)
 		} finally {
-			await Promise.allSettled([running])
+			await Promise.allSettled([execution])
 			await releaseStudyPid(readStudyPid(scratch, 'task-pid.txt'))
 			scratch.destroy()
 		}

@@ -160,14 +160,18 @@ export interface StudyTrial {
 	readonly repetition: number
 }
 
-/** Holds byte identities that qualification and comparisons must agree on. */
-export interface StudyIdentity {
+/** Holds the separately bound instrument and selected module inventory identities. */
+export interface StudyArtifactIdentity {
 	readonly runtime: string
 	readonly content: string
 	readonly agent: string
 	readonly subject: string
 	readonly provider: string | undefined
 	readonly instrument: string
+}
+
+/** Holds byte identities that qualification and comparisons must agree on. */
+export interface StudyIdentity extends StudyArtifactIdentity {
 	readonly fixtures: string
 	readonly profile: string
 }

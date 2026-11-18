@@ -233,11 +233,11 @@ try { parseStudyArguments([]) } catch (error) {
 		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
 			expect(runtime.read('runtime/dist/bin/main.js')?.startsWith('#!/usr/bin/env node')).toBe(true)
-			const missing = join(runtime.path, 'missing-entry.js')
+			const absent = join(runtime.path, 'missing-entry.js')
 			expect(
 				await new StudyCLI({
 					root: join(runtime.path, 'missing-consumer'),
-					entry: missing,
+					entry: absent,
 				}).execute(['--help']),
 			).toBe(0)
 			const empty = scratch.ensure('empty')
@@ -487,12 +487,12 @@ try { parseStudyArguments([]) } catch (error) {
 				['report', result.result, '--assessment', missingGrade],
 				['label', result.result, '--assessment', missingGrade, '--labels', path],
 			]) {
-				const missing = await install.execute(operation)
-				expect(missing.code).not.toBe(0)
-				expect(missing.stdout + missing.stderr).toContain(
+				const refusal = await install.execute(operation)
+				expect(refusal.code).not.toBe(0)
+				expect(refusal.stdout + refusal.stderr).toContain(
 					'study: CUSTODY: Selected grading is missing:',
 				)
-				expect(missing.stdout + missing.stderr).toContain(
+				expect(refusal.stdout + refusal.stderr).toContain(
 					join(result.path, 'grades', missingGrade, 'grading.json'),
 				)
 			}
@@ -716,9 +716,9 @@ try { parseStudyArguments([]) } catch (error) {
 		it('refuses a missing result and lists the progress grammar in help', async () => {
 			const entry = await compiled.promise
 			const install = new StudyInstall({ root: consumer.path, entry })
-			const missing = await install.execute(['progress', 'nope'])
-			expect(missing.code).toBe(1)
-			expect(missing.stdout + missing.stderr).toBe(
+			const refusal = await install.execute(['progress', 'nope'])
+			expect(refusal.code).toBe(1)
+			expect(refusal.stdout + refusal.stderr).toBe(
 				'study: CUSTODY: Selected result is missing: nope\n',
 			)
 			const help = await install.execute(['--help'])
@@ -745,7 +745,7 @@ try { parseStudyArguments([]) } catch (error) {
 			if (!isRecord(checked) || !arrayOf(isString)(checked.next))
 				throw new Error('Missing check next argv')
 			const execution = parseJSON((await install.execute(checked.next)).stdout)
-			if (!isRecord(execution) || typeof execution.path !== 'string')
+			if (!isRecord(execution) || !isString(execution.path))
 				throw new Error('Missing execution path')
 			const source = await readStudyResult(execution.path)
 			if (source.status !== 'sealed') throw new Error('Graded execution did not seal')
@@ -782,17 +782,17 @@ try { parseStudyArguments([]) } catch (error) {
 			])
 			const [smaller, larger] = [small, large].map((result, index) => {
 				const document = parseJSON(graded[index]?.stdout ?? '')
-				if (!isRecord(document) || typeof document.assessment !== 'string')
+				if (!isRecord(document) || !isString(document.assessment))
 					throw new Error('Missing grading identity')
-				const grading = parseJSON(
+				const record = parseJSON(
 					readFileSync(
 						join(result.directory, 'grades', document.assessment, 'grading.json'),
 						'utf8',
 					),
 				)
-				if (!isRecord(grading) || !isArray(grading.judgments))
+				if (!isRecord(record) || !isArray(record.judgments))
 					throw new Error('Missing grading judgments')
-				return grading.judgments
+				return record.judgments
 			})
 			expect(smaller).toEqual(
 				expect.arrayContaining([expect.objectContaining({ verdict: 'achieved' })]),
@@ -936,15 +936,10 @@ try { parseStudyArguments([]) } catch (error) {
 			expect(mismatch.code).toBe(64)
 			expect(mismatch.stdout + mismatch.stderr).toContain('requested fingerprint')
 			expect(scratch.has('imports.log')).toBe(false)
-			const matching = await install.execute([
-				'execute',
-				'assessment',
-				'--expected',
-				value.fingerprint,
-			])
+			const run = await install.execute(['execute', 'assessment', '--expected', value.fingerprint])
 			expect({
-				code: matching.code,
-				output: matching.code === 0 ? '' : matching.stdout + matching.stderr,
+				code: run.code,
+				output: run.code === 0 ? '' : run.stdout + run.stderr,
 			}).toEqual({
 				code: 0,
 				output: '',
@@ -981,8 +976,8 @@ try { parseStudyArguments([]) } catch (error) {
 				'studies/capacity/rubric.json',
 				scratch.read('studies/assessment/rubric.json') ?? '',
 			)
-			const missing = await install.execute(['execute', 'assessment'])
-			expect(missing.code).not.toBe(0)
+			const refusal = await install.execute(['execute', 'assessment'])
+			expect(refusal.code).not.toBe(0)
 			expect(scratch.has('tmp')).toBe(false)
 			const capacity = await install.execute(['execute', 'capacity', '--out', qualification])
 			expect({

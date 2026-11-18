@@ -38,7 +38,7 @@ describe('StudyLaunchChild', () => {
 	it('terminates a running child and reports 130 when the signal aborts mid-launch', async () => {
 		const controller = new AbortController()
 		const child = spawnStudyScript('setTimeout(() => undefined, 20000)')
-		const running = new StudyLaunchChild(
+		const launch = new StudyLaunchChild(
 			child,
 			10000,
 			{ stdout: false, stderr: true },
@@ -53,7 +53,7 @@ describe('StudyLaunchChild', () => {
 				budget: 3000,
 			},
 		)
-		expect((await running).code).toBe(130)
+		expect((await launch).code).toBe(130)
 	})
 
 	it('terminates every running child that shares one interruption', async () => {
@@ -62,7 +62,7 @@ describe('StudyLaunchChild', () => {
 			spawnStudyScript('setTimeout(() => undefined, 20000)'),
 			spawnStudyScript('setTimeout(() => undefined, 20000)'),
 		]
-		const running = children.map((child) =>
+		const launches = children.map((child) =>
 			new StudyLaunchChild(
 				child,
 				10000,
@@ -77,7 +77,7 @@ describe('StudyLaunchChild', () => {
 			() => children.every((child) => !isRunning(requireValue(child.pid))),
 			{ budget: 3000 },
 		)
-		expect((await Promise.all(running)).map((result) => result.code)).toEqual([130, 130])
+		expect((await Promise.all(launches)).map((result) => result.code)).toEqual([130, 130])
 	})
 
 	it('keeps a late child error from changing a settled launch or throwing beside a pending one', async () => {
@@ -108,7 +108,7 @@ describe('StudyLaunchChild', () => {
 				windowsHide: true,
 			})
 			const controller = new AbortController()
-			const running = new StudyLaunchChild(
+			const launch = new StudyLaunchChild(
 				child,
 				20000,
 				{ stdout: false, stderr: false },
@@ -131,7 +131,7 @@ describe('StudyLaunchChild', () => {
 			const result = await new StudyDeadline({
 				duration: STUDY_DRAIN_DURATION + 4000,
 				label: 'drained interruption observation',
-			}).wait(running)
+			}).wait(launch)
 			expect(result.code).toBe(130)
 			expect(isRunning(receipt.root)).toBe(false)
 			expect(isRunning(receipt.leaf)).toBe(true)
@@ -148,8 +148,8 @@ describe('StudyLaunchChild', () => {
 			{ stdout: false, stderr: true },
 			new AbortController().signal,
 		)
-		const running = child.execute()
+		const launch = child.execute()
 		expect(() => child.execute()).toThrow('Study launch can execute only once')
-		expect((await running).code).toBe(0)
+		expect((await launch).code).toBe(0)
 	})
 })

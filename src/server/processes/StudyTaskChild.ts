@@ -1,12 +1,21 @@
 import type { ChildProcess } from 'node:child_process'
 import type { StudyTaskOptions, StudyTaskResult } from './types.js'
 import { StudyError, isStudyDigest } from '@src/core'
-import { isJSONValue, isRecord } from '@orkestrel/contract'
+import { isJSONValue, isRecord, isString } from '@orkestrel/contract'
 import { fork } from 'node:child_process'
 import { STUDY_FRAME_BYTES, STUDY_LOG_BYTES, STUDY_TASK_OPERATION } from './constants.js'
 import { drainStudyChild, terminateStudyChild } from './helpers.js'
 
-/** Supervises one forked adapter child until it closes with one verified response. */
+/**
+ * Supervises one forked adapter child until it closes with one verified response.
+ * @example
+ * ```ts
+ * declare const options: StudyTaskOptions
+ * declare const frame: Readonly<Record<string, unknown>>
+ * const child = new StudyTaskChild(options, 60000, new AbortController().signal)
+ * const result = await child.execute(frame)
+ * ```
+ */
 export class StudyTaskChild {
 	readonly #options: StudyTaskOptions
 	readonly #duration: number
@@ -31,6 +40,10 @@ export class StudyTaskChild {
 	 * @param input - The validated request frame.
 	 * @returns The verified adapter output and instrumentation identity.
 	 * @throws StudyError - Thrown with code `CONFIG` when this child is already supervised.
+	 * @remarks
+	 * Detaching the child is platform-defined: a detached child gets its own process group on POSIX
+	 * only, so the child is detached there alone; a Windows child stays attached and is terminated by
+	 * its process tree.
 	 */
 	execute(input: Readonly<Record<string, unknown>>): Promise<StudyTaskResult> {
 		if (this.#executed) throw new StudyError('CONFIG', 'Study task child can execute only once')
@@ -77,7 +90,7 @@ export class StudyTaskChild {
 						Buffer.byteLength(JSON.stringify(value)) > STUDY_FRAME_BYTES
 					)
 						throw new StudyError('FAULT', 'Adapter response is oversized or repeated')
-					if (typeof value.error === 'string')
+					if (isString(value.error))
 						throw new StudyError(
 							value.code === 'CONFIG' || value.code === 'CUSTODY' ? value.code : 'FAULT',
 							value.error,

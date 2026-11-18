@@ -162,7 +162,7 @@ describe('process helpers', () => {
 		}
 	}, 30000)
 	it('composes open horizons once and validates the parent declaration against every held member', () => {
-		const opening = buildOllamaDeclaration()
+		const template = buildOllamaDeclaration()
 		const provider = buildStudyDaemonProvider()
 		const daemon = requireValue(provider.daemon)
 		const profile = {
@@ -176,8 +176,8 @@ describe('process helpers', () => {
 					models: [...daemon.models, { name: 'judge', digest: 'b'.repeat(64) }],
 				},
 			},
-			record: opening.record,
-			settings: { metadata: { ...opening.metadata } },
+			record: template.record,
+			settings: { metadata: { ...template.metadata } },
 		}
 		const scenario = buildStudyScenario()
 		const trial = { id: 'r1-first-small', scenario: scenario.id, arm: 'small', repetition: 0 }
@@ -186,7 +186,7 @@ describe('process helpers', () => {
 		expect(declaration).toMatchObject({
 			trial: trial.id,
 			goals: ['write', 'read'],
-			record: opening.record,
+			record: template.record,
 			maintenance: [],
 		})
 		expect(declaration.procedure).toBeUndefined()

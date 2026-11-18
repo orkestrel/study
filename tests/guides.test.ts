@@ -103,9 +103,9 @@ await new GuideCommand({
 				artifacts.materialize(join(scratch.path, 'subject', 'dist', 'copy')),
 			).rejects.toMatchObject({ code: 'OVERLAP' })
 			expect(scratch.has('subject/dist/copy')).toBe(false)
-			const copying = artifacts.materialize(join(scratch.path, 'copy'))
+			const copy = artifacts.materialize(join(scratch.path, 'copy'))
 			scratch.write('subject/studies/adapter/helper.ts', 'export const helper: number = 4\n')
-			await expect(copying).rejects.toMatchObject({ code: 'DRIFT' })
+			await expect(copy).rejects.toMatchObject({ code: 'DRIFT' })
 			expect(scratch.has('copy')).toBe(true)
 			expect(scratch.has('copy/closure.json')).toBe(false)
 		} finally {
@@ -498,10 +498,10 @@ await new GuideCommand({
 		expect(active).toBe('count')
 		expect(trace.goal).toBeUndefined()
 		expect(sink.rows).toEqual([{ event: 'note', goal: 'count', value: 'kept' }])
-		const refusing = createStudySinkFixture({ refuse: { error: new Error('Full'), row: 0 } })
+		const barrier = createStudySinkFixture({ refuse: { error: new Error('Full'), row: 0 } })
 		trace.start('again')
 		trace.append('note', 'lost')
-		await expect(trace.flush(refusing.sink)).rejects.toThrow('Full')
+		await expect(trace.flush(barrier.sink)).rejects.toThrow('Full')
 		expect(trace.goal).toBeUndefined()
 	})
 

@@ -35,9 +35,12 @@ import {
 	attempt,
 	canonicalStringify,
 	isArray,
+	isBoolean,
 	isInteger,
+	isNumber,
 	isObject,
 	isRecord,
+	isString,
 	parseJSON,
 } from '@orkestrel/contract'
 import { STUDY_OLLAMA_KEYED_ROLES } from './constants.js'
@@ -334,7 +337,7 @@ export function validateStudyOllamaStep(
 		step.goal !== goal ||
 		step.role !== request.role ||
 		step.path !== request.path ||
-		typeof body !== 'string' ||
+		!isString(body) ||
 		(step.admission === 'exact'
 			? !Buffer.from(step.body).equals(Buffer.from(body))
 			: step.bytes !== request.bytes)
@@ -393,13 +396,12 @@ export function readStudyOllamaRequest(
 		)
 	if (role === 'metadata') {
 		if (path === '/api/show') {
-			if (typeof init?.body !== 'string')
-				throw new StudyError('CONFIG', 'Invalid model metadata request')
+			if (!isString(init?.body)) throw new StudyError('CONFIG', 'Invalid model metadata request')
 			const body: unknown = JSON.parse(init.body)
 			if (
 				!isRecord(body) ||
 				Object.keys(body).length !== 1 ||
-				typeof body.model !== 'string' ||
+				!isString(body.model) ||
 				!Object.values(options.models).some((model) => model.name === body.model)
 			)
 				throw new StudyError('CONFIG', 'Invalid model metadata identity')
@@ -427,7 +429,7 @@ export function readStudyOllamaRequest(
 			length: false,
 		}
 	}
-	if (init?.method !== 'POST' || typeof init.body !== 'string')
+	if (init?.method !== 'POST' || !isString(init.body))
 		throw new StudyError('CONFIG', 'Ollama transport requires an encoded JSON POST')
 	if (role === 'triage') {
 		const policy = options.roles.triage
@@ -436,7 +438,7 @@ export function readStudyOllamaRequest(
 			policy === undefined ||
 			!isRecord(body) ||
 			body.model !== policy.model ||
-			typeof body.state !== 'string' ||
+			!isString(body.state) ||
 			!isRecord(body.questions) ||
 			Object.keys(body).some((key) => !['model', 'state', 'questions'].includes(key))
 		)
@@ -477,7 +479,7 @@ export function readStudyOllamaRequest(
 	if (
 		role === 'judge'
 			? body.raw !== true || body.logprobs !== true
-			: typeof body.think !== 'boolean' || (body.think === true && !policy.think)
+			: !isBoolean(body.think) || (body.think === true && !policy.think)
 	)
 		throw new StudyError('CONFIG', 'Ollama transport flags differ from the declared policy')
 	// The strict fields govern chat requests only; the judge's raw generate wire is outside them.
@@ -514,7 +516,7 @@ export function readStudyOllamaSupport(value: unknown, context: number): number 
 	if (
 		!isRecord(value) ||
 		!isRecord(value.model_info) ||
-		typeof value.model_info['general.architecture'] !== 'string'
+		!isString(value.model_info['general.architecture'])
 	)
 		throw new StudyError('FAULT', 'Missing model context metadata')
 	const architecture = value.model_info['general.architecture']
@@ -522,7 +524,7 @@ export function readStudyOllamaSupport(value: unknown, context: number): number 
 	const ceiling = value.model_info[`${architecture}.context_length`]
 	if (
 		keys.length !== 1 ||
-		typeof ceiling !== 'number' ||
+		!isNumber(ceiling) ||
 		!Number.isSafeInteger(ceiling) ||
 		ceiling < context
 	) {
@@ -571,21 +573,16 @@ export function readStudyOllamaFailure(
 	if (!isRecord(value) || !('error' in value)) return undefined
 	const field = value.error
 	// The live daemon sends structured JSON inside a string; decode it once and unwrap one error object.
-	const decoded = typeof field === 'string' ? parseJSON(field) : field
+	const decoded = isString(field) ? parseJSON(field) : field
 	const structured = isRecord(decoded)
 		? isRecord(decoded.error)
 			? decoded.error
 			: decoded
 		: undefined
 	const native = structured?.message
-	const text =
-		typeof native === 'string' && native.trim() !== ''
-			? native
-			: typeof field === 'string'
-				? field
-				: ''
+	const text = isString(native) && native.trim() !== '' ? native : isString(field) ? field : ''
 	const label = structured?.type
-	const type = typeof label === 'string' && label !== '' ? label : undefined
+	const type = isString(label) && label !== '' ? label : undefined
 	const origin = status === undefined ? 'Ollama error' : `Ollama HTTP ${status} error`
 	const prompt = structured?.n_prompt_tokens
 	const limit = structured?.n_ctx
@@ -642,24 +639,23 @@ export function readStudyOllamaTerminal(
 		const prompt = value.usage?.input_tokens
 		const completion = value.usage?.output_tokens
 		return {
-			prompt:
-				typeof prompt === 'number' && Number.isFinite(prompt) && prompt >= 0 ? prompt : undefined,
+			prompt: isNumber(prompt) && Number.isFinite(prompt) && prompt >= 0 ? prompt : undefined,
 			completion:
-				typeof completion === 'number' && Number.isFinite(completion) && completion >= 0
+				isNumber(completion) && Number.isFinite(completion) && completion >= 0
 					? completion
 					: undefined,
 			reason: undefined,
 		}
 	}
-	if (!isRecord(value) || typeof value.done !== 'boolean')
+	if (!isRecord(value) || !isBoolean(value.done))
 		throw new StudyError('FAULT', 'Malformed Ollama response row')
 	if (value.model !== request.model)
 		throw new StudyError('FAULT', 'Ollama response model differs from the dispatched model')
 	if (request.role !== 'judge') {
 		if (
 			!isRecord(value.message) ||
-			typeof value.message.content !== 'string' ||
-			(value.message.thinking !== undefined && typeof value.message.thinking !== 'string')
+			!isString(value.message.content) ||
+			(value.message.thinking !== undefined && !isString(value.message.thinking))
 		)
 			throw new StudyError('FAULT', 'Malformed Ollama message')
 		if (value.message.tool_calls !== undefined) {
@@ -669,19 +665,19 @@ export function readStudyOllamaTerminal(
 				if (
 					!isRecord(call) ||
 					!isRecord(call.function) ||
-					typeof call.function.name !== 'string' ||
+					!isString(call.function.name) ||
 					!isRecord(call.function.arguments)
 				)
 					throw new StudyError('FAULT', 'Malformed Ollama tool call')
 		}
 	}
 	if (!value.done) return undefined
-	if (typeof value.done_reason !== 'string' || value.done_reason.length === 0)
+	if (!isString(value.done_reason) || value.done_reason.length === 0)
 		throw new StudyError('FAULT', 'Missing Ollama finish reason')
 	for (const key of ['prompt_eval_count', 'eval_count'])
 		if (
 			value[key] !== undefined &&
-			(typeof value[key] !== 'number' || !Number.isSafeInteger(value[key]) || value[key] < 0)
+			(!isNumber(value[key]) || !Number.isSafeInteger(value[key]) || value[key] < 0)
 		)
 			throw new StudyError('FAULT', 'Malformed Ollama usage', {
 				cause: 'infrastructure',
@@ -689,8 +685,8 @@ export function readStudyOllamaTerminal(
 				role: request.role,
 				stop: undefined,
 			})
-	const prompt = typeof value.prompt_eval_count === 'number' ? value.prompt_eval_count : undefined
-	const completion = typeof value.eval_count === 'number' ? value.eval_count : undefined
+	const prompt = isNumber(value.prompt_eval_count) ? value.prompt_eval_count : undefined
+	const completion = isNumber(value.eval_count) ? value.eval_count : undefined
 	return { prompt, completion, reason: value.done_reason }
 }
 
@@ -800,7 +796,7 @@ export function validateStudyOllamaInventory(value: unknown, models: StudyOllama
 		if (
 			matches.length !== 1 ||
 			!isRecord(model) ||
-			typeof model.digest !== 'string' ||
+			!isString(model.digest) ||
 			model.digest.replace(/^sha256:/, '') !== digest.replace(/^sha256:/, '')
 		)
 			throw new StudyError('FAULT', 'Serving inventory does not match the required model digest')
@@ -828,20 +824,20 @@ export function readStudyOllamaDigest(
 }
 
 /**
- * Reads daemon timing from a terminal row without letting an observation fail the request.
+ * Reads daemon telemetry, the Ollama timing, from a terminal row without letting an observation fail the request.
  * @param extract - The admitted extractor
  * @param record - The validated terminal row
- * @returns The raw timing, or undefined when absent or the extractor throws
+ * @returns The raw telemetry, or undefined when absent or the extractor throws
  * @example
  * ```ts
  * const unreadable = (): never => {
  * 	throw new Error('Timing is unreadable')
  * }
- * readStudyOllamaTiming(unreadable, { done: true }) // undefined
+ * readStudyOllamaTelemetry(unreadable, { done: true }) // undefined
  * ```
  */
-export function readStudyOllamaTiming(
-	extract: StudyOllamaTransportOptions['timing'],
+export function readStudyOllamaTelemetry(
+	extract: StudyOllamaTransportOptions['extract'],
 	record: Readonly<Record<string, unknown>>,
 ): OllamaTiming | undefined {
 	try {
@@ -852,29 +848,29 @@ export function readStudyOllamaTiming(
 }
 
 /**
- * Builds the JSON evidence form of a timing observation with raw nanoseconds and counts.
- * @param timing - The extracted timing
- * @returns Null when no terminal timing was observed; otherwise every unreported member as null
+ * Builds the JSON evidence form of a telemetry observation with raw nanoseconds and counts.
+ * @param telemetry - The extracted telemetry
+ * @returns Null when no terminal telemetry was observed; otherwise every unreported member as null
  * @example
  * ```ts
- * buildStudyOllamaTiming(undefined) // null
+ * buildStudyOllamaTelemetry(undefined) // null
  * ```
  */
-export function buildStudyOllamaTiming(timing: OllamaTiming | undefined): JSONValue {
-	if (timing === undefined) return null
+export function buildStudyOllamaTelemetry(telemetry: OllamaTiming | undefined): JSONValue {
+	if (telemetry === undefined) return null
 	return {
 		durations: {
-			total: timing.durations.total ?? null,
-			load: timing.durations.load ?? null,
-			prompt: timing.durations.prompt ?? null,
-			decode: timing.durations.decode ?? null,
+			total: telemetry.durations.total ?? null,
+			load: telemetry.durations.load ?? null,
+			prompt: telemetry.durations.prompt ?? null,
+			decode: telemetry.durations.decode ?? null,
 		},
 		counts: {
-			prompt: timing.counts.prompt ?? null,
-			decode: timing.counts.decode ?? null,
-			cached: timing.counts.cached ?? null,
+			prompt: telemetry.counts.prompt ?? null,
+			decode: telemetry.counts.decode ?? null,
+			cached: telemetry.counts.cached ?? null,
 		},
-		invalid: [...timing.invalid],
+		invalid: [...telemetry.invalid],
 	}
 }
 
@@ -888,10 +884,9 @@ export function buildStudyOllamaTiming(timing: OllamaTiming | undefined): JSONVa
  * ```
  */
 export function buildStudyOllamaRaw(body: unknown): JSONValue | undefined {
-	if (typeof body !== 'string') return undefined
+	if (!isString(body)) return undefined
 	const parsed = attempt((): unknown => JSON.parse(body))
-	if (!parsed.success || !isRecord(parsed.value) || typeof parsed.value.prompt !== 'string')
-		return undefined
+	if (!parsed.success || !isRecord(parsed.value) || !isString(parsed.value.prompt)) return undefined
 	return {
 		encoding: 'utf-8',
 		units: parsed.value.prompt.length,

@@ -27,10 +27,13 @@ import {
 	holds,
 	canonicalStringify,
 	isArray,
+	isBoolean,
 	isFiniteNumber,
 	isJSONValue,
 	isNonEmptyString,
+	isNumber,
 	isRecord,
+	isString,
 	literalOf,
 } from '@orkestrel/contract'
 import { MAX_TIMEOUT_MS } from '@orkestrel/timeout'
@@ -87,7 +90,7 @@ export function isStudyStop(value: unknown): value is StudyStop {
  * ```
  */
 export function isStudyName(value: unknown): value is string {
-	return typeof value === 'string' && value.length <= 128 && STUDY_NAME.test(value)
+	return isString(value) && value.length <= 128 && STUDY_NAME.test(value)
 }
 
 /**
@@ -105,10 +108,9 @@ export function isStudyLimit(value: unknown): value is StudyLimit {
 			return false
 		return (
 			['duration', 'calls', 'tokens', 'bytes'].every(
-				(key) =>
-					typeof value[key] === 'number' && Number.isSafeInteger(value[key]) && value[key] > 0,
+				(key) => isNumber(value[key]) && Number.isSafeInteger(value[key]) && value[key] > 0,
 			) &&
-			typeof value.duration === 'number' &&
+			isNumber(value.duration) &&
 			value.duration <= MAX_TIMEOUT_MS
 		)
 	})
@@ -253,7 +255,7 @@ export function isStudyDefinition(value: unknown): value is StudyDefinition {
 				isArray(order) &&
 				order.length === arms.length &&
 				new Set(order).size === arms.length &&
-				order.every((arm) => typeof arm === 'string' && arms.includes(arm)),
+				order.every((arm) => isString(arm) && arms.includes(arm)),
 		)
 	})
 }
@@ -272,20 +274,19 @@ export function isStudyRoom(value: unknown): value is StudyRoom {
 		if (
 			!isRecord(value) ||
 			!matchesStudyKeys(value, ['context', 'output', 'safety', 'think']) ||
-			typeof value.think !== 'boolean'
+			!isBoolean(value.think)
 		)
 			return false
 		if (
 			!['context', 'output', 'safety'].every(
-				(key) =>
-					typeof value[key] === 'number' && Number.isSafeInteger(value[key]) && value[key] > 0,
+				(key) => isNumber(value[key]) && Number.isSafeInteger(value[key]) && value[key] > 0,
 			)
 		)
 			return false
 		return (
-			typeof value.context === 'number' &&
-			typeof value.output === 'number' &&
-			typeof value.safety === 'number' &&
+			isNumber(value.context) &&
+			isNumber(value.output) &&
+			isNumber(value.safety) &&
 			value.output + value.safety < value.context
 		)
 	})
@@ -310,7 +311,7 @@ export function isStudyProvider(value: unknown): value is StudyProvider {
 				['judge', 'triage', 'daemon'],
 			) ||
 			!['entry', 'url', 'model'].every((key) => isNonEmptyString(value[key])) ||
-			typeof value.url !== 'string' ||
+			!isString(value.url) ||
 			!isRecord(value.digest) ||
 			!matchesStudyKeys(value.digest, ['model'], ['judge', 'triage']) ||
 			(value.triage === undefined) !== (value.digest.triage === undefined) ||
@@ -382,7 +383,7 @@ export function isStudyDaemon(value: unknown): value is StudyDaemon {
 		if (
 			!isRecord(value) ||
 			!matchesStudyKeys(value, ['executable', 'models'], ['environment']) ||
-			typeof value.executable !== 'string' ||
+			!isString(value.executable) ||
 			!/^(?:[A-Za-z]:[\\/]|\/(?!\/)|\\\\[^\\]+\\[^\\]+\\)/.test(value.executable) ||
 			value.executable.includes('\0') ||
 			value.executable.split(/[\\/]/).some((part) => part === '.' || part === '..') ||
@@ -415,10 +416,7 @@ export function isStudyDaemon(value: unknown): value is StudyDaemon {
 				new Set(entries.map(([name]) => name.toLowerCase())).size !== entries.length ||
 				entries.some(
 					([name, entry]) =>
-						name.length === 0 ||
-						/[=\0]/.test(name) ||
-						typeof entry !== 'string' ||
-						entry.includes('\0'),
+						name.length === 0 || /[=\0]/.test(name) || !isString(entry) || entry.includes('\0'),
 				)
 			)
 				return false
@@ -450,7 +448,7 @@ export function isStudyProfile(value: unknown): value is StudyProfile {
 			isArray(value.roots) &&
 			isJSONValue(value.roots) &&
 			value.roots.length > 0 &&
-			value.roots.every((root) => typeof root === 'string' && root.trim().length > 0) &&
+			value.roots.every((root) => isString(root) && root.trim().length > 0) &&
 			new Set(value.roots).size === value.roots.length &&
 			isNonEmptyString(value.subject) &&
 			isStudyAllowance(value.bounds) &&
@@ -476,13 +474,13 @@ export function isStudyRecord(value: unknown): value is StudyRecord {
 		() =>
 			isRecord(value) &&
 			matchesStudyKeys(value, ['bytes', 'calls', 'duration']) &&
-			typeof value.bytes === 'number' &&
+			isNumber(value.bytes) &&
 			Number.isSafeInteger(value.bytes) &&
 			value.bytes > 0 &&
-			typeof value.calls === 'number' &&
+			isNumber(value.calls) &&
 			Number.isSafeInteger(value.calls) &&
 			value.calls > 0 &&
-			typeof value.duration === 'number' &&
+			isNumber(value.duration) &&
 			Number.isSafeInteger(value.duration) &&
 			value.duration > 0,
 	)
@@ -498,7 +496,7 @@ export function isStudyRecord(value: unknown): value is StudyRecord {
  * ```
  */
 export function isStudyDigest(value: unknown): value is string {
-	return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
+	return isString(value) && /^[a-f0-9]{64}$/.test(value)
 }
 
 /**
@@ -513,7 +511,7 @@ export function isStudyDigest(value: unknown): value is string {
 export function isStudyTimestamp(value: unknown): value is string {
 	return holds(() => {
 		return (
-			typeof value === 'string' &&
+			isString(value) &&
 			/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) &&
 			new Date(value).toISOString() === value
 		)
@@ -537,17 +535,12 @@ export function isStudyUsage(value: unknown): value is StudyUsage {
 			(value.replayed === undefined || value.replayed === true) &&
 			isStudyRole(value.role) &&
 			['calls', 'duration'].every(
-				(key) =>
-					typeof value[key] === 'number' && Number.isSafeInteger(value[key]) && value[key] >= 0,
+				(key) => isNumber(value[key]) && Number.isSafeInteger(value[key]) && value[key] >= 0,
 			) &&
 			(value.bytes === undefined ||
-				(typeof value.bytes === 'number' &&
-					Number.isSafeInteger(value.bytes) &&
-					value.bytes >= 0)) &&
+				(isNumber(value.bytes) && Number.isSafeInteger(value.bytes) && value.bytes >= 0)) &&
 			(value.tokens === undefined ||
-				(typeof value.tokens === 'number' &&
-					Number.isSafeInteger(value.tokens) &&
-					value.tokens >= 0))
+				(isNumber(value.tokens) && Number.isSafeInteger(value.tokens) && value.tokens >= 0))
 		)
 	})
 }
@@ -562,9 +555,7 @@ export function isStudyUsage(value: unknown): value is StudyUsage {
  * ```
  */
 export function isStudyProduct(value: unknown): value is StudyProduct {
-	return holds(
-		() => isRecord(value) && typeof value.partial === 'boolean' && isJSONValue(value.value),
-	)
+	return holds(() => isRecord(value) && isBoolean(value.partial) && isJSONValue(value.value))
 }
 
 /**
@@ -585,7 +576,7 @@ export function isStudyCriterion(value: unknown): value is StudyCriterion {
 			isStudyName(value.scenario) &&
 			isStudyName(value.goal) &&
 			(value.method === 'state' || value.method === 'trace' || value.method === 'semantic') &&
-			typeof value.critical === 'boolean' &&
+			isBoolean(value.critical) &&
 			isJSONValue(value.assertion)
 		)
 	})
@@ -605,7 +596,7 @@ export function isStudyRubric(value: unknown): value is StudyRubric {
 		return (
 			isRecord(value) &&
 			matchesStudyKeys(value, ['version', 'criteria']) &&
-			typeof value.version === 'string' &&
+			isString(value.version) &&
 			value.version.trim().length > 0 &&
 			isArray(value.criteria) &&
 			value.criteria.length > 0 &&
@@ -646,13 +637,11 @@ export function isStudyJudgment(value: unknown): value is StudyJudgment {
 				value.method === 'trace' ||
 				value.method === 'human' ||
 				value.method === 'model') &&
-			typeof value.reason === 'string' &&
+			isString(value.reason) &&
 			value.reason.trim().length > 0 &&
 			isArray(value.references) &&
 			isJSONValue(value.references) &&
-			value.references.every(
-				(reference) => typeof reference === 'string' && reference.trim().length > 0,
-			) &&
+			value.references.every((reference) => isString(reference) && reference.trim().length > 0) &&
 			new Set(value.references).size === value.references.length &&
 			(value.verdict === 'unknown' || value.references.length > 0)
 		)
@@ -674,9 +663,9 @@ export function isStudyLabelSheet(value: unknown): value is StudyLabelSheet {
 			isRecord(value) &&
 			matchesStudyKeys(value, ['packet', 'labeler', 'version', 'created', 'usage', 'judgments']) &&
 			isStudyDigest(value.packet) &&
-			typeof value.labeler === 'string' &&
+			isString(value.labeler) &&
 			value.labeler.trim().length > 0 &&
-			typeof value.version === 'string' &&
+			isString(value.version) &&
 			value.version.trim().length > 0 &&
 			isStudyTimestamp(value.created) &&
 			isArray(value.usage) &&
@@ -736,7 +725,7 @@ export function isStudyAssessment(value: unknown): value is StudyAssessment {
 			isStudyDigest(value.result) &&
 			isStudyDigest(value.rubric) &&
 			isStudyDigest(value.instrument) &&
-			typeof value.grader === 'string' &&
+			isString(value.grader) &&
 			value.grader.trim().length > 0 &&
 			(value.labels === undefined || isStudyDigest(value.labels)) &&
 			(value.packet === undefined || isStudyDigest(value.packet)) &&

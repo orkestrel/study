@@ -110,7 +110,7 @@ describe('StudyOllamaKeyedReplay', () => {
 		)
 		const tampered = buildStudyKeyedHistory(['agent'], ['tampered']).exchanges
 		const reads = createRecorder<readonly []>()
-		const shifting = Object.defineProperty({ ...history }, 'exchanges', {
+		const decoy = Object.defineProperty({ ...history }, 'exchanges', {
 			enumerable: true,
 			get: () => {
 				reads.handler()
@@ -118,7 +118,7 @@ describe('StudyOllamaKeyedReplay', () => {
 			},
 		})
 		const replay = new StudyOllamaKeyedReplay({
-			histories: [shifting],
+			histories: [decoy],
 			roles: ['agent'],
 			url: URL_ORIGIN,
 			signal: new AbortController().signal,

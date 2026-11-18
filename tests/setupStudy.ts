@@ -1605,7 +1605,7 @@ export function createOllamaFetch(replies: readonly OllamaReplyFixture[] = []): 
 		},
 		requests: requests.entries,
 		get replies(): readonly OllamaReplyFixture[] {
-			return queue.remaining
+			return queue.backlog
 		},
 	}
 }
@@ -1618,7 +1618,7 @@ export function createOllamaFetch(replies: readonly OllamaReplyFixture[] = []): 
  * const queue = new OllamaReplyQueue([{ path: '/api/tags', body: 'tags' }])
  * queue.claim('/api/chat') // undefined
  * queue.claim('/api/tags') // { path: '/api/tags', body: 'tags' }
- * queue.remaining // []
+ * queue.backlog // []
  * ```
  */
 export class OllamaReplyQueue<TReply extends OllamaReplyFixture = OllamaReplyFixture> {
@@ -1633,7 +1633,7 @@ export class OllamaReplyQueue<TReply extends OllamaReplyFixture = OllamaReplyFix
 	}
 
 	/** Reports the queued replies no request has claimed yet, in serving order. */
-	get remaining(): readonly TReply[] {
+	get backlog(): readonly TReply[] {
 		return this.#replies.slice(this.#served)
 	}
 
@@ -1749,8 +1749,8 @@ export function createAgentObserver(
 		runtime: createAgentRuntime(),
 		gauge,
 		enforced,
-		record: (reading, request) => {
-			measurements.append(reading)
+		record: (measurement, request) => {
+			measurements.append(measurement)
 			requests.append(request)
 		},
 	})

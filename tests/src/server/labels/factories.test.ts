@@ -114,26 +114,26 @@ describe('createStudyLabelPool', () => {
 		try {
 			const { segment } = await createStudyLabelFixture(scratch)
 			const options = { order: 'o', controls: [], partition: partitionStudyLabel }
-			const mapping = parseJSON(new TextDecoder().decode(segment.mapping))
-			if (!isRecord(mapping) || !Array.isArray(mapping.entries)) throw new Error('Missing mapping')
+			const legend = parseJSON(new TextDecoder().decode(segment.legend))
+			if (!isRecord(legend) || !Array.isArray(legend.entries)) throw new Error('Missing legend')
 			const encoder = new TextEncoder()
-			const empty = encoder.encode(JSON.stringify({ ...mapping, entries: [] }))
+			const empty = encoder.encode(JSON.stringify({ ...legend, entries: [] }))
 			const shorter = encoder.encode(
-				JSON.stringify({ ...mapping, entries: mapping.entries.slice(1) }),
+				JSON.stringify({ ...legend, entries: legend.entries.slice(1) }),
 			)
 			const longer = encoder.encode(
-				JSON.stringify({ ...mapping, entries: [...mapping.entries, mapping.entries[0]] }),
+				JSON.stringify({ ...legend, entries: [...legend.entries, legend.entries[0]] }),
 			)
 			const swapped = encoder.encode(
 				JSON.stringify({
-					...mapping,
-					entries: mapping.entries.map((entry: unknown) =>
+					...legend,
+					entries: legend.entries.map((entry: unknown) =>
 						isRecord(entry) ? { ...entry, trial: 't-other' } : entry,
 					),
 				}),
 			)
 			for (const bytes of [empty, shorter, longer, swapped]) {
-				expect(() => createStudyLabelPool([{ ...segment, mapping: bytes }], options)).toThrow(
+				expect(() => createStudyLabelPool([{ ...segment, legend: bytes }], options)).toThrow(
 					expect.objectContaining({
 						code: 'EVIDENCE',
 						message: expect.stringContaining('does not cover its packet'),
@@ -147,7 +147,7 @@ describe('createStudyLabelPool', () => {
 				createStudyLabelPool([{ ...segment, packet: encoder.encode('{}') }], options),
 			).toThrow(/packet of .* is malformed/)
 			expect(() =>
-				createStudyLabelPool([{ ...segment, mapping: encoder.encode('{}') }], options),
+				createStudyLabelPool([{ ...segment, legend: encoder.encode('{}') }], options),
 			).toThrow(/mapping of .* is malformed/)
 		} finally {
 			scratch.destroy()
@@ -189,7 +189,7 @@ describe('createStudyLabelPool', () => {
 							entries: [{ trial: 't', criterion: 'c', input: 'Ask', assertion: { holds: true } }],
 						}),
 					),
-					mapping: encoder.encode(
+					legend: encoder.encode(
 						JSON.stringify({ result: 'seal', entries: [{ trial: 't', criterion: 'c', source }] }),
 					),
 				},
@@ -213,7 +213,7 @@ describe('createStudyLabelPool', () => {
 						result: 'seal',
 						arm: 'full',
 						packet: encoder.encode(JSON.stringify({ entries: [entry, entry] })),
-						mapping: encoder.encode(JSON.stringify({ result: 'seal', entries: [link, link] })),
+						legend: encoder.encode(JSON.stringify({ result: 'seal', entries: [link, link] })),
 					},
 				],
 				options,
@@ -231,7 +231,7 @@ describe('createStudyLabelPool', () => {
 						result: '',
 						arm: 'full',
 						packet: encoder.encode(JSON.stringify({ entries: [entry] })),
-						mapping: encoder.encode(JSON.stringify({ result: '', entries: [link] })),
+						legend: encoder.encode(JSON.stringify({ result: '', entries: [link] })),
 					},
 				],
 				options,

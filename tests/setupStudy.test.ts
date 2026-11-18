@@ -119,12 +119,12 @@ describe('study boundary fixtures', () => {
 		const goal = manifest.scenarios[0]?.goals[0]
 		if (trial === undefined || goal === undefined) throw new Error('Missing fixture declaration')
 		const signal = new AbortController().signal
-		const opening = fixture.driver.open(trial, signal)
+		const launch = fixture.driver.open(trial, signal)
 		await Promise.resolve()
 		expect(fixture.opened.count).toBe(1)
-		expect(await readSettled(opening)).toBe(false)
+		expect(await readSettled(launch)).toBe(false)
 		resolvers.resolve()
-		const session = await opening
+		const session = await launch
 		const meter = createStudyMeterFixture()
 		try {
 			const evidence = await createStudyStoreFixture().store.start(trial)
@@ -138,12 +138,12 @@ describe('study boundary fixtures', () => {
 		expect(fixture.executed.calls).toEqual([[goal.id]])
 	})
 	it('rejects each session close with the supplied error after recording the call', async () => {
-		const closing = new Error('Close refused')
-		const fixture = createStudyDriverFixture({ failure: closing })
+		const refusal = new Error('Close refused')
+		const fixture = createStudyDriverFixture({ failure: refusal })
 		const trial = buildCompactCustodyManifest().schedule[0]
 		if (trial === undefined) throw new Error('Missing fixture trial')
 		const session = await fixture.driver.open(trial, new AbortController().signal)
-		await expect(session.close()).rejects.toBe(closing)
+		await expect(session.close()).rejects.toBe(refusal)
 		expect(fixture.closed.calls).toEqual([[trial.id]])
 	})
 	it('leases the first scheduled trial over recording fixtures and releases its owner', async () => {
@@ -484,14 +484,14 @@ describe('study protocol fixtures', () => {
 		const tags = { path: '/api/tags', body: 'tags' }
 		const chat = { path: '/api/chat', body: 'chat' }
 		const queue = new OllamaReplyQueue([tags, chat])
-		expect(queue.remaining).toEqual([tags, chat])
+		expect(queue.backlog).toEqual([tags, chat])
 		expect(queue.claim('/api/chat')).toBeUndefined()
-		expect(queue.remaining).toEqual([tags, chat])
+		expect(queue.backlog).toEqual([tags, chat])
 		expect(queue.claim('/api/tags')).toBe(tags)
-		expect(queue.remaining).toEqual([chat])
+		expect(queue.backlog).toEqual([chat])
 		expect(queue.claim('/api/tags')).toBeUndefined()
 		expect(queue.claim('/api/chat')).toBe(chat)
-		expect(queue.remaining).toEqual([])
+		expect(queue.backlog).toEqual([])
 		expect(queue.claim('/api/chat')).toBeUndefined()
 	})
 
@@ -621,10 +621,10 @@ describe('study fixture observation views', () => {
 
 describe('study settlement reader', () => {
 	it('reads a pending promise as unsettled and a fulfilled or rejected promise as settled', async () => {
-		const pending = Promise.withResolvers<void>()
-		expect(await readSettled(pending.promise)).toBe(false)
-		pending.resolve()
-		expect(await readSettled(pending.promise)).toBe(true)
+		const deferred = Promise.withResolvers<void>()
+		expect(await readSettled(deferred.promise)).toBe(false)
+		deferred.resolve()
+		expect(await readSettled(deferred.promise)).toBe(true)
 		const refused = Promise.reject(new Error('refused'))
 		expect(await readSettled(refused)).toBe(true)
 		await expect(refused).rejects.toThrow('refused')

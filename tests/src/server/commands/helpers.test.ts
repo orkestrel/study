@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { isArray, isRecord, parseJSON } from '@orkestrel/contract'
 import { requireValue } from '@orkestrel/test'
 import { createHash } from 'node:crypto'
+import { realpathSync } from 'node:fs'
 import {
 	buildCompactCustodyManifest,
 	buildCustodyAttempt,
@@ -23,7 +24,10 @@ import {
 	STUDY_STOP_SWITCHES,
 } from '../../../setupStudy.js'
 import { parseStudyProfile } from '../../../../src/core/parsers.js'
-import { computeStudyProfileDigest } from '../../../../src/server/processes/helpers.js'
+import {
+	collectStudyEntries,
+	computeStudyProfileDigest,
+} from '../../../../src/server/processes/helpers.js'
 import {
 	buildCustodyAssessment,
 	createStudyDaemonFixture,
@@ -36,6 +40,7 @@ import {
 	STUDY_SELECTION_SEED,
 } from '../../../setupServer.js'
 import {
+	buildStudyFreezeOptions,
 	collectStudyEvidence,
 	computeStudyCommandFingerprint,
 	computeStudyFixtureDigest,
@@ -112,6 +117,57 @@ it('reads an exact published forest and relocates original and active profile pa
 		expect(resolveStudyClosurePath(scratch.path, 'plain')).toBe(join(scratch.path, 'plain'))
 		await writeFile(join(closure.destination, 'extra.txt'), 'extra')
 		expect(() => readStudyClosure(closure.destination)).toThrow(/membership/)
+	} finally {
+		scratch.destroy()
+	}
+})
+
+it('selects the freeze members of one study and profile and admits the instrument root once', () => {
+	const root = resolve('.')
+	const instrument = realpathSync(root)
+	const entry = join(root, 'src', 'bin', 'main.ts')
+	const bundle = join(root, 'studies', 'files')
+	const definition = buildStudyDefinition()
+	const profile = { ...buildStudyProfile(), roots: [join(root, 'dist'), instrument] }
+	expect(
+		buildStudyFreezeOptions(
+			root,
+			entry,
+			{ target: 'assessment', profile: 'local' },
+			{ bundle, definition, profile },
+		),
+	).toEqual({
+		entries: collectStudyEntries(profile),
+		roots: [join(root, 'dist'), instrument],
+		source: { root: bundle, entry: join(bundle, 'index.ts') },
+		instrument,
+		assets: [
+			entry,
+			join(root, 'studies', 'assessment', 'study.json'),
+			join(root, 'studies', 'assessment', 'rubric.json'),
+			join(bundle, 'profiles', 'local.json'),
+			join(bundle, 'scenarios', 'first.json'),
+			join(bundle, 'scenarios', 'second.json'),
+		],
+	})
+	expect(() =>
+		buildStudyFreezeOptions(
+			root,
+			entry,
+			{ target: '../outside', profile: 'local' },
+			{ bundle, definition, profile },
+		),
+	).toThrow('Artifact path must be a portable contained relative path')
+	const scratch = createScratch()
+	try {
+		expect(() =>
+			buildStudyFreezeOptions(
+				root,
+				scratch.write('main.js', ''),
+				{ target: 'assessment', profile: 'local' },
+				{ bundle, definition, profile },
+			),
+		).toThrow('Cannot locate the study runtime package')
 	} finally {
 		scratch.destroy()
 	}
@@ -620,7 +676,7 @@ describe('study command helpers', () => {
 	it('excludes a product that carries a failure from completion and counts each affected record once per cause', () => {
 		const manifest = buildCustodyManifest()
 		const late = buildStudyFailure('deadline', 'Late')
-		const closing = buildStudyFailure('infrastructure', 'Close failed')
+		const cleanup = buildStudyFailure('infrastructure', 'Close failed')
 		const attempts = buildStudyOperationAttempts(manifest).map((attempt, index) => {
 			if (index === 0)
 				return buildStudyAttempt(
@@ -640,7 +696,7 @@ describe('study command helpers', () => {
 					attempt.trial,
 					true,
 					[buildStudyObservation('write', true), buildStudyObservation('read', true)],
-					closing,
+					cleanup,
 				)
 			return attempt
 		})

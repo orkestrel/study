@@ -7,6 +7,10 @@ import { isStudyIdentity } from '../processes/validators.js'
 /** Checks a closure publication before using its command inputs.
  * @param value - The decoded closure.json value.
  * @returns True if relocation, selectors, and both identities are declared; false otherwise.
+ * @example
+ * ```ts
+ * isStudyClosure({}) // false
+ * ```
  */
 export function isStudyClosure(value: unknown): value is StudyClosure {
 	return holds(

@@ -44,7 +44,7 @@ describe('StudyGradingStore', () => {
 				' ',
 			)
 			await expect(store.read(later)).rejects.toMatchObject({ code: 'CUSTODY' })
-			const forged = { ...packet, mapping: encodeStudyJSON({ entries: [] }) }
+			const forged = { ...packet, legend: encodeStudyJSON({ entries: [] }) }
 			await expect(
 				new StudyAssessmentStore({ result, rubric: encodeStudyJSON(rubric), packet: forged }).write(
 					{

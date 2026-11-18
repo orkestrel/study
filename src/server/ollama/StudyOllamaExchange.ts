@@ -45,7 +45,7 @@ export class StudyOllamaExchange implements StudyOllamaWire {
 	#bytes: number
 	#text = ''
 	#terminal: StudyOllamaTerminal | undefined
-	#timing: OllamaTiming | undefined
+	#telemetry: OllamaTiming | undefined
 	#settled = false
 	readonly #chunks: Uint8Array[] = []
 	#recorded = false
@@ -90,9 +90,9 @@ export class StudyOllamaExchange implements StudyOllamaWire {
 		return this.#terminal
 	}
 
-	/** Holds the daemon timing of the terminal row after observation. */
-	get timing(): OllamaTiming | undefined {
-		return this.#timing
+	/** Holds the daemon telemetry, the Ollama timing of the terminal row, after observation. */
+	get telemetry(): OllamaTiming | undefined {
+		return this.#telemetry
 	}
 
 	/** Reports whether the request was accounted, finished or failed. */
@@ -188,13 +188,13 @@ export class StudyOllamaExchange implements StudyOllamaWire {
 		return final ? lines : lines.slice(0, -1)
 	}
 
-	/** Retains what a row read as its terminal and its daemon timing.
+	/** Retains what a row read as its terminal and its daemon telemetry.
 	 * @param terminal - The terminal the row validated as, or undefined when the row is not terminal.
-	 * @param timing - The daemon timing of that row, or undefined when it is not observed.
+	 * @param telemetry - The daemon telemetry of that row, or undefined when it is not observed.
 	 */
-	observe(terminal: StudyOllamaTerminal | undefined, timing: OllamaTiming | undefined): void {
+	observe(terminal: StudyOllamaTerminal | undefined, telemetry: OllamaTiming | undefined): void {
 		this.#terminal = terminal
-		this.#timing = timing
+		this.#telemetry = telemetry
 	}
 
 	/** Marks the request accounted, finished or failed. */

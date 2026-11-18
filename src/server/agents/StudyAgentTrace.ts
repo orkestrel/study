@@ -71,16 +71,16 @@ export class StudyAgentTrace {
 	 * @throws StudyError - Thrown with code `CONFIG` when another flush is pending; the pending flush is untouched.
 	 */
 	async flush(evidence: StudySinkInterface): Promise<void> {
-		const running = this.#goal
-		if (running === undefined) return
+		const goal = this.#goal
+		if (goal === undefined) return
 		if (this.#flushes.size !== 0) throw new StudyError('CONFIG', 'Trace flush is already pending')
 		// The goal joins the registry before the sink can run, so a sink that re-enters `flush` meets it.
-		this.#flushes.add(running)
+		this.#flushes.add(goal)
 		try {
-			for (const row of running.rows) await evidence.append(row)
+			for (const row of goal.rows) await evidence.append(row)
 		} finally {
 			this.#goal = undefined
-			this.#flushes.delete(running)
+			this.#flushes.delete(goal)
 		}
 	}
 
