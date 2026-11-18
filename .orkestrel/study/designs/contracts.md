@@ -91,7 +91,7 @@ This design was reconciled on 2026-11-17 from one independent design round. Two 
     5. grade with the closure's own entry and relocated rubric;
     6. report with the assessment that grade's JSON names.
   - Each step runs only when the step before it exited 0. A skipped step reads `undefined`.
-  - `StudyRehearsal { closure: StudyInstall, freeze, check, execute, result, grade, report }`.
+  - `StudyRehearsal { closure, freeze, check, execute, result, grade, report }`, where `closure` is the frozen `StudyInstall`, and it, like every step after a failed one, reads `undefined` when freeze fails.
   - The execute deadline derives from the profile's `bounds.series.duration` plus `STUDY_LAUNCH_CLEANUP` and `STUDY_LAUNCH_DURATION`, so there is no duration option. There is no progress callback either: `study progress <directory>/result` reads a live run.
   - Ruled for a method over a free `rehearseStudy`, which would construct a class from a function kind file (`.claude/rules/architecture.md` § Kind purity), and over a one-shot `StudyRehearsal` class whose only method runs once.
 - **Consumers.**
