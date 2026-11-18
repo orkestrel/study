@@ -9,7 +9,7 @@ Move the generic study machinery that Study, Agent, and taverna each duplicate i
 All of the following hold:
 - `@orkestrel/ollama` 0.0.41 and `@orkestrel/study` 0.0.23 serve the additions the design fixes, each release reviewed and gated;
 - Agent depends on them, with its local copies deleted and no alias;
-- Agent declares the four `records*` memory studies and no compaction study, profile, or arm (the user's ruling of 2026-11-18; the records-native work removes compaction from Agent itself);
+- Agent declares the four memory studies `memory`, `capacity`, `endurance`, and `qualification` on records alone, with `full` as the handoff control, on the `local` and `recommended` profiles, and Agent 0.0.47 holds no compaction (the user's rulings of 2026-11-18);
 - Agent has cut the `tools` and `context` studies, the labeling harness, and the `narrow` and 2B profiles;
 - Agent's `npm run test:studies` reads green, with a wall time below the U0 baseline;
 - after the records-native work's last unit (its D1), each kept study holds one fresh sealed baseline on the 4B, each rehearsed first;
@@ -40,7 +40,7 @@ Taverna's studies retire at taverna `cbd960ef` with no further run. Nothing in t
 
 ## Rulings
 
-A read-only consultation set these rulings on 2026-11-17. The campaign's design round reconciled them the same day, and `designs/contracts.md` holds the contracts. `designs/split.md` holds Agent's records and compaction split.
+A read-only consultation set these rulings on 2026-11-17. The campaign's design round reconciled them the same day, and `designs/contracts.md` holds the contracts. `designs/split.md` holds Agent's records and compaction split, headed by the records-only set that superseded it.
 
 | Candidate | Ruling | Home |
 | --- | --- | --- |
@@ -62,9 +62,9 @@ A read-only consultation set these rulings on 2026-11-17. The campaign's design 
 
 Agent's reorganization:
 - **Keep and simplify** `chat` and `disclosure`.
-- **Replace** `memory`, `capacity`, `endurance`, and `qualification` with single-strategy declarations: agent `2a7c4e9f` landed the eight of `designs/split.md`, and the user's ruling of 2026-11-18 keeps only the four `records*` (`recordsmemory`, `recordscapacity`, `recordsendurance`, `recordsqualification`) with `full` as the handoff control, on the `recordslocal` and `recordsrecommended` profiles, names kept through U7c.
+- **Replace** `memory`, `capacity`, `endurance`, and `qualification` with single-strategy declarations: agent `2a7c4e9f` landed the eight of `designs/split.md`, and the user's rulings of 2026-11-18 keep only the records four, with `full` as the handoff control, and return them to the plain names before any baseline records: `memory`, `capacity`, `endurance`, and `qualification`, on the `local` and `recommended` profiles (agent `71d0105a`, each rubric moved whole with its pinned digest unchanged).
 - **Cut** `tools` and `context` after a claim-by-claim coverage check, the labeling harness, and the `narrow` profile.
-- **Compaction leaves** the studies and Agent itself (the user, 2026-11-18): the four `compaction*` declarations, the compaction arm, the compaction and 2B profiles, and `validateStudyMemoryStrategy` go; the adapter keeps the refusal of a declaration with only `full`. The records-native work (in Agent) designs and runs the source removal; this campaign owns the studies' shape. No sealed result is rewritten.
+- **Compaction left** the studies and Agent itself (the user, 2026-11-18): the four `compaction*` declarations, the compaction arm, the compaction and 2B profiles, and `validateStudyMemoryStrategy` are gone; the adapter keeps the refusal of a declaration with only `full`. Agent 0.0.47, ollama 0.0.44, and study 0.0.25 hold no compaction. No sealed result is rewritten.
 - **The baseline replaces the earlier results.** After the records-native work's D1, record one fresh sealed baseline per kept study on the 4B through the host lane, each rehearsed first. Before any long run, give the user the run plan with a time estimate per run.
   - Compare each new baseline against the earlier readings: Agent `studies/README.md` § What it measured, the O187 to O199 readings at agent `db86a3eb`, the 2026-11-12 disclosure reading, the `chat` battery rows, and the earlier sealed results in Agent's untracked study output. For each metric, give old against new, the setup difference (declaration split, build, runner, models), and whether that difference explains it.
   - When no anomaly stands, delete the earlier results and replace the readings in Agent's documents; git history keeps the earlier text.
@@ -176,7 +176,9 @@ none.
 - 2026-11-18, the records-native work landed A1 and A2 with A4's compaction cut (agent `11df7b32`) and A3a (agent `2b995b19`).
 - 2026-11-18, ollama 0.0.43 published from `3b44cc6` (the provider's `model`); U6 landed (agent `de2bc0ad`).
 - 2026-11-18, the user ruled one wave on local tarball pins in place of one-off publishes, scoped to ollama, study, and agent, with only dist-moving and gate-required work before it. The wave published study 0.0.24 (`a32874b`, the bridge), Agent 0.0.47 (agent `f39e638e`), ollama 0.0.44 (`f727f4c`, O1), and study 0.0.25 (`9e8ffa0`, S1).
-- Next: Agent's D1 (development re-pin to study 0.0.25 and ollama 0.0.44, the trace's `latch` and `translate` absorbed); then the deferred studies proofs (P2, `test:studies`); then U7's run plan to the user.
+- 2026-11-18, Agent's D1 landed (agent `48a53228`), P2 read byte-identical on the published set, and the user approved U7's run plan. Rows 1 to 3 sealed (`disclosure`, `chat` at `full` and `compact`); `tight` reruns at its re-estimated cap.
+- 2026-11-18, the user ruled the plain names back before rows 5 to 8 record; the rename, ROADMAP item 65's class move (it changed the memory fingerprints), `local`'s record allowance, and `recommended`'s 9,600,000 ms durations landed together (agent `71d0105a`). Each capacity and quality pair runs from one frozen closure, because the qualification gate compares whole identity, root included.
+- Next: U7's `tight` rerun and rows 5 to 8, then U7c.
 
 ## Sequence
 
