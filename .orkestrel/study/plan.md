@@ -20,9 +20,9 @@ All of the following hold:
 
 | Package | Repository | Change |
 | --- | --- | --- |
-| `@orkestrel/study` | https://github.com/orkestrel/study | Additions per § Rulings, release 0.0.23; the records-native work's S1 later removes Study's compaction pieces in a later release |
-| `@orkestrel/ollama` | https://github.com/orkestrel/ollama | `createOllamaFixture`, release 0.0.41 (`1e78302`); the records-native work's O0 (0.0.42) and O1 follow |
-| `@orkestrel/agent` | https://github.com/orkestrel/agent | studies reorganized, devDependencies re-pinned, no release from this campaign; its records-native release is that work's |
+| `@orkestrel/study` | https://github.com/orkestrel/study | Additions per § Rulings, release 0.0.23; the bridge 0.0.24 (the observer's `model`); the records-native S1, 0.0.25 |
+| `@orkestrel/ollama` | https://github.com/orkestrel/ollama | `createOllamaFixture`, release 0.0.41 (`1e78302`); the records-native O0 (0.0.42), the provider's `model` (0.0.43), and O1 (0.0.44) |
+| `@orkestrel/agent` | https://github.com/orkestrel/agent | studies reorganized, devDependencies re-pinned; its records-native release, 0.0.47, is that work's |
 
 Taverna's studies retire at taverna `cbd960ef` with no further run. Nothing in taverna changes.
 
@@ -150,6 +150,8 @@ none.
 | `StudyCommand`'s inline `--trial` and `--goals` rendering beside `buildStudySelectors`, with a different seed rendering | The next change to `StudyCommand`'s selection argv | Study |
 | The launch child's drain is pinned only on its interruption arm: mutants routing the deadline, overflow, or pre-aborted path straight to `terminateStudyChild`, or arming per call, survive (review 3) | The next change to `StudyLaunchChild`'s termination | Study |
 | `buildOllamaRow` beside `createOllamaReply`'s default row (review 3, advisory) | The next change to either | Study |
+| Toolbox 0.0.35 and every other package on `@orkestrel/agent ^0.0.46` at runtime re-pin to 0.0.47, run their gates, and republish (records-native T1) | The user's go-ahead after the wave | Orchestrator, on the user's word |
+| Agent's seven records-native findings below the bar (`share` and `thresholds` admit unknown keys, `Selection.recoveries` unvalidated, role and member agreement at `add`, `Ledger#flush`'s positional pending, `reference()`'s default label, two consumerless helpers, the "fitted" sentence) | The next Agent unit at each seam | Agent's owner |
 
 ## ROADMAP triggers
 
@@ -172,15 +174,16 @@ none.
 - 2026-11-18, ollama 0.0.42 published from `4ebc609` on the user's word, its live service run 90 of 90 against a second daemon.
 - 2026-11-18, U3's cut landed (agent `60274406`). U5d landed (study `8c0ff3a`), study took ollama `^0.0.42` (`239f429`), U5c landed with the successor round (`35d8321`) after review 3 passed, and U8's study pass landed (`7b413d1`). Study 0.0.23 published from `833cbe0`.
 - 2026-11-18, the records-native work landed A1 and A2 with A4's compaction cut (agent `11df7b32`) and A3a (agent `2b995b19`).
-- Next: U6 in Agent once records-native A3 completes; O1 and S1 after Agent's records-native release; U7 after D1.
+- 2026-11-18, ollama 0.0.43 published from `3b44cc6` (the provider's `model`); U6 landed (agent `de2bc0ad`).
+- 2026-11-18, the user ruled one wave on local tarball pins in place of one-off publishes, scoped to ollama, study, and agent, with only dist-moving and gate-required work before it. The wave published study 0.0.24 (`a32874b`, the bridge), Agent 0.0.47 (agent `f39e638e`), ollama 0.0.44 (`f727f4c`, O1), and study 0.0.25 (`9e8ffa0`, S1).
+- Next: Agent's D1 (development re-pin to study 0.0.25 and ollama 0.0.44, the trace's `latch` and `translate` absorbed); then the deferred studies proofs (P2, `test:studies`); then U7's run plan to the user.
 
 ## Sequence
 
 | Unit | Repository | Owner | Depends on | Release |
 | --- | --- | --- | --- | --- |
-| U6: Agent adopts study 0.0.23 and ollama 0.0.42 and deletes its local copies | agent | agent's owner | records-native A3 | none |
-| Records-native O1 and S1: Ollama's and Study's compaction removal | ollama, study | Orchestrator's writers | Agent's records-native release | later releases |
+| Records-native D1: Agent's devDependencies at study 0.0.25 and ollama 0.0.44, latching through its own transport, P2 and `test:studies` green | agent | agent's owner | study 0.0.25 | none unless `compare` exits 3 |
 | U7: the run plan with a time estimate per run, given to the user, then one rehearsed, sealed baseline per kept study on the 4B | agent | agent's owner | records-native D1 | none |
 | U7c: the comparison of each new baseline against the earlier readings, anomalies stopped and reported | agent | agent's owner | U7 | none |
 | U7d: delete the earlier results outside the protected paths, replace the documents' readings | agent | agent's owner | U7c with no anomaly | none |
-| U8: one document pass with each remaining release (O1, S1), and Agent's readings in U7d | all three | each owner | with each release | with each release |
+| U8: Agent's readings in U7d | agent | agent's owner | U7d | none |
