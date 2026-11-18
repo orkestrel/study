@@ -143,17 +143,19 @@ none.
 | F1: the fixture's untested `error` emission in the window between `destroy()` starting and the emitter's destruction | The next change to the fixture's teardown | Ollama |
 | F3: the inline unload literal in `DaemonPolicy.reply` (ollama `tests/setupServer.ts`), the shape `buildOllamaAnswer` builds | The next change to `DaemonPolicy` | Ollama |
 | The fixture's unbounded request text without `drain` handling, and unknown event names in `on` | A consumer under realistic load, or a misspelled hook | Ollama |
-| The scaffold catalog's mirrors of `guides/ollama.md` and `guides/study.md` | ollama 0.0.41 and study 0.0.23 serve | scaffold's owner session |
+| The scaffold catalog's mirrors of `guides/ollama.md` and `guides/study.md` | Met 2026-11-18 (ollama 0.0.42 and study 0.0.23 serve); no scaffold session is live to take it, so it goes to the user | scaffold's owner session |
 | `terminateStudyChild` throwing inside `StudyLaunchChild`'s timer and abort listener with no guard (by reading; unverified) | A reading that it throws | Study |
 | Adopting `@orkestrel/process` for every supervised Study child | Study moves every child onto it, or a POSIX descendant in the leader's group must die; the dependency needs the user's go-ahead | Study and the user |
 | A sparse top-logprob list handed directly to Ollama's `computeAnswer` throws a `TypeError` at the hole | A direct caller passes a sparse list | Ollama |
 | `StudyCommand`'s inline `--trial` and `--goals` rendering beside `buildStudySelectors`, with a different seed rendering | The next change to `StudyCommand`'s selection argv | Study |
+| The launch child's drain is pinned only on its interruption arm: mutants routing the deadline, overflow, or pre-aborted path straight to `terminateStudyChild`, or arming per call, survive (review 3) | The next change to `StudyLaunchChild`'s termination | Study |
+| `buildOllamaRow` beside `createOllamaReply`'s default row (review 3, advisory) | The next change to either | Study |
 
 ## ROADMAP triggers
 
 - Items 1, 2, and 3: not met. The campaign adds no duration allowance, planned stop, or milestone waiter.
 - Item 5: not met. `@orkestrel/test` carries no standing-proof observation mechanism (scaffold `guides/test.md`, read 2026-11-17).
-- Item 6: reopens when a `StudyResultStore` case fails under load in this campaign's gates. U5 adds no process proof to that file.
+- Item 6: met in U5c, when a `StudyResultStore` case timed out under the full suite; closed in study `35d8321`, and the item is removed. U5 adds no process proof to that file.
 
 ## State
 
@@ -167,20 +169,18 @@ none.
 - 2026-11-17, U4 landed in ollama (`086cfe3`, `ae3b947`) and ollama 0.0.41 published from `1e78302`.
 - 2026-11-18, the user ruled records the one native strategy: compaction and the 2B leave the studies and Agent itself. The records-native work, in Agent, runs the source removal. The baseline stays in this campaign and runs after that work's D1 (ledger).
 - 2026-11-18, U5's phases B, B2, and A landed (study `322eed7`) after one review, two repair rounds, a re-audit, and the Orchestrator's closure check. Ollama O0 landed (ollama `019c8ee`), and 0.0.42's chain is green, awaiting the user's word on its live service run.
-- Next: the U5d probe on both arms, then U5c; the U3 deletion in Agent.
+- 2026-11-18, ollama 0.0.42 published from `4ebc609` on the user's word, its live service run 90 of 90 against a second daemon.
+- 2026-11-18, U3's cut landed (agent `60274406`). U5d landed (study `8c0ff3a`), study took ollama `^0.0.42` (`239f429`), U5c landed with the successor round (`35d8321`) after review 3 passed, and U8's study pass landed (`7b413d1`). Study 0.0.23 published from `833cbe0`.
+- 2026-11-18, the records-native work landed A1 and A2 with A4's compaction cut (agent `11df7b32`) and A3a (agent `2b995b19`).
+- Next: U6 in Agent once records-native A3 completes; O1 and S1 after Agent's records-native release; U7 after D1.
 
 ## Sequence
 
 | Unit | Repository | Owner | Depends on | Release |
 | --- | --- | --- | --- | --- |
-| U3 deletion: cut `tools` and `context` | agent | agent's owner | study `322eed7` | none |
-| U5d: `StudyLaunchChild` drains its pipes after a termination it began, and claim 12 narrows to the tree a live leader reaches; probe on both arms first | study | `opus` | study `322eed7` | none |
-| U5c: Study's tests adopt `createOllamaFixture` and the install | study | `opus` | U5d | none |
-| U5 review of U5c and U5d, document pass, gates, release | study | `reviewer`, Orchestrator, `verifier` | U5c | study 0.0.23 |
-| Records-native O0: a duplicate top logprob token answers a `Refusal` | ollama | `opus`, Orchestrator | the user's word on the live service run | ollama 0.0.42 |
-| U6 with records-native A4: Agent adopts study 0.0.23 and ollama 0.0.41 or later, deletes its local copies, and cuts the compaction studies and profiles | agent | agent's owner | study 0.0.23, records-native A1 to A3 | none |
+| U6: Agent adopts study 0.0.23 and ollama 0.0.42 and deletes its local copies | agent | agent's owner | records-native A3 | none |
 | Records-native O1 and S1: Ollama's and Study's compaction removal | ollama, study | Orchestrator's writers | Agent's records-native release | later releases |
 | U7: the run plan with a time estimate per run, given to the user, then one rehearsed, sealed baseline per kept study on the 4B | agent | agent's owner | records-native D1 | none |
 | U7c: the comparison of each new baseline against the earlier readings, anomalies stopped and reported | agent | agent's owner | U7 | none |
 | U7d: delete the earlier results outside the protected paths, replace the documents' readings | agent | agent's owner | U7c with no anomaly | none |
-| U8: one document pass per repository | all three | each owner | with each release | with each release |
+| U8: one document pass with each remaining release (O1, S1), and Agent's readings in U7d | all three | each owner | with each release | with each release |
