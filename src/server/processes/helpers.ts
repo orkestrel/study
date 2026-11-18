@@ -384,21 +384,25 @@ export function validateStudyRuntime(instrument: string, roots: readonly string[
 }
 
 /** Releases inherited output handles a bounded time after native exit.
- * @param child - A newly spawned child, subscribed before native exit.
+ * @param child - A spawned child, armed before close.
  * @remarks A descendant that outlives an exited root is outside discoverable-tree cleanup; this only stops the parent from waiting on its pipes.
  */
 export function drainStudyChild(child: ChildProcess): void {
 	const closed = new AbortController()
-	child.once('exit', () => {
-		// A close before the allowance ends aborts the wait, which is the only rejection it can have.
-		void delay(STUDY_DRAIN_DURATION, undefined, { signal: closed.signal }).then(
+	const exited =
+		child.exitCode !== null || child.signalCode !== null
+			? Promise.resolve()
+			: new Promise<void>((settle) => child.once('exit', () => settle()))
+	// A close before the allowance ends aborts the wait, which is the only rejection it can have.
+	void exited
+		.then(() => delay(STUDY_DRAIN_DURATION, undefined, { signal: closed.signal }))
+		.then(
 			() => {
 				child.stdout?.destroy()
 				child.stderr?.destroy()
 			},
 			() => undefined,
 		)
-	})
 	child.once('close', () => closed.abort())
 }
 

@@ -1,7 +1,7 @@
 import type { ChildProcess } from 'node:child_process'
 import type { StudyLaunchResult } from './types.js'
 import { StudyError } from '@src/core'
-import { terminateStudyChild } from '../processes/helpers.js'
+import { drainStudyChild, terminateStudyChild } from '../processes/helpers.js'
 import { STUDY_LAUNCH_BYTES } from './constants.js'
 
 /** Supervises one launched command child until it closes under its output allowance and deadline. */
@@ -12,6 +12,7 @@ export class StudyLaunchChild {
 	readonly #signal: AbortSignal
 	readonly #stdout: Buffer[] = []
 	readonly #stderr: Buffer[] = []
+	readonly #terminated = new AbortController()
 	#bytes = 0
 	#failure: Error | undefined
 	#expired = false
@@ -46,11 +47,15 @@ export class StudyLaunchChild {
 		const signal = this.#signal
 		return new Promise((resolve, reject) => {
 			const listeners = new AbortController()
+			this.#terminated.signal.addEventListener('abort', () => drainStudyChild(child), {
+				once: true,
+				signal: listeners.signal,
+			})
 			const timer = setTimeout(() => {
 				this.#expired = true
-				terminateStudyChild(child)
+				this.#terminate()
 			}, this.#duration)
-			signal.addEventListener('abort', () => terminateStudyChild(child), {
+			signal.addEventListener('abort', () => this.#terminate(), {
 				once: true,
 				signal: listeners.signal,
 			})
@@ -84,7 +89,7 @@ export class StudyLaunchChild {
 					stderr: Buffer.concat(this.#stderr).toString('utf8'),
 				})
 			})
-			if (signal.aborted) terminateStudyChild(child)
+			if (signal.aborted) this.#terminate()
 		})
 	}
 
@@ -93,8 +98,13 @@ export class StudyLaunchChild {
 		this.#bytes += chunk.byteLength
 		if (this.#bytes <= STUDY_LAUNCH_BYTES) return true
 		this.#failure ??= new Error('Study command output exceeds the 16 MiB host allowance')
-		terminateStudyChild(this.#child)
+		this.#terminate()
 		return false
+	}
+
+	#terminate(): void {
+		this.#terminated.abort()
+		terminateStudyChild(this.#child)
 	}
 
 	#writeStderr(chunk: Buffer): void {

@@ -1,8 +1,16 @@
-import { requireValue, waitForCondition } from '@orkestrel/test'
-import { isRunning } from '@orkestrel/test/server'
+import { requireValue, waitForCondition, waitForEvent } from '@orkestrel/test'
+import { createScratch, isRunning } from '@orkestrel/test/server'
+import { fork } from 'node:child_process'
 import { describe, expect, it } from 'vitest'
+import { StudyDeadline } from '../../../../src/core/engines/StudyDeadline.js'
 import { StudyLaunchChild } from '../../../../src/server/launchers/StudyLaunchChild.js'
-import { spawnStudyScript } from '../../../setupServer.js'
+import { STUDY_DRAIN_DURATION } from '../../../../src/server/processes/constants.js'
+import {
+	readStudyOrphan,
+	releaseStudyPid,
+	spawnStudyScript,
+	writeStudyOrphan,
+} from '../../../setupServer.js'
 
 describe('StudyLaunchChild', () => {
 	it('captures the stdout of a child that closes and reports its exit code', async () => {
@@ -90,6 +98,48 @@ describe('StudyLaunchChild', () => {
 		expect(settled).toEqual({ code: 0, stdout: 'one', stderr: '' })
 		expect((await second).code).toBe(5)
 	})
+
+	it('drains the pipes a descendant of an exited root holds after an interruption, and reports 130', async () => {
+		const scratch = createScratch()
+		try {
+			const child = fork(writeStudyOrphan(scratch, 20000), [], {
+				execArgv: [],
+				silent: true,
+				windowsHide: true,
+			})
+			const controller = new AbortController()
+			const running = new StudyLaunchChild(
+				child,
+				20000,
+				{ stdout: false, stderr: false },
+				controller.signal,
+			).execute()
+			const exited = waitForEvent(
+				(listener: () => void) => {
+					child.once('exit', listener)
+					return () => {
+						child.off('exit', listener)
+					}
+				},
+				'orphan root exit',
+				{ budget: 5000 },
+			)
+			child.send({ start: true })
+			await exited
+			const receipt = requireValue(readStudyOrphan(scratch))
+			controller.abort()
+			const result = await new StudyDeadline({
+				duration: STUDY_DRAIN_DURATION + 4000,
+				label: 'drained interruption observation',
+			}).wait(running)
+			expect(result.code).toBe(130)
+			expect(isRunning(receipt.root)).toBe(false)
+			expect(isRunning(receipt.leaf)).toBe(true)
+		} finally {
+			await releaseStudyPid(readStudyOrphan(scratch)?.leaf)
+			scratch.destroy()
+		}
+	}, 20000)
 
 	it('refuses to supervise the same child twice', async () => {
 		const child = new StudyLaunchChild(
