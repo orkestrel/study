@@ -43,11 +43,13 @@ await new GuideCommand({
 	const core = await import('@orkestrel/study')
 	const server = await import('@orkestrel/study/server')
 	const { createScratch } = await import('@orkestrel/test/server')
+	const { createOllamaFixture } = await import('@orkestrel/ollama/server')
 	const { join } = await import('node:path')
 	const { writeFile } = await import('node:fs/promises')
 	const {
 		STUDY_AGENT_MESSAGES,
 		STUDY_AGENT_PROJECTION,
+		STUDY_OLLAMA_FIXTURE,
 		STUDY_OLLAMA_OPTIONS,
 		STUDY_OLLAMA_PROVIDER,
 		STUDY_SCRIPT_MANY_CALLS,
@@ -58,6 +60,7 @@ await new GuideCommand({
 		buildOllamaReplies,
 		buildStudyRubric,
 		buildStudyScriptResponse,
+		createOllamaReply,
 		createStudyAgentSummary,
 		createStudyAgentTrace,
 		createStudyScriptFixture,
@@ -70,7 +73,6 @@ await new GuideCommand({
 		buildCustodyAssessment,
 		createOllamaContext,
 		buildOllamaTransportOptions,
-		createOllamaServer,
 		STUDY_OLLAMA_CHAT_BODY,
 		createForeignBudgetError,
 		createBudgetLookalike,
@@ -129,7 +131,7 @@ await new GuideCommand({
 	})
 
 	it('forwards admitted requests by role through the documented optional collaborator', async () => {
-		const peer = await createOllamaServer()
+		const peer = await createOllamaFixture({ ...STUDY_OLLAMA_FIXTURE, reply: createOllamaReply() })
 		const goal = createOllamaContext()
 		const { StudyOllamaTransport } = server
 		const configured: StudyOllamaTransportOptions = buildOllamaTransportOptions(peer.url)
@@ -154,7 +156,7 @@ await new GuideCommand({
 		} finally {
 			await transport.close()
 			goal.close()
-			await peer.close()
+			await peer.destroy()
 		}
 	})
 

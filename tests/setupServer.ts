@@ -15,11 +15,7 @@ import type { StudyMeterFixture } from './setup.js'
 import type { StudyResultStoreInterface } from '../src/server/stores/types.js'
 import type { BudgetError, BudgetErrorContext } from '@orkestrel/budget'
 import type { DistributionObservation, DistributionStage } from './setupDistribution.js'
-import type {
-	StudyInstallResult,
-	StudyLaunchOptions,
-	StudyLaunchResult,
-} from '../src/server/launchers/types.js'
+import type { StudyInstallResult, StudyLaunchOptions } from '../src/server/launchers/types.js'
 import type { ScratchInterface } from '@orkestrel/test/server'
 import type { ArtifactLoaderOptions } from '../src/server/artifacts/types.js'
 import type { ChildProcess } from 'node:child_process'
@@ -68,7 +64,7 @@ import type {
 } from '../src/server/ollama/types.js'
 import type { StudyExchangeRow, StudyExchangeSinkInterface } from '../src/server/stores/types.js'
 import type { JSONValue } from '@orkestrel/contract'
-import type { OllamaReplyFixture, OllamaRequestFixture } from './setup.js'
+import type { OllamaReplyFixture } from './setup.js'
 
 import {
 	DISTRIBUTION_FORMATS,
@@ -84,14 +80,8 @@ import {
 } from './setupDistribution.js'
 import { isArray, isInteger, isRecord, parseJSON } from '@orkestrel/contract'
 import { createScratch, isRunning, readInventory } from '@orkestrel/test/server'
-import {
-	createTeardown,
-	requireValue,
-	waitForCondition,
-	waitForEvent,
-	waitForDelay,
-} from '@orkestrel/test'
-import { execFile, fork, spawn } from 'node:child_process'
+import { createTeardown, requireValue, waitForCondition, waitForEvent } from '@orkestrel/test'
+import { fork, spawn } from 'node:child_process'
 import {
 	appendFileSync,
 	copyFileSync,
@@ -219,7 +209,7 @@ export async function createStudyReplayFixture(
 ): Promise<StudyReplayFixture> {
 	const scratch = createStudyConsumer()
 	const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
-	const server = await createOllamaServer()
+	const server = await createOllamaFixture({ ...STUDY_OLLAMA_FIXTURE, reply: createOllamaReply() })
 	try {
 		const subject = await buildStudyLibrary(
 			library,
@@ -284,13 +274,13 @@ export async function createStudyReplayFixture(
 			history,
 			profile,
 			close: async () => {
-				await server.close()
+				await server.destroy()
 				library.destroy()
 				scratch.destroy()
 			},
 		}
 	} catch (error) {
-		await server.close()
+		await server.destroy()
 		library.destroy()
 		scratch.destroy()
 		throw error
@@ -312,10 +302,12 @@ export async function createStudyContinuationFixture(
 	const { scratch } = fixture
 	const server = owned
 		? undefined
-		: await createOllamaServer().catch(async (error: unknown) => {
-				await fixture.close()
-				throw error
-			})
+		: await createOllamaFixture({ ...STUDY_OLLAMA_FIXTURE, reply: createOllamaReply() }).catch(
+				async (error: unknown) => {
+					await fixture.close()
+					throw error
+				},
+			)
 	try {
 		const scenario = requireValue(scratch.read('studies/files/scenarios/first.json'))
 		const rubric = requireValue(scratch.read('studies/assessment/rubric.json'))
@@ -390,12 +382,12 @@ export async function createStudyContinuationFixture(
 			result,
 			history,
 			async close() {
-				await server?.close()
+				await server?.destroy()
 				await fixture.close()
 			},
 		}
 	} catch (error) {
-		await server?.close()
+		await server?.destroy()
 		await fixture.close()
 		throw error
 	}
@@ -631,6 +623,8 @@ export const STUDY_REPLAY_DIVERGENCE_CASES = Object.freeze([
 import { BudgetError as LocalBudgetError, isBudgetError } from '@orkestrel/budget'
 import { isObject } from '@orkestrel/contract'
 import { createOllama, extractTiming } from '@orkestrel/ollama'
+import { createOllamaFixture } from '@orkestrel/ollama/server'
+import type { OllamaFixtureInterface } from '@orkestrel/ollama/server'
 import { createMCPLegacy, createMCPServer } from '@orkestrel/mcp'
 import { createMCPRoutes } from '@orkestrel/mcp/server'
 import { createDispatcher } from '@orkestrel/router'
@@ -653,10 +647,11 @@ import {
 	buildOllamaCall,
 	buildOllamaRow,
 	buildOllamaStream,
+	createOllamaReply,
 	createStudyMeterFixture,
 	OllamaReplyQueue,
-	readOllamaDefault,
 	StudyLog,
+	STUDY_OLLAMA_FIXTURE,
 	STUDY_JUDGE_OPTIONS,
 	STUDY_OLLAMA_OPTIONS,
 	STUDY_OLLAMA_PARTIAL_ROW,
@@ -2622,32 +2617,6 @@ export function admitStudyLibrary(consumer: ScratchInterface, library: ScratchIn
 	)
 }
 
-/** Drives the real CLI with a finite native command cap.
- * @param entry - The built runtime entry.
- * @param root - The selected consumer working directory.
- * @param tokens - Public CLI arguments.
- * @returns Truthful native exit and all command output.
- */
-export function executeStudyCLI(
-	entry: string,
-	root: string,
-	tokens: readonly string[],
-): Promise<StudyLaunchResult> {
-	return new Promise((complete) =>
-		execFile(
-			process.execPath,
-			[entry, ...tokens],
-			{ cwd: root, windowsHide: true, timeout: 60000, maxBuffer: 16 * 1024 * 1024 },
-			(error, stdout, stderr) =>
-				complete({
-					code: error === null ? 0 : typeof error.code === 'number' ? error.code : 1,
-					stdout,
-					stderr,
-				}),
-		),
-	)
-}
-
 /** Writes one installed Agent runtime package whose entry records each evaluation.
  * @param scratch - The owned temporary consumer.
  * @param name - The package directory and log name.
@@ -2927,66 +2896,6 @@ export class StudyInstallRecorder extends StudyInstall {
 	override execute(arguments_: readonly string[], duration?: number): Promise<StudyInstallResult> {
 		this.#calls.handler(arguments_, duration)
 		return super.execute(arguments_, duration)
-	}
-}
-
-/** Starts a loopback Ollama protocol fixture on an ephemeral port that answers queued replies by path.
- * @param replies - Queued replies for matching request paths; other paths receive the default answer.
- * @param answer - Answers a request from its exact bytes when no queued reply claims it; declining leaves the default answer.
- * @returns The fixture origin, the exact received requests, the unserved replies, and its close.
- */
-export async function createOllamaServer(
-	replies: readonly OllamaWireReplyFixture[] = [],
-	answer?: StudyMCPAnswer,
-): Promise<OllamaServerFixture> {
-	const queue = new OllamaReplyQueue(replies)
-	const requests = new StudyLog<OllamaRequestFixture>()
-	const owners = new StudyLog<string | undefined>()
-	const server = createServer(async (request, response) => {
-		const chunks: Buffer[] = []
-		for await (const chunk of request)
-			chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
-		const path = request.url ?? ''
-		const text = Buffer.concat(chunks).toString('utf8')
-		const supplied = queue.claim(path)
-		const scripted = replies.find((entry) => entry === supplied)
-		requests.append({ path, body: text })
-		const header = request.headers['x-study-owned']
-		owners.append(typeof header === 'string' ? header : undefined)
-		const body = supplied?.body ?? answer?.(path, text) ?? readOllamaDefault(path)
-		if (scripted?.pause !== undefined) await waitForDelay(scripted.pause)
-		response.writeHead(supplied?.status ?? 200, scripted?.headers)
-		if (scripted?.chunks !== undefined) {
-			for (const chunk of scripted.chunks) {
-				response.write(chunk)
-				await waitForDelay(1)
-			}
-			if (scripted.interrupted === true) response.destroy()
-			else if (scripted.open !== true) response.end()
-			return
-		}
-		if (supplied?.open === true) response.write(body)
-		else response.end(body)
-	})
-	await new Promise<void>((resolveListen, reject) => {
-		server.once('error', reject)
-		server.listen(0, '127.0.0.1', resolveListen)
-	})
-	const address = server.address()
-	if (address === null || typeof address === 'string')
-		throw new Error('Missing Ollama fixture address')
-	return {
-		url: `http://127.0.0.1:${address.port}`,
-		requests: requests.entries,
-		owned: owners.entries,
-		get replies(): readonly OllamaReplyFixture[] {
-			return queue.remaining
-		},
-		close: () =>
-			new Promise<void>((resolveClose, reject) => {
-				server.closeAllConnections()
-				server.close((error) => (error === undefined ? resolveClose() : reject(error)))
-			}),
 	}
 }
 
@@ -3283,7 +3192,7 @@ export async function createOllamaDiskFixture(
 			...change,
 			...(sink === undefined ? {} : { exchanges: sink }),
 		})
-		teardown.add(() => fixture.server.close())
+		teardown.add(() => fixture.server.destroy())
 		teardown.add(() => fixture.goal.close())
 		// The sink remains open until every transport continuation has drained.
 		teardown.add(() => sink?.close())
@@ -3390,13 +3299,16 @@ export async function createOllamaTransportFixture(
 	change: Partial<StudyOllamaTransportOptions> = {},
 	checkpoint?: JSONValue,
 ): Promise<OllamaTransportFixture> {
-	const server = await createOllamaServer(replies)
+	const server = await createOllamaFixture({
+		...STUDY_OLLAMA_FIXTURE,
+		reply: createOllamaReply(new OllamaReplyQueue(replies)),
+	})
 	const goal = createOllamaContext()
 	try {
 		const transport = new StudyOllamaTransport(buildOllamaTransportOptions(server.url, change))
 		transport.prepare({ goal: 'first', context: goal.context, checkpoint })
 		const teardown = createTeardown()
-		teardown.add(() => server.close())
+		teardown.add(() => server.destroy())
 		teardown.add(() => goal.close())
 		teardown.add(() => transport.close())
 		return {
@@ -3407,7 +3319,7 @@ export async function createOllamaTransportFixture(
 		}
 	} catch (error) {
 		goal.close()
-		await server.close()
+		await server.destroy()
 		throw error
 	}
 }
@@ -4390,7 +4302,7 @@ export interface StudyDaemonFixture {
 /** Holds a one-goal daemon recording with the executing scenario grown to its next goal. */
 export interface StudyContinuationFixture extends StudyDaemonFixture {
 	/** Holds the external fixture server a recording that declares no daemon sends to. */
-	readonly server: OllamaServerFixture | undefined
+	readonly server: OllamaFixtureInterface | undefined
 	readonly entry: string
 	readonly command: StudyCommand
 	readonly recorded: string
@@ -4425,22 +4337,11 @@ export interface StudyReplayFixture {
 	readonly scratch: ScratchInterface
 	readonly entry: string
 	readonly command: StudyCommand
-	readonly server: OllamaServerFixture
+	readonly server: OllamaFixtureInterface
 	readonly recorded: string
 	readonly result: StudySealedResult
 	readonly history: StudyExchangeHistory
 	readonly profile: StudyProfile
-	close(): Promise<void>
-}
-
-/** Holds a loopback Ollama protocol fixture and the exact requests it received. */
-export interface OllamaServerFixture {
-	readonly url: string
-	readonly requests: readonly OllamaRequestFixture[]
-	/** Holds the incoming `x-study-owned` header value for each received request. */
-	readonly owned: ReadonlyArray<string | undefined>
-	/** Holds the queued replies the fixture has not served. */
-	readonly replies: readonly OllamaReplyFixture[]
 	close(): Promise<void>
 }
 
@@ -4539,7 +4440,7 @@ export interface OllamaExchangeFixture {
 
 /** Holds a prepared transport over a loopback fixture with real goal accounting and one cleanup boundary. */
 export interface OllamaTransportFixture {
-	readonly server: OllamaServerFixture
+	readonly server: OllamaFixtureInterface
 	readonly goal: OllamaContextFixture
 	readonly transport: StudyOllamaTransport
 	close(): Promise<void>

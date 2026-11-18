@@ -15,6 +15,7 @@ import { createScratch } from '@orkestrel/test/server'
 import { open, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { extractTiming } from '@orkestrel/ollama'
+import { buildOllamaAnswer, createOllamaFixture } from '@orkestrel/ollama/server'
 import {
 	captureError,
 	createRecorder,
@@ -50,8 +51,9 @@ import {
 	buildOllamaRow,
 	buildOllamaStream,
 	createOllamaJudgeFixture,
+	createOllamaReply,
 	requireStudyRecord,
-	readOllamaDefault,
+	STUDY_OLLAMA_FIXTURE,
 } from '../../../setupStudy.js'
 import {
 	STUDY_TRIAGE_FAILURES,
@@ -76,7 +78,6 @@ import {
 	OllamaExchangeRecorder,
 	buildOllamaRoleBodies,
 	buildStudyExchangeHistory,
-	createOllamaServer,
 	STUDY_OLLAMA_VERSION,
 } from '../../../setupServer.js'
 import { StudyOllamaReplay } from '../../../../src/server/ollama/StudyOllamaReplay.js'
@@ -1593,7 +1594,13 @@ describe('StudyOllamaTransport', () => {
 			'refuses $name in postflight and preserves completed model charges',
 			async ({ reply }) => {
 				const fixture = await createOllamaRecordingFixture(undefined, [
-					{ path: reply.path, body: readOllamaDefault(reply.path) },
+					{
+						path: reply.path,
+						body: await buildOllamaAnswer(
+							{ method: 'GET', path: reply.path, headers: {}, body: '' },
+							STUDY_OLLAMA_FIXTURE,
+						).text(),
+					},
 					reply,
 				])
 				try {
@@ -1663,7 +1670,15 @@ describe('StudyOllamaTransport', () => {
 						fixture.rows.flatMap((row) =>
 							row.phase === 'response' && row.path === '/api/version' ? [row.size] : [],
 						),
-					).toEqual([Buffer.byteLength(body), Buffer.byteLength(readOllamaDefault('/api/version'))])
+					).toEqual([
+						Buffer.byteLength(body),
+						(
+							await buildOllamaAnswer(
+								{ method: 'GET', path: '/api/version', headers: {}, body: '' },
+								STUDY_OLLAMA_FIXTURE,
+							).arrayBuffer()
+						).byteLength,
+					])
 					expect(fixture.goal.evidence.filter((row) => row.event === 'version')).toEqual([
 						{ event: 'version', goal: 'first', value: { version: null } },
 						{ event: 'version', goal: 'first', value: { version: 'fixture-version' } },
@@ -1676,7 +1691,10 @@ describe('StudyOllamaTransport', () => {
 
 		it('seals a live continuation whose live postflight reports a version the recording never saw', async () => {
 			const history = buildStudyExchangeHistory()
-			const server = await createOllamaServer()
+			const server = await createOllamaFixture({
+				...STUDY_OLLAMA_FIXTURE,
+				reply: createOllamaReply(),
+			})
 			const goal = createOllamaContext()
 			const replay = new StudyOllamaReplay({
 				history,
@@ -1731,7 +1749,7 @@ describe('StudyOllamaTransport', () => {
 				await transport.close()
 				await replay.close()
 				goal.close()
-				await server.close()
+				await server.destroy()
 			}
 		})
 
@@ -2037,11 +2055,16 @@ describe('StudyOllamaTransport', () => {
 				await response.text()
 			}
 			expect(calls.calls.map(([role]) => role)).toEqual(['agent', 'summary'])
-			expect(fixture.server.requests).toEqual([
+			expect(
+				fixture.server.requests.map((request) => ({ path: request.path, body: request.body })),
+			).toEqual([
 				{ path: '/api/chat', body },
 				{ path: '/api/chat', body },
 			])
-			expect(fixture.server.owned).toEqual(['exact', 'exact'])
+			expect(fixture.server.requests.map((request) => request.headers['x-study-owned'])).toEqual([
+				'exact',
+				'exact',
+			])
 			expect(
 				fixture.goal
 					.usage()
@@ -3063,10 +3086,12 @@ describe('StudyOllamaTransport', () => {
 					}
 					const response = await pending
 					await response.text()
-					expect(fixture.server.requests).toEqual([
+					expect(fixture.server.requests.map(({ path, body }) => ({ path, body }))).toEqual([
 						{ path: '/api/chat', body: STUDY_OLLAMA_CHAT_BODY },
 					])
-					expect(fixture.server.owned).toEqual(['original'])
+					expect(
+						fixture.server.requests.map((request) => request.headers['x-study-owned']),
+					).toEqual(['original'])
 					const [sent, wire] = fixture.goal.evidence.map((row) => requireStudyRecord(row.value))
 					expect(sent).toMatchObject({
 						role: 'agent',
@@ -3427,7 +3452,9 @@ describe('StudyOllamaTransport', () => {
 				const provider = createOllamaTransportProvider(fixture.transport, url, 'agent', dispatch)
 				await provider.generate(STUDY_AGENT_MESSAGES, signal)
 			}
-			expect(on.server.requests).toEqual(off.server.requests)
+			expect(on.server.requests.map(({ path, body }) => ({ path, body }))).toEqual(
+				off.server.requests.map(({ path, body }) => ({ path, body })),
+			)
 			expect(on.goal.usage()).toEqual(off.goal.usage())
 			const [offDispatch, offWire] = off.goal.evidence.map((row) => requireStudyRecord(row.value))
 			const [onDispatch, onWire] = on.goal.evidence.map((row) => requireStudyRecord(row.value))

@@ -11,7 +11,14 @@ import { StudyCommand } from '../../../../src/server/commands/StudyCommand.js'
 import { parseStudyArguments } from '../../../../src/server/commands/parsers.js'
 import { parseStudyProfile } from '../../../../src/core/parsers.js'
 import { hashStudyBytes } from '../../../../src/server/helpers.js'
-import { STUDY_OPEN_BOUND_CASES, STUDY_OLLAMA_PARTIAL_ROW } from '../../../setupStudy.js'
+import { createOllamaFixture } from '@orkestrel/ollama/server'
+import {
+	createOllamaReply,
+	OllamaReplyQueue,
+	STUDY_OLLAMA_FIXTURE,
+	STUDY_OPEN_BOUND_CASES,
+	STUDY_OLLAMA_PARTIAL_ROW,
+} from '../../../setupStudy.js'
 import {
 	readStudyExchangeRows,
 	readStudyExchanges,
@@ -21,7 +28,6 @@ import {
 import {
 	buildStudyCLI,
 	buildStudyLibrary,
-	createOllamaServer,
 	createStudyConsumer,
 	mutateStudyExchangeRows,
 	writeStudyRecordingConsumer,
@@ -722,11 +728,16 @@ describe('recording and replay command handoff', () => {
 		async (bound) => {
 			const scratch = createStudyConsumer()
 			const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
-			const server = await createOllamaServer(
-				bound === 'duration'
-					? [{ path: '/api/chat', body: STUDY_OLLAMA_PARTIAL_ROW, open: true }]
-					: [],
-			)
+			const server = await createOllamaFixture({
+				...STUDY_OLLAMA_FIXTURE,
+				reply: createOllamaReply(
+					new OllamaReplyQueue(
+						bound === 'duration'
+							? [{ path: '/api/chat', body: STUDY_OLLAMA_PARTIAL_ROW, open: true }]
+							: [],
+					),
+				),
+			})
 			try {
 				const subject = await buildStudyLibrary(
 					library,
@@ -784,7 +795,7 @@ describe('recording and replay command handoff', () => {
 				)
 				expect(scratch.has('bounded/seal.json')).toBe(false)
 			} finally {
-				await server.close()
+				await server.destroy()
 				library.destroy()
 				scratch.destroy()
 			}
@@ -1112,7 +1123,12 @@ describe('recording and replay command handoff', () => {
 	it('retains a worker wire cut in evidence beside the attempt and the exchange failure', async () => {
 		const scratch = createStudyConsumer()
 		const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
-		const server = await createOllamaServer([{ path: '/api/chat', body: 'x'.repeat(4096) }])
+		const server = await createOllamaFixture({
+			...STUDY_OLLAMA_FIXTURE,
+			reply: createOllamaReply(
+				new OllamaReplyQueue([{ path: '/api/chat', body: 'x'.repeat(4096) }]),
+			),
+		})
 		try {
 			const subject = await buildStudyLibrary(
 				library,
@@ -1160,7 +1176,7 @@ describe('recording and replay command handoff', () => {
 				true,
 			)
 		} finally {
-			await server.close()
+			await server.destroy()
 			library.destroy()
 			scratch.destroy()
 		}
@@ -1169,7 +1185,10 @@ describe('recording and replay command handoff', () => {
 	it('O1 seals unpredicted agent summary and judge bodies without a procedure and joins their ordinals', async () => {
 		const scratch = createStudyConsumer()
 		const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
-		const server = await createOllamaServer()
+		const server = await createOllamaFixture({
+			...STUDY_OLLAMA_FIXTURE,
+			reply: createOllamaReply(),
+		})
 		try {
 			const subject = await buildStudyLibrary(
 				library,
@@ -1197,7 +1216,7 @@ describe('recording and replay command handoff', () => {
 						body: Buffer.from(attempt.body, 'base64').toString(),
 					})),
 				),
-			).toEqual(server.requests)
+			).toEqual(server.requests.map(({ path, body }) => ({ path, body })))
 			for (const history of histories) {
 				expect(history.declaration.procedure).toBeUndefined()
 				expect(history.declaration.goals).toEqual(['write', 'recall'])
@@ -1247,7 +1266,7 @@ describe('recording and replay command handoff', () => {
 				}
 			}
 		} finally {
-			await server.close()
+			await server.destroy()
 			library.destroy()
 			scratch.destroy()
 		}
@@ -1256,7 +1275,10 @@ describe('recording and replay command handoff', () => {
 	it('records, seals and replays captured bodies in a fresh offline worker with zero fixture requests', async () => {
 		const scratch = createStudyConsumer()
 		const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
-		const server = await createOllamaServer()
+		const server = await createOllamaFixture({
+			...STUDY_OLLAMA_FIXTURE,
+			reply: createOllamaReply(),
+		})
 		try {
 			const subject = await buildStudyLibrary(
 				library,
@@ -1484,7 +1506,7 @@ describe('recording and replay command handoff', () => {
 			expect(scratch.has('changed-bounds')).toBe(false)
 			expect(scratch.has('refused')).toBe(false)
 		} finally {
-			await server.close()
+			await server.destroy()
 			library.destroy()
 			scratch.destroy()
 		}
@@ -1930,7 +1952,10 @@ describe('selection', () => {
 	it('selection: replay', async () => {
 		const scratch = createStudyConsumer()
 		const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
-		const server = await createOllamaServer()
+		const server = await createOllamaFixture({
+			...STUDY_OLLAMA_FIXTURE,
+			reply: createOllamaReply(),
+		})
 		const signal = new AbortController().signal
 		try {
 			const subject = await buildStudyLibrary(
@@ -1991,7 +2016,7 @@ describe('selection', () => {
 			expect(scratch.read('workers.log')).toBe(workers)
 			expect(scratch.has('differing')).toBe(false)
 		} finally {
-			await server.close()
+			await server.destroy()
 			library.destroy()
 			scratch.destroy()
 		}

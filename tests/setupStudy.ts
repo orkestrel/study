@@ -40,7 +40,12 @@ import type {
 	StudyStoreFixture,
 } from './setup.js'
 import type { StudyExecutionCase } from './setupServer.js'
-import type { OllamaMetadataFailureFixture, OllamaWireReplyFixture } from './setupServer.js'
+import type {
+	OllamaMetadataFailureFixture,
+	OllamaWireReplyFixture,
+	StudyMCPAnswer,
+} from './setupServer.js'
+import type { OllamaFixtureHandler, OllamaFixtureOptions } from '@orkestrel/ollama/server'
 import type {
 	JudgeInterface,
 	JudgeRequest,
@@ -80,7 +85,8 @@ import type { StudyAgentMeasurement, StudyAgentRuntime } from '../src/core/agent
 import { Agent, AgentError, estimateRequest, isAgentError, measureRequest } from '@orkestrel/agent'
 import { isRecord, parseJSON } from '@orkestrel/contract'
 import { createOllama, createOllamaJudge } from '@orkestrel/ollama'
-import { createRecorder } from '@orkestrel/test'
+import { buildOllamaAnswer, buildOllamaReadout, buildOllamaReply } from '@orkestrel/ollama/server'
+import { createRecorder, waitForDelay } from '@orkestrel/test'
 import { vi } from 'vitest'
 import { StudyControl, StudyDeadline, StudyMeter, StudyScope } from '../src/core/engines/index.js'
 import { StudyTrialLease } from '../src/core/engines/StudyTrialLease.js'
@@ -1512,58 +1518,79 @@ export function buildOllamaStream(
 	return rows.join('') + buildOllamaRow({ ...options, content: '' })
 }
 
-/** Builds the protocol answer a raw judge generate request receives: a one-token `length` finish with top logprobs.
- * @param options - Raw extra fields spread last.
- * @returns One JSON document.
- */
-export function buildOllamaJudgeRow(options: Readonly<Record<string, JSONValue>> = {}): string {
-	return JSON.stringify({
-		model: 'judge',
-		done: true,
-		done_reason: 'length',
-		response: 'Yes',
-		prompt_eval_count: 10,
-		eval_count: 1,
-		logprobs: [
-			{
-				token: 'Yes',
-				logprob: -0.01,
-				top_logprobs: ['Yes', 'No', 'A', 'B'].map((token) => ({
-					token,
-					logprob: token === 'Yes' ? -0.01 : -8,
-				})),
-			},
-		],
-		...options,
+export const STUDY_OLLAMA_FIXTURE: Pick<OllamaFixtureOptions, 'models' | 'version' | 'context'> =
+	Object.freeze({
+		models: Object.freeze([
+			Object.freeze({ name: 'model', digest: 'a'.repeat(64) }),
+			Object.freeze({ name: 'judge', digest: 'b'.repeat(64) }),
+			Object.freeze({ name: 'decision', digest: 'c'.repeat(64) }),
+		]),
+		version: 'fixture-version',
+		context: 32768,
 	})
-}
 
-/** Reads the protocol answer a fixture gives a path no queued reply claims.
- * @param path - The requested path.
- * @returns The default inventory, metadata, judge, or chat answer.
- */
-export function readOllamaDefault(path: string): string {
-	if (path === '/api/version') return JSON.stringify({ version: 'fixture-version' })
-	if (path === '/api/tags')
-		return JSON.stringify({
-			models: [
-				{ name: 'model', digest: 'a'.repeat(64) },
-				{ name: 'judge', digest: 'b'.repeat(64) },
-				{ name: 'decision', digest: 'c'.repeat(64) },
-			],
-		})
-	if (path === '/api/show')
-		return JSON.stringify({
-			model_info: { 'general.architecture': 'fixture', 'fixture.context_length': 32768 },
-		})
-	if (path === '/api/generate') return buildOllamaJudgeRow()
-	if (path === '/v1/systemone')
-		return JSON.stringify({
-			model: 'decision',
-			answers: {},
-			usage: { input_tokens: 12, output_tokens: 1 },
-		})
-	return buildOllamaRow()
+export function createOllamaReply(
+	queue = new OllamaReplyQueue<OllamaWireReplyFixture>([]),
+	answer?: StudyMCPAnswer,
+): OllamaFixtureHandler {
+	return async (request, signal) => {
+		const supplied = queue.claim(request.path)
+		if (supplied !== undefined) {
+			if (supplied.pause !== undefined) await waitForDelay(supplied.pause)
+			const chunks = supplied.chunks ?? [new TextEncoder().encode(supplied.body)]
+			return new Response(
+				new ReadableStream<Uint8Array>({
+					async start(controller): Promise<void> {
+						for (const chunk of chunks) {
+							controller.enqueue(chunk)
+							if (supplied.chunks !== undefined) await waitForDelay(1)
+						}
+						if (supplied.interrupted === true)
+							controller.error(new Error('Ollama reply interrupted'))
+						else if (supplied.open !== true) controller.close()
+						// A held response ends only as native fetch ends an aborted body: with the signal's reason.
+						else
+							signal.addEventListener('abort', () => controller.error(signal.reason), {
+								once: true,
+							})
+					},
+				}),
+				{
+					status: supplied.status ?? 200,
+					...(supplied.headers === undefined ? {} : { headers: supplied.headers }),
+				},
+			)
+		}
+		const generate = request.path === '/api/generate' ? parseJSON(request.body) : undefined
+		const body =
+			answer?.(request.path, request.body) ??
+			(request.path === '/api/chat'
+				? buildOllamaReply({
+						model: 'model',
+						content: 'Receipt retained.',
+						counts: { prompt: 10, decode: 2 },
+					})
+				: undefined) ??
+			(isRecord(generate) && typeof generate.prompt === 'string' && generate.prompt !== ''
+				? buildOllamaReadout({
+						model: 'judge',
+						token: 'Yes',
+						top: ['Yes', 'No', 'A', 'B'].map((token) => ({
+							token,
+							logprob: token === 'Yes' ? -0.01 : -8,
+						})),
+						counts: { prompt: 10, decode: 1 },
+					})
+				: undefined) ??
+			(request.path === '/v1/systemone'
+				? JSON.stringify({
+						model: 'decision',
+						answers: {},
+						usage: { input_tokens: 12, output_tokens: 1 },
+					})
+				: undefined)
+		return body === undefined ? undefined : new Response(new TextEncoder().encode(body))
+	}
 }
 
 /** Creates a protocol-faithful fetch boundary that answers queued replies by path and records each request's exact bytes.
@@ -1571,31 +1598,19 @@ export function readOllamaDefault(path: string): string {
  * @returns The fetch function, the received requests, and the unserved replies.
  */
 export function createOllamaFetch(replies: readonly OllamaReplyFixture[] = []): OllamaFetchFixture {
-	const queue = new OllamaReplyQueue(replies)
+	const queue = new OllamaReplyQueue<OllamaWireReplyFixture>(replies)
+	const reply = createOllamaReply(queue)
 	const requests = new StudyLog<OllamaRequestFixture>()
 	return {
 		fetch: async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
 			const path = new URL(input instanceof Request ? input.url : input).pathname
-			const signal = init?.signal ?? undefined
+			const body = typeof init?.body === 'string' ? init.body : ''
+			const signal = init?.signal ?? new AbortController().signal
+			requests.append({ path, body })
 			// A request an aborted signal refuses is received but claims no queued reply.
-			const supplied = signal?.aborted === true ? undefined : queue.claim(path)
-			requests.append({ path, body: typeof init?.body === 'string' ? init.body : '' })
-			signal?.throwIfAborted()
-			const bytes = new TextEncoder().encode(supplied?.body ?? readOllamaDefault(path))
-			return new Response(
-				new ReadableStream<Uint8Array>({
-					start(controller): void {
-						controller.enqueue(bytes)
-						// A held response ends only as native fetch ends an aborted body: with the signal's reason.
-						if (supplied?.open !== true) controller.close()
-						else if (signal !== undefined)
-							signal.addEventListener('abort', () => controller.error(signal.reason), {
-								once: true,
-							})
-					},
-				}),
-				{ status: supplied?.status ?? 200 },
-			)
+			signal.throwIfAborted()
+			const request = { method: init?.method ?? 'GET', path, headers: {}, body }
+			return (await reply(request, signal)) ?? buildOllamaAnswer(request, STUDY_OLLAMA_FIXTURE)
 		},
 		requests: requests.entries,
 		get replies(): readonly OllamaReplyFixture[] {
@@ -1615,19 +1630,19 @@ export function createOllamaFetch(replies: readonly OllamaReplyFixture[] = []): 
  * queue.remaining // []
  * ```
  */
-export class OllamaReplyQueue {
-	readonly #replies: readonly OllamaReplyFixture[]
+export class OllamaReplyQueue<TReply extends OllamaReplyFixture = OllamaReplyFixture> {
+	readonly #replies: readonly TReply[]
 	#served = 0
 
 	/** Creates a queue over its own copy of the replies.
 	 * @param replies - The queued replies in serving order.
 	 */
-	constructor(replies: readonly OllamaReplyFixture[]) {
+	constructor(replies: readonly TReply[]) {
 		this.#replies = Object.freeze([...replies])
 	}
 
 	/** Reports the queued replies no request has claimed yet, in serving order. */
-	get remaining(): readonly OllamaReplyFixture[] {
+	get remaining(): readonly TReply[] {
 		return this.#replies.slice(this.#served)
 	}
 
@@ -1635,7 +1650,7 @@ export class OllamaReplyQueue {
 	 * @param path - The requested path.
 	 * @returns The claimed reply, or undefined when the next queued reply is for another path or none remains.
 	 */
-	claim(path: string): OllamaReplyFixture | undefined {
+	claim(path: string): TReply | undefined {
 		const next = this.#replies[this.#served]
 		if (next?.path !== path) return undefined
 		this.#served += 1

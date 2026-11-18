@@ -1,4 +1,3 @@
-import { parseJSON } from '@orkestrel/contract'
 import { buildStudyDaemonProvider, buildStudyDaemonRefusals } from './setupStudy.js'
 import { describe, expect, it } from 'vitest'
 import {
@@ -14,7 +13,6 @@ import {
 	buildStudyHole,
 	buildStudySettingsProfile,
 	buildStudySparse,
-	buildOllamaJudgeRow,
 	buildOllamaReplies,
 	buildStudyAgentOrigins,
 	createAgentObserver,
@@ -380,39 +378,6 @@ describe('study agent trace fixtures', () => {
 		)
 		expect(fixture.wire.requests.map(({ path }) => path)).toEqual(['/api/chat'])
 		expect(fixture.latch.checks.calls).toEqual([[], []])
-	})
-
-	it('builds the raw judge answer as one length-finished token with top logprobs and spreads overrides last', () => {
-		const logprobs = [
-			{
-				token: 'Yes',
-				logprob: -0.01,
-				top_logprobs: [
-					{ token: 'Yes', logprob: -0.01 },
-					{ token: 'No', logprob: -8 },
-					{ token: 'A', logprob: -8 },
-					{ token: 'B', logprob: -8 },
-				],
-			},
-		]
-		const answer = {
-			model: 'judge',
-			done: true,
-			done_reason: 'length',
-			response: 'Yes',
-			prompt_eval_count: 10,
-			eval_count: 1,
-			logprobs,
-		}
-		expect(parseJSON(buildOllamaJudgeRow())).toEqual(answer)
-		expect(
-			parseJSON(buildOllamaJudgeRow({ response: 'No', eval_count: 2, extra: 'kept' })),
-		).toEqual({
-			...answer,
-			response: 'No',
-			eval_count: 2,
-			extra: 'kept',
-		})
 	})
 
 	it('joins every message to its own id and reads wire messages back in order', async () => {

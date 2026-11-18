@@ -2,21 +2,27 @@ import { isRecord, parseJSON } from '@orkestrel/contract'
 import { destroyScratch } from '@orkestrel/test/server'
 import { resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { createOllamaFixture } from '@orkestrel/ollama/server'
 import { readStudyResult } from '../../../../src/server/stores/helpers.js'
+import { StudyInstall } from '../../../../src/server/launchers/StudyInstall.js'
 import {
 	createStudyScratch,
 	answerStudyMCP,
 	buildStudyCLI,
 	createMCPFixture,
 	createMCPProxy,
-	createOllamaServer,
-	executeStudyCLI,
 	readStudyAdjudication,
 	STUDY_MCP_GOALS,
 	sumStudyCalls,
 	writeStudyMCP,
 } from '../../../setupServer.js'
-import { readOllamaToolResults, requireStudyRecord } from '../../../setupStudy.js'
+import {
+	createOllamaReply,
+	OllamaReplyQueue,
+	readOllamaToolResults,
+	requireStudyRecord,
+	STUDY_OLLAMA_FIXTURE,
+} from '../../../setupStudy.js'
 
 // The subject is the admitted MCP core client and the runtime is the separately admitted Agent,
 // both loaded by the captured loader inside the Study child. The MCP server and the Ollama
@@ -43,10 +49,16 @@ describe('admitted Agent over the admitted MCP core client', () => {
 			new Error('No order order-1'),
 		])
 		try {
-			const peer = await createOllamaServer([], answerStudyMCP)
+			const peer = await createOllamaFixture({
+				...STUDY_OLLAMA_FIXTURE,
+				reply: createOllamaReply(new OllamaReplyQueue([]), answerStudyMCP),
+			})
 			try {
 				writeStudyMCP(consumer, server.url, peer.url)
-				const executed = await executeStudyCLI(entry, consumer.path, ['execute', 'orders'])
+				const executed = await new StudyInstall({ root: consumer.path, entry }).execute([
+					'execute',
+					'orders',
+				])
 				const output = parseJSON(executed.stdout.split(/\r\n|\n/)[0] ?? '')
 				if (!isRecord(output) || typeof output.path !== 'string')
 					throw new Error(`Missing result: ${executed.stdout}${executed.stderr}`)
@@ -104,7 +116,7 @@ describe('admitted Agent over the admitted MCP core client', () => {
 					...STUDY_MCP_GOALS,
 				])
 			} finally {
-				await peer.close()
+				await peer.destroy()
 			}
 		} finally {
 			await server.close()
@@ -120,10 +132,16 @@ describe('admitted Agent over the admitted MCP core client', () => {
 			const server = await createMCPFixture([])
 			const proxy = await createMCPProxy(server.url, interference)
 			try {
-				const peer = await createOllamaServer([], answerStudyMCP)
+				const peer = await createOllamaFixture({
+					...STUDY_OLLAMA_FIXTURE,
+					reply: createOllamaReply(new OllamaReplyQueue([]), answerStudyMCP),
+				})
 				try {
 					writeStudyMCP(consumer, proxy.url, peer.url)
-					const executed = await executeStudyCLI(entry, consumer.path, ['execute', 'orders'])
+					const executed = await new StudyInstall({ root: consumer.path, entry }).execute([
+						'execute',
+						'orders',
+					])
 					const output = parseJSON(executed.stdout.split(/\r\n|\n/)[0] ?? '')
 					if (!isRecord(output) || typeof output.path !== 'string')
 						throw new Error(`Missing result: ${executed.stdout}${executed.stderr}`)
@@ -144,7 +162,7 @@ describe('admitted Agent over the admitted MCP core client', () => {
 					const rows = adjudication.evidence[attempt.trial.id] ?? []
 					expect(rows.filter((row) => row.event === 'answered')).toEqual([])
 				} finally {
-					await peer.close()
+					await peer.destroy()
 				}
 			} finally {
 				await proxy.close()

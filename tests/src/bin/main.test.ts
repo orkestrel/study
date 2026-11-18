@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process'
 import { cpSync, readFileSync } from 'node:fs'
 import { parseStudyArguments } from '../../../src/server/commands/parsers.js'
 import { StudyCLI } from '../../../src/server/launchers/StudyCLI.js'
+import { StudyInstall } from '../../../src/server/launchers/StudyInstall.js'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { StudyTask } from '../../../src/server/processes/StudyTask.js'
 import { StudyCommand } from '../../../src/server/commands/StudyCommand.js'
@@ -18,7 +19,6 @@ import {
 	buildStudyLibrary,
 	buildStudyProgressManifest,
 	createStudyConsumer,
-	executeStudyCLI,
 	readStudyCheck,
 	writeStudyAgent,
 	writeStudyConsumer,
@@ -83,9 +83,10 @@ describe('built study executable', () => {
 		async ({ tokens, removed, path }) => {
 			const entry = await compiled.promise
 			const scratch = createStudyConsumer()
+			const install = new StudyInstall({ root: scratch.path, entry })
 			try {
 				if (removed !== undefined) scratch.remove(removed)
-				const refusal = await executeStudyCLI(entry, scratch.path, tokens)
+				const refusal = await install.execute(tokens)
 				expect(refusal.code).toBe(64)
 				expect(refusal.stdout + refusal.stderr).toBe(
 					`study: CONFIG: Declaration is missing: ${path}\n`,
@@ -102,13 +103,9 @@ describe('built study executable', () => {
 	it('refuses a missing selected result as a custody failure', async () => {
 		const entry = await compiled.promise
 		const scratch = createScratch()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
-			const refusal = await executeStudyCLI(entry, scratch.path, [
-				'report',
-				'nope',
-				'--assessment',
-				'a'.repeat(64),
-			])
+			const refusal = await install.execute(['report', 'nope', '--assessment', 'a'.repeat(64)])
 			expect(refusal.code).toBe(1)
 			expect(refusal.stdout + refusal.stderr).toBe(
 				'study: CUSTODY: Selected result is missing: nope\n',
@@ -122,12 +119,13 @@ describe('built study executable', () => {
 	it('refuses a linked declaration as invalid input before following a junction', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		const outside = createScratch()
 		try {
 			const target = outside.ensure('scenarios')
 			scratch.remove('studies/files/scenarios')
 			scratch.link('studies/files/scenarios', target)
-			const refusal = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
+			const refusal = await install.execute(['check', 'assessment'])
 			expect(refusal.code).toBe(64)
 			expect(refusal.stdout + refusal.stderr).toBe(
 				'study: CONFIG: Declaration path is linked: studies/files/scenarios\n',
@@ -146,10 +144,11 @@ describe('built study executable', () => {
 	it('refuses declarations in definition, scenario, rubric, profile order', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
 			scratch.remove('studies/assessment/rubric.json')
 			scratch.remove('studies/files/profiles/local.json')
-			const refusal = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
+			const refusal = await install.execute(['check', 'assessment'])
 			expect(refusal.code).toBe(64)
 			expect(refusal.stdout + refusal.stderr).toBe(
 				'study: CONFIG: Declaration is missing: studies/assessment/rubric.json\n',
@@ -227,6 +226,7 @@ try { parseStudyArguments([]) } catch (error) {
 	it('prints help before consumer access and refuses private routes without native IPC', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
 			expect(runtime.read('runtime/dist/bin/main.js')?.startsWith('#!/usr/bin/env node')).toBe(true)
 			const missing = join(runtime.path, 'missing-entry.js')
@@ -277,7 +277,7 @@ try { parseStudyArguments([]) } catch (error) {
 				expect(denied.stderr).toContain('study: CONFIG:')
 				expect(denied.stderr).toContain(route)
 				expect(help.stdout).not.toContain(route)
-				expect((await executeStudyCLI(entry, scratch.path, [route, '--help'])).code).toBe(64)
+				expect((await install.execute([route, '--help'])).code).toBe(64)
 			}
 			expect(scratch.has('imports.log')).toBe(false)
 			expect(scratch.has('tmp')).toBe(false)
@@ -289,6 +289,7 @@ try { parseStudyArguments([]) } catch (error) {
 	it('keeps grammar diagnostics on stderr and refuses relative output escape, links and collisions', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
 			for (const tokens of STUDY_COMMAND_INVALID_ARGUMENTS.filter(
 				(arguments_) => arguments_.length > 0,
@@ -306,12 +307,7 @@ try { parseStudyArguments([]) } catch (error) {
 			}
 			expect(scratch.has('tmp')).toBe(false)
 			scratch.ensure('chosen')
-			const executed = await executeStudyCLI(entry, scratch.path, [
-				'execute',
-				'assessment',
-				'--out',
-				'chosen/result',
-			])
+			const executed = await install.execute(['execute', 'assessment', '--out', 'chosen/result'])
 			expect({
 				code: executed.code,
 				output: executed.code === 0 ? '' : executed.stdout + executed.stderr,
@@ -327,24 +323,14 @@ try { parseStudyArguments([]) } catch (error) {
 				command: 'grade',
 				target: result.path,
 			})
-			expect((await executeStudyCLI(entry, scratch.path, result.next)).code).toBe(0)
-			const collision = await executeStudyCLI(entry, scratch.path, [
-				'execute',
-				'assessment',
-				'--out',
-				'chosen/result',
-			])
+			expect((await install.execute(result.next)).code).toBe(0)
+			const collision = await install.execute(['execute', 'assessment', '--out', 'chosen/result'])
 			expect(collision.code).not.toBe(0)
 			expect((scratch.read('imports.log') ?? '').trim().split(/\r\n|\n/)).toHaveLength(1)
 			const outside = createStudyScratch(resolve('tmp/units'), 'cli-outside-')
 			try {
 				scratch.link('linked', outside.path)
-				const linked = await executeStudyCLI(entry, scratch.path, [
-					'execute',
-					'assessment',
-					'--out',
-					'linked/result',
-				])
+				const linked = await install.execute(['execute', 'assessment', '--out', 'linked/result'])
 				expect(linked.code).not.toBe(0)
 				expect(outside.names()).toEqual([])
 			} finally {
@@ -358,8 +344,9 @@ try { parseStudyArguments([]) } catch (error) {
 	it('checks a distinct target and driver without importing the subject or writing results', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
-			const checked = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
+			const checked = await install.execute(['check', 'assessment'])
 			expect({
 				code: checked.code,
 				output: checked.code === 0 ? '' : checked.stdout + checked.stderr,
@@ -371,7 +358,7 @@ try { parseStudyArguments([]) } catch (error) {
 			expect(value).toMatchObject({ command: 'check', study: 'assessment', driver: 'files' })
 			expect(scratch.has('imports.log')).toBe(false)
 			expect(scratch.has('tmp')).toBe(false)
-			expect((await executeStudyCLI(entry, scratch.path, ['unknown', 'assessment'])).code).toBe(64)
+			expect((await install.execute(['unknown', 'assessment'])).code).toBe(64)
 		} finally {
 			await destroyScratch(scratch)
 		}
@@ -380,8 +367,9 @@ try { parseStudyArguments([]) } catch (error) {
 	it('executes real file operations in children, seals, grades, labels and reports the whole horizon', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
-			const checked = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
+			const checked = await install.execute(['check', 'assessment'])
 			const planned = parseJSON(checked.stdout)
 			if (!isRecord(planned) || !arrayOf(isString)(planned.next))
 				throw new Error('Missing check next argv')
@@ -390,7 +378,7 @@ try { parseStudyArguments([]) } catch (error) {
 				target: 'assessment',
 				expected: planned.fingerprint,
 			})
-			const executed = await executeStudyCLI(entry, scratch.path, planned.next)
+			const executed = await install.execute(planned.next)
 			expect({
 				code: executed.code,
 				output: executed.code === 0 ? '' : executed.stdout + executed.stderr,
@@ -426,7 +414,7 @@ try { parseStudyArguments([]) } catch (error) {
 					.flatMap((attempt) => attempt.observations)
 					.map((observation) => observation.product?.value),
 			).toEqual(['saved:remember', 'saved:recall'])
-			const grade = await executeStudyCLI(entry, scratch.path, result.next)
+			const grade = await install.execute(result.next)
 			expect({
 				code: grade.code,
 				output: grade.code === 0 ? '' : grade.stdout + grade.stderr,
@@ -447,7 +435,7 @@ try { parseStudyArguments([]) } catch (error) {
 				assessment: assessment.assessment,
 			})
 			expect((scratch.read('imports.log') ?? '').trim().split(/\r\n|\n/)).toHaveLength(1)
-			const report = await executeStudyCLI(entry, scratch.path, assessment.next)
+			const report = await install.execute(assessment.next)
 			expect({
 				code: report.code,
 				output: report.code === 0 ? '' : report.stdout + report.stderr,
@@ -463,7 +451,7 @@ try { parseStudyArguments([]) } catch (error) {
 			)
 			const labels = buildCustodyPacketLabels(sealed, rubric)
 			const path = scratch.write('labels.json', JSON.stringify(labels))
-			const labeled = await executeStudyCLI(entry, scratch.path, [
+			const labeled = await install.execute([
 				'label',
 				result.path,
 				'--assessment',
@@ -486,7 +474,7 @@ try { parseStudyArguments([]) } catch (error) {
 				target: result.path,
 				assessment: labeledResult.assessment,
 			})
-			const labeledReport = await executeStudyCLI(entry, scratch.path, labeledResult.next)
+			const labeledReport = await install.execute(labeledResult.next)
 			expect(parseJSON(labeledReport.stdout)).toMatchObject({
 				report: { scores: [{ achieved: 2, unknown: 0 }] },
 			})
@@ -495,7 +483,7 @@ try { parseStudyArguments([]) } catch (error) {
 				['report', result.result, '--assessment', missingGrade],
 				['label', result.result, '--assessment', missingGrade, '--labels', path],
 			]) {
-				const missing = await executeStudyCLI(entry, scratch.path, operation)
+				const missing = await install.execute(operation)
 				expect(missing.code).not.toBe(0)
 				expect(missing.stdout + missing.stderr).toContain(
 					'study: CUSTODY: Selected grading is missing:',
@@ -509,7 +497,7 @@ try { parseStudyArguments([]) } catch (error) {
 				'studies/files/index.ts',
 				source.replace("row.value==='saved:'", "row.value==='changed:'"),
 			)
-			const regraded = await executeStudyCLI(entry, scratch.path, [
+			const regraded = await install.execute([
 				'grade',
 				result.path,
 				'--rubric',
@@ -548,14 +536,11 @@ try { parseStudyArguments([]) } catch (error) {
 		})
 		beforeAll(async () => {
 			const entry = await compiled.promise
-			const checked = parseJSON(
-				(await executeStudyCLI(entry, consumer.path, ['check', 'assessment'])).stdout,
-			)
+			const install = new StudyInstall({ root: consumer.path, entry })
+			const checked = parseJSON((await install.execute(['check', 'assessment'])).stdout)
 			if (!isRecord(checked) || !arrayOf(isString)(checked.next))
 				throw new Error('Missing check next argv')
-			const execution = parseJSON(
-				(await executeStudyCLI(entry, consumer.path, checked.next)).stdout,
-			)
+			const execution = parseJSON((await install.execute(checked.next)).stdout)
 			if (!isRecord(execution) || typeof execution.path !== 'string')
 				throw new Error('Missing execution path')
 			executed.resolve({
@@ -566,9 +551,10 @@ try { parseStudyArguments([]) } catch (error) {
 
 		it('reads a sealed result without a projection, from a goal, and with the adapter reading', async () => {
 			const entry = await compiled.promise
+			const install = new StudyInstall({ root: consumer.path, entry })
 			const { path, source } = await executed.promise
 			consumer.write('studies/files/index.ts', source)
-			const last = await executeStudyCLI(entry, consumer.path, ['progress', path])
+			const last = await install.execute(['progress', path])
 			expect({ code: last.code, output: last.code === 0 ? '' : last.stdout + last.stderr }).toEqual(
 				{
 					code: 0,
@@ -590,12 +576,7 @@ try { parseStudyArguments([]) } catch (error) {
 					.flatMap((trial) => (isRecord(trial) && isArray(trial.goals) ? trial.goals : []))
 					.filter((goal) => !isRecord(goal) || 'reading' in goal),
 			).toEqual([])
-			const listed = await executeStudyCLI(entry, consumer.path, [
-				'progress',
-				path,
-				'--from',
-				'write',
-			])
+			const listed = await install.execute(['progress', path, '--from', 'write'])
 			expect(parseJSON(listed.stdout)).toMatchObject({
 				progress: { trials: [{ goals: [{ goal: 'write' }, { goal: 'read' }] }] },
 			})
@@ -603,12 +584,7 @@ try { parseStudyArguments([]) } catch (error) {
 				'studies/files/index.ts',
 				source.replace(' grade(input) {', ' ' + projections.projection + '\n grade(input) {'),
 			)
-			const projected = await executeStudyCLI(entry, consumer.path, [
-				'progress',
-				path,
-				'--from',
-				'write',
-			])
+			const projected = await install.execute(['progress', path, '--from', 'write'])
 			expect({
 				code: projected.code,
 				output: projected.code === 0 ? '' : projected.stdout + projected.stderr,
@@ -629,6 +605,7 @@ try { parseStudyArguments([]) } catch (error) {
 
 		it('refuses a throwing or non-JSON projection as an operational failure naming the goal', async () => {
 			const entry = await compiled.promise
+			const install = new StudyInstall({ root: consumer.path, entry })
 			const { path, source } = await executed.promise
 			for (const [projection, message] of [
 				[projections.thrown, 'Projection broke on read'],
@@ -638,7 +615,7 @@ try { parseStudyArguments([]) } catch (error) {
 					'studies/files/index.ts',
 					source.replace(' grade(input) {', ' ' + projection + '\n grade(input) {'),
 				)
-				const refused = await executeStudyCLI(entry, consumer.path, ['progress', path])
+				const refused = await install.execute(['progress', path])
 				expect(refused.code).toBe(1)
 				expect(refused.stdout + refused.stderr).toContain('study: FAULT: ')
 				expect(refused.stdout + refused.stderr).toContain(message)
@@ -649,6 +626,7 @@ try { parseStudyArguments([]) } catch (error) {
 
 		it('reads an interrupted result that grade refuses', async () => {
 			const entry = await compiled.promise
+			const install = new StudyInstall({ root: consumer.path, entry })
 			const { path, source } = await executed.promise
 			consumer.write('studies/files/index.ts', source)
 			const copy = join(consumer.path, 'tmp', 'studies', 'interrupted')
@@ -656,7 +634,7 @@ try { parseStudyArguments([]) } catch (error) {
 				recursive: true,
 				filter: (file) => !file.endsWith('seal.json') && !file.endsWith('attempt.json'),
 			})
-			const graded = await executeStudyCLI(entry, consumer.path, [
+			const graded = await install.execute([
 				'grade',
 				copy,
 				'--rubric',
@@ -666,7 +644,7 @@ try { parseStudyArguments([]) } catch (error) {
 			expect(graded.stdout + graded.stderr).toContain(
 				'Interrupted execution cannot be graded or reported',
 			)
-			const read = await executeStudyCLI(entry, consumer.path, ['progress', 'interrupted'])
+			const read = await install.execute(['progress', 'interrupted'])
 			expect({ code: read.code, output: read.code === 0 ? '' : read.stdout + read.stderr }).toEqual(
 				{
 					code: 0,
@@ -680,6 +658,7 @@ try { parseStudyArguments([]) } catch (error) {
 
 		it('frame batches: reads every goal of a result whose rows exceed one frame', async () => {
 			const entry = await compiled.promise
+			const install = new StudyInstall({ root: consumer.path, entry })
 			const { path, source } = await executed.promise
 			consumer.write(
 				'studies/files/index.ts',
@@ -697,12 +676,7 @@ try { parseStudyArguments([]) } catch (error) {
 					Array.from({ length: 7 }, (_, index) => ({ event: 'note', goal, value: { index, raw } })),
 				),
 			})
-			const read = await executeStudyCLI(entry, consumer.path, [
-				'progress',
-				'frame',
-				'--from',
-				'goal-1',
-			])
+			const read = await install.execute(['progress', 'frame', '--from', 'goal-1'])
 			expect({ code: read.code, output: read.code === 0 ? '' : read.stdout + read.stderr }).toEqual(
 				{
 					code: 0,
@@ -737,12 +711,13 @@ try { parseStudyArguments([]) } catch (error) {
 
 		it('refuses a missing result and lists the progress grammar in help', async () => {
 			const entry = await compiled.promise
-			const missing = await executeStudyCLI(entry, consumer.path, ['progress', 'nope'])
+			const install = new StudyInstall({ root: consumer.path, entry })
+			const missing = await install.execute(['progress', 'nope'])
 			expect(missing.code).toBe(1)
 			expect(missing.stdout + missing.stderr).toBe(
 				'study: CUSTODY: Selected result is missing: nope\n',
 			)
-			const help = await executeStudyCLI(entry, consumer.path, ['--help'])
+			const help = await install.execute(['--help'])
 			expect(help.code).toBe(0)
 			expect(help.stdout).toContain('study progress <result> [--from <goal>]\n')
 		})
@@ -751,6 +726,7 @@ try { parseStudyArguments([]) } catch (error) {
 	it('refuses a domain-invalid scenario before subject import and execution writes', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
 			scratch.write(
 				'studies/files/scenarios/first.json',
@@ -762,7 +738,7 @@ try { parseStudyArguments([]) } catch (error) {
 					],
 				}),
 			)
-			const result = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
+			const result = await install.execute(['execute', 'assessment'])
 			expect(result.code).not.toBe(0)
 			expect(result.stdout + result.stderr).toContain('File adapter requires text input')
 			expect(scratch.has('imports.log')).toBe(false)
@@ -775,6 +751,7 @@ try { parseStudyArguments([]) } catch (error) {
 	it('refuses a missing factory and a changed offline fingerprint before result creation', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
 			const command = new StudyCommand({ root: scratch.path, entry })
 			const checked = await command.execute(['check', 'assessment'], new AbortController().signal)
@@ -791,7 +768,7 @@ try { parseStudyArguments([]) } catch (error) {
 			expect(scratch.has('imports.log')).toBe(false)
 			expect(scratch.has('tmp')).toBe(false)
 			scratch.write('studies/files/index.ts', 'export const missing = true')
-			const invalid = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
+			const invalid = await install.execute(['check', 'assessment'])
 			expect(invalid.code).toBe(64)
 			expect(invalid.stdout + invalid.stderr).toContain('createStudyAdapter')
 		} finally {
@@ -802,6 +779,7 @@ try { parseStudyArguments([]) } catch (error) {
 	it('returns operational failure while retaining the complete failed horizon', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
 			const source = scratch.read('studies/files/index.ts') ?? ''
 			scratch.write(
@@ -811,7 +789,7 @@ try { parseStudyArguments([]) } catch (error) {
 					"(()=>{throw new Error('file operation failed')})()",
 				),
 			)
-			const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
+			const executed = await install.execute(['execute', 'assessment'])
 			expect(executed.code).toBe(1)
 			const result = parseJSON(executed.stdout.split(/\r\n|\n/)[0] ?? '')
 			if (!isRecord(result) || typeof result.path !== 'string')
@@ -829,12 +807,13 @@ try { parseStudyArguments([]) } catch (error) {
 	it('compares a caller fingerprint without leaking execute-only flags into offline check', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
-			const checked = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
+			const checked = await install.execute(['check', 'assessment'])
 			const value = parseJSON(checked.stdout)
 			if (!isRecord(value) || typeof value.fingerprint !== 'string')
 				throw new Error('Missing fingerprint')
-			const mismatch = await executeStudyCLI(entry, scratch.path, [
+			const mismatch = await install.execute([
 				'execute',
 				'assessment',
 				'--expected',
@@ -843,7 +822,7 @@ try { parseStudyArguments([]) } catch (error) {
 			expect(mismatch.code).toBe(64)
 			expect(mismatch.stdout + mismatch.stderr).toContain('requested fingerprint')
 			expect(scratch.has('imports.log')).toBe(false)
-			const matching = await executeStudyCLI(entry, scratch.path, [
+			const matching = await install.execute([
 				'execute',
 				'assessment',
 				'--expected',
@@ -864,6 +843,7 @@ try { parseStudyArguments([]) } catch (error) {
 	it('requires an exact complete sealed capacity qualification shared across target purposes', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
 			const source = scratch.read('studies/files/index.ts') ?? ''
 			scratch.write('studies/files/index.ts', source.replace('partial:false', 'partial:true'))
@@ -887,15 +867,10 @@ try { parseStudyArguments([]) } catch (error) {
 				'studies/capacity/rubric.json',
 				scratch.read('studies/assessment/rubric.json') ?? '',
 			)
-			const missing = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
+			const missing = await install.execute(['execute', 'assessment'])
 			expect(missing.code).not.toBe(0)
 			expect(scratch.has('tmp')).toBe(false)
-			const capacity = await executeStudyCLI(entry, scratch.path, [
-				'execute',
-				'capacity',
-				'--out',
-				qualification,
-			])
+			const capacity = await install.execute(['execute', 'capacity', '--out', qualification])
 			expect({
 				code: capacity.code,
 				output: capacity.code === 0 ? '' : capacity.stdout + capacity.stderr,
@@ -903,7 +878,7 @@ try { parseStudyArguments([]) } catch (error) {
 				code: 0,
 				output: '',
 			})
-			const qualified = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
+			const qualified = await install.execute(['execute', 'assessment'])
 			expect({
 				code: qualified.code,
 				output: qualified.code === 0 ? '' : qualified.stdout + qualified.stderr,
@@ -921,7 +896,7 @@ try { parseStudyArguments([]) } catch (error) {
 			expect(sealed.manifest.qualification).toBe(prior.seal.id)
 			expect(sealed.attempts[0]?.observations[0]?.product?.partial).toBe(true)
 			scratch.write('capacity-result/execution/manifest.json', '{}')
-			const tampered = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
+			const tampered = await install.execute(['execute', 'assessment'])
 			expect(tampered.code).not.toBe(0)
 		} finally {
 			await destroyScratch(scratch)
@@ -931,6 +906,7 @@ try { parseStudyArguments([]) } catch (error) {
 	it('preserves the declared provider namespace and profile without importing either during check', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
 			const profile = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
 			if (!isRecord(profile)) throw new Error('Missing profile')
@@ -959,11 +935,11 @@ try { parseStudyArguments([]) } catch (error) {
 					"driver(options) { if(options.provider.marker!=='provider-loaded'||options.profile.provider.model!=='fixture-model') throw new Error('Provider selection dropped');",
 				),
 			)
-			const checked = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
+			const checked = await install.execute(['check', 'assessment'])
 			expect(checked.code).toBe(0)
 			expect(scratch.has('imports.log')).toBe(false)
 			expect(scratch.has('provider.log')).toBe(false)
-			const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
+			const executed = await install.execute(['execute', 'assessment'])
 			expect({
 				code: executed.code,
 				output: executed.code === 0 ? '' : executed.stdout + executed.stderr,
@@ -980,6 +956,7 @@ try { parseStudyArguments([]) } catch (error) {
 	it('loads a shared agent and subject entry once while retaining both declared roles', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
 			const source = scratch.read('studies/files/index.ts') ?? ''
 			scratch.write(
@@ -989,7 +966,7 @@ try { parseStudyArguments([]) } catch (error) {
 					"driver(options) { if(options.agent!==options.subject||options.profile.agent!==options.profile.subject||options.agent.prefix!=='saved:') throw new Error('Shared selection split');",
 				),
 			)
-			const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
+			const executed = await install.execute(['execute', 'assessment'])
 			expect({
 				code: executed.code,
 				output: executed.code === 0 ? '' : executed.stdout + executed.stderr,
@@ -1011,6 +988,7 @@ try { parseStudyArguments([]) } catch (error) {
 	it('selects a distinct agent entry and binds its bytes into the execution identity', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
 			const agent = writeStudyAgent(scratch, 'agent', 'agent-loaded')
 			const profile = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
@@ -1027,7 +1005,7 @@ try { parseStudyArguments([]) } catch (error) {
 					"driver(options) { if(options.agent.marker!=='agent-loaded'||options.agent===options.subject||options.subject.prefix!=='saved:'||options.profile.agent===options.profile.subject) throw new Error('Agent selection dropped');",
 				),
 			)
-			const checked = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
+			const checked = await install.execute(['check', 'assessment'])
 			expect({
 				code: checked.code,
 				output: checked.code === 0 ? '' : checked.stdout + checked.stderr,
@@ -1037,7 +1015,7 @@ try { parseStudyArguments([]) } catch (error) {
 			})
 			expect(scratch.has('agent.log')).toBe(false)
 			const before = readStudyCheck(checked.stdout)
-			const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
+			const executed = await install.execute(['execute', 'assessment'])
 			expect({
 				code: executed.code,
 				output: executed.code === 0 ? '' : executed.stdout + executed.stderr,
@@ -1054,7 +1032,7 @@ try { parseStudyArguments([]) } catch (error) {
 				'agent/dist/index.js',
 				`${scratch.read('agent/dist/index.js') ?? ''}\n// Changed agent bytes\n`,
 			)
-			const changed = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
+			const changed = await install.execute(['check', 'assessment'])
 			expect(changed.code).toBe(0)
 			const after = readStudyCheck(changed.stdout)
 			expect(after.agent).not.toBe(before.agent)
@@ -1067,6 +1045,7 @@ try { parseStudyArguments([]) } catch (error) {
 	it('selects the named occurrence among several installed agent packages', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
 			const first = writeStudyAgent(scratch, 'agent-first', 'first-loaded')
 			const second = writeStudyAgent(scratch, 'agent-second', 'second-loaded')
@@ -1093,7 +1072,7 @@ try { parseStudyArguments([]) } catch (error) {
 					),
 				)
 				const untouched = scratch.read(relative(scratch.path, other.log))
-				const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
+				const executed = await install.execute(['execute', 'assessment'])
 				expect({
 					code: executed.code,
 					output: executed.code === 0 ? '' : executed.stdout + executed.stderr,
@@ -1111,6 +1090,7 @@ try { parseStudyArguments([]) } catch (error) {
 	it('refuses a selected agent import during validation, directly or transitively', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
 			const agent = writeStudyAgent(scratch, 'agent', 'agent-loaded')
 			const profile = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
@@ -1128,7 +1108,7 @@ try { parseStudyArguments([]) } catch (error) {
 			]) {
 				scratch.write('studies/files/index.ts', `${imported}\nvoid marker\n${adapter}`)
 				for (const operation of ['check', 'execute']) {
-					const refused = await executeStudyCLI(entry, scratch.path, [operation, 'assessment'])
+					const refused = await install.execute([operation, 'assessment'])
 					expect(refused.code).not.toBe(0)
 					expect(refused.stdout + refused.stderr).toContain('Artifact module is excluded:')
 				}
@@ -1144,6 +1124,7 @@ try { parseStudyArguments([]) } catch (error) {
 	it('executes a plain study that declares no recap, provider, or judge', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
 			const profile = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
 			if (!isRecord(profile) || !isRecord(profile.room)) throw new Error('Missing profile')
@@ -1154,7 +1135,7 @@ try { parseStudyArguments([]) } catch (error) {
 					room: Object.fromEntries(Object.entries(profile.room).filter(([key]) => key !== 'recap')),
 				}),
 			)
-			const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
+			const executed = await install.execute(['execute', 'assessment'])
 			expect({
 				code: executed.code,
 				output: executed.code === 0 ? '' : executed.stdout + executed.stderr,
@@ -1170,6 +1151,7 @@ try { parseStudyArguments([]) } catch (error) {
 	it('admits a provider without a judge and refuses a half-declared judge', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
 			const profile = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
 			if (!isRecord(profile)) throw new Error('Missing profile')
@@ -1185,7 +1167,7 @@ try { parseStudyArguments([]) } catch (error) {
 					provider: { ...declared, digest: { model: 'a'.repeat(64) } },
 				}),
 			)
-			const omitted = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
+			const omitted = await install.execute(['check', 'assessment'])
 			expect({
 				code: omitted.code,
 				output: omitted.code === 0 ? '' : omitted.stdout + omitted.stderr,
@@ -1201,7 +1183,7 @@ try { parseStudyArguments([]) } catch (error) {
 					'studies/files/profiles/local.json',
 					JSON.stringify({ ...profile, provider: half }),
 				)
-				const refused = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
+				const refused = await install.execute(['check', 'assessment'])
 				expect(refused.code).toBe(64)
 				expect(refused.stdout + refused.stderr).toContain('study profile')
 			}
@@ -1214,6 +1196,7 @@ try { parseStudyArguments([]) } catch (error) {
 	it('refuses selected subject and provider imports during validation, directly or transitively', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
 			const adapter = scratch.read('studies/files/index.ts') ?? ''
 			const profile = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
@@ -1249,7 +1232,7 @@ try { parseStudyArguments([]) } catch (error) {
 			]) {
 				scratch.write('studies/files/index.ts', `${imported}\nvoid prefix\n${adapter}`)
 				for (const operation of ['check', 'execute']) {
-					const refused = await executeStudyCLI(entry, scratch.path, [operation, 'assessment'])
+					const refused = await install.execute([operation, 'assessment'])
 					expect(refused.code).not.toBe(0)
 					expect(refused.stdout + refused.stderr).toContain('Artifact module is excluded:')
 				}
@@ -1258,7 +1241,7 @@ try { parseStudyArguments([]) } catch (error) {
 			expect(scratch.has('provider.log')).toBe(false)
 			expect(scratch.has('tmp')).toBe(false)
 			scratch.write('studies/files/index.ts', adapter)
-			const checked = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
+			const checked = await install.execute(['check', 'assessment'])
 			expect({
 				code: checked.code,
 				output: checked.code === 0 ? '' : checked.stdout + checked.stderr,
@@ -1274,6 +1257,7 @@ try { parseStudyArguments([]) } catch (error) {
 	it('refuses quality without qualification before evaluation while capacity and mechanism execute', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
 			const definition = parseJSON(scratch.read('studies/assessment/study.json') ?? '')
 			const rubric = parseJSON(scratch.read('studies/assessment/rubric.json') ?? '')
@@ -1286,7 +1270,7 @@ try { parseStudyArguments([]) } catch (error) {
 			)
 			scratch.write('studies/quality/rubric.json', JSON.stringify(rubric))
 			for (const operation of ['check', 'execute']) {
-				const refused = await executeStudyCLI(entry, scratch.path, [operation, 'quality'])
+				const refused = await install.execute([operation, 'quality'])
 				expect(refused.code).toBe(64)
 				expect(refused.stdout + refused.stderr).toContain(
 					'Quality studies require a capacity qualification',
@@ -1308,7 +1292,7 @@ try { parseStudyArguments([]) } catch (error) {
 				}),
 			)
 			for (const study of ['assessment', 'mechanism']) {
-				const executed = await executeStudyCLI(entry, scratch.path, ['execute', study])
+				const executed = await install.execute(['execute', study])
 				expect({
 					code: executed.code,
 					output: executed.code === 0 ? '' : executed.stdout + executed.stderr,
@@ -1328,8 +1312,9 @@ try { parseStudyArguments([]) } catch (error) {
 		const bin = runtime.read(entry)
 		if (server === undefined || bin === undefined) throw new Error('Missing runtime faces')
 		const scratch = createStudyConsumer()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
-			const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
+			const executed = await install.execute(['execute', 'assessment'])
 			expect({
 				code: executed.code,
 				output: executed.code === 0 ? '' : executed.stdout + executed.stderr,
@@ -1339,7 +1324,7 @@ try { parseStudyArguments([]) } catch (error) {
 			})
 			const result = parseJSON(executed.stdout)
 			if (!isRecord(result) || typeof result.path !== 'string') throw new Error('Missing result')
-			const graded = await executeStudyCLI(entry, scratch.path, [
+			const graded = await install.execute([
 				'grade',
 				result.path,
 				'--rubric',
@@ -1372,7 +1357,7 @@ try { parseStudyArguments([]) } catch (error) {
 				'--labels',
 				labels,
 			]
-			const labeled = await executeStudyCLI(entry, scratch.path, tokens)
+			const labeled = await install.execute(tokens)
 			expect({
 				code: labeled.code,
 				output: labeled.code === 0 ? '' : labeled.stdout + labeled.stderr,
@@ -1387,7 +1372,7 @@ try { parseStudyArguments([]) } catch (error) {
 				`${server}\n// Changed label server bytes\n`,
 			)
 			expect(runtime.read(entry)).toBe(bin)
-			const relabeled = await executeStudyCLI(entry, scratch.path, tokens)
+			const relabeled = await install.execute(tokens)
 			expect({
 				code: relabeled.code,
 				output: relabeled.code === 0 ? '' : relabeled.stdout + relabeled.stderr,
@@ -1407,15 +1392,16 @@ try { parseStudyArguments([]) } catch (error) {
 	it('keeps distinct labeled gradings when equal labels follow distinct graders', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
-			const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
+			const executed = await install.execute(['execute', 'assessment'])
 			const result = parseJSON(executed.stdout)
 			if (!isRecord(result) || typeof result.path !== 'string') throw new Error('Missing result')
 			const grade = ['grade', result.path, '--rubric', 'studies/assessment/rubric.json']
-			const first = parseJSON((await executeStudyCLI(entry, scratch.path, grade)).stdout)
+			const first = parseJSON((await install.execute(grade)).stdout)
 			const adapter = scratch.read('studies/files/index.ts') ?? ''
 			scratch.write('studies/files/index.ts', `${adapter}\n// Changed grader bytes\n`)
-			const second = parseJSON((await executeStudyCLI(entry, scratch.path, grade)).stdout)
+			const second = parseJSON((await install.execute(grade)).stdout)
 			if (
 				!isRecord(first) ||
 				!isRecord(second) ||
@@ -1435,7 +1421,7 @@ try { parseStudyArguments([]) } catch (error) {
 			)
 			const labeled: string[] = []
 			for (const assessment of [first.assessment, second.assessment]) {
-				const output = await executeStudyCLI(entry, scratch.path, [
+				const output = await install.execute([
 					'label',
 					result.path,
 					'--assessment',
@@ -1461,7 +1447,7 @@ try { parseStudyArguments([]) } catch (error) {
 			if (importer === undefined) throw new Error('Missing importer bytes')
 			try {
 				runtime.write(entry, `${importer}\n// Changed label importer bytes\n`)
-				const imported = await executeStudyCLI(entry, scratch.path, [
+				const imported = await install.execute([
 					'label',
 					result.path,
 					'--assessment',
@@ -1480,12 +1466,7 @@ try { parseStudyArguments([]) } catch (error) {
 				runtime.write(entry, importer)
 			}
 			for (const assessment of [first.assessment, second.assessment, ...labeled]) {
-				const report = await executeStudyCLI(entry, scratch.path, [
-					'report',
-					result.path,
-					'--assessment',
-					assessment,
-				])
+				const report = await install.execute(['report', result.path, '--assessment', assessment])
 				expect(report.code).toBe(0)
 			}
 		} finally {
@@ -1496,6 +1477,7 @@ try { parseStudyArguments([]) } catch (error) {
 	it('keeps a real built library StudyError code across the captured module boundary', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
 			const library = createStudyScratch(resolve('tmp/units'), 'runtime-library-')
 			try {
@@ -1532,7 +1514,7 @@ try { parseStudyArguments([]) } catch (error) {
 						'studies/files/index.ts',
 						`import { StudyError } from ${JSON.stringify(built)}\nvoid StudyError\nexport function createStudyAdapter() { return { validate() { throw ${thrown} }, driver() {}, grade() { return [] } } }\n`,
 					)
-					const checked = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
+					const checked = await install.execute(['check', 'assessment'])
 					expect(checked.code).toBe(code)
 					expect(checked.stdout + checked.stderr).toContain(`study: ${message}`)
 				}
@@ -1572,6 +1554,7 @@ try { parseStudyArguments([]) } catch (error) {
 				],
 			] as const) {
 				const consumer = createStudyScratch(resolve('tmp/units'), 'runtime-consumer-')
+				const install = new StudyInstall({ root: consumer.path, entry })
 				try {
 					writeStudyConsumer(consumer)
 					admitStudyLibrary(consumer, library)
@@ -1583,7 +1566,7 @@ try { parseStudyArguments([]) } catch (error) {
 							`async execute(goal, context) { throw ${thrown};`,
 						)}`,
 					)
-					const executed = await executeStudyCLI(entry, consumer.path, ['execute', 'assessment'])
+					const executed = await install.execute(['execute', 'assessment'])
 					expect(executed.code).toBe(1)
 					const result = parseJSON(executed.stdout.split(/\r\n|\n/)[0] ?? '')
 					if (!isRecord(result) || typeof result.path !== 'string')
@@ -1603,6 +1586,7 @@ try { parseStudyArguments([]) } catch (error) {
 	it('keeps an abandoned ticket observation exact and reports its cleanup disconnect', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
 			const library = createStudyScratch(resolve('tmp/units'), 'runtime-library-')
 			try {
@@ -1616,7 +1600,7 @@ try { parseStudyArguments([]) } catch (error) {
 						"(()=>{throw new StudyError('CAPACITY', 'Captured capacity')})()",
 					)}`,
 				)
-				const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
+				const executed = await install.execute(['execute', 'assessment'])
 				expect(executed.code).toBe(1)
 				const result = parseJSON(executed.stdout.split(/\r\n|\n/)[0] ?? '')
 				if (!isRecord(result) || typeof result.path !== 'string')
@@ -1644,6 +1628,7 @@ try { parseStudyArguments([]) } catch (error) {
 	it('refuses a nested trusted runtime loader reaching an unadmitted package', async () => {
 		const entry = await compiled.promise
 		const scratch = createStudyConsumer()
+		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
 			const library = createStudyScratch(resolve('tmp/units'), 'nested-library-')
 			try {
@@ -1667,7 +1652,7 @@ try { parseStudyArguments([]) } catch (error) {
 					'subject/dist/index.js',
 					`import {ArtifactLoader} from ${JSON.stringify(pathToFileURL(runtimeLibrary).href)}; const artifacts=new ArtifactLoader(${JSON.stringify({ entries: [target], roots: [outside] })}); const namespace=await artifacts.load(${JSON.stringify(target)}); export const prefix=namespace.prefix`,
 				)
-				const checked = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
+				const checked = await install.execute(['check', 'assessment'])
 				expect({
 					code: checked.code,
 					output: checked.code === 0 ? '' : checked.stdout + checked.stderr,
@@ -1676,7 +1661,7 @@ try { parseStudyArguments([]) } catch (error) {
 					output: '',
 				})
 				expect(scratch.has('escaped.log')).toBe(false)
-				const executed = await executeStudyCLI(entry, scratch.path, ['execute', 'assessment'])
+				const executed = await install.execute(['execute', 'assessment'])
 				const output = parseJSON(executed.stdout.split(/\r\n|\n/)[0] ?? '')
 				if (!isRecord(output) || typeof output.path !== 'string')
 					throw new Error(executed.stdout + executed.stderr)
@@ -1685,7 +1670,7 @@ try { parseStudyArguments([]) } catch (error) {
 				if (retained.status !== 'sealed') throw new Error('Missing retained failure')
 				expect(retained.attempts[0]?.failure?.message).toContain('Artifact URL is unsupported:')
 				expect(scratch.has('escaped.log')).toBe(false)
-				expect((await executeStudyCLI(entry, scratch.path, ['--help'])).code).toBe(0)
+				expect((await install.execute(['--help'])).code).toBe(0)
 			} finally {
 				await destroyScratch(library)
 			}

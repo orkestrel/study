@@ -26,6 +26,7 @@ import {
 } from '../../../setupStudy.js'
 
 describe('StudyResultStore', () => {
+	// Contended runs read at most 3756 ms; 40000 holds 10x that.
 	it.each(STUDY_OPEN_EXCHANGE_MUTATIONS)(
 		'O5 refuses sealing %s open sidecars under the manifest and evidence join',
 		async (mutation) => {
@@ -44,7 +45,9 @@ describe('StudyResultStore', () => {
 				scratch.destroy()
 			}
 		},
+		40000,
 	)
+	// Contended runs read at most 4478 ms; 45000 holds 10x that.
 	it('O5 seals the complete independent open sidecar control', async () => {
 		const scratch = createScratch()
 		try {
@@ -60,8 +63,9 @@ describe('StudyResultStore', () => {
 		} finally {
 			scratch.destroy()
 		}
-	})
+	}, 45000)
 
+	// Contended runs read at most 4680 ms; 50000 holds 10x that.
 	it('seals only complete joined exchange sidecars and reads them under their exact seal', async () => {
 		const scratch = createScratch()
 		try {
@@ -79,17 +83,22 @@ describe('StudyResultStore', () => {
 		} finally {
 			scratch.destroy()
 		}
-	})
-	it.each(STUDY_EXCHANGE_MUTATIONS)('refuses sealing %s exchange history', async (mutation) => {
-		const scratch = createScratch()
-		try {
-			const fixture = await retainStudyExchangeFixture(join(scratch.path, 'recorded'), mutation)
-			await expect(fixture.store.seal()).rejects.toMatchObject({ code: 'CUSTODY' })
-			expect(scratch.has('recorded/seal.json')).toBe(false)
-		} finally {
-			scratch.destroy()
-		}
-	})
+	}, 50000)
+	// Contended runs read at most 1871 ms; 20000 holds 10x that.
+	it.each(STUDY_EXCHANGE_MUTATIONS)(
+		'refuses sealing %s exchange history',
+		async (mutation) => {
+			const scratch = createScratch()
+			try {
+				const fixture = await retainStudyExchangeFixture(join(scratch.path, 'recorded'), mutation)
+				await expect(fixture.store.seal()).rejects.toMatchObject({ code: 'CUSTODY' })
+				expect(scratch.has('recorded/seal.json')).toBe(false)
+			} finally {
+				scratch.destroy()
+			}
+		},
+		20000,
+	)
 	it('refuses an unrecorded sidecar and a recorded trial without its sidecar, preserving unknown-file refusal', async () => {
 		const scratch = createScratch()
 		try {
@@ -113,6 +122,7 @@ describe('StudyResultStore', () => {
 			scratch.destroy()
 		}
 	})
+	// Contended runs read at most 1673 ms; 20000 holds 10x that.
 	it('owns an exact scheduled trial by value across its filesystem awaits', async () => {
 		const scratch = createScratch()
 		const sinks: StudyEvidenceSink[] = []
@@ -145,7 +155,7 @@ describe('StudyResultStore', () => {
 			await Promise.allSettled(sinks.map((sink) => sink.close()))
 			scratch.destroy()
 		}
-	})
+	}, 20000)
 
 	it('publishes a terminal attempt through its part file, leaving none behind', async () => {
 		const scratch = createScratch()
@@ -176,6 +186,7 @@ describe('StudyResultStore', () => {
 		}
 	})
 
+	// Contended runs read at most 3089 ms; 35000 holds 10x that.
 	it('reserves seal artifact bytes before publishing a complete execution seal', async () => {
 		const scratch = createScratch()
 		try {
@@ -207,7 +218,7 @@ describe('StudyResultStore', () => {
 		} finally {
 			scratch.destroy()
 		}
-	}, 20000)
+	}, 35000)
 	it('keeps construction inert and refuses existing empty or occupied directories', async () => {
 		const scratch = createScratch()
 		try {
@@ -270,6 +281,7 @@ describe('StudyResultStore', () => {
 		}
 	})
 
+	// Contended runs read at most 1859 ms; 20000 holds 10x that.
 	it('accounts for explicit unexecuted attempts and seals only the complete horizon', async () => {
 		const scratch = createScratch()
 		try {
@@ -367,6 +379,7 @@ describe('StudyResultStore', () => {
 		}
 	})
 
+	// Contended runs read at most 743 ms; 10000 holds 10x that.
 	it.each(STUDY_ADMISSION_CASES)(
 		'seals only admitted output after a goal deadline: $name',
 		async ({ expired, oversized, cause, product }) => {
@@ -378,12 +391,24 @@ describe('StudyResultStore', () => {
 					trial: 8192,
 					series: 65536,
 				})
+				// The fast arm read at most 587 ms; its 10000 ms deadlines hold 10x, so none fires before admission.
+				const fast = 10000
 				const manifest = {
 					...baseline,
 					bounds: {
 						...baseline.bounds,
-						request: { ...baseline.bounds.request, duration: STUDY_ADMISSION_DURATIONS.request },
-						goal: { ...baseline.bounds.goal, duration: STUDY_ADMISSION_DURATIONS.goal },
+						request: {
+							...baseline.bounds.request,
+							duration: expired ? STUDY_ADMISSION_DURATIONS.request : fast,
+						},
+						goal: {
+							...baseline.bounds.goal,
+							duration: expired ? STUDY_ADMISSION_DURATIONS.goal : fast,
+						},
+						trial: {
+							...baseline.bounds.trial,
+							duration: expired ? baseline.bounds.trial.duration : fast,
+						},
 					},
 				}
 				// The synchronous wait outlasts the goal duration before any timer can fire.
@@ -429,6 +454,7 @@ describe('StudyResultStore', () => {
 				scratch.destroy()
 			}
 		},
+		10000,
 	)
 
 	it('seals fulfilled capacity attempts when a driver product exceeds the series output limit', async () => {
@@ -524,6 +550,7 @@ describe('StudyResultStore', () => {
 		}
 	})
 
+	// Contended runs read at most 2091 ms; 25000 holds 10x that.
 	it('retains explicit execution facts through a sealed round trip', async () => {
 		const scratch = createScratch()
 		try {
@@ -544,8 +571,9 @@ describe('StudyResultStore', () => {
 		} finally {
 			scratch.destroy()
 		}
-	})
+	}, 25000)
 
+	// Contended runs read at most 2280 ms; 25000 holds 10x that.
 	it('binds the sealed inventory to the exact bytes of every execution fact and detects a changed byte', async () => {
 		const scratch = createScratch()
 		try {
@@ -561,7 +589,7 @@ describe('StudyResultStore', () => {
 		} finally {
 			scratch.destroy()
 		}
-	})
+	}, 25000)
 
 	it('refuses a terminal record whose goals failed or went unexecuted without a terminal failure', async () => {
 		const scratch = createScratch()
@@ -594,6 +622,7 @@ describe('StudyResultStore', () => {
 		}
 	})
 
+	// Contended runs read at most 1504 ms; 20000 holds 10x that.
 	it('reads a crash before seal as interrupted even when every attempt is present', async () => {
 		const scratch = createScratch()
 		try {
@@ -607,36 +636,41 @@ describe('StudyResultStore', () => {
 		} finally {
 			scratch.destroy()
 		}
-	})
+	}, 20000)
 
-	it.each(STUDY_CUSTODY_MUTATIONS)('rejects %s execution inventory', async (mutation) => {
-		const scratch = createScratch()
-		try {
-			const result = await retainStudyFixture(join(scratch.path, 'result'))
-			const trial = result.manifest.schedule[0]
-			if (trial === undefined) throw new Error('Missing trial')
-			const attempt = join(result.directory, 'execution', 'trials', trial.id, 'attempt.json')
-			if (mutation === 'tampered') await appendFile(attempt, ' ')
-			if (mutation === 'missing') await rm(attempt)
-			if (mutation === 'extra')
-				await writeFile(join(result.directory, 'execution', 'foreign.json'), '{}')
-			if (mutation === 'extra-directory')
-				await mkdir(join(result.directory, 'execution', 'foreign'))
-			if (mutation === 'wrong-horizon')
-				await writeFile(
-					attempt,
-					encodeStudyJSON({ ...buildCustodyAttempt(result.manifest, trial), observations: [] }),
-				)
-			if (mutation === 'partial-evidence')
-				await appendFile(
-					join(result.directory, 'execution', 'trials', trial.id, 'evidence.jsonl'),
-					'{',
-				)
-			await expect(readStudyResult(result.directory)).rejects.toMatchObject({ code: 'CUSTODY' })
-		} finally {
-			scratch.destroy()
-		}
-	})
+	// Contended runs read at most 4412 ms; 45000 holds 10x that.
+	it.each(STUDY_CUSTODY_MUTATIONS)(
+		'rejects %s execution inventory',
+		async (mutation) => {
+			const scratch = createScratch()
+			try {
+				const result = await retainStudyFixture(join(scratch.path, 'result'))
+				const trial = result.manifest.schedule[0]
+				if (trial === undefined) throw new Error('Missing trial')
+				const attempt = join(result.directory, 'execution', 'trials', trial.id, 'attempt.json')
+				if (mutation === 'tampered') await appendFile(attempt, ' ')
+				if (mutation === 'missing') await rm(attempt)
+				if (mutation === 'extra')
+					await writeFile(join(result.directory, 'execution', 'foreign.json'), '{}')
+				if (mutation === 'extra-directory')
+					await mkdir(join(result.directory, 'execution', 'foreign'))
+				if (mutation === 'wrong-horizon')
+					await writeFile(
+						attempt,
+						encodeStudyJSON({ ...buildCustodyAttempt(result.manifest, trial), observations: [] }),
+					)
+				if (mutation === 'partial-evidence')
+					await appendFile(
+						join(result.directory, 'execution', 'trials', trial.id, 'evidence.jsonl'),
+						'{',
+					)
+				await expect(readStudyResult(result.directory)).rejects.toMatchObject({ code: 'CUSTODY' })
+			} finally {
+				scratch.destroy()
+			}
+		},
+		45000,
+	)
 
 	it('rejects real directory links in custody without following their target', async () => {
 		const scratch = createScratch()

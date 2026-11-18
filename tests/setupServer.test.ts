@@ -13,7 +13,14 @@ import { isStudyBounds } from '../src/core/validators.js'
 import { parseStudyProfile } from '../src/core/parsers.js'
 import { STUDY_LAUNCH_BYTES } from '../src/server/launchers/constants.js'
 import { buildStudyRubric } from './setupStudy.js'
-import { buildStudyDaemonRefusals } from './setupStudy.js'
+import {
+	buildStudyDaemonRefusals,
+	createOllamaReply,
+	OllamaReplyQueue,
+	STUDY_OLLAMA_FIXTURE,
+} from './setupStudy.js'
+import { createOllamaFixture } from '@orkestrel/ollama/server'
+import { StudyInstall } from '../src/server/launchers/StudyInstall.js'
 import {
 	STUDY_BURST_ARGUMENTS,
 	STUDY_CHECK_FINGERPRINT,
@@ -34,7 +41,6 @@ import {
 	createMCPProxy,
 	createOllamaContext,
 	createOllamaExchange,
-	createOllamaServer,
 	OllamaExchangeRecorder,
 	buildOllamaStep,
 	buildOllamaDeclaration,
@@ -73,7 +79,6 @@ import {
 	ARTIFACT_CLOSURE_FILES,
 	buildArtifactClosureOptions,
 	createStudyPeer,
-	executeStudyCLI,
 	readStudyCheck,
 	readStudyCommands,
 	readStudyOrphan,
@@ -438,10 +443,11 @@ describe('study server fixtures', () => {
 			expect(scratch.has('runtime/dist/src/core/index.js')).toBe(true)
 			expect(scratch.has('runtime/dist/src/server/index.js')).toBe(true)
 			expect(scratch.read('runtime/dist/bin/main.js')?.startsWith('#!/usr/bin/env node')).toBe(true)
-			const checked = await executeStudyCLI(entry, scratch.path, ['check', 'assessment'])
+			const install = new StudyInstall({ root: scratch.path, entry })
+			const checked = await install.execute(['check', 'assessment'])
 			expect(checked.code).toBe(0)
 			expect(() => JSON.parse(checked.stdout)).not.toThrow()
-			const refused = await executeStudyCLI(entry, scratch.path, ['check', 'missing'])
+			const refused = await install.execute(['check', 'missing'])
 			expect(refused.code).not.toBe(0)
 		} finally {
 			scratch.destroy()
@@ -869,25 +875,6 @@ describe('study server fixtures', () => {
 			await server.close()
 		}
 	})
-	it('shows a retained Ollama peer reference its later requests and owners', async () => {
-		const peer = await createOllamaServer()
-		const requests = peer.requests
-		const owned = peer.owned
-		try {
-			expect([requests.length, owned.length]).toEqual([0, 0])
-			await fetch(`${peer.url}/api/tags`, {
-				method: 'POST',
-				body: '{}',
-				headers: { 'x-study-owned': 'recorded' },
-			})
-			expect(requests.map((request) => request.path)).toEqual(['/api/tags'])
-			expect(owned).toEqual(['recorded'])
-			expect(peer.requests).toBe(requests)
-			expect(peer.owned).toBe(owned)
-		} finally {
-			await peer.close()
-		}
-	})
 	it('shows a retained goal context reference the evidence appended later', async () => {
 		const goal = createOllamaContext()
 		try {
@@ -929,7 +916,10 @@ describe('study server fixtures', () => {
 		}
 	})
 	it('lets an Ollama peer answer from request bytes without disturbing queued or default replies', async () => {
-		const peer = await createOllamaServer([], answerStudyMCP)
+		const peer = await createOllamaFixture({
+			...STUDY_OLLAMA_FIXTURE,
+			reply: createOllamaReply(new OllamaReplyQueue([]), answerStudyMCP),
+		})
 		try {
 			const chat = await fetch(`${peer.url}/api/chat`, {
 				method: 'POST',
@@ -937,15 +927,16 @@ describe('study server fixtures', () => {
 			})
 			expect(await chat.text()).toContain('Order status: delayed Friday')
 			const tags = await fetch(`${peer.url}/api/tags`, {
-				method: 'POST',
-				body: '{}',
 				headers: { 'x-study-owned': 'recorded' },
 			})
 			expect(await tags.text()).toContain('"models"')
 			expect(peer.requests.map((request) => request.path)).toEqual(['/api/chat', '/api/tags'])
-			expect(peer.owned).toEqual([undefined, 'recorded'])
+			expect(peer.requests.map((request) => request.headers['x-study-owned'])).toEqual([
+				undefined,
+				'recorded',
+			])
 		} finally {
-			await peer.close()
+			await peer.destroy()
 		}
 	})
 	it('serves queued replies in order by path and reports the unserved remainder', async () => {
@@ -953,21 +944,85 @@ describe('study server fixtures', () => {
 			{ path: '/api/tags', body: 'first' },
 			{ path: '/api/chat', body: 'second' },
 		] as const
-		const peer = await createOllamaServer(queued)
+		const queue = new OllamaReplyQueue(queued)
+		const peer = await createOllamaFixture({
+			...STUDY_OLLAMA_FIXTURE,
+			reply: createOllamaReply(queue),
+		})
 		try {
-			expect(peer.replies).toEqual(queued)
+			expect(queue.remaining).toEqual(queued)
 			// A path that is not at the head of the queue is answered by default and leaves the queue whole.
 			const early = await fetch(`${peer.url}/api/chat`, { method: 'POST', body: '{}' })
 			expect(await early.text()).not.toBe('second')
-			expect(peer.replies).toEqual(queued)
+			expect(queue.remaining).toEqual(queued)
 			const tags = await fetch(`${peer.url}/api/tags`, { method: 'POST', body: '{}' })
 			expect(await tags.text()).toBe('first')
-			expect(peer.replies).toEqual([queued[1]])
+			expect(queue.remaining).toEqual([queued[1]])
 			const chat = await fetch(`${peer.url}/api/chat`, { method: 'POST', body: '{}' })
 			expect(await chat.text()).toBe('second')
-			expect(peer.replies).toEqual([])
+			expect(queue.remaining).toEqual([])
 		} finally {
-			await peer.close()
+			await peer.destroy()
+		}
+	})
+	it('answers chat, a prompted readout, and triage by Study policy and leaves metadata and unload to the fixture', async () => {
+		const peer = await createOllamaFixture({ ...STUDY_OLLAMA_FIXTURE, reply: createOllamaReply() })
+		try {
+			const chat = await fetch(`${peer.url}/api/chat`, {
+				method: 'POST',
+				body: '{"model":"model","messages":[]}',
+			})
+			expect(parseJSON((await chat.text()).trim())).toMatchObject({
+				model: 'model',
+				message: { role: 'assistant', content: 'Receipt retained.' },
+				done_reason: 'stop',
+				prompt_eval_count: 10,
+				eval_count: 2,
+			})
+			const readout = await fetch(`${peer.url}/api/generate`, {
+				method: 'POST',
+				body: '{"model":"judge","prompt":"decide"}',
+			})
+			expect(parseJSON(await readout.text())).toEqual({
+				model: 'judge',
+				done: true,
+				done_reason: 'length',
+				response: 'Yes',
+				prompt_eval_count: 10,
+				eval_count: 1,
+				logprobs: [
+					{
+						token: 'Yes',
+						logprob: -0.01,
+						top_logprobs: [
+							{ token: 'Yes', logprob: -0.01 },
+							{ token: 'No', logprob: -8 },
+							{ token: 'A', logprob: -8 },
+							{ token: 'B', logprob: -8 },
+						],
+					},
+				],
+			})
+			const triage = await fetch(`${peer.url}/v1/systemone`, {
+				method: 'POST',
+				body: '{"model":"decision","state":"decide","questions":{}}',
+			})
+			expect([triage.status, parseJSON(await triage.text())]).toEqual([
+				200,
+				{ model: 'decision', answers: {}, usage: { input_tokens: 12, output_tokens: 1 } },
+			])
+			const unload = await fetch(`${peer.url}/api/generate`, {
+				method: 'POST',
+				body: '{"model":"judge","keep_alive":0}',
+			})
+			expect(parseJSON(await unload.text())).toMatchObject({
+				model: 'judge',
+				done_reason: 'unload',
+			})
+			const version = await fetch(`${peer.url}/api/version`)
+			expect(parseJSON(await version.text())).toEqual({ version: 'fixture-version' })
+		} finally {
+			await peer.destroy()
 		}
 	})
 	it('totals observed calls by role and reads zero for an unused role', () => {
