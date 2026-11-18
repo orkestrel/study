@@ -1,17 +1,16 @@
 import type {
 	Message,
 	ProviderDelta,
-	ProviderInterface,
 	ProviderRequest,
 	ProviderResult,
 	ProviderStreamOptions,
 	ThinkingReplay,
 } from '@orkestrel/agent'
-import type { StudyAgentObserverOptions } from './types.js'
+import type { StudyAgentObserverOptions, StudyAgentProviderInterface } from './types.js'
 import { projectStudyAgentRequest, validateStudyAgentUsage } from './helpers.js'
 
 /** Reads each Agent request's size before delegating it unchanged to the real provider. */
-export class StudyAgentObserver implements ProviderInterface {
+export class StudyAgentObserver implements StudyAgentProviderInterface {
 	readonly #options: StudyAgentObserverOptions
 
 	/** Binds the real provider, the measuring runtime, the explicit gauge and usage policy, and the reading recorder.
@@ -29,6 +28,11 @@ export class StudyAgentObserver implements ProviderInterface {
 	/** Reports the delegate's backend name. */
 	get name(): string {
 		return this.#options.provider.name
+	}
+
+	/** Reports the model the delegate serves. */
+	get model(): string {
+		return this.#options.provider.model
 	}
 
 	/** Reports the delegate's thinking replay policy; an absent policy is the declared `none`. */

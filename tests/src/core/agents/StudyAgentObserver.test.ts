@@ -269,6 +269,13 @@ describe('StudyAgentObserver', () => {
 		)
 	})
 
+	it('reports the delegate model, which differs from the delegate backend name', () => {
+		const { observer, inner } = createAgentObserver(createOllamaFetch(), undefined, false)
+		expect(inner.model).toBe('model')
+		expect(inner.model).not.toBe(inner.name)
+		expect(observer.model).toBe(inner.model)
+	})
+
 	it('measures the same complete request the Agent window measures', async () => {
 		const wire = createOllamaFetch([
 			{ path: '/api/chat', body: buildOllamaStream(['Receipt retained.'], { prompt: 7 }) },

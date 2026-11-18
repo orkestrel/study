@@ -35,16 +35,28 @@ export type StudyAgentRecordHandler = (
 ) => void
 
 /**
+ * Declares an Agent provider that names the model it serves.
+ * @remarks
+ * Agent 0.0.46's `ProviderInterface` declares no `model`, so this contract adds it beside the
+ * provider's identity, replay policy, and calls.
+ */
+export interface StudyAgentProviderInterface extends ProviderInterface {
+	/** Names the model the provider serves. */
+	readonly model: string
+}
+
+/**
  * Holds the observing provider's delegate, measurement seam and explicit policies.
  * @remarks
- * `provider` receives every call unchanged. `runtime` measures each request. `gauge` prices each
+ * `provider` receives every call unchanged and supplies the `id`, `name`, `model`, and replay
+ * policy the observer reports. `runtime` measures each request. `gauge` prices each
  * reading; undefined prices nothing. `enforced` selects the usage policy: if `true`, a successful,
  * unaborted return must report a usable actual prompt count; if `false`, the observer reads usage
  * passively and refuses nothing. `record` receives exactly one reading, synchronously, before
  * each delegated call.
  */
 export interface StudyAgentObserverOptions {
-	readonly provider: ProviderInterface
+	readonly provider: StudyAgentProviderInterface
 	readonly runtime: Pick<StudyAgentRuntime, 'estimateRequest'>
 	readonly gauge: LedgerGauge | undefined
 	readonly enforced: boolean
