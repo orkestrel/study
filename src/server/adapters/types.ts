@@ -64,6 +64,16 @@ export interface StudyGradeTarget {
 	readonly evidence: readonly StudyEvidence[]
 }
 
+/**
+ * Pairs a retained evidence row with its zero-based position in the trial's evidence.
+ * @example
+ * ```ts
+ * import type { StudyReference, StudyRow } from '@orkestrel/study/server'
+ *
+ * declare const row: StudyRow
+ * const reference: StudyReference = { file: 'evidence', row: row.row }
+ * ```
+ */
 export interface StudyRow {
 	readonly row: number
 	readonly evidence: StudyEvidence

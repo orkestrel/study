@@ -65,6 +65,23 @@ export function buildStudyReference(target: StudyGradeTarget, reference: StudyRe
 	return `${path}#${reference.row + 1}`
 }
 
+/**
+ * Pairs each retained evidence row of a target's criterion goal, optionally of one event, with its zero-based position.
+ * @param target - The trial and criterion pair whose evidence is read
+ * @param event - The event to keep; every event of the goal when absent
+ * @returns The rows in append order, frozen
+ * @example Cite a goal's evidence rows
+ * ```ts
+ * import type { StudyGradeTarget, StudyReference } from '@orkestrel/study/server'
+ * import { collectStudyRows } from '@orkestrel/study/server'
+ *
+ * declare const target: StudyGradeTarget
+ * const references: StudyReference[] = collectStudyRows(target, 'saved').map(({ row }) => ({
+ * 	file: 'evidence',
+ * 	row,
+ * }))
+ * ```
+ */
 export function collectStudyRows(target: StudyGradeTarget, event?: string): readonly StudyRow[] {
 	return Object.freeze(
 		target.evidence

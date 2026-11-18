@@ -367,6 +367,20 @@ export function validateStudyInputs(
 		throw new StudyError('CONFIG', 'Quality studies require a capacity qualification')
 }
 
+/**
+ * Interpolates linearly between the closest ranks of finite values at a quantile from 0 to 1.
+ * @param values - The readings, in any order
+ * @param quantile - The fraction of the sorted readings at or below the result
+ * @returns The interpolated reading, or undefined when there are no values
+ * @throws StudyError - Thrown with code `CONFIG` when the quantile is not a finite number from 0 to 1 or a value is not finite
+ * @example Read a median
+ * ```ts
+ * import { computeStudyQuantile } from '@orkestrel/study'
+ *
+ * computeStudyQuantile([4, 1, 3, 2], 0.5) // 2.5
+ * computeStudyQuantile([], 0.5) // undefined
+ * ```
+ */
 export function computeStudyQuantile(
 	values: readonly number[],
 	quantile: number,

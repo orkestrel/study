@@ -58,6 +58,8 @@ await new GuideCommand({
 		buildCustodyManifest,
 		buildCustodyAttempt,
 		buildOllamaReplies,
+		buildStudyDaemonProvider,
+		buildStudyProfile,
 		buildStudyRubric,
 		buildStudyScriptResponse,
 		createOllamaReply,
@@ -447,6 +449,46 @@ await new GuideCommand({
 			'options',
 			'think',
 		])
+	})
+
+	it('executes the install, launcher, and quantile examples against their claimed values', () => {
+		const {
+			buildStudyFixtureProfile,
+			buildStudySelectors,
+			collectStudyOllamaModels,
+			computeStudyExecutionDuration,
+			parseStudyCheck,
+			scanStudyAbsolutePaths,
+		} = server
+		expect(
+			buildStudySelectors({ trial: 'r1-s1-a1', goals: { first: 'open', last: 'save' } }),
+		).toEqual(['--trial', 'r1-s1-a1', '--goals', 'open..save'])
+		const profile = core.parseStudyProfile({
+			...buildStudyProfile(),
+			provider: buildStudyDaemonProvider(),
+		})
+		const rebound = buildStudyFixtureProfile(profile, 'http://127.0.0.1:11500', {
+			model: 'b'.repeat(64),
+			judge: undefined,
+		})
+		expect(rebound.provider?.daemon).toBeUndefined()
+		expect(rebound.provider?.url).toBe('http://127.0.0.1:11500')
+		expect(scanStudyAbsolutePaths({ ...profile, roots: ['.', '/opt/vendor'] })).toEqual([
+			'roots[1]',
+		])
+		const { bounds } = profile
+		expect(
+			computeStudyExecutionDuration({ ...bounds, series: { ...bounds.series, duration: 600000 } }),
+		).toBe(675000)
+		expect(parseStudyCheck({ fingerprint: 'a'.repeat(64) })).toBeUndefined()
+		expect(parseStudyCheck({ bounds, fingerprint: 'a'.repeat(64) })).toEqual({
+			bounds,
+			fingerprint: 'a'.repeat(64),
+		})
+		const pin = { name: 'scribe', digest: 'a'.repeat(64) }
+		expect(collectStudyOllamaModels({ model: pin, judge: pin })).toEqual([pin])
+		expect(core.computeStudyQuantile([4, 1, 3, 2], 0.5)).toBe(2.5)
+		expect(core.computeStudyQuantile([], 0.5)).toBeUndefined()
 	})
 
 	it('retains a trace goal rows without observation and ends the goal on flush', async () => {

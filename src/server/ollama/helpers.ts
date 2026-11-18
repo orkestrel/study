@@ -125,6 +125,18 @@ export function buildStudyOllamaModels(
 	}
 }
 
+/**
+ * Lists each pinned model once by name, keeping the first pin of each name in declaration order.
+ * @param models - The pinned serving identities keyed by role label
+ * @returns The distinct pins, frozen
+ * @example List each pinned model once
+ * ```ts
+ * import { collectStudyOllamaModels } from '@orkestrel/study/server'
+ *
+ * const pin = { name: 'scribe', digest: 'a'.repeat(64) }
+ * collectStudyOllamaModels({ model: pin, judge: pin }) // [pin]
+ * ```
+ */
 export function collectStudyOllamaModels(
 	models: StudyOllamaTransportOptions['models'],
 ): readonly StudyOllamaModel[] {

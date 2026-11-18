@@ -19,6 +19,26 @@ import { STUDY_INSTALL_ENTRY } from './constants.js'
 import { buildStudyFixtureProfile, scanStudyAbsolutePaths } from './helpers.js'
 import { StudyInstall } from './StudyInstall.js'
 
+/**
+ * Copies what the `study freeze` command retains for each listed study and profile into an absent directory and returns an install over it.
+ * @param options - The consumer root, the install directory, the studies and profiles, and an optional provider
+ * @returns An install whose root is the directory and whose entry is its copied Study executable
+ * @throws StudyError - Thrown with code `CONFIG`, naming the key path and the fix, when the root holds no Study executable at the `STUDY_INSTALL_ENTRY` path or one that resolves outside it, a listed profile is missing from its bundle, or a profile path is absolute or a root resolves outside the consumer root
+ * @throws ArtifactError - Thrown unchanged from the `materialize` method, as for an occupied directory or a missing parent
+ * @remarks
+ * A refusal before copying creates nothing. After the factory creates the directory, a refusal
+ * removes it.
+ * @example Install studies for a command run
+ * ```ts
+ * import { createStudyInstall } from '@orkestrel/study/server'
+ *
+ * declare const root: string
+ * declare const directory: string
+ * const install = await createStudyInstall({ root, directory, studies: ['assessment'] })
+ * const checked = await install.execute(['check', 'assessment', '--profile', 'local'])
+ * const valid = checked.code === 0
+ * ```
+ */
 export async function createStudyInstall(options: StudyInstallOptions): Promise<StudyInstall> {
 	const root = realpathSync(resolve(options.root))
 	const entry = join(root, STUDY_INSTALL_ENTRY)

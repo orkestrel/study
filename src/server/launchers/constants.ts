@@ -7,4 +7,13 @@ export const STUDY_LAUNCH_CLEANUP = 15000
 /** Bounds combined supervised command output to 16 MiB before terminating the tree. */
 export const STUDY_LAUNCH_BYTES = 16 * 1024 * 1024
 
+/**
+ * Names the installed Study package's built executable as a path relative to an install root.
+ * @example
+ * ```ts
+ * import { STUDY_INSTALL_ENTRY } from '@orkestrel/study/server'
+ *
+ * STUDY_INSTALL_ENTRY // 'node_modules/@orkestrel/study/dist/bin/main.js'
+ * ```
+ */
 export const STUDY_INSTALL_ENTRY = 'node_modules/@orkestrel/study/dist/bin/main.js'

@@ -383,8 +383,8 @@ export function validateStudyRuntime(instrument: string, roots: readonly string[
 	}
 }
 
-/** Releases inherited output handles a bounded time after native exit.
- * @param child - A spawned child, armed before close.
+/** Releases inherited output handles a bounded time after the later of native exit and this call.
+ * @param child - A spawned child, running or exited; an exited child starts the wait immediately.
  * @remarks A descendant that outlives an exited root is outside discoverable-tree cleanup; this only stops the parent from waiting on its pipes.
  */
 export function drainStudyChild(child: ChildProcess): void {

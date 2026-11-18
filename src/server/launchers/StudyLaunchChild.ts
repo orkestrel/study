@@ -36,7 +36,7 @@ export class StudyLaunchChild {
 		this.#signal = signal
 	}
 
-	/** Waits for the child to close and reports its exit code and captured output.
+	/** Waits for the child to close and reports its exit code and the text each captured stream carried.
 	 * @returns The child's code, 130 after interruption or 124 after the deadline, with each captured stream.
 	 * @throws StudyError - Thrown with code `CONFIG` when this child is already supervised.
 	 */

@@ -51,6 +51,26 @@ import { collectStudyEntries, resolveStudyInstrument } from '../processes/helper
 import { STUDY_CHECKPOINT_EVENT } from './constants.js'
 import { isStudyClosure } from './validators.js'
 
+/**
+ * Selects the loader options the `study freeze` command copies for one study and profile: entries, roots, adapter source, runtime, and assets.
+ * @param root - The consumer root that holds `studies`
+ * @param entry - The Study executable entry
+ * @param request - The study name and profile name
+ * @param preparation - The resolved bundle, definition, and profile
+ * @returns The options an `ArtifactLoader` inspects and materializes
+ * @throws StudyError - Thrown when no Study package owns the entry or a declaration path is malformed or resolves outside its directory
+ * @example Select the freeze members
+ * ```ts
+ * import type { StudyPreparation } from '@orkestrel/study/server'
+ * import { ArtifactLoader, buildStudyFreezeOptions } from '@orkestrel/study/server'
+ *
+ * declare const root: string
+ * declare const entry: string
+ * declare const preparation: StudyPreparation
+ * const request = { target: 'assessment', profile: 'local' }
+ * new ArtifactLoader(buildStudyFreezeOptions(root, entry, request, preparation)).inspect()
+ * ```
+ */
 export function buildStudyFreezeOptions(
 	root: string,
 	entry: string,

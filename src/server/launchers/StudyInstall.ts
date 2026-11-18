@@ -17,23 +17,49 @@ import { buildStudySelectors, computeStudyExecutionDuration } from './helpers.js
 import { parseStudyCheck } from './parsers.js'
 import { StudyLaunchChild } from './StudyLaunchChild.js'
 
+/**
+ * Runs an installed Study executable through its public command line, in its root and under a deadline.
+ * @example Rehearse a study through its closure
+ * ```ts
+ * import { createStudyInstall } from '@orkestrel/study/server'
+ *
+ * declare const root: string
+ * declare const directory: string
+ * declare const workspace: string
+ * const install = await createStudyInstall({ root, directory, studies: ['assessment'] })
+ * const options = { study: 'assessment', profile: 'local', directory: workspace }
+ * const rehearsal = await install.rehearse(options)
+ * const sealed = rehearsal.result?.status === 'sealed'
+ * ```
+ */
 export class StudyInstall {
 	readonly #root: string
 	readonly #entry: string
 
+	/** Binds the install root each command runs in and the Study executable it runs.
+	 * @param options - The install root and the executable entry.
+	 */
 	constructor(options: StudyLaunchOptions) {
 		this.#root = options.root
 		this.#entry = options.entry
 	}
 
+	/** Reports the install root each command runs in. */
 	get root(): string {
 		return this.#root
 	}
 
+	/** Reports the Study executable each command runs. */
 	get entry(): string {
 		return this.#entry
 	}
 
+	/** Runs the executable with only the given arguments and captures both streams under a deadline.
+	 * @param arguments_ - The command tokens after the entry.
+	 * @param duration - The deadline in milliseconds. Default: `STUDY_LAUNCH_DURATION + STUDY_LAUNCH_CLEANUP`.
+	 * @returns The exit code, 124 after the deadline, each captured stream, and the elapsed milliseconds.
+	 * @remarks The child inherits no runtime flags from this process. At the deadline the captured stderr ends with the deadline diagnostic.
+	 */
 	async execute(
 		arguments_: readonly string[],
 		duration = STUDY_LAUNCH_DURATION + STUDY_LAUNCH_CLEANUP,
@@ -55,6 +81,11 @@ export class StudyInstall {
 		return { ...result, duration: performance.now() - started }
 	}
 
+	/** Freezes a study, then checks, executes, reads, grades, and reports it through the frozen closure, skipping every step after a failed one.
+	 * @param options - The study, profile, absent working directory, and optional selection.
+	 * @returns The frozen closure and each step's outcome; a skipped step reads undefined.
+	 * @throws StudyError - Thrown with code `CONFIG` when the directory exists or its parent is missing, and with code `FAULT` when check exits 0 without validated bounds or grade exits 0 without an assessment identity.
+	 */
 	async rehearse(options: StudyRehearsalOptions): Promise<StudyRehearsal> {
 		const { study, profile, directory } = options
 		const selectors = buildStudySelectors(options.selection ?? {})
