@@ -4,6 +4,7 @@ import { StudyDeadline } from '../../../../src/core/engines/StudyDeadline.js'
 import { StudyTaskChild } from '../../../../src/server/processes/StudyTaskChild.js'
 import {
 	STUDY_TASK_INSTRUMENT,
+	STUDY_TASK_REFUSALS,
 	buildStudyTaskOptions,
 	readStudyPid,
 	releaseStudyPid,
@@ -29,6 +30,27 @@ describe('StudyTaskChild', () => {
 			scratch.destroy()
 		}
 	}, 15000)
+
+	it('keeps a returned CONFIG or CUSTODY code and translates any other returned code to FAULT', async () => {
+		for (const { mode, code } of STUDY_TASK_REFUSALS) {
+			const scratch = createScratch()
+			const child = new StudyTaskChild(
+				buildStudyTaskOptions(writeStudyTaskAdapter(scratch, mode)),
+				5000,
+				new AbortController().signal,
+			)
+			try {
+				await expect(
+					new StudyDeadline({ duration: 8000, label: `StudyTaskChild ${mode} refusal` }).wait(
+						child.execute({ operation: 'validate' }),
+					),
+				).rejects.toMatchObject({ code, message: 'Declared refusal' })
+			} finally {
+				await releaseStudyPid(readStudyPid(scratch, 'task-pid.txt'))
+				scratch.destroy()
+			}
+		}
+	}, 30000)
 
 	it('rejects a held adapter at its deadline', async () => {
 		const scratch = createScratch()

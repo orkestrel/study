@@ -369,16 +369,16 @@ export function computeStudyFixtureDigest(
 
 /**
  * Reads sealed evidence bytes through custody checks without loading executable code.
- * @param result - The independently verified sealed execution
+ * @param result - The independently verified sealed execution's directory, manifest, and seal
  * @returns Evidence records keyed by scheduled trial identity
- * @throws StudyError - Thrown when evidence drifts, becomes partial, or fails validation
+ * @throws StudyError - Thrown with `CUSTODY` when evidence differs from its seal digest, becomes partial, or fails validation
  * @example
  * ```ts
  * await collectStudyEvidence(result)
  * ```
  */
 export async function collectStudyEvidence(
-	result: StudySealedResult,
+	result: Pick<StudySealedResult, 'directory' | 'manifest' | 'seal'>,
 ): Promise<Readonly<Record<string, readonly StudyEvidence[]>>> {
 	const retained: Array<readonly [string, readonly StudyEvidence[]]> = []
 	for (const trial of result.manifest.schedule) {

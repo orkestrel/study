@@ -1,9 +1,11 @@
+import type { StudyTaskRequest } from '../../../src/server/processes/types.js'
+import type { StudySealedResult } from '../../../src/server/stores/types.js'
 import { arrayOf, isArray, isRecord, isString, parseJSON } from '@orkestrel/contract'
 import { createScratch, destroyScratch, isRunning } from '@orkestrel/test/server'
 import { dirname, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
-import { cpSync, readFileSync } from 'node:fs'
+import { cpSync, readFileSync, writeFileSync } from 'node:fs'
 import { parseStudyArguments } from '../../../src/server/commands/parsers.js'
 import { StudyCLI } from '../../../src/server/launchers/StudyCLI.js'
 import { StudyInstall } from '../../../src/server/launchers/StudyInstall.js'
@@ -12,6 +14,7 @@ import { StudyTask } from '../../../src/server/processes/StudyTask.js'
 import { StudyCommand } from '../../../src/server/commands/StudyCommand.js'
 import { readStudyResult } from '../../../src/server/stores/helpers.js'
 import { isStudyCustodyManifest } from '../../../src/server/stores/validators.js'
+import { STUDY_FRAME_BYTES } from '../../../src/server/processes/constants.js'
 import {
 	createStudyScratch,
 	admitStudyLibrary,
@@ -20,6 +23,7 @@ import {
 	buildStudyProgressManifest,
 	createStudyConsumer,
 	readStudyCheck,
+	retainStudyPaddedResult,
 	writeStudyAgent,
 	writeStudyConsumer,
 	writeStudyProgressResult,
@@ -721,6 +725,116 @@ try { parseStudyArguments([]) } catch (error) {
 			expect(help.code).toBe(0)
 			expect(help.stdout).toContain('study progress <result> [--from <goal>]\n')
 		})
+	})
+
+	describe('study grade', () => {
+		const consumer = createStudyConsumer()
+		const retained = Promise.withResolvers<{
+			readonly small: StudySealedResult
+			readonly large: StudySealedResult
+			readonly tampered: StudySealedResult
+		}>()
+		const rubric = 'studies/assessment/rubric.json'
+		afterAll(async () => {
+			await destroyScratch(consumer)
+		})
+		beforeAll(async () => {
+			const entry = await compiled.promise
+			const install = new StudyInstall({ root: consumer.path, entry })
+			const checked = parseJSON((await install.execute(['check', 'assessment'])).stdout)
+			if (!isRecord(checked) || !arrayOf(isString)(checked.next))
+				throw new Error('Missing check next argv')
+			const execution = parseJSON((await install.execute(checked.next)).stdout)
+			if (!isRecord(execution) || typeof execution.path !== 'string')
+				throw new Error('Missing execution path')
+			const source = await readStudyResult(execution.path)
+			if (source.status !== 'sealed') throw new Error('Graded execution did not seal')
+			const studies = join(consumer.path, 'tmp', 'studies')
+			retained.resolve({
+				small: await retainStudyPaddedResult(join(studies, 'small'), source, 0),
+				large: await retainStudyPaddedResult(join(studies, 'large'), source, 17),
+				tampered: await retainStudyPaddedResult(join(studies, 'tampered'), source, 0),
+			})
+		}, 60000)
+
+		it('frame evidence: grades a result whose evidence exceeds one frame with the judgments of a small result', async () => {
+			const entry = await compiled.promise
+			const install = new StudyInstall({ root: consumer.path, entry })
+			const { small, large } = await retained.promise
+			expect(
+				large.seal.files
+					.filter((file) => file.path.endsWith('/evidence.jsonl'))
+					.reduce((total, file) => total + file.bytes, 0),
+			).toBeGreaterThan(STUDY_FRAME_BYTES)
+			const graded = await Promise.all(
+				[small, large].map((result) =>
+					install.execute(['grade', result.directory, '--rubric', rubric]),
+				),
+			)
+			expect(
+				graded.map(({ code, stdout, stderr }) => ({
+					code,
+					output: code === 0 ? '' : stdout + stderr,
+				})),
+			).toEqual([
+				{ code: 0, output: '' },
+				{ code: 0, output: '' },
+			])
+			const [smaller, larger] = [small, large].map((result, index) => {
+				const document = parseJSON(graded[index]?.stdout ?? '')
+				if (!isRecord(document) || typeof document.assessment !== 'string')
+					throw new Error('Missing grading identity')
+				const grading = parseJSON(
+					readFileSync(
+						join(result.directory, 'grades', document.assessment, 'grading.json'),
+						'utf8',
+					),
+				)
+				if (!isRecord(grading) || !isArray(grading.judgments))
+					throw new Error('Missing grading judgments')
+				return grading.judgments
+			})
+			expect(smaller).toEqual(
+				expect.arrayContaining([expect.objectContaining({ verdict: 'achieved' })]),
+			)
+			expect(larger).toEqual(smaller)
+		}, 60000)
+
+		it('frame evidence: refuses evidence changed after its seal was verified, in the grading child, as custody', async () => {
+			const entry = await compiled.promise
+			const { tampered } = await retained.promise
+			const roots = parseJSON(tampered.manifest.host.roots ?? '')
+			if (!arrayOf(isString)(roots)) throw new Error('Missing retained adapter roots')
+			const task = new StudyTask({
+				root: consumer.path,
+				entry,
+				adapter: join(consumer.path, 'studies', 'files', 'index.ts'),
+				roots,
+			})
+			const request: StudyTaskRequest = {
+				operation: 'grade',
+				input: {
+					directory: tampered.directory,
+					manifest: tampered.manifest,
+					attempts: tampered.attempts,
+					seal: tampered.seal,
+					rubric: parseStudyRubric(parseJSON(consumer.read(rubric) ?? '')),
+				},
+			}
+			const signal = new AbortController().signal
+			await expect(task.execute(request, signal)).resolves.toMatchObject({
+				value: expect.arrayContaining([expect.objectContaining({ verdict: 'achieved' })]),
+			})
+			const trial = tampered.manifest.schedule[0]
+			if (trial === undefined) throw new Error('Missing tampered trial')
+			const path = join(tampered.directory, 'execution', 'trials', trial.id, 'evidence.jsonl')
+			const text = readFileSync(path, 'utf8')
+			writeFileSync(path, `${text}${text.split('\n')[0] ?? ''}\n`)
+			await expect(task.execute(request, signal)).rejects.toMatchObject({
+				code: 'CUSTODY',
+				message: 'Evidence changed after execution verification',
+			})
+		}, 60000)
 	})
 
 	it('refuses a domain-invalid scenario before subject import and execution writes', async () => {

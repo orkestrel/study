@@ -1,6 +1,9 @@
 import type {
+	StudyAttempt,
 	StudyIdentity,
+	StudyManifest,
 	StudyProfile,
+	StudyRubric,
 	StudyTicket,
 	StudyTrial,
 	StudyUsage,
@@ -11,9 +14,9 @@ import type {
 import type { StudyChannel } from './StudyChannel.js'
 import type { JSONValue } from '@orkestrel/contract'
 import type { ChildProcess } from 'node:child_process'
-import type { StudyValidation, StudyAdjudication, StudyProgressTarget } from '../adapters/types.js'
+import type { StudyValidation, StudyProgressTarget } from '../adapters/types.js'
 import type { StudyClosure } from '../commands/types.js'
-import type { StudyExchangeDestination } from '../stores/types.js'
+import type { StudyExchangeDestination, StudySeal } from '../stores/types.js'
 import type { StudyOllamaKeyedSelection, StudyOllamaReplaySelection } from '../ollama/types.js'
 
 /** Holds a bounded adapter-only native operation. */
@@ -27,10 +30,23 @@ export interface StudyTaskOptions {
 	readonly closure?: StudyClosure
 }
 
-/** Carries only declarations or retained evidence to an adapter child. */
+/** Names a verified sealed result and its rubric, so a grading child reads and verifies the result's evidence itself.
+ * @remarks
+ * The child reads each scheduled trial's `evidence.jsonl` under `directory` within the manifest's
+ * trial byte bound, and refuses with `CUSTODY` a file whose digest differs from its `seal` entry.
+ */
+export interface StudyGradeInput {
+	readonly directory: string
+	readonly manifest: StudyManifest
+	readonly attempts: readonly StudyAttempt[]
+	readonly seal: StudySeal
+	readonly rubric: StudyRubric
+}
+
+/** Carries declarations, a sealed result's custody, or progress evidence to an adapter child. */
 export type StudyTaskRequest =
 	| { readonly operation: 'validate'; readonly input: StudyValidation }
-	| { readonly operation: 'grade'; readonly input: StudyAdjudication }
+	| { readonly operation: 'grade'; readonly input: StudyGradeInput }
 	| {
 			readonly operation: 'progress'
 			readonly input: { readonly targets: readonly StudyProgressTarget[] }

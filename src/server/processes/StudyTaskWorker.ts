@@ -1,6 +1,10 @@
-import type { StudyEvidence, StudyAttempt, StudyProfile } from '@src/core'
+import type { StudyAttempt, StudyJudgment, StudyProfile } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
-import type { StudyAdapterInterface, StudyProgressTarget } from '../adapters/types.js'
+import type {
+	StudyAdapterInterface,
+	StudyAdjudication,
+	StudyProgressTarget,
+} from '../adapters/types.js'
 import {
 	isStudyError,
 	StudyError,
@@ -11,9 +15,10 @@ import {
 	isStudyJudgment,
 } from '@src/core'
 import { arrayOf, isArray, isJSONValue, isRecord, isString } from '@orkestrel/contract'
-import { dirname } from 'node:path'
+import { dirname, isAbsolute } from 'node:path'
 import { ArtifactLoader } from '../artifacts/ArtifactLoader.js'
 import { verifyArtifactClosure } from '../artifacts/helpers.js'
+import { collectStudyEvidence } from '../commands/helpers.js'
 import { isStudyClosure } from '../commands/validators.js'
 import { readStudyAdapter } from '../adapters/helpers.js'
 import { hashStudyBytes } from '../helpers.js'
@@ -23,6 +28,7 @@ import {
 	isStudyCustodyAttempt,
 	isStudyCustodyEvidence,
 	isStudyCustodyManifest,
+	isStudyCustodySeal,
 	isStudyCustodyTrial,
 } from '../stores/validators.js'
 import { STUDY_FRAME_BYTES } from './constants.js'
@@ -73,6 +79,9 @@ export class StudyTaskWorker {
 		const runtime = resolveStudyInstrument(value.entry)
 		const roots = [...new Set([...value.roots, runtime])]
 		validateStudyRuntime(runtime, roots)
+		// Grading reads and verifies its sealed evidence before any adapter module evaluates.
+		const adjudication =
+			value.operation === 'grade' ? await this.#adjudicate(value.input) : undefined
 		// Validation precedes agent, subject and provider evaluation, so their selected entries stay
 		// unreachable from every adapter import edge while shared admitted packages still load.
 		const profile =
@@ -93,9 +102,9 @@ export class StudyTaskWorker {
 			throw new StudyError('CONFIG', 'Unknown adapter operation')
 		const output: unknown =
 			profile === undefined
-				? value.operation === 'grade'
-					? this.#grade(adapter, value.input)
-					: this.#progress(adapter, value.input)
+				? adjudication === undefined
+					? this.#progress(adapter, value.input)
+					: this.#grade(adapter, adjudication)
 				: this.#validate(adapter, value.input, profile)
 		loader.verify()
 		if (closure !== undefined) verifyArtifactClosure(closure.closure, true)
@@ -117,14 +126,18 @@ export class StudyTaskWorker {
 		return true
 	}
 
-	#grade(adapter: StudyAdapterInterface, input: Readonly<Record<string, unknown>>): unknown {
+	// Reads each scheduled trial's evidence from the sealed result against the seal the parent verified.
+	async #adjudicate(input: Readonly<Record<string, unknown>>): Promise<StudyAdjudication> {
+		const { directory, manifest, seal } = input
 		if (
-			!isStudyCustodyManifest(input.manifest) ||
-			!isArray(input.attempts) ||
-			!isRecord(input.evidence)
+			typeof directory !== 'string' ||
+			!isAbsolute(directory) ||
+			!isStudyCustodyManifest(manifest) ||
+			!isStudyCustodySeal(seal) ||
+			seal.result !== manifest.id ||
+			!isArray(input.attempts)
 		)
 			throw new StudyError('CONFIG', 'Adapter grading input is invalid')
-		const manifest = input.manifest
 		const attempts: readonly unknown[] = input.attempts
 		if (
 			!attempts.every((retained): retained is StudyAttempt =>
@@ -132,19 +145,21 @@ export class StudyTaskWorker {
 			)
 		)
 			throw new StudyError('CONFIG', 'Adapter attempts are invalid')
-		const evidence: Record<string, readonly StudyEvidence[]> = Object.fromEntries(
-			Object.entries(input.evidence).map(([trial, records]) => {
-				if (!isArray(records) || !records.every(isStudyCustodyEvidence))
-					throw new StudyError('CONFIG', 'Adapter evidence is invalid')
-				return [trial, records]
-			}),
-		)
-		const output = adapter.grade({
+		const rubric = parseStudyRubric(input.rubric)
+		const evidence = await collectStudyEvidence({ directory, manifest, seal })
+		// The adapter receives unfrozen records and lists, as it did when they arrived through the frame.
+		return {
 			manifest,
 			attempts,
-			rubric: parseStudyRubric(input.rubric),
-			evidence,
-		})
+			rubric,
+			evidence: Object.fromEntries(
+				Object.entries(evidence).map(([trial, records]) => [trial, [...records]]),
+			),
+		}
+	}
+
+	#grade(adapter: StudyAdapterInterface, input: StudyAdjudication): readonly StudyJudgment[] {
+		const output: unknown = adapter.grade(input)
 		if (!isArray(output) || !output.every(isStudyJudgment))
 			throw new StudyError('FAULT', 'Adapter returned invalid judgments')
 		return output

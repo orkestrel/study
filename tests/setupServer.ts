@@ -1882,6 +1882,13 @@ export const STUDY_TASK_RESPONSES = [
 	{ mode: 'combined-output', expected: 'Adapter output exceeds the log allowance' },
 ] as const
 
+/** Pairs an adapter error response's returned code with the code the task refuses with. */
+export const STUDY_TASK_REFUSALS = [
+	{ mode: 'config', code: 'CONFIG' },
+	{ mode: 'custody', code: 'CUSTODY' },
+	{ mode: 'evidence', code: 'FAULT' },
+] as const
+
 /** Exercises native deadline and caller-cancellation termination. */
 export const STUDY_TASK_STOPS = ['deadline', 'abort'] as const
 
@@ -1906,6 +1913,8 @@ process.on('message', () => {
  if (mode === 'malformed') process.send({instrument:'invalid',value:true})
  if (mode === 'repeated') { process.send({instrument:${instrument},value:true}); process.send({instrument:${instrument},value:'second'}) }
  if (mode === 'combined-output') { process.stdout.write('x'.repeat(40000)); process.stderr.write('y'.repeat(40000)) }
+ const codes = {config:'CONFIG',custody:'CUSTODY',evidence:'EVIDENCE'}
+ if (mode in codes) process.send({error:'Declared refusal',code:codes[mode]})
 })`,
 	)
 }
@@ -4455,7 +4464,15 @@ export interface StudyWorkerFixture extends StudyPeerFixture {
 }
 
 /** Names how a fixture adapter answers its one request. */
-export type StudyTaskMode = 'valid' | 'malformed' | 'repeated' | 'combined-output' | 'hold'
+export type StudyTaskMode =
+	| 'valid'
+	| 'malformed'
+	| 'repeated'
+	| 'combined-output'
+	| 'hold'
+	| 'config'
+	| 'custody'
+	| 'evidence'
 
 /** Holds one task over a scripted adapter and the scratch file recording the adapter's pid. */
 export interface StudyTaskFixture {
@@ -4677,6 +4694,56 @@ export async function writeStudyProgressResult(
 		}),
 	)
 	return sizes.reduce((total, size) => total + size, 0)
+}
+
+/**
+ * Retains a sealed copy of an executed result whose trials append padding rows after their own rows, under byte bounds wide enough to hold them.
+ * @param directory - The nonexistent result directory inside an owned scratch resource.
+ * @param source - The sealed executed result whose manifest, attempts, and evidence rows the copy keeps.
+ * @param padding - The `note` rows of one MiB each that every trial appends to its last goal after its own rows.
+ * @returns The independently verified sealed copy.
+ */
+export async function retainStudyPaddedResult(
+	directory: string,
+	source: StudySealedResult,
+	padding: number,
+): Promise<StudySealedResult> {
+	const bounds = source.manifest.bounds
+	const manifest: StudyManifest = {
+		...source.manifest,
+		bounds: {
+			...bounds,
+			goal: { ...bounds.goal, bytes: 32 * 1024 * 1024 },
+			trial: { ...bounds.trial, bytes: 64 * 1024 * 1024 },
+			series: { ...bounds.series, bytes: 256 * 1024 * 1024 },
+		},
+	}
+	const evidence = await collectStudyEvidence(source)
+	const raw = 'x'.repeat(1024 * 1024)
+	const results = new StudyResultStore({ directory, manifest })
+	await results.create()
+	for (const trial of manifest.schedule) {
+		const goal = manifest.scenarios
+			.find((scenario) => scenario.id === trial.scenario)
+			?.goals.at(-1)?.id
+		const attempt = source.attempts.find((entry) => entry.trial.id === trial.id)
+		if (goal === undefined || attempt === undefined) throw new Error('Missing padded trial')
+		const sink = await results.start(trial)
+		for (const row of [
+			...(evidence[trial.id] ?? []),
+			...Array.from({ length: padding }, (_, index) => ({
+				event: 'note',
+				goal,
+				value: { index, raw },
+			})),
+		])
+			await sink.append(row)
+		await results.finish(attempt)
+	}
+	await results.seal()
+	const reading = await readStudyResult(directory)
+	if (reading.status !== 'sealed') throw new Error('Padded execution did not seal')
+	return reading
 }
 
 /** Writes the live observed progress fixture that `STUDY_PROGRESS_SCALE` sizes.

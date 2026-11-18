@@ -15,7 +15,7 @@ export class StudyTask {
 		this.#options = structuredClone(options)
 	}
 	/** Executes one validation or grading operation in a fresh child.
-	 * @param request - Declarations or retained evidence, never a trial payload.
+	 * @param request - Declarations, a sealed result's custody, or progress evidence, never a trial payload.
 	 * @param signal - Caller cancellation.
 	 * @returns Verified adapter output and active instrumentation identity.
 	 */

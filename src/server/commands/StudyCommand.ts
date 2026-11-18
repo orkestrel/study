@@ -82,7 +82,6 @@ import { StudyTask } from '../processes/StudyTask.js'
 import { STUDY_COMMAND_DURATION, STUDY_COMMAND_GRADER } from './constants.js'
 import {
 	buildStudyFreezeOptions,
-	collectStudyEvidence,
 	computeStudyCommandFingerprint,
 	computeStudyFixtureDigest,
 	computeStudyReport,
@@ -796,9 +795,8 @@ export class StudyCommand {
 					.filter((criterion) => !criteria.includes(criterion))
 					.map((criterion) => criterion.id)
 			: undefined
-		const evidence = await collectStudyEvidence(result)
-		signal.throwIfAborted()
 		const roots = this.#roots(result.manifest)
+		// The child reads and verifies the sealed evidence itself, so its size never meets the frame allowance.
 		const evaluated = await new StudyTask({
 			root: this.#root,
 			entry: this.#entry,
@@ -810,7 +808,13 @@ export class StudyCommand {
 		}).execute(
 			{
 				operation: 'grade',
-				input: { manifest: result.manifest, rubric, attempts: result.attempts, evidence },
+				input: {
+					directory: result.directory,
+					manifest: result.manifest,
+					attempts: result.attempts,
+					seal: result.seal,
+					rubric,
+				},
 			},
 			signal,
 		)

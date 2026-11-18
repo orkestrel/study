@@ -78,7 +78,10 @@ export class StudyTaskChild {
 					)
 						throw new StudyError('FAULT', 'Adapter response is oversized or repeated')
 					if (typeof value.error === 'string')
-						throw new StudyError(value.code === 'CONFIG' ? 'CONFIG' : 'FAULT', value.error)
+						throw new StudyError(
+							value.code === 'CONFIG' || value.code === 'CUSTODY' ? value.code : 'FAULT',
+							value.error,
+						)
 					if (!isStudyDigest(value.instrument) || !isJSONValue(value.value))
 						throw new StudyError('FAULT', 'Adapter response is malformed')
 					this.#result = { instrument: value.instrument, value: value.value }
