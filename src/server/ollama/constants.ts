@@ -5,6 +5,5 @@ export const STUDY_OLLAMA_KEYED_ROLES: readonly StudyOllamaKeyedRole[] = Object.
 	'agent',
 	'judge',
 	'triage',
-	'summary',
 	'metadata',
 ])

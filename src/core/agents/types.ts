@@ -3,7 +3,6 @@ import type {
 	ProviderInterface,
 	ProviderRequest,
 	estimateRequest,
-	isAgentError,
 	measureRequest,
 } from '@orkestrel/agent'
 
@@ -17,7 +16,6 @@ import type {
 export interface StudyAgentRuntime {
 	readonly estimateRequest: typeof estimateRequest
 	readonly measureRequest: typeof measureRequest
-	readonly isAgentError: typeof isAgentError
 }
 
 /** Holds one dispatched request's explicit size reading. */
@@ -38,9 +36,7 @@ export type StudyAgentRecordHandler = (
  * Holds the observing provider's delegate, measurement seam and explicit policies.
  * @remarks
  * `provider` receives every call unchanged and supplies the `id`, `name`, `model`, and replay
- * policy the observer reports. The observer validates only `model`, which Agent 0.0.46's
- * `ProviderInterface` does not declare: it reads that member once at construction and refuses a
- * provider without a non-empty string `model`. `runtime` measures each request. `gauge` prices each
+ * policy the observer reports. `runtime` measures each request. `gauge` prices each
  * reading; undefined prices nothing. `enforced` selects the usage policy: if `true`, a successful,
  * unaborted return must report a usable actual prompt count; if `false`, the observer reads usage
  * passively and refuses nothing. `record` receives exactly one reading, synchronously, before

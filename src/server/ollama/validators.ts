@@ -118,10 +118,7 @@ export function isStudyOllamaStep(value: unknown): value is StudyOllamaStep {
 			value.ordinal <= 0 ||
 			typeof value.goal !== 'string' ||
 			!STUDY_NAME.test(value.goal) ||
-			(value.role !== 'agent' &&
-				value.role !== 'summary' &&
-				value.role !== 'judge' &&
-				value.role !== 'triage')
+			(value.role !== 'agent' && value.role !== 'judge' && value.role !== 'triage')
 		)
 			return false
 		if (value.role === 'triage') {

@@ -119,7 +119,7 @@ describe('execution-owned daemon staging', () => {
 						'--replay',
 						recorded,
 						'--roles',
-						'["agent","summary","judge","metadata"]',
+						'["agent","judge","metadata"]',
 						'--offline',
 						'true',
 					],
@@ -137,7 +137,7 @@ describe('execution-owned daemon staging', () => {
 		}
 	}, 240000)
 
-	it('O1 joins open agent and summary maintenance to goals[0] and postflight to the last goal', async () => {
+	it('O1 joins open agent maintenance to goals[0] and postflight to the last goal', async () => {
 		const subject = await buildStudyLibrary(
 			library,
 			resolve('src/server/ollama/StudyOllamaTransport.ts'),
@@ -170,7 +170,7 @@ describe('execution-owned daemon staging', () => {
 						.map(({ attempt }) => [attempt.role, attempt.goal]),
 				).toEqual([
 					['agent', 'write'],
-					['summary', 'recall'],
+					['agent', 'recall'],
 				])
 				expect(
 					history.exchanges

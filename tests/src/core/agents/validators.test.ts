@@ -45,11 +45,11 @@ describe('isStudyAgentRuntime', () => {
 
 	it('refuses a namespace missing any capability', () => {
 		const runtime = createAgentRuntime()
-		const { estimateRequest, measureRequest, isAgentError } = runtime
-		expect(isStudyAgentRuntime({ measureRequest, isAgentError })).toBe(false)
-		expect(isStudyAgentRuntime({ estimateRequest, isAgentError })).toBe(false)
-		expect(isStudyAgentRuntime({ estimateRequest, measureRequest })).toBe(false)
+		const { estimateRequest, measureRequest } = runtime
+		expect(isStudyAgentRuntime({ measureRequest })).toBe(false)
+		expect(isStudyAgentRuntime({ estimateRequest })).toBe(false)
 		expect(isStudyAgentRuntime({ ...runtime, estimateRequest: 1 })).toBe(false)
+		expect(isStudyAgentRuntime({ ...runtime, measureRequest: 1 })).toBe(false)
 		expect(isStudyAgentRuntime(undefined)).toBe(false)
 		expect(isStudyAgentRuntime('agent')).toBe(false)
 	})

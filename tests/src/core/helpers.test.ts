@@ -61,9 +61,8 @@ it('normalizes a profile so every undeclared optional role is absent and the dec
 		judge: undefined,
 		digest: { model: 'a'.repeat(64), judge: undefined },
 	}
-	const room = { ...base.room, recap: undefined }
-	const plain = normalizeStudyProfile({ ...base, room, provider })
-	expect(JSON.stringify(plain)).not.toMatch(/recap|judge/)
+	const plain = normalizeStudyProfile({ ...base, provider })
+	expect(JSON.stringify(plain)).not.toMatch(/judge/)
 	expect(plain).toEqual({
 		...absent,
 		room: { context: 512, output: 32, safety: 16, think: false },
@@ -84,7 +83,6 @@ it('normalizes a profile so every undeclared optional role is absent and the dec
 	})
 	expect(JSON.stringify(declared)).toContain('"judge":"judge"')
 	expect(JSON.stringify(declared)).toContain(`"judge":"${'b'.repeat(64)}"`)
-	expect(JSON.stringify(declared)).toContain('"recap":32')
 })
 
 it('normalizes an absent daemon environment while retaining declared daemon identities', () => {

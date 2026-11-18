@@ -24,35 +24,10 @@ describe('StudyAgentTraceGoal', () => {
 		expect(goal.rows).toBe(rows)
 	})
 
-	it('holds no admission until one is retained and replaces it with each stamp', () => {
-		const goal = new StudyAgentTraceGoal('write')
-		expect(goal.admission).toBeUndefined()
-		const stamp = { ordinal: 1, revision: 'a'.repeat(64) }
-		goal.admit(stamp)
-		expect(goal.admission).toBe(stamp)
-		goal.admit(undefined)
-		expect(goal.admission).toBeUndefined()
-	})
-
-	it('refuses a failure identity once and again only after a different one', () => {
-		const goal = new StudyAgentTraceGoal('write')
-		const a = new Error('A')
-		const b = new Error('B')
-		expect(goal.refuse(a)).toBe(true)
-		expect(goal.refuse(a)).toBe(false)
-		expect(goal.refuse(b)).toBe(true)
-		expect(goal.refuse(a)).toBe(true)
-	})
-
-	it('keeps separate rows, admission and refused identity for two goals of one name', () => {
+	it('keeps separate rows for two goals of one name', () => {
 		const first = new StudyAgentTraceGoal('write')
 		const second = new StudyAgentTraceGoal('write')
-		const error = new Error('Refused')
 		first.append('first', { id: 1 })
-		first.admit({ ordinal: 1, revision: null })
-		expect(first.refuse(error)).toBe(true)
-		expect(second.admission).toBeUndefined()
-		expect(second.refuse(error)).toBe(true)
 		expect(second.rows).toEqual([])
 		expect(first.rows).toEqual([{ event: 'first', goal: 'write', value: { id: 1 } }])
 	})

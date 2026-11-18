@@ -16,6 +16,7 @@ import { StudyError } from '@src/core'
  * extractor, and fetch collaborator keep their live identity.
  * @param options - The caller's transport configuration
  * @returns The owned configuration, not yet validated
+ * @throws StudyError - Thrown with code `CONFIG` when `roles` declares a key other than `agent`, `judge`, or `triage`, an undefined policy included
  */
 export function buildStudyOllamaTransportOptions(
 	options: StudyOllamaTransportOptions,
@@ -36,6 +37,11 @@ export function buildStudyOllamaTransportOptions(
 	} = options
 	if (Object.hasOwn(roles, 'maintenance'))
 		throw new StudyError('CONFIG', 'Maintenance cannot declare a generation policy')
+	if (Object.keys(roles).some((role) => role !== 'agent' && role !== 'judge' && role !== 'triage'))
+		throw new StudyError(
+			'CONFIG',
+			'Ollama transport declares a policy for a role it does not dispatch',
+		)
 	const owned: Record<string, StudyOllamaModel> = Object.fromEntries(
 		Object.entries(models).map(([label, { name, digest }]) => [
 			label,
@@ -44,7 +50,7 @@ export function buildStudyOllamaTransportOptions(
 	)
 	const policies: Partial<Record<Exclude<StudyOllamaRole, 'triage'>, StudyOllamaPolicy>> =
 		Object.fromEntries(
-			(['agent', 'summary', 'judge'] as const).flatMap((role) => {
+			(['agent', 'judge'] as const).flatMap((role) => {
 				const policy = roles[role]
 				if (policy === undefined) return []
 				const { model, options: wire, think, strict, length } = policy

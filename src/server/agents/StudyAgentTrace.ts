@@ -1,5 +1,5 @@
 import type { StudySinkInterface, StudyAgentDispatch, StudyAgentMeasurement } from '@src/core'
-import type { LedgerGauge, ProviderRequest } from '@orkestrel/agent'
+import type { ProviderRequest } from '@orkestrel/agent'
 import type { JSONValue } from '@orkestrel/contract'
 import type {
 	StudyAgentRole,
@@ -7,12 +7,7 @@ import type {
 	StudyAgentStamp,
 	StudyAgentTraceOptions,
 } from './types.js'
-import {
-	buildStudyAgentParts,
-	projectStudyAgentRequest,
-	translateStudyAgentError,
-	StudyError,
-} from '@src/core'
+import { buildStudyAgentParts, StudyError } from '@src/core'
 import { buildStudyAgentRevision } from './helpers.js'
 import { StudyAgentTraceGoal } from './StudyAgentTraceGoal.js'
 
@@ -30,8 +25,8 @@ export class StudyAgentTrace {
 	#ordinal = 0
 	#dispatches = 0
 
-	/** Binds the measuring runtime, the failure owner and the consumer origin join.
-	 * @param options - Runtime, latch, observation switch and origin handler.
+	/** Binds the measuring runtime and the consumer origin join.
+	 * @param options - Runtime, observation switch and origin handler.
 	 */
 	constructor(options: StudyAgentTraceOptions) {
 		this.#options = { ...options }
@@ -76,19 +71,6 @@ export class StudyAgentTrace {
 			this.#goal = undefined
 			this.#flushes.delete(running)
 		}
-	}
-
-	/** Prices a window measurement and, when observing, retains it as the goal's admission.
-	 * @param request - The measured request.
-	 * @param gauge - The explicit gauge pricing the estimate.
-	 * @returns The projected prompt tokens.
-	 */
-	admit(request: ProviderRequest, gauge: LedgerGauge): number {
-		const estimate = this.#options.runtime.estimateRequest(request)
-		const projected = projectStudyAgentRequest(gauge, estimate)
-		const stamp = this.measure('admission', 'agent', request, { estimate, projected }, undefined)
-		this.#goal?.admit(stamp)
-		return projected
 	}
 
 	/** Retains a dispatching agent request's measurement, names it for the wire request that follows, and records its estimate.
@@ -162,17 +144,6 @@ export class StudyAgentTrace {
 		return this.#slots.get(role)
 	}
 
-	/** Latches the study-level record of a failure before an enclosing runtime can swallow it and retains one refusal row per refused identity in a goal.
-	 * @param error - The caught or reported value.
-	 * @returns The translated failure, or the same value when it is not an Agent window refusal.
-	 */
-	translate(error: unknown): unknown {
-		const translated = translateStudyAgentError(error, this.#options.runtime)
-		this.#refuse(error, translated)
-		this.#options.latch.fail(translated)
-		return translated
-	}
-
 	// Reads the active goal only while observation is enabled.
 	#observed(): StudyAgentTraceGoal | undefined {
 		return this.#options.observe ? this.#goal : undefined
@@ -189,20 +160,5 @@ export class StudyAgentTrace {
 		const dispatch = Object.freeze({ id, revision: stamp?.revision ?? undefined })
 		this.#slots = new Map([...this.#slots, [role, dispatch]])
 		return dispatch
-	}
-
-	// Retains one refusal row per refused error identity in a goal, however many callbacks it traverses.
-	#refuse(error: unknown, translated: unknown): void {
-		const goal = this.#observed()
-		if (translated === error || goal === undefined || !goal.refuse(error)) return
-		const context = this.#options.runtime.isAgentError(error) ? error.context : undefined
-		goal.append('refusal', {
-			cause: 'capacity',
-			role: 'agent',
-			ordinal: goal.admission?.ordinal ?? null,
-			revision: goal.admission?.revision ?? null,
-			consumed: typeof context?.consumed === 'number' ? context.consumed : null,
-			max: typeof context?.max === 'number' ? context.max : null,
-		})
 	}
 }

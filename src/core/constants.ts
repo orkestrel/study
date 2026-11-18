@@ -23,7 +23,6 @@ export const STUDY_ROLES: readonly StudyRole[] = Object.freeze([
 	'agent',
 	'judge',
 	'triage',
-	'summary',
 	'metadata',
 	'maintenance',
 	'tool',

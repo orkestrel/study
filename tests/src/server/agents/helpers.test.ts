@@ -31,6 +31,7 @@ import {
 	STUDY_AGENT_TOOLS,
 	STUDY_SCRIPT_CALL,
 	STUDY_SCRIPT_MESSAGES,
+	STUDY_SCRIPT_MODEL,
 	buildStudyScriptResponse,
 	createStudyScriptFixture,
 	createStudyScriptMeter,
@@ -379,7 +380,7 @@ describe('readStudyAgentResult', () => {
 	it('drains every delta of a scripted stream and returns the assembled result', async () => {
 		const meter = createStudyScriptMeter(1000, 100)
 		try {
-			const script = new StudyAgentScript({ bytes: 1000 })
+			const script = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 			script.prepare(
 				createStudyScriptFixture(meter, [
 					buildStudyScriptResponse({ content: 'looking', calls: [STUDY_SCRIPT_CALL] }),

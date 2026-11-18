@@ -22,8 +22,8 @@ export function isStudyAgentGauge(value: unknown): value is LedgerGauge {
 /**
  * Checks whether a namespace exposes the Agent capabilities the instrumentation invokes.
  * @remarks
- * The guard reads only `estimateRequest`, `measureRequest`, and `isAgentError`, so a namespace
- * without Ledger or conversation factories passes. A throwing accessor returns false.
+ * The guard reads only `estimateRequest` and `measureRequest`, so a namespace without Ledger or
+ * conversation factories passes. A throwing accessor returns false.
  * @param value - The admitted namespace
  * @returns True if every required capability is a function; false otherwise
  */
@@ -34,8 +34,6 @@ export function isStudyAgentRuntime(value: unknown): value is StudyAgentRuntime 
 			'estimateRequest' in value &&
 			typeof value.estimateRequest === 'function' &&
 			'measureRequest' in value &&
-			typeof value.measureRequest === 'function' &&
-			'isAgentError' in value &&
-			typeof value.isAgentError === 'function',
+			typeof value.measureRequest === 'function',
 	)
 }

@@ -1787,7 +1787,7 @@ describe('StudyOllamaTransport', () => {
 			const bodies = buildOllamaRoleBodies()
 			const fixture = await createOllamaRecordingFixture(
 				bodies.map(([role, body], index) =>
-					buildOllamaStep(role === 'summary' ? 'capture' : 'exact', body, role, index + 1),
+					buildOllamaStep(role === 'judge' ? 'capture' : 'exact', body, role, index + 1),
 				),
 			)
 			try {
@@ -1811,21 +1811,20 @@ describe('StudyOllamaTransport', () => {
 					'metadata',
 					'metadata',
 					'agent',
-					'summary',
 					'judge',
 					'metadata',
 					'metadata',
 					'metadata',
 					'metadata',
 				])
-				expect(fixture.goal.usage().map((row) => row.role)).toEqual(['agent', 'summary', 'judge'])
+				expect(fixture.goal.usage().map((row) => row.role)).toEqual(['agent', 'judge'])
 				const dispatches = fixture.goal.evidence
 					.filter((row) => row.event === 'dispatch')
 					.map((row) => requireStudyRecord(row.value).ordinal)
 				const wires = fixture.goal.evidence
 					.filter((row) => row.event === 'wire')
 					.map((row) => requireStudyRecord(row.value).ordinal)
-				expect(dispatches).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+				expect(dispatches).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
 				expect(wires).toEqual(dispatches)
 			} finally {
 				await fixture.close()
@@ -2012,12 +2011,11 @@ describe('StudyOllamaTransport', () => {
 		})
 	})
 
-	it('forwards exact validated agent and summary requests to the collaborator with one shared model', async () => {
+	it('forwards exact validated agent requests to the collaborator', async () => {
 		const calls = createRecorder<Parameters<StudyOllamaFetchFunction>>()
 		const fixture = await createOllamaTransportFixture([], {
 			roles: {
 				agent: requireValue(buildOllamaTransportOptions('http://127.0.0.1:1').roles.agent),
-				summary: requireValue(buildOllamaTransportOptions('http://127.0.0.1:1').roles.agent),
 			},
 			fetch: (role, input, init) => {
 				calls.handler(role, input, init)
@@ -2030,7 +2028,7 @@ describe('StudyOllamaTransport', () => {
 			const body = `{ "model": "model", "stream": true, "think": false, "messages": [{"role":"user","content":"e\u0301"}], "options": ${JSON.stringify(STUDY_OLLAMA_OPTIONS)} }`
 			const caller = new AbortController()
 			const headers = new Headers({ 'content-type': 'application/json', 'x-study-owned': 'exact' })
-			for (const role of ['agent', 'summary'] as const) {
+			for (const role of ['agent', 'agent'] as const) {
 				const url = new URL('/api/chat', fixture.server.url)
 				const response = await fixture.transport.fetch(role, url, {
 					method: 'POST',
@@ -2054,7 +2052,7 @@ describe('StudyOllamaTransport', () => {
 				expect(fixture.goal.usage()).toHaveLength(calls.count - 1)
 				await response.text()
 			}
-			expect(calls.calls.map(([role]) => role)).toEqual(['agent', 'summary'])
+			expect(calls.calls.map(([role]) => role)).toEqual(['agent', 'agent'])
 			expect(
 				fixture.server.requests.map((request) => ({ path: request.path, body: request.body })),
 			).toEqual([
@@ -2071,7 +2069,7 @@ describe('StudyOllamaTransport', () => {
 					.map((usage) => ({ role: usage.role, calls: usage.calls, tokens: usage.tokens })),
 			).toEqual([
 				{ role: 'agent', calls: 1, tokens: 12 },
-				{ role: 'summary', calls: 1, tokens: 12 },
+				{ role: 'agent', calls: 1, tokens: 12 },
 			])
 			expect(fixture.goal.evidence.map(({ event }) => event)).toEqual([
 				'dispatch',
@@ -2107,7 +2105,7 @@ describe('StudyOllamaTransport', () => {
 		})
 		try {
 			await expect(
-				fixture.transport.fetch('summary', `${fixture.server.url}/outside`, {
+				fixture.transport.fetch('agent', `${fixture.server.url}/outside`, {
 					method: 'POST',
 					body: STUDY_OLLAMA_CHAT_BODY,
 				}),
@@ -2706,9 +2704,9 @@ describe('StudyOllamaTransport', () => {
 			'Actual generation exceeded the output allowance',
 		],
 		[
-			'a summary completion at its own output cap',
-			'summary',
-			256,
+			'an agent completion at its own output cap',
+			'agent',
+			512,
 			'Substantive generation reached its output cap',
 		],
 	] as const)(
@@ -2735,7 +2733,7 @@ describe('StudyOllamaTransport', () => {
 					stop: {
 						layer: 'model',
 						id: 'num_predict',
-						max: role === 'summary' ? 256 : 512,
+						max: 512,
 						consumed: completion,
 					},
 				})

@@ -13,11 +13,9 @@ import {
 	buildStudyHole,
 	buildStudySettingsProfile,
 	buildStudySparse,
-	buildOllamaReplies,
 	buildStudyAgentOrigins,
 	createAgentObserver,
 	createOllamaFetch,
-	createStudyAgentSummary,
 	createStudyAgentTrace,
 	createStudyDriverFixture,
 	createStudyLeaseFixture,
@@ -49,8 +47,9 @@ import {
 	STUDY_SCRIPT_INVALID_RESPONSES,
 	STUDY_SCRIPT_MANY_CALLS,
 	STUDY_SCRIPT_MESSAGES,
+	STUDY_SCRIPT_MODEL,
 	STUDY_SCRIPT_VALID_RESPONSES,
-	STUDY_SUMMARY_MESSAGES,
+	STUDY_HISTORY_MESSAGES,
 	StudyLog,
 } from './setupStudy.js'
 import { StudyError } from '../src/core/errors.js'
@@ -355,33 +354,8 @@ describe('study agent trace fixtures', () => {
 		expect(fixture.rows.map(({ event }) => event)).toEqual(['summary'])
 	})
 
-	it('builds a trace over a recorded latch that refuses with the supplied value', () => {
-		const free = createStudyAgentTrace(true)
-		free.latch.check()
-		expect(free.latch.checks.calls).toEqual([[]])
-		expect(free.trace.goal).toBe(undefined)
-		const failure = new Error('Latched')
-		const refused = createStudyAgentTrace(false, { error: failure })
-		expect(() => refused.latch.check()).toThrow(failure)
-		expect(refused.latch.checks.calls).toEqual([[]])
-	})
-
-	it('builds a summary whose real provider answers the queued wire reply and whose signal defaults live', async () => {
-		const fixture = createStudyAgentSummary({
-			replies: buildOllamaReplies('Queued recap'),
-			observe: false,
-			limit: 1000,
-		})
-		fixture.trace.start('write')
-		await expect(fixture.summary.summarize(STUDY_SUMMARY_MESSAGES, undefined)).resolves.toBe(
-			'Queued recap',
-		)
-		expect(fixture.wire.requests.map(({ path }) => path)).toEqual(['/api/chat'])
-		expect(fixture.latch.checks.calls).toEqual([[], []])
-	})
-
 	it('joins every message to its own id and reads wire messages back in order', async () => {
-		expect(buildStudyAgentOrigins(STUDY_SUMMARY_MESSAGES)).toEqual([
+		expect(buildStudyAgentOrigins(STUDY_HISTORY_MESSAGES)).toEqual([
 			{ origin: 'history', source: 'h1' },
 			{ origin: 'history', source: 'h2' },
 		])
@@ -390,7 +364,7 @@ describe('study agent trace fixtures', () => {
 		const { trace } = createStudyAgentTrace(true)
 		const sink = createStudySinkFixture()
 		trace.start('write')
-		trace.record({ estimate: 1, projected: 2 }, { messages: STUDY_SUMMARY_MESSAGES })
+		trace.record({ estimate: 1, projected: 2 }, { messages: STUDY_HISTORY_MESSAGES })
 		await trace.flush(sink.sink)
 		expect(requireStudyRecord(sink.rows[0]?.value).origins).toEqual([
 			{ origin: 'history', source: 'h1' },
@@ -570,7 +544,7 @@ describe('study protocol fixtures', () => {
 			const fixture = createStudyScriptFixture(meter, [
 				buildStudyScriptResponse({ content: 'looking', calls: [STUDY_SCRIPT_CALL] }),
 			])
-			const script = new StudyAgentScript({ bytes: 1000 })
+			const script = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 			script.prepare(fixture.plan)
 			const drained = await readProviderStream(
 				script.stream(STUDY_SCRIPT_MESSAGES, meter.control.signal),

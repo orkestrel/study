@@ -32,7 +32,7 @@ import {
  * @returns A fresh record without the undefined entries
  * @example
  * ```ts
- * omitStudyAbsent({ context: 512, recap: undefined }) // { context: 512 }
+ * omitStudyAbsent({ model: 'subject', judge: undefined }) // { model: 'subject' }
  * ```
  */
 export function omitStudyAbsent(value: object): Readonly<Record<string, unknown>> {
@@ -136,17 +136,17 @@ export function scanStudyJSONFaults(value: unknown, path = ''): readonly string[
 /**
  * Omits every undefined optional declaration so the profile has one JSON form.
  * @param profile - The validated profile whose optional leaves may be undefined
- * @returns The profile fields with absent qualification, settings, provider, judge and recap removed
+ * @returns The profile fields with absent qualification, settings, provider and judge removed
  * @example
  * ```ts
- * normalizeStudyProfile(profile) // no `recap` key when the room declares none
+ * normalizeStudyProfile(profile) // no `judge` key when the provider declares none
  * ```
  */
 export function normalizeStudyProfile(profile: StudyProfile): Readonly<Record<string, unknown>> {
 	const { provider, qualification, settings, record, room, ...required } = profile
 	return {
 		...required,
-		room: omitStudyAbsent(room),
+		room,
 		...(provider === undefined
 			? {}
 			: {

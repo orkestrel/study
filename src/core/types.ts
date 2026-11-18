@@ -4,14 +4,7 @@ import type { ContractInterface, JSONValue } from '@orkestrel/contract'
 export type StudyPurpose = 'mechanism' | 'quality' | 'capacity'
 
 /** Names a request's measured responsibility. */
-export type StudyRole =
-	| 'agent'
-	| 'judge'
-	| 'triage'
-	| 'summary'
-	| 'metadata'
-	| 'maintenance'
-	| 'tool'
+export type StudyRole = 'agent' | 'judge' | 'triage' | 'metadata' | 'maintenance' | 'tool'
 
 /**
  * Names an operational ending separately from task achievement.
@@ -71,8 +64,6 @@ export interface StudyRoom {
 	readonly context: number
 	readonly output: number
 	readonly safety: number
-	/** Declares the recap allowance; absent when the workflow produces no recap. */
-	readonly recap: number | undefined
 	readonly think: boolean
 }
 

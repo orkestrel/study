@@ -194,28 +194,6 @@ describe('StudyOllamaKeyedReplay', () => {
 		}
 	})
 
-	it('keys the role, so an earlier attempt of another role hides no later one', async () => {
-		const history = buildStudyKeyedHistory(['agent', 'summary'], ['first', 'second'])
-		const { attempt } = requireValue(
-			history.exchanges.find((pair) => pair.attempt.stage === 'execution'),
-		)
-		const replay = new StudyOllamaKeyedReplay({
-			histories: [history],
-			roles: ['agent', 'summary'],
-			url: URL_ORIGIN,
-			signal: new AbortController().signal,
-		})
-		try {
-			const body = Buffer.from(attempt.body, 'base64').toString()
-			const init = { method: attempt.method, body }
-			const url = `${URL_ORIGIN}${attempt.path}`
-			expect(await (await replay.fetch('agent', url, init)).text()).toBe('first')
-			expect(await (await replay.fetch('summary', url, init)).text()).toBe('second')
-		} finally {
-			await replay.close()
-		}
-	})
-
 	it('treats a recorded attempt of another role as a miss, though both roles are listed', async () => {
 		const history = buildStudyKeyedHistory(['agent'], ['first'])
 		const { attempt } = requireValue(

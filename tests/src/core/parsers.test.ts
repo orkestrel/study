@@ -112,7 +112,7 @@ it('owns driver settings as a frozen JSON snapshot and leaves absent settings ou
 	expect(() => parseStudyProfile({ ...base, settings: cycle })).toThrow(StudyError)
 })
 
-it('keeps an undeclared recap and judge off the owned profile and round-trips declared ones', () => {
+it('keeps an undeclared judge off the owned profile and round-trips a declared one', () => {
 	const base = buildStudyProfile()
 	const provider = {
 		entry: 'dist/index.js',
@@ -121,9 +121,8 @@ it('keeps an undeclared recap and judge off the owned profile and round-trips de
 		judge: undefined,
 		digest: { model: 'a'.repeat(64), judge: undefined },
 	}
-	const plain = parseStudyProfile({ ...base, room: { ...base.room, recap: undefined }, provider })
+	const plain = parseStudyProfile({ ...base, provider })
 	expect(isStudyProfile(plain)).toBe(true)
-	expect(Object.hasOwn(plain.room, 'recap')).toBe(false)
 	expect(Object.hasOwn(plain.provider ?? {}, 'judge')).toBe(false)
 	expect(Object.hasOwn(plain.provider?.digest ?? {}, 'judge')).toBe(false)
 	expect(parseStudyProfile(JSON.parse(JSON.stringify(plain)))).toEqual(plain)
@@ -132,7 +131,6 @@ it('keeps an undeclared recap and judge off the owned profile and round-trips de
 		...base,
 		provider: { ...provider, judge: 'judge', digest: pinned },
 	})
-	expect(declared.room.recap).toBe(base.room.recap)
 	expect(declared.provider?.judge).toBe('judge')
 	expect(declared.provider?.digest.judge).toBe('b'.repeat(64))
 	expect(() => parseStudyProfile({ ...base, provider: { ...provider, judge: 'judge' } })).toThrow(

@@ -1,12 +1,10 @@
 import { ArtifactError } from '../src/server/artifacts/errors.js'
 import type { StudyChannelOptions } from '../src/server/processes/types.js'
-import type { AgentResult, LedgerGauge } from '@orkestrel/agent'
+import type { AgentResult } from '@orkestrel/agent'
 import type { RecorderInterface } from '@orkestrel/test'
 import type { StudySinkInterface } from '../src/core/types.js'
 import type { StudyAgentPlan } from '../src/server/agents/types.js'
-import type { StudyAgentSummary } from '../src/server/agents/StudyAgentSummary.js'
 import type { StudyAgentTrace } from '../src/server/agents/StudyAgentTrace.js'
-import type { OllamaFetchFixture, StudyLatchFixture } from './setup.js'
 import type { StudyProfile } from '../src/core/types.js'
 import type { StudyCause, StudyContext, StudyUsage } from '../src/core/types.js'
 import type { StudyOllamaMetadata, StudyOllamaPolicy } from '../src/server/ollama/types.js'
@@ -864,7 +862,7 @@ export function buildOpenStudyExchangeRows(
 				ordinal: index + 4,
 				step: index + 1,
 				goal: index === 0 ? 'write' : 'read',
-				role: index === 1 ? 'summary' : 'agent',
+				role: 'agent',
 			}
 			return [
 				{ ...identity, phase: 'attempt', ...buildStudyOllamaBytes(body) },
@@ -1097,7 +1095,7 @@ export async function retainStudyExchangeFixture(
  * @param origin - The loopback Ollama peer.
  * @param library - The built real Study server library admitted as the subject.
  * @param open - If true, declares an open role sequence; if false, keeps the capture-step control.
- * @param triage - If true, replaces the open sequence's agent and judge calls with System One calls.
+ * @param triage - If true, replaces the open sequence's calls other than the recall goal's agent call with System One calls.
  */
 export function writeStudyRecordingConsumer(
 	scratch: ScratchInterface,
@@ -1129,26 +1127,26 @@ export function writeStudyRecordingConsumer(
 		think: false,
 		options: policy.options,
 	})
-	const summary = { ...policy, options: { ...policy.options, num_predict: 4 } }
 	const judge = {
 		...policy,
 		model: 'judge',
 		options: { ...policy.options, num_predict: 1 },
 		length: true,
 	}
+	const recall = {
+		goal: 'recall',
+		role: 'agent',
+		body: JSON.stringify({
+			model: 'model',
+			stream: true,
+			think: false,
+			options: policy.options,
+			messages: [{ role: 'user', content: 'summarize café 🦉' }],
+		}),
+	}
 	const requests = [
 		{ goal: 'write', role: 'agent', body },
-		{
-			goal: 'recall',
-			role: 'summary',
-			body: JSON.stringify({
-				model: 'model',
-				stream: true,
-				think: false,
-				options: summary.options,
-				messages: [{ role: 'user', content: 'summarize café 🦉' }],
-			}),
-		},
+		recall,
 		{
 			goal: 'recall',
 			role: 'judge',
@@ -1191,12 +1189,11 @@ export function writeStudyRecordingConsumer(
 					? {
 							roles: {
 								agent: policy,
-								summary,
 								...(triage ? { triage: { model: 'decision', tokens: 128 } } : { judge }),
 							},
 							requests: triage
 								? requests.map((request) =>
-										request.role === 'summary'
+										request === recall
 											? request
 											: {
 													goal: request.goal,
@@ -1312,7 +1309,7 @@ export const STUDY_DAEMON_VERSION_FILE = 'daemon.version'
 /** Creates an execution consumer with a dedicated protocol daemon and declared process receipts.
  * @param library - The built real Study transport.
  * @param mode - The protocol outcome to exercise.
- * @param open - If true, records agent and summary without declared steps; if false, keeps the capture control.
+ * @param open - If true, records the write and recall agent calls without declared steps; if false, keeps the capture control.
  * @param triage - If true, pins and unloads the System One model and dispatches its requests.
  * @returns The owned consumer; close releases only its recorded fixture processes.
  */
@@ -2899,7 +2896,7 @@ export class StudyInstallRecorder extends StudyInstall {
 	}
 }
 
-/** Builds the transport configuration the fixture server serves: agent, summary, and a one-token judge.
+/** Builds the transport configuration the fixture server serves: agent and a one-token judge.
  * @param url - The fixture origin.
  * @param change - Members replacing the defaults.
  * @returns A complete transport configuration.
@@ -2921,13 +2918,6 @@ export function buildOllamaTransportOptions(
 			agent: {
 				model: 'model',
 				options: STUDY_OLLAMA_OPTIONS,
-				think: false,
-				strict: false,
-				length: false,
-			},
-			summary: {
-				model: 'model',
-				options: { ...STUDY_OLLAMA_OPTIONS, num_predict: 256 },
 				think: false,
 				strict: false,
 				length: false,
@@ -3062,7 +3052,7 @@ export function buildOllamaStep(
 		: { ...identity, admission, bytes: Buffer.byteLength(body) }
 }
 
-/** Supplies distinct agent, summary and raw judge body bytes under their declared policies.
+/** Supplies distinct agent and raw judge body bytes under their declared policies.
  * @returns Model-role and body pairs in the declared execution order.
  */
 export function buildOllamaRoleBodies(): ReadonlyArray<
@@ -3070,16 +3060,6 @@ export function buildOllamaRoleBodies(): ReadonlyArray<
 > {
 	return [
 		['agent', STUDY_OLLAMA_CHAT_BODY],
-		[
-			'summary',
-			JSON.stringify({
-				model: 'model',
-				stream: true,
-				think: false,
-				options: { ...STUDY_OLLAMA_OPTIONS, num_predict: 256 },
-				messages: [{ role: 'user', content: 'résumé' }],
-			}),
-		],
 		[
 			'judge',
 			JSON.stringify({
@@ -3922,7 +3902,7 @@ export function createStudyAdapter() { return {
 
 /** Writes a mechanism consumer whose subject is the admitted MCP core client and whose runtime is the admitted Agent.
  *
- * The profile declares a provider without a judge and a room without a recap.
+ * The profile declares a provider without a judge.
  * @param scratch - The owned temporary consumer.
  * @param endpoint - The parent-owned MCP endpoint, passed through explicit profile settings.
  * @param origin - The parent-owned Ollama protocol origin.
@@ -4248,34 +4228,9 @@ export interface StudySinkFixture {
 	readonly offered: readonly StudyEvidence[]
 }
 
-/** Holds a real trace and the recorded failure owner it latches through. */
+/** Holds a real trace. */
 export interface StudyAgentTraceFixture {
 	readonly trace: StudyAgentTrace
-	readonly latch: StudyLatchFixture
-}
-
-/**
- * Holds the wire replies, observation switch, prompt limit and cancellation a summary fixture applies.
- * @remarks
- * `replies` are the queued protocol answers of the real provider's wire. `observe` is the trace's
- * observation switch. `limit` is the summary's prompt projection limit. `signal` is the summary's
- * own cancellation; omitted, a live signal is used. `gauge` prices each request; omitted, the
- * fixture gauge that projects every fixture request at the declared projection is used. `refusal` wraps the value the latch's check
- * throws; omitted, work continues.
- */
-export interface StudyAgentSummaryFixtureOptions {
-	readonly replies: readonly OllamaReplyFixture[]
-	readonly observe: boolean
-	readonly limit: number
-	readonly signal?: AbortSignal
-	readonly gauge?: LedgerGauge
-	readonly refusal?: { readonly error: unknown }
-}
-
-/** Holds a real summary, the real trace and latch it reports through, and the wire its provider sends on. */
-export interface StudyAgentSummaryFixture extends StudyAgentTraceFixture {
-	readonly summary: StudyAgentSummary
-	readonly wire: OllamaFetchFixture
 }
 
 /** Holds a scripted plan, the evidence rows its context retained, and its separate workload controller. */

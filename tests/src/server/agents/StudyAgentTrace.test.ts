@@ -1,14 +1,11 @@
 import type { ProviderRequest } from '@orkestrel/agent'
 import type { StudyEvidence } from '../../../../src/core/types.js'
 import { describe, expect, it } from 'vitest'
-import { AgentError, estimateRequest } from '@orkestrel/agent'
 import { createRecorder } from '@orkestrel/test'
 import { StudyError } from '../../../../src/core/errors.js'
 import { buildStudyAgentRevision } from '../../../../src/server/agents/helpers.js'
 import {
-	STUDY_AGENT_GAUGE,
 	STUDY_AGENT_MESSAGES,
-	STUDY_AGENT_PROJECTION,
 	STUDY_AGENT_TOOLS,
 	createStudyAgentTrace,
 	createStudySinkFixture,
@@ -23,20 +20,19 @@ const second: ProviderRequest = {
 const reading = { estimate: 40, projected: 141 }
 
 describe('StudyAgentTrace', () => {
-	it('numbers mixed agent and summary dispatches and keeps counters and role identities across goals', async () => {
+	it('numbers agent dispatches and keeps counters and the role identity across goals', async () => {
 		const { trace } = createStudyAgentTrace(true)
 		const sink = createStudySinkFixture()
 		trace.start('write')
 		trace.record(reading, first)
-		trace.dispatch('summary', second, reading)
-		expect(trace.canonical('agent')).toEqual({ id: 1, revision: buildStudyAgentRevision(first) })
-		expect(trace.canonical('summary')).toEqual({ id: 2, revision: buildStudyAgentRevision(second) })
+		trace.dispatch('agent', second, reading)
+		expect(trace.canonical('agent')).toEqual({ id: 2, revision: buildStudyAgentRevision(second) })
 		expect(Object.isFrozen(trace.canonical('agent'))).toBe(true)
 		await trace.flush(sink.sink)
+		expect(trace.canonical('agent')?.id).toBe(2)
 		trace.start('read')
-		trace.record(reading, second)
-		expect(trace.canonical('agent')?.id).toBe(3)
-		expect(trace.canonical('summary')?.id).toBe(2)
+		trace.record(reading, first)
+		expect(trace.canonical('agent')).toEqual({ id: 3, revision: buildStudyAgentRevision(first) })
 		await trace.flush(sink.sink)
 		const sequence = sink.rows.map((row) => {
 			const value = requireStudyRecord(row.value)
@@ -49,38 +45,6 @@ describe('StudyAgentTrace', () => {
 			['read', 'context', 3, 3],
 			['read', 'estimate', undefined, 3],
 		])
-	})
-
-	it('starts the second goal rows, admission and refused identity fresh while ordinals, dispatch numbers and role identities continue', async () => {
-		const { trace } = createStudyAgentTrace(true)
-		const sink = createStudySinkFixture()
-		const window = new AgentError('WINDOW', 'Full', { context: { consumed: 700, max: 600 } })
-		trace.start('write')
-		trace.admit(first, STUDY_AGENT_GAUGE)
-		trace.translate(window)
-		await trace.flush(sink.sink)
-		trace.start('read')
-		trace.translate(window)
-		trace.record(reading, first)
-		await trace.flush(sink.sink)
-		const goals = ['write', 'read'].map((goal) => sink.rows.filter((row) => row.goal === goal))
-		expect(sink.rows.map((row) => row.goal)).toEqual(['write', 'write', 'read', 'read', 'read'])
-		const [write, read] = goals.map((rows) =>
-			rows.map((row) => ({ event: row.event, value: requireStudyRecord(row.value) })),
-		)
-		expect(write?.map((row) => [row.event, row.value.stage, row.value.ordinal])).toEqual([
-			['context', 'admission', 1],
-			['refusal', undefined, 1],
-		])
-		// The admission and the refused identity of the earlier goal are gone: the same error is refused again, with no admission.
-		expect(read?.map((row) => [row.event, row.value.stage, row.value.ordinal])).toEqual([
-			['refusal', undefined, null],
-			['context', 'dispatch', 2],
-			['estimate', undefined, undefined],
-		])
-		expect(read?.[0]?.value.revision).toBe(null)
-		expect(read?.[1]?.value.dispatch).toBe(1)
-		expect(trace.canonical('agent')?.id).toBe(1)
 	})
 
 	it('retains the exact dispatch context and estimate rows in field order', async () => {
@@ -145,57 +109,20 @@ describe('StudyAgentTrace', () => {
 		expect(requireStudyRecord(sink.rows[1]?.value).projected).toBe(null)
 	})
 
-	it('always prices an admission and retains it, without a dispatch field, only when observing', async () => {
-		const watched = createStudyAgentTrace(true)
-		const silent = createStudyAgentTrace(false)
-		const sink = createStudySinkFixture()
-		watched.trace.start('write')
-		silent.trace.start('write')
-		expect(watched.trace.admit(first, STUDY_AGENT_GAUGE)).toBe(STUDY_AGENT_PROJECTION)
-		expect(silent.trace.admit(first, STUDY_AGENT_GAUGE)).toBe(STUDY_AGENT_PROJECTION)
-		await watched.trace.flush(sink.sink)
-		const silentSink = createStudySinkFixture()
-		await silent.trace.flush(silentSink.sink)
-		expect(silentSink.rows).toEqual([])
-		const value = requireStudyRecord(sink.rows[0]?.value)
-		expect(Object.keys(value)).toEqual([
-			'stage',
-			'role',
-			'ordinal',
-			'revision',
-			'estimate',
-			'projected',
-			'parts',
-			'origins',
-		])
-		expect(value).toMatchObject({
-			stage: 'admission',
-			role: 'agent',
-			ordinal: 1,
-			estimate: estimateRequest(first),
-			projected: STUDY_AGENT_PROJECTION,
-		})
-	})
-
 	it('measures, numbers and records nothing with observation off, yet keeps domain rows while a goal is active', async () => {
-		const { trace, latch } = createStudyAgentTrace(false)
+		const { trace } = createStudyAgentTrace(false)
 		const sink = createStudySinkFixture()
 		trace.start('write')
 		expect(trace.measure('dispatch', 'agent', first, reading, 1)).toBe(undefined)
 		trace.record(reading, first)
-		trace.dispatch('summary', second, reading)
+		trace.dispatch('agent', second, reading)
 		expect(trace.canonical('agent')).toBe(undefined)
-		expect(trace.canonical('summary')).toBe(undefined)
 		trace.append('lookup', { id: 'order-1', found: true })
-		trace.append('summary', { sources: ['m1'], content: 'Folded' })
-		const window = new AgentError('WINDOW', 'Full', { context: { consumed: 700, max: 600 } })
-		const translated = trace.translate(window)
-		expect(translated).toBeInstanceOf(StudyError)
-		expect(latch.failures.calls).toEqual([[translated]])
+		trace.append('note', { sources: ['m1'], content: 'Kept' })
 		await trace.flush(sink.sink)
 		expect(sink.rows).toEqual([
 			{ event: 'lookup', goal: 'write', value: { id: 'order-1', found: true } },
-			{ event: 'summary', goal: 'write', value: { sources: ['m1'], content: 'Folded' } },
+			{ event: 'note', goal: 'write', value: { sources: ['m1'], content: 'Kept' } },
 		])
 	})
 
@@ -222,73 +149,6 @@ describe('StudyAgentTrace', () => {
 		trace.start('read')
 		await trace.flush(sink.sink)
 		expect(sink.rows).toEqual([{ event: 'lookup', goal: 'write', value: { id: 'during' } }])
-	})
-
-	it('retains one refusal row per refused identity naming the retained agent admission across summary measurements, and latches every translation', async () => {
-		const { trace, latch } = createStudyAgentTrace(true)
-		const sink = createStudySinkFixture()
-		const revision = buildStudyAgentRevision(first)
-		trace.start('write')
-		trace.admit(first, STUDY_AGENT_GAUGE)
-		trace.measure('admission', 'summary', second, reading, undefined)
-		trace.dispatch('summary', second, reading)
-		const window = new AgentError('WINDOW', 'Full', { context: { consumed: 700, max: 600 } })
-		const translated = trace.translate(window)
-		expect(trace.translate(window)).toEqual(translated)
-		const other = new AgentError('WINDOW', 'Again')
-		trace.translate(other)
-		const plain = new Error('Unrelated')
-		expect(trace.translate(plain)).toBe(plain)
-		expect(translated).toBeInstanceOf(StudyError)
-		expect(translated).toMatchObject({ code: 'CAPACITY', message: 'Full' })
-		expect(latch.failures.count).toBe(4)
-		await trace.flush(sink.sink)
-		const refusals = sink.rows.filter((row) => row.event === 'refusal')
-		expect(refusals.map((row) => row.value)).toEqual([
-			{ cause: 'capacity', role: 'agent', ordinal: 1, revision, consumed: 700, max: 600 },
-			{ cause: 'capacity', role: 'agent', ordinal: 1, revision, consumed: null, max: null },
-		])
-		expect(Object.keys(requireStudyRecord(refusals[0]?.value))).toEqual([
-			'cause',
-			'role',
-			'ordinal',
-			'revision',
-			'consumed',
-			'max',
-		])
-	})
-
-	it('retains a refusal without admission as nulls and forgets the refused identity at the next goal', async () => {
-		const { trace } = createStudyAgentTrace(true)
-		const sink = createStudySinkFixture()
-		const window = new AgentError('WINDOW', 'Full', {
-			context: { consumed: 'many', max: undefined },
-		})
-		trace.start('write')
-		trace.admit(first, STUDY_AGENT_GAUGE)
-		await trace.flush(createStudySinkFixture().sink)
-		trace.start('read')
-		trace.translate(window)
-		trace.translate(window)
-		await trace.flush(sink.sink)
-		expect(sink.rows).toEqual([
-			{
-				event: 'refusal',
-				goal: 'read',
-				value: {
-					cause: 'capacity',
-					role: 'agent',
-					ordinal: null,
-					revision: null,
-					consumed: null,
-					max: null,
-				},
-			},
-		])
-		trace.start('again')
-		trace.translate(window)
-		await trace.flush(sink.sink)
-		expect(sink.rows.map((row) => row.goal)).toEqual(['read', 'again'])
 	})
 
 	it('walks the live buffer so a row appended during the flush is retained', async () => {

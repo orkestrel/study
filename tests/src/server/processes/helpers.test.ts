@@ -402,12 +402,32 @@ describe('process helpers', () => {
 		expect(computeStudyProfileDigest({ ...base, agent: 'agent-v2' })).not.toBe(
 			computeStudyProfileDigest(base),
 		)
-		const undeclared = { ...base, room: { ...base.room, recap: undefined } }
-		const omitted = { ...base, room: { ...base.room } }
-		Reflect.deleteProperty(omitted.room, 'recap')
-		expect(JSON.stringify(valueToWire(undeclared))).not.toContain('recap')
+		const pinned = { entry: 'dist/index.js', url: 'http://127.0.0.1:11435', model: 'subject' }
+		const declared = {
+			...base,
+			provider: {
+				...pinned,
+				judge: 'judge',
+				digest: { model: 'a'.repeat(64), judge: 'b'.repeat(64) },
+			},
+		}
+		const undeclared = {
+			...base,
+			provider: {
+				...pinned,
+				judge: undefined,
+				digest: { model: 'a'.repeat(64), judge: undefined },
+			},
+		}
+		const omitted = {
+			...base,
+			provider: { ...undeclared.provider, digest: { ...undeclared.provider.digest } },
+		}
+		Reflect.deleteProperty(omitted.provider, 'judge')
+		Reflect.deleteProperty(omitted.provider.digest, 'judge')
+		expect(JSON.stringify(valueToWire(undeclared))).not.toContain('judge')
 		expect(computeStudyProfileDigest(omitted)).toBe(computeStudyProfileDigest(undeclared))
-		expect(computeStudyProfileDigest(undeclared)).not.toBe(computeStudyProfileDigest(base))
+		expect(computeStudyProfileDigest(undeclared)).not.toBe(computeStudyProfileDigest(declared))
 	})
 	it('collects each selected entry once while the profile keeps every declared role', () => {
 		const base = buildStudyProfile()

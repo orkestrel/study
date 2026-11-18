@@ -1126,15 +1126,6 @@ try { parseStudyArguments([]) } catch (error) {
 		const scratch = createStudyConsumer()
 		const install = new StudyInstall({ root: scratch.path, entry })
 		try {
-			const profile = parseJSON(scratch.read('studies/files/profiles/local.json') ?? '')
-			if (!isRecord(profile) || !isRecord(profile.room)) throw new Error('Missing profile')
-			scratch.write(
-				'studies/files/profiles/local.json',
-				JSON.stringify({
-					...profile,
-					room: Object.fromEntries(Object.entries(profile.room).filter(([key]) => key !== 'recap')),
-				}),
-			)
 			const executed = await install.execute(['execute', 'assessment'])
 			expect({
 				code: executed.code,

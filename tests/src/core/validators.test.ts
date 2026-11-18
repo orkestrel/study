@@ -222,7 +222,6 @@ it('requires positive room, finite bounds and credential-free HTTP origins', () 
 	expect(isStudyProvider({ ...provider, url: 'http://localhost/model?key=value' })).toBe(false)
 	expect(isStudyProvider({ ...provider, typo: true })).toBe(false)
 	expect(isStudyRoom({ ...profile.room, output: 500 })).toBe(false)
-	expect(isStudyRoom({ ...profile.room, recap: 500 })).toBe(false)
 	expect(isStudyRoom({ ...profile.room, context: Number.MAX_SAFE_INTEGER + 1 })).toBe(false)
 	expect(isStudyRoom({ ...profile.room, output: 0 })).toBe(false)
 	expect(isStudyRoom({ ...profile.room, typo: true })).toBe(false)
@@ -234,23 +233,6 @@ it('requires positive room, finite bounds and credential-free HTTP origins', () 
 	expect(isStudyProfile({ ...profile, roots: [] })).toBe(false)
 	expect(isStudyProfile({ ...profile, roots: ['dist', 'dist'] })).toBe(false)
 	expect(isStudyProfile({ ...profile, roots: [' '] })).toBe(false)
-})
-
-it('admits a room without a recap and refuses an unbounded declared recap', () => {
-	const profile = buildStudyProfile()
-	const { recap, ...bare } = profile.room
-	expect(recap).toBeDefined()
-	expect(Object.hasOwn(bare, 'recap')).toBe(false)
-	expect(isStudyRoom(bare)).toBe(true)
-	expect(isStudyRoom({ ...bare, recap: undefined })).toBe(true)
-	expect(isStudyProfile({ ...profile, room: bare })).toBe(true)
-	expect(isStudyRoom({ ...bare, recap: 0 })).toBe(false)
-	expect(isStudyRoom({ ...bare, recap: 1.5 })).toBe(false)
-	expect(isStudyRoom({ ...bare, recap: Number.NaN })).toBe(false)
-	expect(isStudyRoom({ ...bare, recap: '32' })).toBe(false)
-	expect(isStudyRoom({ ...bare, recap: null })).toBe(false)
-	expect(isStudyRoom({ ...bare, recap: bare.context })).toBe(false)
-	expect(isStudyRoom({ ...bare, context: undefined })).toBe(false)
 })
 
 it('admits an omitted judge and refuses a half-declared judge in either direction', () => {
@@ -390,18 +372,10 @@ it('accepts JSON products with partial status and refuses non-JSON or hostile ou
 })
 
 it('accepts exactly the declared roles and operational causes in their frozen report order', () => {
-	expect(STUDY_ROLES).toEqual([
-		'agent',
-		'judge',
-		'triage',
-		'summary',
-		'metadata',
-		'maintenance',
-		'tool',
-	])
+	expect(STUDY_ROLES).toEqual(['agent', 'judge', 'triage', 'metadata', 'maintenance', 'tool'])
 	expect(STUDY_CAUSES).toEqual(['capacity', 'infrastructure', 'deadline', 'interrupted', 'content'])
 	expect(Object.isFrozen(STUDY_ROLES) && Object.isFrozen(STUDY_CAUSES)).toBe(true)
-	for (const role of ['agent', 'judge', 'triage', 'summary', 'metadata', 'maintenance', 'tool'])
+	for (const role of ['agent', 'judge', 'triage', 'metadata', 'maintenance', 'tool'])
 		expect(isStudyRole(role)).toBe(true)
 	for (const cause of ['capacity', 'infrastructure', 'deadline', 'interrupted', 'content'])
 		expect(isStudyCause(cause)).toBe(true)
@@ -413,6 +387,20 @@ it('accepts exactly the declared roles and operational causes in their frozen re
 	expect(isStudyCause('tool')).toBe(false)
 	expect(isStudyCause('Content')).toBe(false)
 	expect(isStudyCause('decoder')).toBe(false)
+})
+
+it('refuses a summary role', () => {
+	expect(isStudyRole('summary')).toBe(false)
+	expect(STUDY_ROLES).not.toContain('summary')
+})
+
+it('refuses a room that declares a recap allowance', () => {
+	const profile = buildStudyProfile()
+	for (const recap of [32, undefined]) {
+		const room = { ...profile.room, recap }
+		expect(isStudyRoom(room)).toBe(false)
+		expect(isStudyProfile({ ...profile, room })).toBe(false)
+	}
 })
 
 it('carries no format counter in a grading identity', () => {

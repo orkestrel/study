@@ -1,10 +1,9 @@
-import type { StudyContext, StudyRole, StudyAgentRuntime, StudyLatchInterface } from '@src/core'
+import type { StudyContext, StudyRole, StudyAgentRuntime } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
-import type { LedgerGauge, Message, ProviderInterface, ProviderResult } from '@orkestrel/agent'
-import type { StudyAgentTrace } from './StudyAgentTrace.js'
+import type { Message, ProviderResult } from '@orkestrel/agent'
 
-/** Names the model responsibilities whose requests the trace and summary measure. */
-export type StudyAgentRole = Extract<StudyRole, 'agent' | 'summary'>
+/** Names the model responsibility whose requests the trace measures. */
+export type StudyAgentRole = Extract<StudyRole, 'agent'>
 
 /**
  * Names where a measurement was taken.
@@ -29,40 +28,16 @@ export interface StudyAgentStamp {
 export type StudyAgentOriginHandler = (messages: readonly Message[]) => JSONValue
 
 /**
- * Holds the trace's measuring runtime, failure owner and consumer origin join.
+ * Holds the trace's measuring runtime and consumer origin join.
  * @remarks
- * `runtime` measures requests and recognizes the nominal Agent refusal. `latch` retains the first
- * operational failure. `observe`: if `true`, the trace retains measurement and refusal rows; if
+ * `runtime` measures requests. `observe`: if `true`, the trace retains measurement rows; if
  * `false`, it retains none, while domain rows still follow an active goal. `origins` supplies the
  * consumer's origin annotation for a measured request's messages.
  */
 export interface StudyAgentTraceOptions {
 	readonly runtime: StudyAgentRuntime
-	readonly latch: StudyLatchInterface
 	readonly observe: boolean
 	readonly origins: StudyAgentOriginHandler
-}
-
-/**
- * Holds the gauged summary's delegate, measurement seam, explicit limits and cancellation.
- * @remarks
- * `provider` receives the one canonical array the summary measured. `runtime` prices it. `trace`
- * retains the summary's measurement, refusal and evidence rows. `latch` refuses work after a
- * retained failure. `gauge` prices each request and `limit` is the prompt projection at which a
- * request is refused; it must be a positive safe integer, and `gauge.scale` must be finite and
- * greater than 0 and `gauge.overhead` finite and at least 0, or construction refuses with `CONFIG`.
- * The summary keeps its own copy of the gauge. `instruction` is the final user turn appended to the
- * folded messages. `signal` bounds work when the caller supplies none.
- */
-export interface StudyAgentSummaryOptions {
-	readonly provider: ProviderInterface
-	readonly runtime: Pick<StudyAgentRuntime, 'estimateRequest'>
-	readonly trace: StudyAgentTrace
-	readonly latch: StudyLatchInterface
-	readonly gauge: LedgerGauge
-	readonly limit: number
-	readonly instruction: Message
-	readonly signal: AbortSignal
 }
 
 /**
@@ -85,9 +60,16 @@ export interface StudyAgentResponse {
 	readonly truncated: boolean | undefined
 }
 
-/** Holds the scripted provider's fixed byte bound; the admitted token count defaults to one. */
+/**
+ * Holds the scripted provider's fixed byte bound and the model it reports.
+ * @remarks
+ * `bytes` bounds every served request and response, and is each response's default admitted
+ * bytes; the admitted token count defaults to one. `model` names the model the provider reports
+ * serving; it must be a non-empty string.
+ */
 export interface StudyAgentScriptOptions {
 	readonly bytes: number
+	readonly model: string
 }
 
 /** Holds one goal's scripted replies and the resources the provider charges and cancels through. */

@@ -1,13 +1,10 @@
 import type { StudyEvidence } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
-import type { StudyAgentStamp } from './types.js'
 
-/** Holds one goal's retained trace rows, its last admission and its last refused identity. */
+/** Holds one goal's retained trace rows. */
 export class StudyAgentTraceGoal {
 	readonly #goal: string
 	readonly #rows: StudyEvidence[] = []
-	#admission: StudyAgentStamp | undefined
-	#refused: unknown
 
 	/** Binds the rows that follow to one goal.
 	 * @param goal - The goal whose rows follow.
@@ -26,33 +23,11 @@ export class StudyAgentTraceGoal {
 		return this.#rows
 	}
 
-	/** Reports the goal's last admission stamp; undefined before one, or when the last was not observed. */
-	get admission(): StudyAgentStamp | undefined {
-		return this.#admission
-	}
-
 	/** Retains one row for the goal.
 	 * @param event - The evidence event name.
 	 * @param value - The JSON evidence value.
 	 */
 	append(event: string, value: JSONValue): void {
 		this.#rows.push({ event, goal: this.#goal, value })
-	}
-
-	/** Retains the goal's last admission stamp.
-	 * @param stamp - The admission measurement's stamp; undefined when it was not observed.
-	 */
-	admit(stamp: StudyAgentStamp | undefined): void {
-		this.#admission = stamp
-	}
-
-	/** Latches a refused failure identity.
-	 * @param error - The refused value.
-	 * @returns True if it differs from the last refused identity; false otherwise.
-	 */
-	refuse(error: unknown): boolean {
-		if (this.#refused === error) return false
-		this.#refused = error
-		return true
 	}
 }

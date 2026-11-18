@@ -1068,10 +1068,9 @@ describe('study server fixtures', () => {
 describe('Ollama recording fixtures', () => {
 	it('supplies role bodies with distinct policies and raw judge fields', () => {
 		const bodies = buildOllamaRoleBodies()
-		expect(bodies.map(([role]) => role)).toEqual(['agent', 'summary', 'judge'])
+		expect(bodies.map(([role]) => role)).toEqual(['agent', 'judge'])
 		expect(bodies.map(([, body]) => JSON.parse(body))).toMatchObject([
 			{ model: 'model', options: { num_predict: 512 } },
-			{ model: 'model', options: { num_predict: 256 } },
 			{ model: 'judge', raw: true, logprobs: true, options: { num_predict: 1 } },
 		])
 	})
@@ -1112,7 +1111,7 @@ describe('Ollama recording fixtures', () => {
 			rows.flatMap((row) =>
 				row.phase === 'attempt' && row.stage === 'execution' ? [row.role] : [],
 			),
-		).toEqual(['agent', 'summary', 'agent'])
+		).toEqual(['agent', 'agent', 'agent'])
 		const fixture = await createOpenOllamaRecordingFixture()
 		try {
 			expect(fixture.sink.declaration?.procedure).toBeUndefined()

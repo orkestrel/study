@@ -70,8 +70,6 @@ import type {
 	StudyLatchFixture,
 } from './setup.js'
 import type {
-	StudyAgentSummaryFixture,
-	StudyAgentSummaryFixtureOptions,
 	StudyAgentTraceFixture,
 	StudySinkFixture,
 	StudyScriptFixture,
@@ -82,7 +80,7 @@ import type {
 import type { StudyAgentResponse } from '../src/server/agents/types.js'
 import type { ToolCall } from '@orkestrel/tool'
 import type { StudyAgentMeasurement, StudyAgentRuntime } from '../src/core/agents/types.js'
-import { Agent, AgentError, estimateRequest, isAgentError, measureRequest } from '@orkestrel/agent'
+import { Agent, estimateRequest, measureRequest } from '@orkestrel/agent'
 import { isRecord, parseJSON } from '@orkestrel/contract'
 import { createOllama, createOllamaJudge } from '@orkestrel/ollama'
 import { buildOllamaAnswer, buildOllamaReadout, buildOllamaReply } from '@orkestrel/ollama/server'
@@ -92,7 +90,6 @@ import { StudyControl, StudyDeadline, StudyMeter, StudyScope } from '../src/core
 import { StudyTrialLease } from '../src/core/engines/StudyTrialLease.js'
 import { buildStudySchedule } from '../src/core/helpers.js'
 import { StudyAgentObserver } from '../src/core/agents/StudyAgentObserver.js'
-import { StudyAgentSummary } from '../src/server/agents/StudyAgentSummary.js'
 import { StudyAgentTrace } from '../src/server/agents/StudyAgentTrace.js'
 import { StudyAgentScript } from '../src/server/agents/StudyAgentScript.js'
 import {
@@ -100,7 +97,7 @@ import {
 	buildStudyAgentToolDenial,
 } from '../src/server/agents/helpers.js'
 import { StudySeries } from '../src/core/engines/StudySeries.js'
-import { translateStudyAgentStop, translateStudyAgentError } from '../src/core/agents/helpers.js'
+import { translateStudyAgentStop } from '../src/core/agents/helpers.js'
 
 /** Owns the records one fixture observes in arrival order and lends them as one live, readonly view.
  *
@@ -344,7 +341,7 @@ export function buildStudyProfile(): StudyProfile {
 			trial: { ...request, calls: 4 },
 			series: { ...request, calls: 32 },
 		},
-		room: { context: 512, output: 32, safety: 16, recap: 32, think: false },
+		room: { context: 512, output: 32, safety: 16, think: false },
 		provider: undefined,
 		qualification: undefined,
 		settings: undefined,
@@ -941,7 +938,7 @@ export const STUDY_QUANTILE_INVALID_VALUES: ReadonlyArray<readonly number[]> = O
 ])
 
 /** Executes a real Agent over the scripted provider inside a serial Study series.
- * @param options - The real Agent's budgets and window policy.
+ * @param options - The real Agent's budgets.
  * @param response - The inert scripted reply.
  * @param change - Overrides the series manifest, such as a scope allowance.
  * @param reservation - A request held pending before the scripted call, when supplied.
@@ -959,7 +956,7 @@ export async function executeStudyAgentSeries(
 	const driver = createStudyDriverFixture({
 		execute: async (goal, context) => {
 			if (reservation !== undefined) await context.meter.admit(reservation)
-			const provider = new StudyAgentScript({ bytes: 1024 })
+			const provider = new StudyAgentScript({ bytes: 1024, model: STUDY_SCRIPT_MODEL })
 			provider.prepare({
 				goal: goal.id,
 				context,
@@ -974,8 +971,6 @@ export async function executeStudyAgentSeries(
 				const refusal = translateStudyAgentStop(result.stop)
 				if (refusal !== undefined) throw refusal
 				return { value: result.content, partial: result.partial }
-			} catch (error) {
-				throw translateStudyAgentError(error, createAgentRuntime())
 			} finally {
 				provider.clear()
 			}
@@ -1724,18 +1719,10 @@ export function buildOllamaCall(options: OllamaRowFixture = {}): string {
 }
 
 /** Supplies the admitted Agent capability set from the actual development Agent exports.
- * @returns The actual estimator, measurer and nominal guard.
+ * @returns The actual estimator and measurer.
  */
 export function createAgentRuntime(): StudyAgentRuntime {
-	return { estimateRequest, measureRequest, isAgentError }
-}
-
-/** Creates the window refusal the Agent raises through its actual error class.
- * @param message - The refusal text.
- * @returns The actual `WINDOW` error instance.
- */
-export function createAgentWindowError(message = 'Context window exhausted'): AgentError {
-	return new AgentError('WINDOW', message)
+	return { estimateRequest, measureRequest }
 }
 
 /** Wraps a real published Ollama provider in the observer and records every reading it takes.
@@ -1820,23 +1807,10 @@ export function createStudyLatch(refusal?: { readonly error: unknown }): StudyLa
 	}
 }
 
-/** Supplies the summary instruction the summary proofs append as the final user turn. */
-export const STUDY_SUMMARY_INSTRUCTION: Message = Object.freeze<Message>({
-	id: 'summary-instruction',
-	role: 'user',
-	content: 'Fold the conversation.',
-})
-
-/** Supplies the folded conversation the summary proofs summarize. */
-export const STUDY_SUMMARY_MESSAGES: readonly Message[] = Object.freeze<readonly Message[]>([
+/** Supplies a two-turn history conversation whose messages carry their own ids. */
+export const STUDY_HISTORY_MESSAGES: readonly Message[] = Object.freeze<readonly Message[]>([
 	{ id: 'h1', role: 'user', content: 'First arrival' },
 	{ id: 'h2', role: 'assistant', content: 'First answer' },
-])
-
-/** Supplies terminal rows whose actual prompt equals or exceeds STUDY_AGENT_PROJECTION, which a summary must still complete under. */
-export const STUDY_SUMMARY_PROMPTS: readonly OllamaRowFixture[] = Object.freeze([
-	Object.freeze({ prompt: STUDY_AGENT_PROJECTION }),
-	...STUDY_AGENT_MISSES,
 ])
 
 /** Joins every message to the declared `history` origin and its own id, as an inert consumer origin handler.
@@ -1869,53 +1843,17 @@ export function createStudySinkFixture(options: StudySinkFixtureOptions = {}): S
 	}
 }
 
-/** Creates a real trace over the actual Agent runtime and a recorded failure owner.
+/** Creates a real trace over the actual Agent runtime.
  * @param observe - If `true`, the trace retains measurement rows; if `false`, it retains none.
- * @param refusal - Wraps the value the latch's check throws; absent lets work continue.
- * @returns The trace and its latch.
+ * @returns The trace.
  */
-export function createStudyAgentTrace(
-	observe: boolean,
-	refusal?: { readonly error: unknown },
-): StudyAgentTraceFixture {
-	const latch = createStudyLatch(refusal)
+export function createStudyAgentTrace(observe: boolean): StudyAgentTraceFixture {
 	const trace = new StudyAgentTrace({
 		runtime: createAgentRuntime(),
-		latch,
 		observe,
 		origins: buildStudyAgentOrigins,
 	})
-	return { trace, latch }
-}
-
-/** Creates a real summary over a real Ollama provider on a protocol-faithful wire, with the gauge that prices every fixture request at the declared projection.
- * @param options - Queued wire replies, observation switch, limit, and optional cancellation and latch refusal.
- * @returns The summary, its trace and latch, and the wire.
- */
-export function createStudyAgentSummary(
-	options: StudyAgentSummaryFixtureOptions,
-): StudyAgentSummaryFixture {
-	const wire = createOllamaFetch(options.replies)
-	const { trace, latch } = createStudyAgentTrace(options.observe, options.refusal)
-	const summary = new StudyAgentSummary({
-		provider: createAgentObserver(wire, undefined, false).inner,
-		runtime: createAgentRuntime(),
-		trace,
-		latch,
-		gauge: options.gauge ?? STUDY_AGENT_GAUGE,
-		limit: options.limit,
-		instruction: STUDY_SUMMARY_INSTRUCTION,
-		signal: options.signal ?? new AbortController().signal,
-	})
-	return { summary, trace, latch, wire }
-}
-
-/** Builds the one queued chat reply that answers a summary with the supplied content and a usable prompt count.
- * @param content - The reply content.
- * @returns A single reply for the chat path.
- */
-export function buildOllamaReplies(content: string): readonly OllamaReplyFixture[] {
-	return [{ path: '/api/chat', body: buildOllamaRow({ content, prompt: 9 }) }]
+	return { trace }
 }
 
 /** Reads the chat messages a request body carries, in order.
@@ -1944,6 +1882,9 @@ export const STUDY_OLLAMA_PROVIDER: StudyProvider = Object.freeze({
 	judge: 'judge',
 	digest: Object.freeze({ model: 'a'.repeat(64), judge: 'b'.repeat(64) }),
 })
+
+/** Supplies the model name every scripted provider fixture reports serving. */
+export const STUDY_SCRIPT_MODEL = 'scripted-model'
 
 /** Supplies a conversation whose tool message answers the call `actual-call`. */
 export const STUDY_SCRIPT_MESSAGES: readonly Message[] = Object.freeze<readonly Message[]>([

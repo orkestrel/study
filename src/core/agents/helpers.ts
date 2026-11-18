@@ -1,7 +1,7 @@
 import type { JSONValue } from '@orkestrel/contract'
 import type { LedgerGauge, ProviderResult, RequestMeasure } from '@orkestrel/agent'
 import type { StudyRole, StudyStop } from '../types.js'
-import type { StudyAgentDispatch, StudyAgentRuntime } from './types.js'
+import type { StudyAgentDispatch } from './types.js'
 import { attempt, isNonEmptyString, isObject } from '@orkestrel/contract'
 import { StudyError } from '../errors.js'
 import { parseStudyMeasurement } from '../parsers.js'
@@ -36,35 +36,6 @@ export function validateStudyAgentUsage(usage: ProviderResult['usage'], role: St
 			stop: undefined,
 		})
 	}
-}
-
-/**
- * Translates only a nominal Agent window refusal into the attributable capacity failure.
- * @remarks
- * The failure's stop is the `window` layer with the id `Agent window`; its `max` is the window and
- * its `consumed` the measured request, each read from the error's context when it is a finite
- * number.
- * @param error - The caught or reported value
- * @param runtime - The admitted Agent namespace owning the nominal guard
- * @returns A capacity StudyError for an Agent `WINDOW` error; every other value with its identity
- */
-export function translateStudyAgentError(
-	error: unknown,
-	runtime: Pick<StudyAgentRuntime, 'isAgentError'>,
-): unknown {
-	if (!runtime.isAgentError(error) || error.code !== 'WINDOW') return error
-	const context = error.context
-	return new StudyError('CAPACITY', error.message, {
-		cause: 'capacity',
-		message: error.message,
-		role: 'agent',
-		stop: {
-			layer: 'window',
-			id: 'Agent window',
-			max: parseStudyMeasurement(context?.max),
-			consumed: parseStudyMeasurement(context?.consumed),
-		},
-	})
 }
 
 /**

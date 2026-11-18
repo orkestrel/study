@@ -1,23 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { AgentError, measureRequest } from '@orkestrel/agent'
+import { measureRequest } from '@orkestrel/agent'
 import { captureError, createRecorder } from '@orkestrel/test'
 import {
 	buildStudyAgentDispatch,
 	buildStudyAgentParts,
 	projectStudyAgentRequest,
-	translateStudyAgentError,
 	translateStudyAgentStop,
 	validateStudyAgentUsage,
 } from '../../../../src/core/agents/helpers.js'
-import { StudyError, isStudyError } from '../../../../src/core/errors.js'
+import { StudyError } from '../../../../src/core/errors.js'
 import { readStudyFailure } from '../../../../src/core/engines/helpers.js'
 import {
 	STUDY_AGENT_MESSAGES,
 	STUDY_AGENT_TOOLS,
 	STUDY_AGENT_USAGE_FAILURE,
 	STUDY_AGENT_INVALID_STOPS,
-	createAgentRuntime,
-	createAgentWindowError,
 } from '../../../setupStudy.js'
 
 describe('projectStudyAgentRequest', () => {
@@ -51,32 +48,8 @@ describe('validateStudyAgentUsage', () => {
 	})
 
 	it('retains the role the failure is attributed to', () => {
-		const outcome = captureError(() => validateStudyAgentUsage(undefined, 'summary'))
-		expect(readStudyFailure(outcome)).toEqual({ ...STUDY_AGENT_USAGE_FAILURE, role: 'summary' })
-	})
-})
-
-describe('translateStudyAgentError', () => {
-	const runtime = createAgentRuntime()
-
-	it('translates a nominal Agent window refusal into an agent capacity failure', () => {
-		const translated = translateStudyAgentError(createAgentWindowError('Window full'), runtime)
-		expect(isStudyError(translated)).toBe(true)
-		expect(translated).toMatchObject({ code: 'CAPACITY', message: 'Window full' })
-		expect(readStudyFailure(translated)).toEqual({
-			cause: 'capacity',
-			message: 'Window full',
-			role: 'agent',
-			stop: { layer: 'window', id: 'Agent window', max: undefined, consumed: undefined },
-		})
-	})
-
-	it('returns every other value with its identity', () => {
-		const concurrency = new AgentError('CONCURRENCY', 'Run in flight')
-		const lookalike = Object.assign(new Error('Window full'), { code: 'WINDOW' })
-		const study = new StudyError('FAULT', 'Transport failure')
-		for (const value of [concurrency, lookalike, study, 'WINDOW', undefined])
-			expect(translateStudyAgentError(value, runtime)).toBe(value)
+		const outcome = captureError(() => validateStudyAgentUsage(undefined, 'judge'))
+		expect(readStudyFailure(outcome)).toEqual({ ...STUDY_AGENT_USAGE_FAILURE, role: 'judge' })
 	})
 })
 
@@ -193,17 +166,6 @@ describe('translateStudyAgentStop', () => {
 		expect(
 			translateStudyAgentStop({ layer: 'model', id: 'provider', usage: { completion: Infinity } }),
 		).toMatchObject({ failure: { stop: { consumed: undefined } } })
-	})
-
-	it('reads finite window context and leaves missing readings unknown', () => {
-		expect(
-			readStudyFailure(
-				translateStudyAgentError(
-					new AgentError('WINDOW', 'Window full', { context: { max: 8.5, consumed: 9 } }),
-					createAgentRuntime(),
-				),
-			).stop,
-		).toEqual({ layer: 'window', id: 'Agent window', max: 8.5, consumed: 9 })
 	})
 })
 

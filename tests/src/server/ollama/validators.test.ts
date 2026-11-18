@@ -57,6 +57,11 @@ describe('Ollama declaration guards', () => {
 		for (const tokens of STUDY_OLLAMA_CAPTURE_LENGTHS)
 			expect(isStudyOllamaStep({ ...step, policy: { model: 'decision', tokens } })).toBe(false)
 	})
+	it('refuses a summary step', () => {
+		const step = buildOllamaStep()
+		expect(isStudyOllamaStep(step)).toBe(true)
+		expect(isStudyOllamaStep({ ...step, role: 'summary' })).toBe(false)
+	})
 	it('accepts declared metadata, pinned models, policies and both admission contracts', () => {
 		const options = buildOllamaTransportOptions('http://127.0.0.1:1')
 		expect(isStudyOllamaMetadata(options.metadata)).toBe(true)
@@ -122,11 +127,18 @@ describe('matchesStudyKeyedRoles', () => {
 		expect(matchesStudyKeyedRoles(['triage', 'triage'], true)).toBe(false)
 	})
 	it('admits metadata only offline and refuses a role with no recorded request', () => {
-		expect(matchesStudyKeyedRoles(['judge', 'agent', 'summary'], false)).toBe(true)
+		expect(matchesStudyKeyedRoles(['judge', 'agent'], false)).toBe(true)
 		expect(matchesStudyKeyedRoles(['metadata', 'judge'], true)).toBe(true)
 		for (const roles of [['metadata'], ['metadata', 'judge']])
 			expect(matchesStudyKeyedRoles(roles, false)).toBe(false)
 		for (const roles of [[], ['tool'], ['maintenance'], ['judge', 'judge'], 'judge', undefined])
 			expect(matchesStudyKeyedRoles(roles, true)).toBe(false)
+	})
+	it('refuses a summary role', () => {
+		for (const offline of [false, true]) {
+			expect(matchesStudyKeyedRoles(['agent'], offline)).toBe(true)
+			expect(matchesStudyKeyedRoles(['summary'], offline)).toBe(false)
+			expect(matchesStudyKeyedRoles(['agent', 'summary'], offline)).toBe(false)
+		}
 	})
 })

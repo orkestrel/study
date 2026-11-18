@@ -74,7 +74,7 @@ describe('process validators', () => {
 			false,
 		)
 		expect(isStudyProcessFailure({ cause: 'success', message: 'won' })).toBe(false)
-		expect(isStudyProcessFailure({ cause: 'content', message: 'unusable', role: 'summary' })).toBe(
+		expect(isStudyProcessFailure({ cause: 'content', message: 'unusable', role: 'judge' })).toBe(
 			true,
 		)
 		expect(isStudyProcessFailure({ cause: 'content', message: 'unusable' })).toBe(true)

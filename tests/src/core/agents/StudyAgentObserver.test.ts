@@ -1,20 +1,15 @@
-import type { ProviderRequest } from '@orkestrel/agent'
-import type { StudyAgentRecordHandler } from '../../../../src/core/agents/types.js'
 import { describe, expect, it } from 'vitest'
 import {
 	Agent,
 	createAuthority,
 	createConversationManager,
-	createRelayProvider,
 	estimateRequest,
 	measureRequest,
 } from '@orkestrel/agent'
-import { createBudget } from '@orkestrel/budget'
 import { isRecord, parseJSON } from '@orkestrel/contract'
 import { createOllama } from '@orkestrel/ollama'
 import { createRecorder } from '@orkestrel/test'
 import { createTool, createToolManager } from '@orkestrel/tool'
-import { StudyAgentObserver } from '../../../../src/core/agents/StudyAgentObserver.js'
 import { StudyError } from '../../../../src/core/errors.js'
 import { readStudyFailure } from '../../../../src/core/engines/helpers.js'
 import {
@@ -33,7 +28,6 @@ import {
 	buildOllamaRow,
 	buildOllamaStream,
 	createAgentObserver,
-	createAgentRuntime,
 	createOllamaFetch,
 	readOllamaToolResults,
 	readProviderStream,
@@ -280,38 +274,7 @@ describe('StudyAgentObserver', () => {
 		expect(observer.model).not.toBe(inner.name)
 	})
 
-	it.each([
-		['no model', {}],
-		['an empty model', { model: '' }],
-		['a non-string model', { model: 7 }],
-	] as const)(
-		'refuses a delegate with %s at construction, before any reading',
-		(_name, members) => {
-			const provider = Object.assign(createRelayProvider({ url: STUDY_OLLAMA_ORIGIN }), members)
-			const record = createRecorder<Parameters<StudyAgentRecordHandler>>()
-			expect('model' in provider).toBe('model' in members)
-			expect(
-				() =>
-					new StudyAgentObserver({
-						provider,
-						runtime: createAgentRuntime(),
-						gauge: undefined,
-						enforced: false,
-						record: record.handler,
-					}),
-			).toThrow(
-				expect.objectContaining({
-					name: 'StudyError',
-					code: 'CONFIG',
-					message:
-						'Observer delegate lacks a non-empty string model: provider.model must name the model it serves',
-				}),
-			)
-			expect(record.calls).toEqual([])
-		},
-	)
-
-	it('measures the same complete request the Agent window measures', async () => {
+	it('measures the same complete request the Agent reports dispatching', async () => {
 		const wire = createOllamaFetch([
 			{ path: '/api/chat', body: buildOllamaStream(['Receipt retained.'], { prompt: 7 }) },
 		])
@@ -319,19 +282,16 @@ describe('StudyAgentObserver', () => {
 		const conversation = manager.add({})
 		try {
 			const watched = createAgentObserver(wire, undefined, false)
-			const measured: number[] = []
+			const measured = createRecorder<readonly [number]>()
 			const agent = new Agent(watched.observer, {
 				conversations: manager,
 				strict: true,
 				limit: 8,
-				window: createBudget<ProviderRequest>({
-					max: 30000,
-					consumer: (request) => {
-						const value = estimateRequest(request)
-						measured.push(value)
-						return value
+				on: {
+					request: (_index, request) => {
+						measured.handler(estimateRequest(request))
 					},
-				}),
+				},
 			})
 			agent.context.instructions.add({ name: 'desk', content: 'You operate a support desk.' })
 			conversation.add({ role: 'user', content: 'Count the orders' })
@@ -339,8 +299,7 @@ describe('StudyAgentObserver', () => {
 				const result = await agent.generate({ signal: new AbortController().signal })
 				expect(result.content).toBe('Receipt retained.')
 				expect(watched.measurements).toHaveLength(1)
-				expect(measured.length).toBeGreaterThan(0)
-				expect(new Set(measured)).toEqual(new Set([watched.measurements[0]?.estimate]))
+				expect(measured.calls).toEqual([[watched.measurements[0]?.estimate]])
 				expect(wire.requests.filter((entry) => entry.path === '/api/chat')).toHaveLength(1)
 			} finally {
 				agent.emitter.destroy()

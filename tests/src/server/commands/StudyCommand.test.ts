@@ -85,7 +85,7 @@ describe('recording and replay command handoff', () => {
 										'--prefix',
 										JSON.stringify({ [history.declaration.trial]: history.completion.count }),
 									]
-								: ['--roles', mode === 'keyed' ? '["triage"]' : '["triage","summary","metadata"]']),
+								: ['--roles', mode === 'keyed' ? '["triage"]' : '["triage","agent","metadata"]']),
 							'--offline',
 							mode === 'keyed' ? 'false' : 'true',
 						],
@@ -896,7 +896,7 @@ describe('recording and replay command handoff', () => {
 						'--replay',
 						recorded,
 						'--roles',
-						'["agent","summary","judge","metadata"]',
+						'["agent","judge","metadata"]',
 						'--offline',
 						'true',
 					],
@@ -1104,7 +1104,7 @@ describe('recording and replay command handoff', () => {
 						'--replay',
 						recorded,
 						'--roles',
-						'["agent","summary","judge","metadata"]',
+						'["agent","judge","metadata"]',
 						'--offline',
 						'true',
 					],
@@ -1182,7 +1182,7 @@ describe('recording and replay command handoff', () => {
 		}
 	}, 120000)
 
-	it('O1 seals unpredicted agent summary and judge bodies without a procedure and joins their ordinals', async () => {
+	it('O1 seals unpredicted agent and judge bodies without a procedure and joins their ordinals', async () => {
 		const scratch = createStudyConsumer()
 		const library = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
 		const server = await createOllamaFixture({
@@ -1232,7 +1232,7 @@ describe('recording and replay command handoff', () => {
 					]),
 				).toEqual([
 					[5, 1, 'agent', 'write'],
-					[6, 2, 'summary', 'recall'],
+					[6, 2, 'agent', 'recall'],
 					[7, 3, 'judge', 'recall'],
 				])
 				expect(executions.map(({ attempt }) => attempt.digest)).toEqual(

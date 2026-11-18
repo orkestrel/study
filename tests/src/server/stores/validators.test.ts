@@ -39,6 +39,7 @@ import {
 	isStudyAncestor,
 	isStudyExchangeAncestor,
 	isStudyExchangeDeclaration,
+	isStudyExchangeIdentity,
 	isStudySelection,
 } from '../../../../src/server/stores/validators.js'
 
@@ -188,8 +189,8 @@ describe('custody validators', () => {
 		expect(isStudyCustodyFailure({ cause: 'success', message: 'Awarded' })).toBe(false)
 		const refused: StudyFailure = {
 			cause: 'content',
-			message: 'Summary content was unusable',
-			role: 'summary',
+			message: 'Judge content was unusable',
+			role: 'judge',
 			stop: undefined,
 		}
 		expect(isStudyCustodyFailure(refused)).toBe(true)
@@ -225,6 +226,20 @@ describe('custody validators', () => {
 		expect(isStudyCustodyAttempt(record, manifest)).toBe(valid)
 		// An undefined member leaves the record once it crosses custody bytes and must read the same.
 		expect(isStudyCustodyAttempt(decodeStudyJSON(encodeStudyJSON(record)), manifest)).toBe(valid)
+	})
+
+	it('refuses a summary exchange identity', () => {
+		const identity = {
+			ordinal: 1,
+			goal: 'write',
+			role: 'agent',
+			stage: 'execution',
+			method: 'POST',
+			path: '/api/chat',
+			step: 1,
+		}
+		expect(isStudyExchangeIdentity(identity)).toBe(true)
+		expect(isStudyExchangeIdentity({ ...identity, role: 'summary' })).toBe(false)
 	})
 
 	it('refuses an observation hole behind a failed executed goal as it refuses one anywhere else', () => {
@@ -316,9 +331,7 @@ it('admits legacy failures and capacity or deadline stops while refusing foreign
 	const stop = buildStudyStop()
 	for (const cause of STUDY_STOP_CAUSES)
 		expect(isStudyCustodyFailure({ cause, message: 'Capped', stop })).toBe(true)
-	expect(isStudyCustodyFailure({ cause: 'capacity', message: 'Capped', role: 'summary' })).toBe(
-		true,
-	)
+	expect(isStudyCustodyFailure({ cause: 'capacity', message: 'Capped', role: 'judge' })).toBe(true)
 	expect(isStudyCustodyFailure({ cause: 'capacity', message: 'Capped', stop, extra: true })).toBe(
 		false,
 	)

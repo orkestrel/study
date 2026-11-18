@@ -143,14 +143,14 @@ describe('StudySeries', () => {
 		const manifest = buildCompactCustodyManifest()
 		const refused: StudyFailure = {
 			cause: 'content',
-			message: 'Summary content was unusable',
-			role: 'summary',
+			message: 'Judge content was unusable',
+			role: 'judge',
 			stop: undefined,
 		}
 		const driver = createStudyDriverFixture({
 			execute: async (_goal, context): Promise<StudyProduct> => {
-				const ticket = await context.meter.admit({ role: 'summary', tokens: 10, bytes: 10 })
-				ticket.finish({ role: 'summary', calls: 1, tokens: 7, bytes: 9, duration: 1 })
+				const ticket = await context.meter.admit({ role: 'judge', tokens: 10, bytes: 10 })
+				ticket.finish({ role: 'judge', calls: 1, tokens: 7, bytes: 9, duration: 1 })
 				throw new StudyError('FAULT', refused.message, refused)
 			},
 		})
@@ -176,7 +176,7 @@ describe('StudySeries', () => {
 		expect(first?.observations[0]?.failure).toEqual(refused)
 		expect(first?.observations[0]?.product).toBeUndefined()
 		expect(first?.observations[0]?.usage).toMatchObject([
-			{ role: 'summary', calls: 1, tokens: 7, bytes: 9 },
+			{ role: 'judge', calls: 1, tokens: 7, bytes: 9 },
 		])
 		expect(first?.observations[1]?.failure).toEqual({
 			...refused,
@@ -191,7 +191,7 @@ describe('StudySeries', () => {
 				(observation) =>
 					observation.product === undefined &&
 					observation.failure?.cause === 'content' &&
-					observation.failure.role === 'summary' &&
+					observation.failure.role === 'judge' &&
 					observation.failure.message === `Goal unexecuted: ${refused.message}`,
 			),
 		).toBe(true)

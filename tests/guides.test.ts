@@ -48,27 +48,22 @@ await new GuideCommand({
 	const { writeFile } = await import('node:fs/promises')
 	const {
 		STUDY_AGENT_MESSAGES,
-		STUDY_AGENT_PROJECTION,
 		STUDY_OLLAMA_FIXTURE,
 		STUDY_OLLAMA_OPTIONS,
 		STUDY_OLLAMA_PROVIDER,
 		STUDY_SCRIPT_MANY_CALLS,
 		STUDY_SCRIPT_MESSAGES,
-		STUDY_SUMMARY_MESSAGES,
 		buildCustodyManifest,
 		buildCustodyAttempt,
-		buildOllamaReplies,
 		buildStudyDaemonProvider,
 		buildStudyProfile,
 		buildStudyRubric,
 		buildStudyScriptResponse,
 		createOllamaReply,
-		createStudyAgentSummary,
 		createStudyAgentTrace,
 		createStudyScriptFixture,
 		createStudyScriptMeter,
 		createStudySinkFixture,
-		readOllamaMessages,
 	} = await import('./setupStudy.js')
 	const {
 		retainStudyFixture,
@@ -510,56 +505,22 @@ await new GuideCommand({
 		expect(trace.goal).toBeUndefined()
 	})
 
-	it('refuses a summary projection that reaches the limit before any request and sends the canonical array below it', async () => {
-		const options = { replies: buildOllamaReplies('Recap'), observe: false }
-		const refused = createStudyAgentSummary({ ...options, limit: STUDY_AGENT_PROJECTION })
-		refused.trace.start('write')
-		await expect(
-			refused.summary.summarize(STUDY_SUMMARY_MESSAGES, undefined),
-		).rejects.toMatchObject({ code: 'CAPACITY' })
-		expect(refused.wire.requests).toEqual([])
-		const admitted = createStudyAgentSummary({ ...options, limit: STUDY_AGENT_PROJECTION + 1 })
-		admitted.trace.start('write')
-		await expect(admitted.summary.summarize(STUDY_SUMMARY_MESSAGES, undefined)).resolves.toBe(
-			'Recap',
-		)
-		expect(readOllamaMessages(admitted.wire.requests[0]?.body ?? '').slice(-3)).toEqual([
-			{ role: 'user', content: 'First arrival' },
-			{ role: 'assistant', content: 'First answer' },
-			{ role: 'user', content: 'Fold the conversation.' },
-		])
-		const idle = createStudyAgentSummary({ ...options, limit: STUDY_AGENT_PROJECTION + 1 })
-		await expect(idle.summary.summarize(STUDY_SUMMARY_MESSAGES, undefined)).rejects.toMatchObject({
-			code: 'FAULT',
-		})
-		const blank = createStudyAgentSummary({
-			replies: buildOllamaReplies('  '),
-			observe: false,
-			limit: STUDY_AGENT_PROJECTION + 1,
-		})
-		const sink = createStudySinkFixture()
-		blank.trace.start('write')
-		await expect(blank.summary.summarize(STUDY_SUMMARY_MESSAGES, undefined)).rejects.toMatchObject({
-			code: 'FAULT',
-		})
-		await blank.trace.flush(sink.sink)
-		expect(sink.rows.map((row) => row.event)).toEqual(['summary'])
-	})
-
 	it('serves a scripted response from an owned snapshot under an explicit byte bound', async () => {
 		const { StudyAgentScript } = server
-		expect(() => new StudyAgentScript({ bytes: -1 })).toThrow(core.StudyError)
-		expect(() => new StudyAgentScript({ bytes: 1.5 })).toThrow(core.StudyError)
+		expect(() => new StudyAgentScript({ bytes: -1, model: 'scripted' })).toThrow(core.StudyError)
+		expect(() => new StudyAgentScript({ bytes: 1.5, model: 'scripted' })).toThrow(core.StudyError)
+		expect(() => new StudyAgentScript({ bytes: 512, model: '' })).toThrow(core.StudyError)
 		const meter = createStudyScriptMeter()
 		try {
 			const call = { id: 'call-1', name: 'lookup', arguments: { id: 'order-1' } }
 			const fixture = createStudyScriptFixture(meter, [
 				buildStudyScriptResponse({ content: 'looking', calls: [call] }),
 			])
-			const script = new StudyAgentScript({ bytes: 512 })
+			const script = new StudyAgentScript({ bytes: 512, model: 'scripted' })
 			script.prepare(fixture.plan)
 			call.arguments.id = 'changed'
 			const result = await script.generate(STUDY_SCRIPT_MESSAGES, meter.control.signal)
+			expect(script.model).toBe('scripted')
 			expect(result.content).toBe('looking')
 			expect(result.tools?.[0]?.arguments).toEqual({ id: 'order-1' })
 		} finally {

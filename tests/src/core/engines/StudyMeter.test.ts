@@ -22,6 +22,18 @@ describe('StudyMeter', () => {
 			}
 		}
 	})
+	it('refuses a summary charge before admission', () => {
+		const fixture = createStudyMeterFixture()
+		try {
+			const charge = { role: 'summary', tokens: 1, bytes: 1 }
+			expect(() => Reflect.apply(fixture.meter.admit, fixture.meter, [charge])).toThrow(
+				'Request admission requires safe nonnegative ceilings',
+			)
+			expect(fixture.control.failure?.cause).toBe('infrastructure')
+		} finally {
+			fixture.close()
+		}
+	})
 	it('retains an owned frozen stop and the first failure after the caller mutates it', () => {
 		const control = new StudyControl()
 		const stop = { ...buildStudyStop() }
@@ -59,7 +71,7 @@ describe('StudyMeter', () => {
 					.admit({ role: 'agent', tokens: 2, bytes: 2 })
 					.finish({ role: 'agent', calls: 1, tokens: 2, bytes: 2, duration: 0 })
 				fixture.meter.admit({ role: 'tool', tokens: 6, bytes: 6 })
-				expect(() => fixture.meter.admit({ role: 'summary', tokens: 3, bytes: 3 })).toThrow(
+				expect(() => fixture.meter.admit({ role: 'triage', tokens: 3, bytes: 3 })).toThrow(
 					'cannot admit',
 				)
 				expect(fixture.control.failure?.stop).toEqual({
@@ -175,13 +187,13 @@ describe('StudyMeter', () => {
 			const first = fixture.meter.admit({ role: 'agent', tokens: 8, bytes: 8 })
 			const second = fixture.meter.admit({ role: 'judge', tokens: 2, bytes: 2 })
 			first.finish({ role: 'agent', calls: 1, tokens: 1, bytes: 1, duration: 1 })
-			const third = fixture.meter.admit({ role: 'summary', tokens: 7, bytes: 7 })
+			const third = fixture.meter.admit({ role: 'triage', tokens: 7, bytes: 7 })
 			second.finish({ role: 'judge', calls: 1, tokens: 2, bytes: 2, duration: 1 })
-			third.finish({ role: 'summary', calls: 1, tokens: 7, bytes: 7, duration: 1 })
+			third.finish({ role: 'triage', calls: 1, tokens: 7, bytes: 7, duration: 1 })
 			expect(fixture.meter.usage.map((usage) => [usage.role, usage.tokens])).toEqual([
 				['agent', 1],
 				['judge', 2],
-				['summary', 7],
+				['triage', 7],
 			])
 			expect(fixture.control.failure).toBeUndefined()
 		} finally {
@@ -295,20 +307,20 @@ describe('StudyMeter', () => {
 		const fixture = createStudyMeterFixture({
 			request: { duration: 10, calls: 1, tokens: 10, bytes: 10 },
 		})
-		const ticket = fixture.meter.admit({ role: 'summary', tokens: 8, bytes: 8 })
+		const ticket = fixture.meter.admit({ role: 'triage', tokens: 8, bytes: 8 })
 		await waitForAbort(ticket.signal)
 		fixture.close()
 		expect(fixture.control.failure).toMatchObject({
 			cause: 'deadline',
 			message: 'Request deadline expired',
-			role: 'summary',
+			role: 'triage',
 			stop: { layer: 'scope', id: 'Request duration', max: 10, consumed: expect.any(Number) },
 		})
 		expect(fixture.meter.usage).toMatchObject([
-			{ role: 'summary', calls: 1, tokens: undefined, bytes: undefined },
+			{ role: 'triage', calls: 1, tokens: undefined, bytes: undefined },
 		])
 		expect(() =>
-			ticket.finish({ role: 'summary', calls: 1, tokens: 1, bytes: 1, duration: 1 }),
+			ticket.finish({ role: 'triage', calls: 1, tokens: 1, bytes: 1, duration: 1 }),
 		).toThrow(/late or repeated/)
 		expect(fixture.control.failure?.cause).toBe('deadline')
 	})

@@ -261,10 +261,9 @@ export function isStudyDefinition(value: unknown): value is StudyDefinition {
 /**
  * Checks whether generation room leaves positive context for input.
  * @param value - The candidate room
- * @returns True if input, output and safety allowances fit and any declared recap fits; false otherwise
+ * @returns True if input, output and safety allowances fit; false otherwise
  * @example
  * ```ts
- * isStudyRoom({ context: 20480, output: 8192, safety: 512, recap: 2048, think: true }) // true
  * isStudyRoom({ context: 20480, output: 8192, safety: 512, think: true }) // true
  * ```
  */
@@ -272,13 +271,12 @@ export function isStudyRoom(value: unknown): value is StudyRoom {
 	return holds(() => {
 		if (
 			!isRecord(value) ||
-			!matchesStudyKeys(value, ['context', 'output', 'safety', 'think'], ['recap']) ||
+			!matchesStudyKeys(value, ['context', 'output', 'safety', 'think']) ||
 			typeof value.think !== 'boolean'
 		)
 			return false
-		const declared = value.recap === undefined ? [] : ['recap']
 		if (
-			!['context', 'output', 'safety', ...declared].every(
+			!['context', 'output', 'safety'].every(
 				(key) =>
 					typeof value[key] === 'number' && Number.isSafeInteger(value[key]) && value[key] > 0,
 			)
@@ -288,9 +286,7 @@ export function isStudyRoom(value: unknown): value is StudyRoom {
 			typeof value.context === 'number' &&
 			typeof value.output === 'number' &&
 			typeof value.safety === 'number' &&
-			value.output + value.safety < value.context &&
-			(value.recap === undefined ||
-				(typeof value.recap === 'number' && value.recap + value.safety < value.context))
+			value.output + value.safety < value.context
 		)
 	})
 }

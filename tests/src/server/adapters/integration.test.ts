@@ -80,7 +80,6 @@ describe('admitted Agent over the admitted MCP core client', () => {
 					expect(sumStudyCalls(observation, 'agent')).toBe(2)
 					expect(sumStudyCalls(observation, 'tool')).toBe(1)
 					expect(sumStudyCalls(observation, 'judge')).toBe(0)
-					expect(sumStudyCalls(observation, 'summary')).toBe(0)
 				}
 				// The server executed exactly the three calls, each reached through the subject's client.
 				expect(server.calls).toEqual([{ id: 'order-1' }, { id: 'order-1' }, { id: 'order-1' }])

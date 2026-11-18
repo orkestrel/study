@@ -1,9 +1,8 @@
 import type { Message } from '@orkestrel/agent'
 import { STUDY_STOP_SWITCHES } from '../../../setupStudy.js'
-import { estimateRequest } from '@orkestrel/agent'
 import { describe, expect, it } from 'vitest'
 import { captureError, waitForAbort } from '@orkestrel/test'
-import { createTokenBudget, createBudget } from '@orkestrel/budget'
+import { createTokenBudget } from '@orkestrel/budget'
 import { executeStudyAgentSeries, buildCompactCustodyManifest } from '../../../setupStudy.js'
 import { readStudyFailure } from '../../../../src/core/engines/helpers.js'
 import { createForeignBudgetError, createBudgetLookalike } from '../../../setupServer.js'
@@ -15,6 +14,7 @@ import { StudyAgentScript } from '../../../../src/server/agents/StudyAgentScript
 import {
 	STUDY_SCRIPT_CALL,
 	STUDY_SCRIPT_MESSAGES,
+	STUDY_SCRIPT_MODEL,
 	STUDY_SCRIPT_REQUEST,
 	buildStudyScriptResponse,
 	createStudyScriptFixture,
@@ -31,7 +31,7 @@ describe('StudyAgentScript', () => {
 			series: { duration: 1000, calls: 4, tokens: 100, bytes: 4000 },
 		})
 		try {
-			const script = new StudyAgentScript({ bytes: 1000 })
+			const script = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 			script.prepare(
 				createStudyScriptFixture(meter, [buildStudyScriptResponse({ content: 'receipt' })]).plan,
 			)
@@ -157,17 +157,6 @@ describe('StudyAgentScript', () => {
 		})
 	})
 
-	it('keeps a real Agent window refusal through the scripted series', async () => {
-		const window = createBudget({ id: 'room', max: 1, consumer: estimateRequest })
-		const run = await executeStudyAgentSeries({ window, strict: true })
-		expect(run.attempts[0]?.failure).toMatchObject({
-			cause: 'capacity',
-			role: 'agent',
-			stop: { layer: 'window', id: 'Agent window', max: 1, consumed: expect.any(Number) },
-		})
-		expect(run.results).toEqual([])
-	})
-
 	it('keeps a goal allowance refusal through the scripted series', async () => {
 		const manifest = buildCompactCustodyManifest()
 		const run = await executeStudyAgentSeries(
@@ -194,7 +183,7 @@ describe('StudyAgentScript', () => {
 		for (const abandoned of STUDY_STOP_SWITCHES) {
 			const meter = createStudyScriptMeter()
 			try {
-				const script = new StudyAgentScript({ bytes: 1000 })
+				const script = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 				const fixture = createStudyScriptFixture(meter, [
 					buildStudyScriptResponse({ content: 'receipt' }),
 				])
@@ -222,7 +211,7 @@ describe('StudyAgentScript', () => {
 		}
 		const meter = createStudyScriptMeter()
 		try {
-			const script = new StudyAgentScript({ bytes: 1000 })
+			const script = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 			script.prepare(
 				createStudyScriptFixture(meter, [buildStudyScriptResponse({ content: 'receipt' })]).plan,
 			)
@@ -241,7 +230,7 @@ describe('StudyAgentScript', () => {
 	it('serves an actual prior tool result with metered bytes and accountable unknown token usage', async () => {
 		const meter = createStudyScriptMeter()
 		try {
-			const script = new StudyAgentScript({ bytes: 1000 })
+			const script = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 			const fixture = createStudyScriptFixture(meter, [
 				buildStudyScriptResponse({ consume: 'actual-call', bytes: 1000 }),
 			])
@@ -274,7 +263,7 @@ describe('StudyAgentScript', () => {
 	it('charges every scripted call with unknown tokens and positive integer bytes, not only the first', async () => {
 		const meter = createStudyScriptMeter(1000, 100, 3)
 		try {
-			const script = new StudyAgentScript({ bytes: 1000 })
+			const script = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 			script.prepare(
 				createStudyScriptFixture(meter, [
 					buildStudyScriptResponse({ content: 'one' }),
@@ -300,7 +289,7 @@ describe('StudyAgentScript', () => {
 	it('refuses a continuation whose referenced result is absent before any admission', async () => {
 		const meter = createStudyScriptMeter()
 		try {
-			const script = new StudyAgentScript({ bytes: 1000 })
+			const script = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 			const fixture = createStudyScriptFixture(meter, [
 				buildStudyScriptResponse({ consume: 'missing-call' }),
 				buildStudyScriptResponse({ content: 'next' }),
@@ -326,7 +315,7 @@ describe('StudyAgentScript', () => {
 	it('refuses a malformed foreign message before any admission', async () => {
 		const meter = createStudyScriptMeter()
 		try {
-			const script = new StudyAgentScript({ bytes: 1000 })
+			const script = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 			const fixture = createStudyScriptFixture(meter, [
 				buildStudyScriptResponse({ consume: 'actual-call' }),
 			])
@@ -350,7 +339,7 @@ describe('StudyAgentScript', () => {
 	it('refuses an unprepared provider and an exhausted sequence', async () => {
 		const meter = createStudyScriptMeter()
 		try {
-			const script = new StudyAgentScript({ bytes: 1000 })
+			const script = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 			await expect(
 				script.generate(STUDY_SCRIPT_MESSAGES, meter.control.signal),
 			).rejects.toMatchObject({ code: 'CONFIG', message: 'Scripted provider is unavailable' })
@@ -369,7 +358,7 @@ describe('StudyAgentScript', () => {
 	it('refuses concurrent preparation and streaming without spending the running response', async () => {
 		const meter = createStudyScriptMeter(1000, 100, 2)
 		try {
-			const script = new StudyAgentScript({ bytes: 1000 })
+			const script = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 			const fixture = createStudyScriptFixture(meter, [
 				buildStudyScriptResponse({ content: 'first' }),
 				buildStudyScriptResponse({ content: 'second' }),
@@ -398,7 +387,7 @@ describe('StudyAgentScript', () => {
 	it('refuses a second preparation while a goal is prepared and a stream once the goal is cleared', async () => {
 		const meter = createStudyScriptMeter(1000, 100, 2)
 		try {
-			const script = new StudyAgentScript({ bytes: 1000 })
+			const script = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 			const first = createStudyScriptFixture(meter, [buildStudyScriptResponse({ content: 'a1' })])
 			const second = createStudyScriptFixture(meter, [buildStudyScriptResponse({ content: 'b1' })])
 			script.prepare(first.plan)
@@ -429,7 +418,7 @@ describe('StudyAgentScript', () => {
 	it('serves the second goal plan from its first response under the second goal', async () => {
 		const meter = createStudyScriptMeter(1000, 100, 2)
 		try {
-			const script = new StudyAgentScript({ bytes: 1000 })
+			const script = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 			const first = createStudyScriptFixture(meter, [
 				buildStudyScriptResponse({ content: 'a1' }),
 				buildStudyScriptResponse({ content: 'a2' }),
@@ -465,7 +454,7 @@ describe('StudyAgentScript', () => {
 	it('finishes a running stream under its own goal when the goal is cleared', async () => {
 		const meter = createStudyScriptMeter(1000, 100, 2)
 		try {
-			const script = new StudyAgentScript({ bytes: 1000 })
+			const script = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 			const first = createStudyScriptFixture(meter, [buildStudyScriptResponse({ content: 'a1' })])
 			const second = createStudyScriptFixture(meter, [buildStudyScriptResponse({ content: 'b1' })])
 			script.prepare(first.plan)
@@ -492,7 +481,7 @@ describe('StudyAgentScript', () => {
 	it('validates the declared responses on preparation and keeps the prepared goal after a refusal', async () => {
 		const meter = createStudyScriptMeter()
 		try {
-			const script = new StudyAgentScript({ bytes: 1000 })
+			const script = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 			const invalid = createStudyScriptFixture(meter, [
 				buildStudyScriptResponse({
 					calls: [{ id: 'call-1', name: 'lookup', arguments: { n: Number.NaN } }],
@@ -520,7 +509,7 @@ describe('StudyAgentScript', () => {
 	it('serves owned snapshots that later caller mutation cannot change', async () => {
 		const meter = createStudyScriptMeter()
 		try {
-			const script = new StudyAgentScript({ bytes: 1000 })
+			const script = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 			const first = { id: 'call-1', name: 'lookup', arguments: { id: 'order-1' } }
 			const calls = [first]
 			const responses = [buildStudyScriptResponse({ content: 'kept', calls })]
@@ -547,28 +536,40 @@ describe('StudyAgentScript', () => {
 
 	it('requires an explicit nonnegative safe integer byte bound', () => {
 		for (const bytes of [-1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1])
-			expect(() => new StudyAgentScript({ bytes })).toThrow('byte bound')
-		expect(new StudyAgentScript({ bytes: 0 }).name).toBe('scripted-study')
+			expect(() => new StudyAgentScript({ bytes, model: STUDY_SCRIPT_MODEL })).toThrow('byte bound')
+		expect(new StudyAgentScript({ bytes: 0, model: STUDY_SCRIPT_MODEL }).name).toBe(
+			'scripted-study',
+		)
+	})
+
+	it('refuses an empty model and reports the model it serves', () => {
+		expect(captureError(() => new StudyAgentScript({ bytes: 0, model: '' }))).toMatchObject({
+			code: 'CONFIG',
+			message: 'Scripted model must be a non-empty string',
+		})
+		expect(new StudyAgentScript({ bytes: 0, model: STUDY_SCRIPT_MODEL }).model).toBe(
+			STUDY_SCRIPT_MODEL,
+		)
 	})
 
 	it('refuses a request beyond the encoded bound exactly at the boundary before admission', async () => {
 		const meter = createStudyScriptMeter()
 		try {
-			const measuring = new StudyAgentScript({ bytes: 1000 })
+			const measuring = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 			measuring.prepare(
 				createStudyScriptFixture(meter, [buildStudyScriptResponse({ content: 'ok' })]).plan,
 			)
 			await measuring.generate(STUDY_SCRIPT_MESSAGES, meter.control.signal)
 			const encoded = meter.meter.usage[0]?.bytes ?? 0
 			expect(encoded).toBeGreaterThan(0)
-			const exact = new StudyAgentScript({ bytes: encoded })
+			const exact = new StudyAgentScript({ bytes: encoded, model: STUDY_SCRIPT_MODEL })
 			exact.prepare(
 				createStudyScriptFixture(meter, [buildStudyScriptResponse({ content: 'ok' })]).plan,
 			)
 			expect(await exact.generate(STUDY_SCRIPT_MESSAGES, meter.control.signal)).toEqual({
 				content: 'ok',
 			})
-			const short = new StudyAgentScript({ bytes: encoded - 1 })
+			const short = new StudyAgentScript({ bytes: encoded - 1, model: STUDY_SCRIPT_MODEL })
 			const refused = createStudyScriptFixture(meter, [buildStudyScriptResponse({ content: 'ok' })])
 			short.prepare(refused.plan)
 			await expect(
@@ -592,7 +593,7 @@ describe('StudyAgentScript', () => {
 	it('declares the constructor bound as the default admitted bytes', async () => {
 		const meter = createStudyScriptMeter(500)
 		try {
-			const script = new StudyAgentScript({ bytes: 501 })
+			const script = new StudyAgentScript({ bytes: 501, model: STUDY_SCRIPT_MODEL })
 			script.prepare(createStudyScriptFixture(meter, [buildStudyScriptResponse()]).plan)
 			// The default admission is 501 bytes, which the 500-byte request allowance refuses.
 			await expect(
@@ -609,7 +610,7 @@ describe('StudyAgentScript', () => {
 	it('admits one token by default', async () => {
 		const meter = createStudyScriptMeter(1000, 1)
 		try {
-			const script = new StudyAgentScript({ bytes: 1000 })
+			const script = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 			script.prepare(
 				createStudyScriptFixture(meter, [
 					buildStudyScriptResponse({ content: 'ok' }),
@@ -630,7 +631,7 @@ describe('StudyAgentScript', () => {
 	it('retains an admission refusal as evidence and preserves the meter error', async () => {
 		const meter = createStudyScriptMeter()
 		try {
-			const script = new StudyAgentScript({ bytes: 1000 })
+			const script = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 			const fixture = createStudyScriptFixture(meter, [buildStudyScriptResponse({ tokens: 101 })])
 			script.prepare(fixture.plan)
 			await expect(
@@ -652,7 +653,7 @@ describe('StudyAgentScript', () => {
 	it('settles a request whose actual bytes exceed its declared admission as a capacity failure', async () => {
 		const meter = createStudyScriptMeter()
 		try {
-			const script = new StudyAgentScript({ bytes: 1000 })
+			const script = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 			const fixture = createStudyScriptFixture(meter, [
 				buildStudyScriptResponse({ content: 'ok', bytes: 1 }),
 			])
@@ -674,7 +675,7 @@ describe('StudyAgentScript', () => {
 	it('fails the admitted ticket with agent attribution when the run aborts mid-response', async () => {
 		const meter = createStudyScriptMeter()
 		try {
-			const script = new StudyAgentScript({ bytes: 1000 })
+			const script = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 			const fixture = createStudyScriptFixture(meter, [buildStudyScriptResponse({ content: 'ok' })])
 			script.prepare(fixture.plan)
 			const stop = new AbortController()
@@ -705,7 +706,7 @@ describe('StudyAgentScript', () => {
 	it('fails an abandoned stream request with agent attribution and never finishes it as success', async () => {
 		const meter = createStudyScriptMeter()
 		try {
-			const script = new StudyAgentScript({ bytes: 1000 })
+			const script = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 			const fixture = createStudyScriptFixture(meter, [buildStudyScriptResponse({ content: 'ok' })])
 			script.prepare(fixture.plan)
 			const stream = script.stream(STUDY_SCRIPT_MESSAGES, meter.control.signal)
@@ -742,7 +743,7 @@ describe('StudyAgentScript', () => {
 	it('fails the admitted ticket without provider evidence when the run is aborted before dispatch', async () => {
 		const meter = createStudyScriptMeter()
 		try {
-			const script = new StudyAgentScript({ bytes: 1000 })
+			const script = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 			const fixture = createStudyScriptFixture(meter, [buildStudyScriptResponse({ content: 'ok' })])
 			script.prepare(fixture.plan)
 			const stop = new AbortController()
@@ -763,7 +764,7 @@ describe('StudyAgentScript', () => {
 	it('cancels the workload only after the request settles and the cancellation is retained', async () => {
 		const meter = createStudyScriptMeter()
 		try {
-			const script = new StudyAgentScript({ bytes: 1000 })
+			const script = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 			const fixture = createStudyScriptFixture(meter, [
 				buildStudyScriptResponse({ content: 'done', abort: true }),
 			])
@@ -795,8 +796,8 @@ describe('StudyAgentScript', () => {
 		const streamed = createStudyScriptMeter(1000, 100, 2)
 		const generated = createStudyScriptMeter(1000, 100, 2)
 		try {
-			const streaming = new StudyAgentScript({ bytes: 1000 })
-			const generating = new StudyAgentScript({ bytes: 1000 })
+			const streaming = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
+			const generating = new StudyAgentScript({ bytes: 1000, model: STUDY_SCRIPT_MODEL })
 			const streamFixture = createStudyScriptFixture(streamed, responses)
 			const generateFixture = createStudyScriptFixture(generated, responses)
 			streaming.prepare(streamFixture.plan)

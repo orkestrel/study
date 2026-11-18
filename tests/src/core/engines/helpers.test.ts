@@ -55,8 +55,8 @@ describe('study engine error attribution', () => {
 	it('preserves refused completed content with its cause and role through the FAULT code', () => {
 		const failure: StudyFailure = {
 			cause: 'content',
-			message: 'Summary content was unusable',
-			role: 'summary',
+			message: 'Judge content was unusable',
+			role: 'judge',
 			stop: undefined,
 		}
 		const error = failureToStudyError(failure)
@@ -66,9 +66,9 @@ describe('study engine error attribution', () => {
 		expect(readStudyFailure(error)).toEqual({
 			cause: 'content',
 			message: failure.message,
-			role: 'summary',
+			role: 'judge',
 		})
-		expect(readStudyFailure(new StudyError('FAULT', 'Summary content was unusable')).cause).toBe(
+		expect(readStudyFailure(new StudyError('FAULT', 'Judge content was unusable')).cause).toBe(
 			'infrastructure',
 		)
 	})
@@ -278,18 +278,18 @@ describe('failStudyTicket', () => {
 			request: { duration: 10, calls: 1, tokens: 10, bytes: 10 },
 		})
 		try {
-			const ticket = fixture.meter.admit({ role: 'summary', tokens: 8, bytes: 8 })
+			const ticket = fixture.meter.admit({ role: 'judge', tokens: 8, bytes: 8 })
 			await waitForAbort(ticket.signal)
 			expect(ticket.settled).toBe(true)
 			failStudyTicket(ticket, new Error('Work escaped after the deadline'))
 			expect(fixture.meter.usage).toMatchObject([
-				{ role: 'summary', calls: 1, tokens: undefined, bytes: undefined },
+				{ role: 'judge', calls: 1, tokens: undefined, bytes: undefined },
 			])
 			expect(fixture.meter.usage).toHaveLength(1)
 			expect(fixture.control.failure).toEqual({
 				cause: 'deadline',
 				message: 'Request deadline expired',
-				role: 'summary',
+				role: 'judge',
 				stop: { layer: 'scope', id: 'Request duration', max: 10, consumed: expect.any(Number) },
 			})
 		} finally {

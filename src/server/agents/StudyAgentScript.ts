@@ -3,7 +3,7 @@ import type { Message, ProviderDelta, ProviderInterface, ProviderResult } from '
 import type { StudyAgentPlan, StudyAgentResponse, StudyAgentScriptOptions } from './types.js'
 import { StudyError, failStudyTicket } from '@src/core'
 import { isBudgetError } from '@orkestrel/budget'
-import { cloneJSONValue, isArray } from '@orkestrel/contract'
+import { cloneJSONValue, isArray, isNonEmptyString } from '@orkestrel/contract'
 import { randomUUID } from 'node:crypto'
 import { encodeStudyJSON } from '../helpers.js'
 import {
@@ -18,6 +18,7 @@ import { StudyAgentScriptGoal } from './StudyAgentScriptGoal.js'
 export class StudyAgentScript implements ProviderInterface {
 	readonly id = randomUUID()
 	readonly name = 'scripted-study'
+	readonly model: string
 	readonly #bytes: number
 	// The prepared goal; `prepare` binds it and `clear` releases it. A running stream keeps the goal it took its response from.
 	#goal: StudyAgentScriptGoal | undefined
@@ -25,14 +26,18 @@ export class StudyAgentScript implements ProviderInterface {
 	readonly #responses = new Set<StudyAgentResponse>()
 
 	/**
-	 * Binds the encoded byte bound every served request and response must fit.
-	 * @param options - The explicit encoded bound; it is also each response's default admitted bytes
-	 * @throws StudyError - Thrown when the bound is not a nonnegative safe integer
+	 * Binds the encoded byte bound every served request and response must fit, and the model the provider reports.
+	 * @param options - The explicit encoded bound, which is also each response's default admitted bytes, and the model name
+	 * @throws StudyError - Thrown with code `CONFIG` when the bound is not a nonnegative safe integer or the model is not a non-empty string
 	 */
 	constructor(options: StudyAgentScriptOptions) {
-		if (!Number.isSafeInteger(options.bytes) || options.bytes < 0)
+		const { bytes, model } = options
+		if (!Number.isSafeInteger(bytes) || bytes < 0)
 			throw new StudyError('CONFIG', 'Scripted byte bound must be a nonnegative safe integer')
-		this.#bytes = options.bytes
+		if (!isNonEmptyString(model))
+			throw new StudyError('CONFIG', 'Scripted model must be a non-empty string')
+		this.#bytes = bytes
+		this.model = model
 	}
 
 	/**

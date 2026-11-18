@@ -124,7 +124,7 @@ it('describes the first replay member and retains byte details with a maximum-le
 		}),
 	).toContain('member=method')
 	expect(
-		describeStudyReplayDifference(expected, { ...request, role: 'summary', body: changed }),
+		describeStudyReplayDifference(expected, { ...request, role: 'judge', body: changed }),
 	).toContain('member=role')
 	expect(describeStudyReplayDifference(undefined, request)).toContain(`ordinal=${expected.ordinal}`)
 	expect(describeStudyReplayDifference(undefined, request)).toContain('member=none')
@@ -278,16 +278,16 @@ describe('buildStudyOllamaOptions', () => {
 describe('readStudyOllamaFailure', () => {
 	it('retains the native model context limit and prompt reading', () => {
 		expect(
-			readStudyOllamaFailure({ error: STUDY_OLLAMA_NATIVE_ERROR }, 'summary')?.failure?.stop,
+			readStudyOllamaFailure({ error: STUDY_OLLAMA_NATIVE_ERROR }, 'judge')?.failure?.stop,
 		).toEqual({ layer: 'model', id: 'num_ctx', max: 2048, consumed: 8204 })
 	})
 	it.each(STUDY_OLLAMA_FAILURE_CASES)('reads $name as $code', ({ value, status, code, reason }) => {
-		const failure = readStudyOllamaFailure(value, 'summary', status)
+		const failure = readStudyOllamaFailure(value, 'judge', status)
 		expect(failure).toBeInstanceOf(StudyError)
 		expect(failure?.code).toBe(code)
 		expect(failure?.failure).toMatchObject({
 			cause: code === 'CAPACITY' ? 'capacity' : 'infrastructure',
-			role: 'summary',
+			role: 'judge',
 			stop:
 				code === 'CAPACITY'
 					? { layer: 'model', id: 'num_ctx', max: 2048, consumed: 8204 }
@@ -303,11 +303,11 @@ describe('readStudyOllamaFailure', () => {
 })
 
 describe('readStudyOllamaTerminal', () => {
-	it('retains the summary role and unknown usage when terminal counts are malformed', () => {
+	it('retains the judge role and unknown usage when terminal counts are malformed', () => {
 		const error = captureError(() =>
 			readStudyOllamaTerminal(
 				{ ...finished, prompt_eval_count: -1 },
-				{ ...agentRequest, role: 'summary' },
+				{ ...agentRequest, role: 'judge' },
 			),
 		)
 		expect(error).toMatchObject({
@@ -315,13 +315,13 @@ describe('readStudyOllamaTerminal', () => {
 			failure: {
 				cause: 'infrastructure',
 				message: 'Malformed Ollama usage',
-				role: 'summary',
+				role: 'judge',
 			},
 		})
 		expect(readStudyFailure(error)).toEqual({
 			cause: 'infrastructure',
 			message: 'Malformed Ollama usage',
-			role: 'summary',
+			role: 'judge',
 		})
 		expect(error).not.toHaveProperty('prompt')
 		expect(error).not.toHaveProperty('completion')
@@ -468,22 +468,22 @@ describe('validateStudyOllamaCompletion', () => {
 		expect(outcome).toMatchObject({ code, failure: { role: 'agent' } })
 	})
 
-	it('retains the summary role in the failure of a prompt one over the summary room', () => {
-		const summaryRequest: StudyOllamaRequest = { ...agentRequest, role: 'summary' }
+	it('retains the judge role in the failure of a prompt one over the room', () => {
+		const attributed: StudyOllamaRequest = { ...agentRequest, role: 'judge' }
 		const outcome = captureError(() =>
 			validateStudyOllamaCompletion(
 				{ prompt: 32129, completion: 2, reason: 'stop' },
 				room,
-				summaryRequest,
+				attributed,
 			),
 		)
 		expect(outcome).toBeInstanceOf(StudyError)
 		expect(outcome).toMatchObject({
 			code: 'CAPACITY',
 			message: 'Actual prompt exceeded reserved context capacity',
-			failure: { role: 'summary' },
+			failure: { role: 'judge' },
 		})
-		expect(readStudyFailure(outcome)).toMatchObject({ cause: 'capacity', role: 'summary' })
+		expect(readStudyFailure(outcome)).toMatchObject({ cause: 'capacity', role: 'judge' })
 	})
 
 	it('admits the one-token length finish only where the policy declares it', () => {
@@ -564,9 +564,9 @@ describe('readStudyOllamaRequest', () => {
 		const agentOnly = buildOllamaTransportOptions(STUDY_OLLAMA_ORIGIN, {
 			roles: { agent: agentPolicy },
 		})
-		expect(() => readStudyOllamaRequest(agentOnly, 'summary', chat, init)).toThrow(
-			'no declared wire policy',
-		)
+		expect(() =>
+			readStudyOllamaRequest(agentOnly, 'judge', `${STUDY_OLLAMA_ORIGIN}/api/generate`, init),
+		).toThrow('no declared wire policy')
 		expect(() => readStudyOllamaRequest(options, 'tool', chat, init)).toThrow(
 			'no declared wire policy',
 		)

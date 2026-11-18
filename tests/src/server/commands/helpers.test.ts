@@ -320,7 +320,7 @@ describe('study command helpers', () => {
 		)
 		const failure = {
 			cause: 'capacity',
-			role: 'summary',
+			role: 'judge',
 			message: 'Capped',
 			stop: buildStudyStop({ max: undefined, consumed: undefined }),
 		} as const
@@ -332,7 +332,7 @@ describe('study command helpers', () => {
 		).toEqual([
 			{
 				cause: 'capacity',
-				role: 'summary',
+				role: 'judge',
 				layer: 'model',
 				executed: 1,
 				unexecuted: 1,
@@ -352,7 +352,7 @@ describe('study command helpers', () => {
 		const failure = {
 			cause: 'capacity',
 			message: 'Substantive generation reached its output cap',
-			role: 'summary',
+			role: 'judge',
 		}
 		const legacy: unknown = {
 			trial,
@@ -379,7 +379,7 @@ describe('study command helpers', () => {
 					attributions: [
 						{
 							cause: 'capacity',
-							role: 'summary',
+							role: 'judge',
 							layer: null,
 							executed: 1,
 							unexecuted: 0,
@@ -392,7 +392,7 @@ describe('study command helpers', () => {
 					attributions: [
 						{
 							cause: 'capacity',
-							role: 'summary',
+							role: 'judge',
 							layer: null,
 							executed: 1,
 							unexecuted: 1,
@@ -583,8 +583,8 @@ describe('study command helpers', () => {
 		const manifest = buildCustodyManifest()
 		const refused: StudyFailure = {
 			cause: 'content',
-			message: 'Summary content was unusable',
-			role: 'summary',
+			message: 'Judge content was unusable',
+			role: 'judge',
 			stop: undefined,
 		}
 		const attempts = buildStudyOperationAttempts(manifest).map((attempt, index) =>

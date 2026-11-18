@@ -20,7 +20,7 @@ import type {
  * @remarks
  * Inventory and metadata reads use the `metadata` role and need no policy.
  */
-export type StudyOllamaRole = Extract<StudyRole, 'agent' | 'summary' | 'judge' | 'triage'>
+export type StudyOllamaRole = Extract<StudyRole, 'agent' | 'judge' | 'triage'>
 
 /**
  * Declares one model role's exact wire policy.
@@ -101,7 +101,7 @@ export type StudyOllamaStage = 'preflight' | 'execution' | 'postflight' | 'maint
  * @remarks
  * Ordinal is a positive, contiguous, one-based position among declared model steps in a trial.
  * Metadata and maintenance have their own sidecar ordinals and consume no model-step position.
- * Path is /api/chat for agent or summary, /api/generate for judge, and /v1/systemone for triage.
+ * Path is /api/chat for agent, /api/generate for judge, and /v1/systemone for triage.
  * Triage declares a System One policy; the other model roles declare a generation policy.
  * Goal must be a declared member of the trial. Policy is checked before body collection and again before sending.
  */
@@ -157,10 +157,7 @@ export interface StudyOllamaReplaySelection {
 }
 
 /** Names the roles a keyed replay can serve. */
-export type StudyOllamaKeyedRole = Extract<
-	StudyRole,
-	'agent' | 'judge' | 'triage' | 'summary' | 'metadata'
->
+export type StudyOllamaKeyedRole = Extract<StudyRole, 'agent' | 'judge' | 'triage' | 'metadata'>
 
 /**
  * Selects a sealed recording and the roles a keyed replay serves from it.

@@ -115,7 +115,7 @@ describe('buildStudyOllamaTransportOptions', () => {
 			room: { ...options.room },
 			roles: { agent: { ...agentPolicy, options: { ...agentPolicy.options } } },
 		}
-		Reflect.set(caller.roles, 'summary', undefined)
+		Reflect.set(caller.roles, 'judge', undefined)
 		const owned = buildStudyOllamaTransportOptions(caller)
 		Reflect.set(caller.room, 'context', 1)
 		Reflect.set(caller.roles.agent, 'strict', true)
@@ -123,7 +123,18 @@ describe('buildStudyOllamaTransportOptions', () => {
 		expect(owned.room.context).toBe(options.room.context)
 		expect(owned.roles.agent?.strict).toBe(false)
 		expect(owned.roles.agent?.options).toEqual(agentPolicy.options)
-		expect('summary' in owned.roles).toBe(false)
+		expect('judge' in owned.roles).toBe(false)
+	})
+
+	it('refuses a summary policy with CONFIG', () => {
+		for (const policy of [agentPolicy, undefined]) {
+			const caller = { ...options, roles: { ...options.roles } }
+			Reflect.set(caller.roles, 'summary', policy)
+			expect(captureError(() => buildStudyOllamaTransportOptions(caller))).toMatchObject({
+				code: 'CONFIG',
+				message: 'Ollama transport declares a policy for a role it does not dispatch',
+			})
+		}
 	})
 
 	it('reads each caller member once', () => {

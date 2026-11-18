@@ -491,10 +491,7 @@ export function isStudyExchangeIdentity(value: unknown): value is StudyExchangeI
 			return false
 		if (value.stage === 'execution')
 			return (
-				(value.role === 'agent' ||
-					value.role === 'summary' ||
-					value.role === 'judge' ||
-					value.role === 'triage') &&
+				(value.role === 'agent' || value.role === 'judge' || value.role === 'triage') &&
 				value.method === 'POST' &&
 				value.path ===
 					(value.role === 'triage'
