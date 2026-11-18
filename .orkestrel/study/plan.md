@@ -2,17 +2,17 @@
 
 ## Goal
 
-Move the generic study machinery that Study, Agent, and taverna each duplicate into the package that owns it. The Ollama protocol fixture goes to `@orkestrel/ollama/server`. The install, rehearsal, context, grader, role, and quantile helpers go to `@orkestrel/study`. Reorganize Agent's studies so each kept study answers one question, records and compaction run as separate executions that can't run together, and `test:studies` runs green and faster.
+Move the generic study machinery that Study, Agent, and taverna each duplicate into the package that owns it. The Ollama protocol fixture goes to `@orkestrel/ollama/server`. The install, rehearsal, rows, and quantile helpers go to `@orkestrel/study`. Reorganize Agent's studies so each kept study answers one question on the records strategy alone, on the 4B model, and `test:studies` runs green and faster.
 
 ## Exit criterion
 
 All of the following hold:
 - `@orkestrel/ollama` 0.0.41 and `@orkestrel/study` 0.0.23 serve the additions the design fixes, each release reviewed and gated;
 - Agent depends on them, with its local copies deleted and no alias;
-- Agent declares records and compaction in separate studies, behind a standing refusal of any declaration that names both;
-- Agent has cut the `tools` and `context` studies, the labeling harness, and the `narrow` profile;
+- Agent declares the four `records*` memory studies and no compaction study, profile, or arm (the user's ruling of 2026-11-18; the records-native work removes compaction from Agent itself);
+- Agent has cut the `tools` and `context` studies, the labeling harness, and the `narrow` and 2B profiles;
 - Agent's `npm run test:studies` reads green, with a wall time below the U0 baseline;
-- after U6, each kept study holds one fresh sealed baseline, with records and compaction in separate executions, each rehearsed first;
+- after the records-native work's last unit (its D1), each kept study holds one fresh sealed baseline on the 4B, each rehearsed first;
 - a written comparison of each new baseline against the earlier readings shows no unexplained anomaly;
 - the earlier results are deleted and the documents cite the new baseline, with no protected path read or removed.
 
@@ -20,9 +20,9 @@ All of the following hold:
 
 | Package | Repository | Change |
 | --- | --- | --- |
-| `@orkestrel/study` | https://github.com/orkestrel/study | Additions per § Rulings, release 0.0.23 |
-| `@orkestrel/ollama` | https://github.com/orkestrel/ollama | `createOllamaFixture`, release 0.0.41 |
-| `@orkestrel/agent` | https://github.com/orkestrel/agent | studies reorganized, devDependencies re-pinned, no release |
+| `@orkestrel/study` | https://github.com/orkestrel/study | Additions per § Rulings, release 0.0.23; the records-native work's S1 later removes Study's compaction pieces in a later release |
+| `@orkestrel/ollama` | https://github.com/orkestrel/ollama | `createOllamaFixture`, release 0.0.41 (`1e78302`); the records-native work's O0 (0.0.42) and O1 follow |
+| `@orkestrel/agent` | https://github.com/orkestrel/agent | studies reorganized, devDependencies re-pinned, no release from this campaign; its records-native release is that work's |
 
 Taverna's studies retire at taverna `cbd960ef` with no further run. Nothing in taverna changes.
 
@@ -62,10 +62,10 @@ A read-only consultation set these rulings on 2026-11-17. The campaign's design 
 
 Agent's reorganization:
 - **Keep and simplify** `chat` and `disclosure`.
-- **Replace** `memory`, `capacity`, `endurance`, and `qualification` with the eight single-strategy declarations of `designs/split.md`.
+- **Replace** `memory`, `capacity`, `endurance`, and `qualification` with single-strategy declarations: agent `2a7c4e9f` landed the eight of `designs/split.md`, and the user's ruling of 2026-11-18 keeps only the four `records*` (`recordsmemory`, `recordscapacity`, `recordsendurance`, `recordsqualification`) with `full` as the handoff control, on the `recordslocal` and `recordsrecommended` profiles, names kept through U7c.
 - **Cut** `tools` and `context` after a claim-by-claim coverage check, the labeling harness, and the `narrow` profile.
-- **Records and compaction** run as separate studies, each pair under one strategy profile, behind the refusal `validateStudyMemoryStrategy` raises in the adapter's `validate`. No sealed result is rewritten.
-- **The baseline replaces the earlier results.** After U6, record one fresh sealed baseline per kept study through the host lane, each rehearsed first, with records and compaction run separately. Before any long run, give the user the run plan with a time estimate per run.
+- **Compaction leaves** the studies and Agent itself (the user, 2026-11-18): the four `compaction*` declarations, the compaction arm, the compaction and 2B profiles, and `validateStudyMemoryStrategy` go; the adapter keeps the refusal of a declaration with only `full`. The records-native work (in Agent) designs and runs the source removal; this campaign owns the studies' shape. No sealed result is rewritten.
+- **The baseline replaces the earlier results.** After the records-native work's D1, record one fresh sealed baseline per kept study on the 4B through the host lane, each rehearsed first. Before any long run, give the user the run plan with a time estimate per run.
   - Compare each new baseline against the earlier readings: Agent `studies/README.md` § What it measured, the O187 to O199 readings at agent `db86a3eb`, the 2026-11-12 disclosure reading, the `chat` battery rows, and the earlier sealed results in Agent's untracked study output. For each metric, give old against new, the setup difference (declaration split, build, runner, models), and whether that difference explains it.
   - When no anomaly stands, delete the earlier results and replace the readings in Agent's documents; git history keeps the earlier text.
   - When an anomaly stands, stop and report it to the user with its evidence before deleting anything.
@@ -92,7 +92,7 @@ U5, in `@orkestrel/study`:
 
 10. `createStudyInstall` copies exactly the members `study freeze` retains for the same studies and profiles, refuses each input `designs/contracts.md` names, and removes what it made on a refusal.
 11. A rebound profile passes `parseStudyProfile` unchanged.
-12. `StudyInstall.execute` spawns the bin with no inherited `execArgv`, captures both streams, and returns 124 with the process tree terminated at its deadline.
+12. `StudyInstall.execute` spawns the bin with no inherited `execArgv` and captures both streams. At its deadline it returns 124 with the tree a live leader reaches terminated. After any termination it begins, it settles within `STUDY_DRAIN_DURATION` of the later of that moment and the leader's exit. A descendant of an exited leader is beyond reach on every host, as Study's task and trial children already state (U5d; narrowed on 2026-11-18 after the review's O1).
 13. The launcher's own stream bytes, timing, and exit codes are unchanged.
 14. `rehearse` runs freeze, check, execute, read, grade, and report through the closure, and skips each step after a failed one.
 15. `collectStudyRows` rows render one-based through `gradeStudyEvidence`, and `computeStudyQuantile` equals desk's median.
@@ -103,7 +103,7 @@ U5, in `@orkestrel/study`:
 
 A finding outside the claims blocks only when it shows one of these:
 - a built-in answer preempts the callback;
-- a socket, port, or child process survives `destroy` or a deadline;
+- a socket or port survives `destroy`, a reachable child process survives a deadline, or `execute` stays pending after a termination it began;
 - `src/` imports a package outside its declared dependencies;
 - a refused input still has an effect;
 - a builder emits a body Ollama's readers refuse;
@@ -144,6 +144,10 @@ none.
 | F3: the inline unload literal in `DaemonPolicy.reply` (ollama `tests/setupServer.ts`), the shape `buildOllamaAnswer` builds | The next change to `DaemonPolicy` | Ollama |
 | The fixture's unbounded request text without `drain` handling, and unknown event names in `on` | A consumer under realistic load, or a misspelled hook | Ollama |
 | The scaffold catalog's mirrors of `guides/ollama.md` and `guides/study.md` | ollama 0.0.41 and study 0.0.23 serve | scaffold's owner session |
+| `terminateStudyChild` throwing inside `StudyLaunchChild`'s timer and abort listener with no guard (by reading; unverified) | A reading that it throws | Study |
+| Adopting `@orkestrel/process` for every supervised Study child | Study moves every child onto it, or a POSIX descendant in the leader's group must die; the dependency needs the user's go-ahead | Study and the user |
+| A sparse top-logprob list handed directly to Ollama's `computeAnswer` throws a `TypeError` at the hole | A direct caller passes a sparse list | Ollama |
+| `StudyCommand`'s inline `--trial` and `--goals` rendering beside `buildStudySelectors`, with a different seed rendering | The next change to `StudyCommand`'s selection argv | Study |
 
 ## ROADMAP triggers
 
@@ -159,26 +163,24 @@ none.
 - 2026-11-17, probe U1 settled keyed-replay qualification, the second rubric, and the fixture's callback-first order, and the design round reconciled into `designs/contracts.md` and `designs/split.md`.
 - 2026-11-17, the closing round's visits landed and pushed: agent `571f6989` (devDependencies at study `^0.0.22` and ollama `^0.0.40`), ollama `36f5653`, and study `9828cc3`.
 - 2026-11-17, the carry check on the five top-level records sent three Agent-side items to A1, U7, and U7c: the memory grader's whole-attempt rule, compaction's request-room admission at goal `ev-16-4`, and the rate of blank recaps. On the user's go-ahead the five records were pruned; the prune commit carries the promotion record.
-- Next: dispatch U5 (phases B then A) in study and U4 (phases A then B) in ollama. Agent's owner runs U0's proof, then U2, U3, and A1.
+- 2026-11-17, U0's proof read green (agent `571f6989`); U2 landed (agent `f679477e`, `e0c8e59d`, `147ba8eb`, `1c937991`); U3's Agent-side cases landed (agent `8e041d6b`, `3508558c`); A1 landed (agent `2a7c4e9f`).
+- 2026-11-17, U4 landed in ollama (`086cfe3`, `ae3b947`) and ollama 0.0.41 published from `1e78302`.
+- 2026-11-18, the user ruled records the one native strategy: compaction and the 2B leave the studies and Agent itself. The records-native work, in Agent, runs the source removal. The baseline stays in this campaign and runs after that work's D1 (ledger).
+- 2026-11-18, U5's phases B, B2, and A landed (study `322eed7`) after one review, two repair rounds, a re-audit, and the Orchestrator's closure check. Ollama O0 landed (ollama `019c8ee`), and 0.0.42's chain is green, awaiting the user's word on its live service run.
+- Next: the U5d probe on both arms, then U5c; the U3 deletion in Agent.
 
 ## Sequence
 
 | Unit | Repository | Owner | Depends on | Release |
 | --- | --- | --- | --- | --- |
-| U0: Agent devDependency re-pin; proof `test:studies` green (2 failing before) | agent | closing round, then agent's owner | none | none |
-| U1: probes for keyed-replay qualification, a second rubric, and one fixture serving both reply policies; closed, its cases promote in U4, U5, and A1 | study, untracked | `opus` | none | none |
-| U2: cut the labeling harness, retire `narrow`, hoist the `chat` system text at the conversion | agent | agent's owner | U0 | none |
-| U3: coverage check, then cut `tools` and `context` | agent | agent's owner | U0 | none |
-| A1: the split of `designs/split.md`, the refusal, the memory test split and trims | agent | agent's owner | U2 | none |
-| U4a: `OllamaFixture` and its builders | ollama | `opus` | the closing round's ollama visit | none |
-| U4b: Ollama's tests adopt the fixture | ollama | `opus` | U4a | none |
-| U4 review, document pass, gates, release | ollama | `reviewer`, Orchestrator, `verifier` | U4b | ollama 0.0.41 |
-| U5a: `StudyInstall`, its factory, `rehearse`, and the launcher capture | study | `opus` | the closing round's study visit | none |
-| U5b: `computeStudyQuantile` and `collectStudyRows` | study | `opus` | the closing round's study visit | none |
-| U5c: Study's tests adopt the fixture and the install | study | `opus` | U5a, ollama 0.0.41 published | none |
-| U5 review, document pass, gates, release | study | `reviewer`, Orchestrator, `verifier` | U5b, U5c | study 0.0.23 |
-| U6: Agent adopts: re-pin, then `desk`, then `chat` and `memory` | agent | agent's owner | U5 published | none |
-| U7: the run plan with a time estimate per run, given to the user, then one rehearsed, sealed baseline per kept study, records and compaction separate | agent | agent's owner | U6 | none |
+| U3 deletion: cut `tools` and `context` | agent | agent's owner | study `322eed7` | none |
+| U5d: `StudyLaunchChild` drains its pipes after a termination it began, and claim 12 narrows to the tree a live leader reaches; probe on both arms first | study | `opus` | study `322eed7` | none |
+| U5c: Study's tests adopt `createOllamaFixture` and the install | study | `opus` | U5d | none |
+| U5 review of U5c and U5d, document pass, gates, release | study | `reviewer`, Orchestrator, `verifier` | U5c | study 0.0.23 |
+| Records-native O0: a duplicate top logprob token answers a `Refusal` | ollama | `opus`, Orchestrator | the user's word on the live service run | ollama 0.0.42 |
+| U6 with records-native A4: Agent adopts study 0.0.23 and ollama 0.0.41 or later, deletes its local copies, and cuts the compaction studies and profiles | agent | agent's owner | study 0.0.23, records-native A1 to A3 | none |
+| Records-native O1 and S1: Ollama's and Study's compaction removal | ollama, study | Orchestrator's writers | Agent's records-native release | later releases |
+| U7: the run plan with a time estimate per run, given to the user, then one rehearsed, sealed baseline per kept study on the 4B | agent | agent's owner | records-native D1 | none |
 | U7c: the comparison of each new baseline against the earlier readings, anomalies stopped and reported | agent | agent's owner | U7 | none |
 | U7d: delete the earlier results outside the protected paths, replace the documents' readings | agent | agent's owner | U7c with no anomaly | none |
 | U8: one document pass per repository | all three | each owner | with each release | with each release |
