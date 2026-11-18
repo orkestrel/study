@@ -125,7 +125,7 @@ A finding outside the claims blocks only when it shows one of these:
 
 ## Open decisions
 
-- **Prune the five top-level records** `.orkestrel/metrics.md`, `performance.md`, `promotion.md`, `semantic.md`, and `series.md`. They record the October records and compaction promotion campaign. They name machine-local and ignored paths and sibling repositories outside the tree, which the campaign rule refuses. Run the carry and promotion checks of scaffold `.agents/skills/orkestrel-debrief/references/retention.md`, then present the disposition to the user. Delete only on the user's go-ahead.
+none.
 
 ## Deferrals
 
@@ -154,7 +154,7 @@ A finding outside the claims blocks only when it shows one of these:
 - 2026-11-17, the contract 0.0.26 wave's closing round re-pins Agent's devDependencies to study `^0.0.22` and ollama `^0.0.40`, which covers U0. Its visits to ollama and study run before this campaign's first writer in each.
 - 2026-11-17, probe U1 settled keyed-replay qualification, the second rubric, and the fixture's callback-first order, and the design round reconciled into `designs/contracts.md` and `designs/split.md`.
 - 2026-11-17, the closing round's visits landed and pushed: agent `571f6989` (devDependencies at study `^0.0.22` and ollama `^0.0.40`), ollama `36f5653`, and study `9828cc3`.
-- 2026-11-17, the carry check on the five top-level records sent three Agent-side items to A1, U7, and U7c: the memory grader's whole-attempt rule, compaction's request-room admission at goal `ev-16-4`, and the rate of blank recaps.
+- 2026-11-17, the carry check on the five top-level records sent three Agent-side items to A1, U7, and U7c: the memory grader's whole-attempt rule, compaction's request-room admission at goal `ev-16-4`, and the rate of blank recaps. On the user's go-ahead the five records were pruned; the prune commit carries the promotion record.
 - Next: dispatch U5 (phases B then A) in study and U4 (phases A then B) in ollama. Agent's owner runs U0's proof, then U2, U3, and A1.
 
 ## Sequence
