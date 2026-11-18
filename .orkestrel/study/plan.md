@@ -46,7 +46,7 @@ A read-only consultation set these rulings on 2026-11-17. The campaign's design 
 | --- | --- | --- |
 | Ollama protocol fixture | In, callback first, with no built-in reply policy | `@orkestrel/ollama/server`: `OllamaFixture`, `createOllamaFixture`, `buildOllamaReply`, `buildOllamaReadout`, `buildOllamaInventory`, `buildOllamaAnswer` |
 | Install, command runner, and rehearsal | In, as one entity: `StudyInstall` with `execute` and `rehearse`, built by `createStudyInstall` over `ArtifactLoader.materialize` | Study `./server` |
-| Profile rebind, selectors, runtime walk, model deduplication | In | Study `./server`: `buildStudyFixtureProfile`, `buildStudySelectors`, `collectStudyRuntime`, `collectStudyOllamaModels` |
+| Profile rebind, selectors, freeze's member selection, model deduplication | In | Study `./server`: `buildStudyFixtureProfile`, `buildStudySelectors`, `buildStudyFreezeOptions`, `collectStudyOllamaModels` |
 | Zero-based evidence rows | In | Study `./server`: `collectStudyRows` |
 | Quantile | In, linear interpolation | Study core: `computeStudyQuantile` |
 | `createStudyContext` | Deferred: the engine assembles at three lifetimes | none |
@@ -90,7 +90,7 @@ U4, in `@orkestrel/ollama/server`:
 
 U5, in `@orkestrel/study`:
 
-10. `createStudyInstall` copies exactly the members `study freeze` retains, refuses each input `designs/contracts.md` names, removes what it made on a refusal, and copies no file planted under `sources/private/`.
+10. `createStudyInstall` copies exactly the members `study freeze` retains for the same studies and profiles, refuses each input `designs/contracts.md` names, and removes what it made on a refusal.
 11. A rebound profile passes `parseStudyProfile` unchanged.
 12. `StudyInstall.execute` spawns the bin with no inherited `execArgv`, captures both streams, and returns 124 with the process tree terminated at its deadline.
 13. The launcher's own stream bytes, timing, and exit codes are unchanged.
@@ -140,6 +140,10 @@ none.
 | Fault-policy builders published by Ollama | A second package needs them | Ollama |
 | Per-model `context` in `/api/show` | A consumer with mixed context windows | Ollama |
 | An endurance control arm | The user asks for that comparison | Agent |
+| F1: the fixture's untested `error` emission in the window between `destroy()` starting and the emitter's destruction | The next change to the fixture's teardown | Ollama |
+| F3: the inline unload literal in `DaemonPolicy.reply` (ollama `tests/setupServer.ts`), the shape `buildOllamaAnswer` builds | The next change to `DaemonPolicy` | Ollama |
+| The fixture's unbounded request text without `drain` handling, and unknown event names in `on` | A consumer under realistic load, or a misspelled hook | Ollama |
+| The scaffold catalog's mirrors of `guides/ollama.md` and `guides/study.md` | ollama 0.0.41 and study 0.0.23 serve | scaffold's owner session |
 
 ## ROADMAP triggers
 
