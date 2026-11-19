@@ -1,3 +1,4 @@
+import type { StudyJudgment } from '../../../../src/core/types.js'
 import { requireValue } from '@orkestrel/test'
 import { createScratch } from '@orkestrel/test/server'
 import { appendFile, readFile } from 'node:fs/promises'
@@ -230,7 +231,7 @@ describe('StudyGradingStore', () => {
 		}
 	}, 10000)
 
-	it('reads a version against the verified reading it holds and reads the execution again before a write publishes', async () => {
+	it('refuses a read and a write once the execution changes after the store was built', async () => {
 		const scratch = createScratch()
 		try {
 			const result = await retainStudyFixture(
@@ -246,7 +247,7 @@ describe('StudyGradingStore', () => {
 				join(result.directory, 'execution', 'trials', trial.id, 'evidence.jsonl'),
 				'{"event":"saved","goal":"write","value":"saved:fabricated"}\n',
 			)
-			await expect(grades.read(id)).resolves.toEqual({ ...assessment, labels: undefined })
+			await expect(grades.read(id)).rejects.toMatchObject({ code: 'CUSTODY' })
 			await expect(grades.write({ ...assessment, grader: 'after-tamper' })).rejects.toMatchObject({
 				code: 'CUSTODY',
 			})
@@ -259,6 +260,10 @@ describe('StudyGradingStore', () => {
 	it('validates a labeled grading in time that grows linearly with its packet rows', async () => {
 		const scratch = createScratch()
 		try {
+			// A first write warms the code paths, so neither measured write pays for compilation.
+			await measureStudyLabeledWrite(
+				await retainStudyLabeledFixture(join(scratch.path, 'warm'), 16),
+			)
 			const small = await measureStudyLabeledWrite(
 				await retainStudyLabeledFixture(join(scratch.path, 'small'), 64),
 			)
@@ -271,6 +276,36 @@ describe('StudyGradingStore', () => {
 			scratch.destroy()
 		}
 	}, 120000)
+
+	it('refuses a grading that leaves an imported label unrecorded', async () => {
+		const scratch = createScratch()
+		try {
+			const fixture = await retainStudyLabeledFixture(join(scratch.path, 'result'), 3)
+			const store = new StudyAssessmentStore({
+				result: fixture.result,
+				rubric: fixture.rubric,
+				labels: fixture.labels,
+				packet: fixture.packet,
+			})
+			const [first, ...rest] = fixture.assessment.judgments
+			const unlabeled: StudyJudgment = {
+				...requireValue(first),
+				verdict: 'unknown',
+				method: 'human',
+				reason: 'No label in the selected imported packet',
+				references: [],
+			}
+			await expect(
+				store.write({ ...fixture.assessment, judgments: [unlabeled, ...rest] }),
+			).rejects.toMatchObject({
+				code: 'EVIDENCE',
+				message: 'Imported label is absent or differs from its recorded judgment',
+			})
+			expect(scratch.has('result/grades')).toBe(false)
+		} finally {
+			scratch.destroy()
+		}
+	}, 20000)
 
 	it('translates its imported labels through the verified horizon, and none without labels', async () => {
 		const scratch = createScratch()

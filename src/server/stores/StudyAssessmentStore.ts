@@ -62,7 +62,7 @@ export class StudyAssessmentStore {
 	 * @throws StudyError - Thrown when imported bytes exceed bounds or fail validation
 	 * @remarks
 	 * The store validates every version against the verified reading `options.result` holds, and
-	 * reads the execution again only right before a write publishes.
+	 * reads the execution again around every read and right before a write publishes.
 	 */
 	constructor(options: StudyAssessmentStoreOptions) {
 		if (options.result.status !== 'sealed')
@@ -146,10 +146,11 @@ export class StudyAssessmentStore {
 	 * @param id - The grading-byte SHA-256 identity
 	 * @returns The verified assessment, or undefined when the version does not exist
 	 * @throws StudyError - Thrown when an existing version is partial or tampered
-	 * @remarks It validates the version against the store's verified execution reading and reads no execution byte.
+	 * @remarks It reads the execution again before and after it reads the version, refusing one that no longer matches the verified reading's seal, and validates the version against that verified reading.
 	 */
 	async read(id: string): Promise<StudyAssessment | undefined> {
 		if (!isStudyDigest(id)) throw new StudyError('EVIDENCE', 'Invalid grading identity')
+		await this.#verifyResult()
 		const directory = join(this.#result.directory, 'grades', id)
 		try {
 			await lstat(directory)
@@ -203,6 +204,7 @@ export class StudyAssessmentStore {
 						),
 					}
 		this.#validate(assessment, rubric, labels, packet)
+		await this.#verifyResult()
 		return assessment
 	}
 
