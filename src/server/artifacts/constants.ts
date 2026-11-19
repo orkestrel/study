@@ -15,6 +15,18 @@ export const ARTIFACT_DEPTH = 64
 
 /** Bounds selected package roots before traversal begins. */
 export const ARTIFACT_ROOTS = 128
+
+/** Lists the top-level package-root manifest members that state install intent, which a manifest digest deletes whole. */
+export const ARTIFACT_MANIFEST_INTENT: readonly string[] = Object.freeze([
+	'dependencies',
+	'devDependencies',
+	'peerDependencies',
+	'peerDependenciesMeta',
+	'optionalDependencies',
+	'bundleDependencies',
+	'bundledDependencies',
+	'overrides',
+])
 import type { ArtifactErrorCode } from './types.js'
 
 /** Marks artifact errors across module formats and installations. */

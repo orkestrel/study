@@ -27,6 +27,7 @@ import { containsArtifact, hashStudyBytes, matchesSystemError } from '../helpers
 import { ArtifactError, isArtifactError } from './errors.js'
 import {
 	computeArtifactClosureDigest,
+	computeArtifactManifestDigest,
 	iterateArtifactEntries,
 	matchesArtifactOverlap,
 	readArtifact,
@@ -211,6 +212,7 @@ export class ArtifactLoader implements ArtifactLoaderInterface {
 			const token = randomUUID()
 			const resolution = new Resolution({
 				token,
+				roots: this.#options.roots,
 				files: this.#sources.filter(
 					(file) =>
 						this.#options.roots.some(
@@ -432,7 +434,7 @@ export class ArtifactLoader implements ArtifactLoaderInterface {
 					sources,
 					false,
 					0,
-					this.#append(join(root, 'package.json'), sources, counted),
+					this.#append(join(root, 'package.json'), sources, counted, true),
 				)
 			},
 			Object.freeze({ visits: 0, bytes: 0 }),
@@ -468,12 +470,17 @@ export class ArtifactLoader implements ArtifactLoaderInterface {
 		}, tally)
 	}
 
-	// Reads one admitted file under the bytes that remain and returns the tally including it.
-	#append(path: string, sources: ArtifactSource[], tally: ArtifactTally): ArtifactTally {
+	// Reads one admitted file under the bytes that remain and returns the tally including it; a package root's manifest keeps its bytes and takes its projection digest.
+	#append(
+		path: string,
+		sources: ArtifactSource[],
+		tally: ArtifactTally,
+		manifest = false,
+	): ArtifactTally {
 		if (sources.length >= ARTIFACT_FILES)
 			throw new ArtifactError('Artifact file count limit exceeded')
 		const file = readArtifact(path, ARTIFACT_BYTES - tally.bytes)
-		sources.push(file)
+		sources.push(manifest ? { ...file, digest: computeArtifactManifestDigest(file.source) } : file)
 		return Object.freeze({ visits: tally.visits, bytes: tally.bytes + file.size })
 	}
 

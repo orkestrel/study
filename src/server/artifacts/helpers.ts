@@ -24,6 +24,7 @@ import {
 	ARTIFACT_DEPTH,
 	ARTIFACT_FILES,
 	ARTIFACT_FILE_BYTES,
+	ARTIFACT_MANIFEST_INTENT,
 	ARTIFACT_VISITS,
 } from './constants.js'
 import { ArtifactError } from './errors.js'
@@ -188,6 +189,8 @@ export function relocateArtifactPath(closure: ArtifactClosure, path: string): st
 }
 
 /** Computes a destination-independent digest of members and relative package identities.
+ * @remarks
+ * A package root's manifest member binds by its projection digest alone, without its byte size.
  * @param members - Complete copied membership, with source provenance excluded from identity.
  * @param packages - Package identities with relocated roots.
  * @param destination - The common destination directory.
@@ -204,10 +207,17 @@ export function computeArtifactClosureDigest(
 	packages: readonly ArtifactPackage[],
 	destination: string,
 ): string {
+	const manifests = packages.map((entry) =>
+		relative(destination, join(entry.root, 'package.json')).split(sep).join('/'),
+	)
 	return hashStudyBytes(
 		encodeStudyJSON({
 			members: members
-				.map(({ key, digest, size }) => ({ key, digest, size }))
+				.map(({ key, digest, size }) => ({
+					key,
+					digest,
+					size: manifests.includes(key) ? undefined : size,
+				}))
 				.toSorted((left, right) => (left.key < right.key ? -1 : left.key > right.key ? 1 : 0)),
 			packages: packages
 				.map((entry) => ({
@@ -233,6 +243,8 @@ export function computeArtifactRuntimeDigest(inventory: ArtifactInventory): stri
 }
 
 /** Computes a location-independent identity of captured code and selected entries.
+ * @remarks
+ * A package root's manifest binds by its projection digest alone, without its byte size.
  * @param inventory - The code inventory, without custody-only assets.
  * @param entry - The trusted Study executable's byte digest; undefined leaves the executable out of the identity.
  * @returns The SHA-256 identity relative to the admitted roots' common base.
@@ -244,9 +256,8 @@ export function computeArtifactRuntimeDigest(inventory: ArtifactInventory): stri
  * ```
  */
 export function computeArtifactContentDigest(inventory: ArtifactInventory, entry?: string): string {
-	const base = resolveArtifactBase(
-		inventory.packages.map((member) => join(member.root, 'package.json')),
-	)
+	const manifests = inventory.packages.map((member) => join(member.root, 'package.json'))
+	const base = resolveArtifactBase(manifests)
 	return hashStudyBytes(
 		encodeStudyJSON({
 			entry,
@@ -265,7 +276,7 @@ export function computeArtifactContentDigest(inventory: ArtifactInventory, entry
 				.map(({ path, digest, size }) => ({
 					key: relative(base, path).split(sep).join('/'),
 					digest,
-					size,
+					size: manifests.includes(path) ? undefined : size,
 				}))
 				.toSorted((left, right) => (left.key < right.key ? -1 : left.key > right.key ? 1 : 0)),
 		}),
@@ -339,9 +350,15 @@ export function verifyArtifactClosure(closure: ArtifactClosure, published = fals
 		throw new ArtifactError('Artifact closure exceeds its capture allowance', 'LIMIT')
 	if (new Set(files.map((file) => file.identity)).size !== files.length)
 		throw new ArtifactError('Artifact members have a physical alias', 'ALIAS')
+	const manifests = new Set(closure.options.roots.map((root) => join(root, 'package.json')))
 	for (const member of closure.members) {
-		const file = readArtifact(resolveArtifactMember(closure.destination, member.key))
-		if (file.digest !== member.digest || file.size !== member.size)
+		const path = resolveArtifactMember(closure.destination, member.key)
+		const file = readArtifact(path)
+		if (
+			manifests.has(path)
+				? computeArtifactManifestDigest(file.source) !== member.digest
+				: file.digest !== member.digest || file.size !== member.size
+		)
 			throw new ArtifactError('Artifact closure bytes drifted', 'DRIFT')
 	}
 	const selected = [
@@ -402,6 +419,32 @@ export function* iterateArtifactEntries(handle: Dir): Generator<Dirent, void> {
 		if (entry === null) return
 		yield entry
 	}
+}
+
+/** Computes a package-root manifest's identity: its parsed JSON with each install intent member deleted whole, serialized by `JSON.stringify` in the remaining member order.
+ * @remarks
+ * Capture and every later comparison of a package root's `package.json` use this digest; the
+ * captured copy keeps its exact bytes.
+ * @param source - The manifest's exact bytes.
+ * @returns The SHA-256 digest of the projection's text.
+ * @throws ArtifactError - Thrown when the bytes do not parse as a JSON object.
+ * @example
+ * ```ts
+ * const declared = Buffer.from('{"name":"fixture","version":"1.0.0","dependencies":{"helper":"^1.0.0"}}')
+ * const bare = Buffer.from('{"name":"fixture","version":"1.0.0"}')
+ * computeArtifactManifestDigest(declared) === computeArtifactManifestDigest(bare) // true
+ * ```
+ */
+export function computeArtifactManifestDigest(source: Uint8Array): string {
+	const value = parseJSON(Buffer.from(source).toString('utf8'))
+	if (!isRecord(value)) throw new ArtifactError('Artifact manifest is not a JSON object')
+	return hashStudyBytes(
+		JSON.stringify(
+			Object.fromEntries(
+				Object.entries(value).filter(([key]) => !ARTIFACT_MANIFEST_INTENT.includes(key)),
+			),
+		),
+	)
 }
 
 /** Reads a bounded regular file only through its canonical absolute path.

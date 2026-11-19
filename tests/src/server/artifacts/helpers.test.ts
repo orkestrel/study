@@ -18,7 +18,9 @@ import {
 	verifyArtifactClosure,
 	computeArtifactRuntimeDigest,
 	computeArtifactContentDigest,
+	computeArtifactManifestDigest,
 } from '../../../../src/server/artifacts/helpers.js'
+import { ARTIFACT_MANIFEST_INTENT } from '../../../../src/server/artifacts/constants.js'
 import { ArtifactLoader } from '../../../../src/server/artifacts/ArtifactLoader.js'
 import {
 	ARTIFACT_BENIGN_NAMES,
@@ -322,4 +324,63 @@ it('refuses a destination that equals, holds, or sits inside a copied path', () 
 		'/work/studies',
 	])
 		expect(matchesArtifactOverlap(options, resolve(copied))).toBe(true)
+})
+
+it('digests a package root manifest without its install intent members, in the remaining member order', () => {
+	const manifest = {
+		name: 'fixture-subject',
+		version: '1.0.0',
+		type: 'module',
+		exports: './dist/index.js',
+	}
+	const digest = computeArtifactManifestDigest(Buffer.from(JSON.stringify(manifest)))
+	const intent = Object.fromEntries(
+		ARTIFACT_MANIFEST_INTENT.map((key) => [key, { nested: { 'fixture-dependency': '^1.0.0' } }]),
+	)
+	expect(
+		computeArtifactManifestDigest(Buffer.from(JSON.stringify({ ...manifest, ...intent }))),
+	).toBe(digest)
+	expect(
+		computeArtifactManifestDigest(Buffer.from(`${JSON.stringify(manifest, undefined, 2)}\n`)),
+	).toBe(digest)
+	for (const kept of [
+		{ ...manifest, version: '1.0.1' },
+		{ ...manifest, exports: './dist/main.js' },
+		{ ...manifest, imports: { '#helper': './dist/helper.js' } },
+		{ type: 'module', name: 'fixture-subject', version: '1.0.0', exports: './dist/index.js' },
+	])
+		expect(computeArtifactManifestDigest(Buffer.from(JSON.stringify(kept)))).not.toBe(digest)
+	for (const text of ['{', '[]', 'null', '"fixture-subject"'])
+		expect(() => computeArtifactManifestDigest(Buffer.from(text))).toThrow(ArtifactError)
+})
+
+it('captures a package root manifest by its projection digest with its exact bytes, and a dist manifest by its bytes', () => {
+	const scratch = createScratch()
+	try {
+		const text = JSON.stringify({
+			name: 'fixture-subject',
+			version: '1.0.0',
+			type: 'module',
+			dependencies: { 'fixture-dependency': '^1.0.0' },
+		})
+		const manifest = scratch.write('subject/package.json', text)
+		const entry = scratch.write('subject/dist/index.js', 'export const value = 1\n')
+		const nested = scratch.write(
+			'subject/dist/cjs/package.json',
+			'{"type":"commonjs","dependencies":{}}',
+		)
+		const inventory = new ArtifactLoader({
+			entries: [entry],
+			roots: [join(scratch.path, 'subject')],
+		}).inspect()
+		const captured = inventory.files.find((file) => file.path === manifest)
+		expect(captured?.digest).toBe(computeArtifactManifestDigest(Buffer.from(text)))
+		expect(captured?.digest).not.toBe(readArtifact(manifest).digest)
+		expect(captured?.size).toBe(Buffer.byteLength(text))
+		expect(inventory.files.find((file) => file.path === nested)?.digest).toBe(
+			readArtifact(nested).digest,
+		)
+	} finally {
+		scratch.destroy()
+	}
 })

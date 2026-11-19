@@ -15,7 +15,7 @@ import { basename, extname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { containsArtifact } from '../helpers.js'
 import { ArtifactError } from './errors.js'
-import { readArtifact } from './helpers.js'
+import { computeArtifactManifestDigest, readArtifact } from './helpers.js'
 
 /**
  * Enforces captured inventory membership at every synchronous native import edge.
@@ -34,6 +34,7 @@ import { readArtifact } from './helpers.js'
 export class Resolution {
 	#input: ArtifactHookInput
 	#files: ReadonlyMap<string, ArtifactSource>
+	#manifests: ReadonlySet<string>
 
 	/** Retains the trusted captured inventory and its private namespace.
 	 * @param input - Captured built bytes and separate source selection.
@@ -41,6 +42,7 @@ export class Resolution {
 	constructor(input: ArtifactHookInput) {
 		this.#input = input
 		this.#files = new Map(input.files.map((file) => [file.path, file]))
+		this.#manifests = new Set(input.roots.map((root) => join(root, 'package.json')))
 	}
 
 	/** Resolves native edges with source-local JavaScript-to-TypeScript substitution.
@@ -78,7 +80,7 @@ export class Resolution {
 			return next(specifier, context)
 		}
 		for (const file of this.#input.files) {
-			if (basename(file.path) === 'package.json' && readArtifact(file.path).digest !== file.digest)
+			if (basename(file.path) === 'package.json' && this.#digest(file.path) !== file.digest)
 				throw new ArtifactError(`Artifact manifest drifted: ${file.path}`)
 		}
 		const source = this.#input.source
@@ -102,7 +104,7 @@ export class Resolution {
 			const file = this.#files.get(fileURLToPath(target))
 			if (file === undefined || !['.ts', '.mts', '.js', '.mjs'].includes(extname(file.path)))
 				throw new ArtifactError(`Artifact source dependency is not admitted: ${target.href}`)
-			if (readArtifact(file.path).digest !== file.digest)
+			if (this.#digest(file.path) !== file.digest)
 				throw new ArtifactError(`Artifact dependency drifted: ${file.path}`)
 			target.searchParams.set('artifact', this.#input.token)
 			return {
@@ -130,7 +132,7 @@ export class Resolution {
 			throw new ArtifactError(`Artifact dependency is not admitted ESM: ${result.url}`)
 		if (this.#input.excluded?.includes(file.path) === true)
 			throw new ArtifactError(`Artifact module is excluded: ${file.path}`)
-		if (readArtifact(file.path).digest !== file.digest)
+		if (this.#digest(file.path) !== file.digest)
 			throw new ArtifactError(`Artifact dependency drifted: ${file.path}`)
 		url.searchParams.set('artifact', this.#input.token)
 		return { ...result, url: url.href }
@@ -149,7 +151,7 @@ export class Resolution {
 		const file = this.#files.get(fileURLToPath(url))
 		if (file === undefined || (context.format !== 'module' && context.format !== 'json'))
 			throw new ArtifactError(`Artifact load is unsupported: ${href}`)
-		if (readArtifact(file.path).digest !== file.digest)
+		if (this.#digest(file.path) !== file.digest)
 			throw new ArtifactError(`Artifact dependency drifted: ${file.path}`)
 		const extension = extname(file.path)
 		return {
@@ -160,6 +162,12 @@ export class Resolution {
 					: new Uint8Array(file.source),
 			shortCircuit: true,
 		}
+	}
+
+	// Reads a captured file's live identity as capture computed it: a package root's manifest by its projection, any other file by its bytes.
+	#digest(path: string): string {
+		const file = readArtifact(path)
+		return this.#manifests.has(path) ? computeArtifactManifestDigest(file.source) : file.digest
 	}
 
 	// Locates a source-local relative edge, substituting the captured TypeScript twin of a

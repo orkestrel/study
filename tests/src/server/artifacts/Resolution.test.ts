@@ -15,6 +15,7 @@ it('loads supplied captured bytes and refuses disk drift before native loading',
 		const captured = readArtifact(path)
 		const resolution = new Resolution({
 			token: 'proof',
+			roots: [],
 			files: [{ ...captured, source: new TextEncoder().encode('export const value = 2\n') }],
 		})
 		const url = pathToFileURL(path)

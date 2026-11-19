@@ -175,4 +175,75 @@ describe('StudyArtifactLoader', () => {
 			scratch.destroy()
 		}
 	})
+
+	it('binds each package root manifest by its projection, so install intent leaves every identity unchanged', async () => {
+		const scratch = createScratch()
+		try {
+			const runtime = { name: '@orkestrel/study', version: '1.0.0', type: 'module' }
+			scratch.write('runtime/package.json', JSON.stringify(runtime))
+			const entry = scratch.write(
+				'runtime/dist/bin/main.js',
+				'throw new Error("instrument must not execute")',
+			)
+			const adapter = scratch.write('adapter/index.ts', 'export const adapter = true')
+			const subject = scratch.write(
+				'subject/dist/index.js',
+				'throw new Error("subject must not execute")',
+			)
+			const manifest = {
+				name: 'fixture-subject',
+				version: '1.0.0',
+				type: 'module',
+				exports: './dist/index.js',
+				dependencies: { 'fixture-dependency': '^1.0.0' },
+			}
+			scratch.write('subject/package.json', JSON.stringify(manifest))
+			const options = {
+				entry,
+				adapter,
+				root: realpathSync(resolve('.')),
+				profile: {
+					...buildStudyProfile(),
+					agent: subject,
+					subject,
+					roots: [join(scratch.path, 'subject')],
+				},
+			}
+			const loader = new StudyArtifactLoader(options)
+			const original = await loader.inspect()
+			for (const intent of [
+				{
+					...manifest,
+					dependencies: { 'fixture-dependency': 'file:../vendor/fixture-dependency' },
+				},
+				{ ...manifest, overrides: { 'fixture-dependency': '1.0.1' } },
+			]) {
+				scratch.write('subject/package.json', JSON.stringify(intent))
+				expect(await new StudyArtifactLoader(options).inspect()).toEqual(original)
+				expect(() => loader.verify()).not.toThrow()
+			}
+			scratch.write(
+				'runtime/package.json',
+				JSON.stringify({ ...runtime, devDependencies: { 'fixture-dependency': '1.0.0' } }),
+			)
+			expect(await new StudyArtifactLoader(options).inspect()).toEqual(original)
+			scratch.write('runtime/package.json', JSON.stringify(runtime))
+			for (const kept of [
+				{ ...manifest, version: '1.0.1' },
+				{ ...manifest, exports: './dist/main.js' },
+			]) {
+				scratch.write('subject/package.json', JSON.stringify(kept))
+				expect(() => loader.verify()).toThrow(/drifted/)
+				const moved = await new StudyArtifactLoader(options).inspect()
+				expect(moved.subject).not.toBe(original.subject)
+				expect(moved.content).not.toBe(original.content)
+			}
+			scratch.write('subject/package.json', JSON.stringify(manifest))
+			scratch.write('subject/dist/index.js', 'throw new Error("subject changed")')
+			expect(() => loader.verify()).toThrow(/drifted/)
+			expect((await new StudyArtifactLoader(options).inspect()).subject).not.toBe(original.subject)
+		} finally {
+			scratch.destroy()
+		}
+	})
 })

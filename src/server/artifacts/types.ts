@@ -149,6 +149,8 @@ export interface ArtifactTally {
 /** Supplies the private namespace and separate source selection to resolution. */
 export interface ArtifactHookInput {
 	readonly token: string
+	/** Names the admitted package roots, whose `package.json` files are compared by their manifest projection digest. */
+	readonly roots: readonly string[]
 	readonly files: readonly ArtifactSource[]
 	readonly source?: ArtifactSourceOptions
 	readonly instrument?: string
