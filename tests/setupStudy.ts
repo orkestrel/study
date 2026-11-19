@@ -70,7 +70,7 @@ import type {
 	AgentResult,
 } from '@orkestrel/agent'
 import type { StudyAgentResponse } from '../src/server/agents/types.js'
-import type { ToolCall } from '@orkestrel/tool'
+import type { ToolCall, ToolDefinition } from '@orkestrel/tool'
 import type { StudyAgentMeasurement, StudyAgentRuntime } from '../src/core/agents/types.js'
 import { Agent, estimateRequest, measureRequest } from '@orkestrel/agent'
 import { createContract, isRecord, parseJSON } from '@orkestrel/contract'
@@ -267,8 +267,11 @@ export const STUDY_LINKED_DECLARATIONS = Object.freeze([
 /** Names the foreign call fields read before validating the owned envelope. */
 export const STUDY_AGENT_TOOL_FIELDS = Object.freeze(['id', 'name', 'arguments'])
 
+/** Holds the members a definition fixture replaces. */
+export type StudyDefinitionChange = Partial<StudyDefinition>
+
 /** Returns a declared two-arm, two-scenario, two-repetition population. */
-export function buildStudyDefinition(change: Partial<StudyDefinition> = {}): StudyDefinition {
+export function buildStudyDefinition(change: StudyDefinitionChange = {}): StudyDefinition {
 	return {
 		name: 'study',
 		version: '1',
@@ -345,7 +348,7 @@ export function buildStudyProfile(): StudyProfile {
 }
 
 /** Builds an inert daemon provider declaration without accessing a host or service. */
-export function buildStudyDaemonProvider(): NonNullable<StudyProfile['provider']> {
+export function buildStudyDaemonProvider(): StudyProvider {
 	return {
 		entry: 'provider.js',
 		url: 'http://127.0.0.1:32123',
@@ -482,13 +485,16 @@ export function buildStudyJudgment(
 	}
 }
 
+/** Holds the per-scope limits a meter fixture replaces. */
+export type StudyAllowanceChange = Partial<StudyAllowance>
+
 /** Creates real scopes and request admission with one lifecycle owner.
  * @param bounds - Per-scope limit overrides.
  * @param signal - Optional parent cancellation.
  * @returns Owned control, scopes, and meter with cleanup.
  */
 export function createStudyMeterFixture(
-	bounds: Partial<StudyAllowance> = {},
+	bounds: StudyAllowanceChange = {},
 	signal?: AbortSignal,
 ): StudyMeterFixture {
 	const limit = { duration: 1000, calls: 4, tokens: 100, bytes: 100 }
@@ -608,12 +614,15 @@ export function createStudyStoreFixture(): StudyStoreFixture {
 	})
 }
 
+/** Holds the members an execution declaration fixture replaces. */
+export type StudyManifestChange = Partial<StudyManifest>
+
 /**
  * Builds a fresh execution declaration with enough encoded custody room.
  * @param changes - The scenario-specific declaration changes
  * @returns The independently owned manifest
  */
-export function buildCustodyManifest(changes: Partial<StudyManifest> = {}): StudyManifest {
+export function buildCustodyManifest(changes: StudyManifestChange = {}): StudyManifest {
 	const manifest = buildStudyManifest()
 	return {
 		...manifest,
@@ -807,11 +816,14 @@ export const STUDY_OPEN_EXCHANGE_MUTATIONS = Object.freeze([
 	'record',
 ] as const)
 
+/** Holds the members a stop fixture replaces. */
+export type StudyStopChange = Partial<StudyStop>
+
 /** Builds a model ceiling with independently selectable readings.
  * @param change - Members replacing the default cap reading.
  * @returns The inert stop.
  */
-export function buildStudyStop(change: Partial<StudyStop> = {}): StudyStop {
+export function buildStudyStop(change: StudyStopChange = {}): StudyStop {
 	return { layer: 'model', id: 'num_predict', max: 8, consumed: 9, ...change }
 }
 
@@ -943,7 +955,7 @@ export const STUDY_QUANTILE_INVALID_VALUES: ReadonlyArray<readonly number[]> = O
 export async function executeStudyAgentSeries(
 	options: AgentOptions = {},
 	response: StudyAgentResponse = buildStudyScriptResponse({ content: 'receipt '.repeat(16) }),
-	change: Partial<StudyManifest> = {},
+	change: StudyManifestChange = {},
 	reservation?: StudyCharge,
 ): Promise<StudyAgentSeriesResult> {
 	const results = createRecorder<readonly [AgentResult]>()
@@ -1009,6 +1021,9 @@ export function buildStudyHole<T>(source: readonly T[], index: number): T[] {
 	)
 }
 
+/** Holds the members a goal outcome fixture replaces. */
+export type StudyObservationChange = Partial<StudyObservation>
+
 /**
  * Builds a retained goal outcome that carries an explicit execution fact.
  * @param goal - The declared goal identity
@@ -1019,7 +1034,7 @@ export function buildStudyHole<T>(source: readonly T[], index: number): T[] {
 export function buildStudyObservation(
 	goal: string,
 	executed: boolean,
-	change: Partial<StudyObservation> = {},
+	change: StudyObservationChange = {},
 ): StudyObservation {
 	return {
 		goal,
@@ -1442,7 +1457,7 @@ export const STUDY_AGENT_MESSAGES: readonly Message[] = Object.freeze<readonly M
 ])
 
 /** Supplies one complete request's advertised tool. */
-export const STUDY_AGENT_TOOLS: NonNullable<ProviderRequest['tools']> = Object.freeze([
+export const STUDY_AGENT_TOOLS: readonly ToolDefinition[] = Object.freeze([
 	Object.freeze({
 		name: 'lookup',
 		description: 'Reads a record',
@@ -1509,16 +1524,18 @@ export function buildOllamaStream(
 	return rows.join('') + buildOllamaRow({ ...options, content: '' })
 }
 
-export const STUDY_OLLAMA_FIXTURE: Pick<OllamaFixtureOptions, 'models' | 'version' | 'context'> =
-	Object.freeze({
-		models: Object.freeze([
-			Object.freeze({ name: 'model', digest: 'a'.repeat(64) }),
-			Object.freeze({ name: 'judge', digest: 'b'.repeat(64) }),
-			Object.freeze({ name: 'decision', digest: 'c'.repeat(64) }),
-		]),
-		version: 'fixture-version',
-		context: 32768,
-	})
+/** Holds what an Ollama fixture's inventory answers: its served models, its version, and its context size. */
+export type OllamaInventoryFixture = Pick<OllamaFixtureOptions, 'models' | 'version' | 'context'>
+
+export const STUDY_OLLAMA_FIXTURE: OllamaInventoryFixture = Object.freeze({
+	models: Object.freeze([
+		Object.freeze({ name: 'model', digest: 'a'.repeat(64) }),
+		Object.freeze({ name: 'judge', digest: 'b'.repeat(64) }),
+		Object.freeze({ name: 'decision', digest: 'c'.repeat(64) }),
+	]),
+	version: 'fixture-version',
+	context: 32768,
+})
 
 export function createOllamaReply(
 	queue = new OllamaReplyQueue<OllamaWireReplyFixture>([]),
@@ -2047,13 +2064,16 @@ export const STUDY_SCRIPT_INVALID_RESPONSES: readonly unknown[] = Object.freeze(
 	{ content: '', calls: [], bytes: Number.NaN },
 ])
 
+/** Holds the members a scripted response fixture replaces. */
+export type StudyAgentResponseChange = Partial<StudyAgentResponse>
+
 /**
  * Builds one inert scripted response with every control undefined.
  * @param change - The members that differ from the empty response
  * @returns The complete response
  */
 export function buildStudyScriptResponse(
-	change: Partial<StudyAgentResponse> = {},
+	change: StudyAgentResponseChange = {},
 ): StudyAgentResponse {
 	return {
 		content: '',

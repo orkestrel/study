@@ -1,5 +1,5 @@
 import { captureError } from '@orkestrel/test'
-import { resolve } from 'node:path'
+import { resolve, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { STUDY_COMMAND_INVALID_ARGUMENTS, STUDY_PROGRESS_REFUSALS } from '../../../setupStudy.js'
 import { STUDY_SELECTION_ARGUMENTS, STUDY_SELECTION_REFUSALS } from '../../../setupServer.js'
@@ -198,6 +198,113 @@ it('parses freeze, closure and an explicit replay selection without defaulting i
 			'yes',
 		]),
 	).toThrow(/--offline/)
+})
+
+describe('forward-slash path arguments', () => {
+	it('gives every path flag and result target its canonical form before any check', () => {
+		const result = resolve('tmp/studies/result')
+		// On a host whose separator is a backslash this is the forward-slash spelling; elsewhere it equals the canonical path.
+		const forward = result.split(sep).join('/')
+		const assessment = 'a'.repeat(64)
+		expect(
+			parseStudyArguments(['freeze', 'files', '--profile', 'local', '--to', forward]),
+		).toMatchObject({ destination: result })
+		expect(
+			parseStudyArguments([
+				'execute',
+				'files',
+				'--out',
+				forward,
+				'--closure',
+				forward,
+				'--extend',
+				forward,
+			]),
+		).toMatchObject({ out: result, closure: result, extend: result })
+		expect(
+			parseStudyArguments([
+				'execute',
+				'files',
+				'--replay',
+				forward,
+				'--prefix',
+				'{"trial":1}',
+				'--offline',
+				'true',
+			]),
+		).toMatchObject({ replay: { result } })
+		expect(
+			parseStudyArguments([
+				'execute',
+				'files',
+				'--replay',
+				forward,
+				'--roles',
+				'["judge"]',
+				'--offline',
+				'true',
+			]),
+		).toMatchObject({ keyed: { result } })
+		expect(
+			parseStudyArguments([
+				'check',
+				'files',
+				'--trial',
+				'r1-s1-a2',
+				'--seed',
+				`${forward}:r1-s1-a1:g2`,
+			]),
+		).toMatchObject({ seed: { result, trial: 'r1-s1-a1', goal: 'g2' } })
+		expect(parseStudyArguments(['grade', forward, '--rubric', forward])).toEqual({
+			command: 'grade',
+			target: result,
+			rubric: result,
+		})
+		expect(
+			parseStudyArguments(['label', forward, '--assessment', assessment, '--labels', forward]),
+		).toEqual({ command: 'label', target: result, assessment, labels: result })
+		expect(parseStudyArguments(['report', forward, '--assessment', assessment])).toEqual({
+			command: 'report',
+			target: result,
+			assessment,
+		})
+		expect(parseStudyArguments(['progress', forward])).toEqual({
+			command: 'progress',
+			target: result,
+			from: undefined,
+		})
+	})
+
+	it('keeps a traversal and a UNC path as written and refuses a relative path that leaves the root', () => {
+		const result = resolve('tmp/studies/result')
+		const forward = result.split(sep).join('/')
+		expect(
+			parseStudyArguments([
+				'freeze',
+				'files',
+				'--profile',
+				'local',
+				'--to',
+				`${forward}/../closure`,
+			]),
+		).toMatchObject({ destination: [result, '..', 'closure'].join(sep) })
+		expect(
+			parseStudyArguments([
+				'freeze',
+				'files',
+				'--profile',
+				'local',
+				'--to',
+				'//server/share/closure',
+			]),
+		).toMatchObject({ destination: '//server/share/closure' })
+		for (const tokens of [
+			['execute', 'files', '--out', 'tmp/../../escape'],
+			['check', 'files', '--closure', '../outside'],
+			['freeze', 'files', '--profile', 'local', '--to', 'tmp/../../closure'],
+		])
+			expect(() => parseStudyArguments(tokens)).toThrow(expect.objectContaining({ code: 'CONFIG' }))
+	})
 })
 
 describe('study selection arguments', () => {

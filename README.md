@@ -40,6 +40,12 @@ npm exec -- study --help
 npm exec -- study --version
 ```
 
+When a process spawns commands without a shell, such as an agent lane on Windows, `npx` and `npm exec` fail with `ENOENT`, because npm installs them there as shell shims. Run the installed entry with Node from your consumer workspace instead.
+
+```sh
+node node_modules/@orkestrel/study/dist/bin/main.js --help
+```
+
 The `study --help` command prints the command reference. The `study --version` command prints the installed Study version. Use the operations for validation, execution, progress reading, freezing, independent grading, label import, and reporting.
 
 | Operation                     | Command                                                                         |
@@ -55,6 +61,15 @@ The `study --help` command prints the command reference. The `study --version` c
 Declare a study at `studies/<name>/study.json`. Its rubric path resolves inside that study directory. Its `driver` field selects a bundle at `studies/<driver>/` containing the adapter module `index.ts`, scenario declarations at `scenarios/<scenario>.json`, and execution profiles at `profiles/<profile>.json`. The profile defaults to `local`.
 
 Results default to `tmp/studies/<result>`. A result selector can be an identity under that directory, a root-relative path, or an absolute path. Relative paths must stay inside the consumer workspace. Output directories must be absent before execution.
+
+On Windows, the canonical form of an absolute path uses backslashes. Study also accepts a drive path written with forward slashes and reads it as its canonical form before any check, so the following commands select the same output.
+
+```powershell
+node node_modules/@orkestrel/study/dist/bin/main.js execute assessment --out C:\work\consumer\tmp\studies\baseline
+node node_modules/@orkestrel/study/dist/bin/main.js execute assessment --out C:/work/consumer/tmp/studies/baseline
+```
+
+Study rewrites no other spelling: a relative path, a UNC path, and a path with a `..` segment reach the same checks they reach in canonical form.
 
 A quality profile names its capacity result in `qualification`, a result selector that resolves against the consumer workspace, never against a closure. Identities bind bytes, not location, so a capacity and quality pair runs under two closures with a relative qualification path.
 

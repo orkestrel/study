@@ -1,5 +1,5 @@
 import type { StudyUsage } from '../../../../src/core/types.js'
-import type { StudyRemoteTicketOptions } from '../../../../src/server/processes/types.js'
+import type { StudySettleCall } from '../../../setupServer.js'
 import { createRecorder } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import { failStudyTicket } from '../../../../src/core/engines/helpers.js'
@@ -8,8 +8,8 @@ import { StudyRemoteTicket } from '../../../../src/server/processes/StudyRemoteT
 
 describe('StudyRemoteTicket', () => {
 	it('keeps its selected signal and settlement callback after the caller replaces the options', () => {
-		const original = createRecorder<Parameters<StudyRemoteTicketOptions['settle']>>()
-		const replacement = createRecorder<Parameters<StudyRemoteTicketOptions['settle']>>()
+		const original = createRecorder<StudySettleCall>()
+		const replacement = createRecorder<StudySettleCall>()
 		const selected = new AbortController()
 		const foreign = new AbortController()
 		const options = { id: 1, signal: selected.signal, settle: original.handler }
@@ -54,7 +54,7 @@ describe('StudyRemoteTicket', () => {
 	})
 
 	it('derives settled from its own settlement and never from the signal', () => {
-		const settle = createRecorder<Parameters<StudyRemoteTicketOptions['settle']>>()
+		const settle = createRecorder<StudySettleCall>()
 		const controller = new AbortController()
 		const ticket = new StudyRemoteTicket({
 			id: 1,
@@ -82,7 +82,7 @@ describe('StudyRemoteTicket', () => {
 	})
 
 	it('leaves an aborted ticket to its parent without settling it locally', () => {
-		const settle = createRecorder<Parameters<StudyRemoteTicketOptions['settle']>>()
+		const settle = createRecorder<StudySettleCall>()
 		const controller = new AbortController()
 		const ticket = new StudyRemoteTicket({
 			id: 1,
@@ -100,7 +100,7 @@ describe('StudyRemoteTicket', () => {
 	})
 
 	it('transmits one failure for a pending ticket and no second accounting', () => {
-		const settle = createRecorder<Parameters<StudyRemoteTicketOptions['settle']>>()
+		const settle = createRecorder<StudySettleCall>()
 		const ticket = new StudyRemoteTicket({
 			id: 1,
 			signal: new AbortController().signal,
@@ -115,7 +115,7 @@ describe('StudyRemoteTicket', () => {
 	})
 
 	it('transmits an explicit role over a carried one and nothing for an aborted ticket', () => {
-		const settle = createRecorder<Parameters<StudyRemoteTicketOptions['settle']>>()
+		const settle = createRecorder<StudySettleCall>()
 		const ticket = new StudyRemoteTicket({
 			id: 1,
 			signal: new AbortController().signal,
@@ -143,7 +143,7 @@ describe('StudyRemoteTicket', () => {
 	})
 
 	it('leaves a finished ticket untouched', () => {
-		const settle = createRecorder<Parameters<StudyRemoteTicketOptions['settle']>>()
+		const settle = createRecorder<StudySettleCall>()
 		const ticket = new StudyRemoteTicket({
 			id: 1,
 			signal: new AbortController().signal,
@@ -157,7 +157,7 @@ describe('StudyRemoteTicket', () => {
 
 	it('propagates a refused settlement once and accounts nothing afterwards', () => {
 		const refusal = new StudyError('FAULT', 'Parent refused the settlement')
-		const attempts = createRecorder<Parameters<StudyRemoteTicketOptions['settle']>>()
+		const attempts = createRecorder<StudySettleCall>()
 		const ticket = new StudyRemoteTicket({
 			id: 1,
 			signal: new AbortController().signal,

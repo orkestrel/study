@@ -3,7 +3,7 @@ import type { OllamaTiming } from '@orkestrel/ollama'
 import type { TimeoutInterface } from '@orkestrel/timeout'
 import type {
 	StudyOllamaActivity,
-	StudyOllamaDecoder,
+	StudyOllamaDecoderInterface,
 	StudyOllamaExchangeOptions,
 	StudyOllamaRequest,
 	StudyOllamaTerminal,
@@ -35,7 +35,7 @@ export class StudyOllamaExchange implements StudyOllamaWire {
 	readonly ticket: StudyTicketInterface
 	readonly signal: AbortSignal
 	readonly reader: ReadableStreamDefaultReader<Uint8Array>
-	readonly decoder: StudyOllamaDecoder
+	readonly decoder: StudyOllamaDecoderInterface
 	readonly status: number
 	readonly started: number
 	readonly id: number

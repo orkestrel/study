@@ -1,7 +1,7 @@
 import type { StudyFailure } from '../../../../src/core/types.js'
 import { createScratch, supportsFileLinks } from '@orkestrel/test/server'
 import { appendFile, readFile, writeFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { isArray, isRecord, parseJSON } from '@orkestrel/contract'
 import { requireValue } from '@orkestrel/test'
@@ -38,6 +38,7 @@ import {
 	buildArtifactClosureOptions,
 	STUDY_SELECTION_NUMBERS,
 	STUDY_SELECTION_SEED,
+	STUDY_PATH_FORMS,
 } from '../../../setupServer.js'
 import {
 	buildStudyFreezeOptions,
@@ -47,6 +48,7 @@ import {
 	computeStudyPartition,
 	computeStudyReport,
 	computeStudyAttributions,
+	normalizeStudyPath,
 	resolveStudyPath,
 	resolveStudyProfile,
 	readStudyDeclaration,
@@ -499,6 +501,12 @@ describe('study command helpers', () => {
 			}),
 		)
 	})
+	it.each(STUDY_PATH_FORMS)(
+		'normalizes $path to the host form of a forward-slash drive path and nothing else',
+		({ path, backslash }) => {
+			expect(normalizeStudyPath(path)).toBe(sep === '\\' ? backslash : path)
+		},
+	)
 	it('contains portable relative paths and resolves explicit executable profile paths', () => {
 		const scratch = createScratch()
 		try {

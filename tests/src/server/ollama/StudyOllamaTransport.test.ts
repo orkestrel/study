@@ -1,4 +1,4 @@
-import type { StudyOllamaFetchFunction } from '../../../../src/server/ollama/types.js'
+import type { StudyOllamaFetchCall } from '../../../setupServer.js'
 import { BudgetError } from '@orkestrel/budget'
 import { createSystemOneJudge } from '@orkestrel/agent'
 import { StudyOllamaKeyedReplay } from '../../../../src/server/ollama/StudyOllamaKeyedReplay.js'
@@ -2012,7 +2012,7 @@ describe('StudyOllamaTransport', () => {
 	})
 
 	it('forwards exact validated agent requests to the collaborator', async () => {
-		const calls = createRecorder<Parameters<StudyOllamaFetchFunction>>()
+		const calls = createRecorder<StudyOllamaFetchCall>()
 		const fixture = await createOllamaTransportFixture([], {
 			roles: {
 				agent: requireValue(buildOllamaTransportOptions('http://127.0.0.1:1').roles.agent),
@@ -2096,7 +2096,7 @@ describe('StudyOllamaTransport', () => {
 	})
 
 	it('validates the request before invoking the collaborator or admitting a ticket', async () => {
-		const calls = createRecorder<Parameters<StudyOllamaFetchFunction>>()
+		const calls = createRecorder<StudyOllamaFetchCall>()
 		const fixture = await createOllamaTransportFixture([], {
 			fetch: (role, input, init) => {
 				calls.handler(role, input, init)
@@ -2120,7 +2120,7 @@ describe('StudyOllamaTransport', () => {
 	})
 
 	it('attributes collaborator metadata and judge calls and retains terminal timing', async () => {
-		const calls = createRecorder<Parameters<StudyOllamaFetchFunction>>()
+		const calls = createRecorder<StudyOllamaFetchCall>()
 		const fixture = await createOllamaTransportFixture([], {
 			observe: true,
 			fetch: (role, input, init) => {
@@ -2158,7 +2158,7 @@ describe('StudyOllamaTransport', () => {
 
 	it('accounts a synchronous collaborator throw once and retains its identity', async () => {
 		const reason = new Error('Collaborator refused')
-		const calls = createRecorder<Parameters<StudyOllamaFetchFunction>>()
+		const calls = createRecorder<StudyOllamaFetchCall>()
 		const fixture = await createOllamaTransportFixture([], {
 			fetch: (...args) => {
 				calls.handler(...args)
@@ -2244,7 +2244,7 @@ describe('StudyOllamaTransport', () => {
 	})
 
 	it('propagates abort through the collaborator bounded signal and accounts the failed stream once', async () => {
-		const calls = createRecorder<Parameters<StudyOllamaFetchFunction>>()
+		const calls = createRecorder<StudyOllamaFetchCall>()
 		const fixture = await createOllamaTransportFixture(
 			[{ path: '/api/chat', body: STUDY_OLLAMA_PARTIAL_ROW, open: true }],
 			{
@@ -2281,7 +2281,7 @@ describe('StudyOllamaTransport', () => {
 
 	it('settles a cooperative collaborator before headers on caller abort', async () => {
 		const entered = Promise.withResolvers<void>()
-		const calls = createRecorder<Parameters<StudyOllamaFetchFunction>>()
+		const calls = createRecorder<StudyOllamaFetchCall>()
 		const fixture = await createOllamaTransportFixture([], {
 			fetch: (role, input, init) => {
 				calls.handler(role, input, init)
@@ -2320,7 +2320,7 @@ describe('StudyOllamaTransport', () => {
 
 	it('settles a pending collaborator on caller abort and cancels its late response once', async () => {
 		const release = Promise.withResolvers<Response>()
-		const calls = createRecorder<Parameters<StudyOllamaFetchFunction>>()
+		const calls = createRecorder<StudyOllamaFetchCall>()
 		const settled = createRecorder<readonly [string, unknown]>()
 		const cancelled = createRecorder<readonly [unknown]>()
 		const late = new Response(new ReadableStream<Uint8Array>({ cancel: cancelled.handler }))
@@ -2380,7 +2380,7 @@ describe('StudyOllamaTransport', () => {
 
 	it('settles a pending collaborator on deadline and cancels its late response once', async () => {
 		const release = Promise.withResolvers<Response>()
-		const calls = createRecorder<Parameters<StudyOllamaFetchFunction>>()
+		const calls = createRecorder<StudyOllamaFetchCall>()
 		const settled = createRecorder<readonly [string, unknown]>()
 		const cancelled = createRecorder<readonly [unknown]>()
 		const late = new Response(new ReadableStream<Uint8Array>({ cancel: cancelled.handler }))
@@ -2433,7 +2433,7 @@ describe('StudyOllamaTransport', () => {
 
 	it('settles a pending collaborator on close and cancels its late response once', async () => {
 		const release = Promise.withResolvers<Response>()
-		const calls = createRecorder<Parameters<StudyOllamaFetchFunction>>()
+		const calls = createRecorder<StudyOllamaFetchCall>()
 		const settled = createRecorder<readonly [string, unknown]>()
 		const cancelled = createRecorder<readonly [unknown]>()
 		const late = new Response(new ReadableStream<Uint8Array>({ cancel: cancelled.handler }))

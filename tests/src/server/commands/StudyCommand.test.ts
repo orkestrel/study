@@ -4,7 +4,7 @@ import { isArray, isRecord, parseJSON } from '@orkestrel/contract'
 import { createRecorder, requireValue } from '@orkestrel/test'
 import { createHash } from 'node:crypto'
 import { appendFileSync, cpSync, rmSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { readStudyClosure } from '../../../../src/server/commands/helpers.js'
 import { StudyCommand } from '../../../../src/server/commands/StudyCommand.js'
@@ -1949,6 +1949,47 @@ describe('selection', () => {
 					key.startsWith('closures/'),
 				),
 			).toBe(false)
+		} finally {
+			scratch.destroy()
+		}
+	}, 240000)
+
+	it('closure: forward-slash absolute paths freeze, select, write, and read as their canonical form does, and a traversal still refuses', async () => {
+		const scratch = createStudyConsumer((consumer) =>
+			writeStudySelectionConsumer(consumer, ['small', 'large']),
+		)
+		const signal = new AbortController().signal
+		try {
+			const entry = await buildStudyCLI(scratch)
+			const command = new StudyCommand({ root: scratch.path, entry })
+			const destination = join(scratch.path, 'frozen')
+			const output = join(scratch.path, 'closed')
+			// On a host whose separator is a backslash these are the forward-slash spellings; elsewhere they equal the canonical paths.
+			const frozen = destination.split(sep).join('/')
+			const written = output.split(sep).join('/')
+			const freeze = ['freeze', 'selection', '--profile', 'local', '--to']
+			await expect(
+				command.execute(
+					[...freeze, `${scratch.path.split(sep).join('/')}/closed/../frozen`],
+					signal,
+				),
+			).rejects.toMatchObject({ code: 'TRAVERSAL' })
+			const closed = await command.execute([...freeze, frozen], signal)
+			if (!isRecord(closed)) throw new Error('Missing freeze')
+			expect(closed).toMatchObject({ command: 'freeze', path: destination })
+			const checked = await command.execute(['check', 'selection', '--closure', frozen], signal)
+			if (!isRecord(checked)) throw new Error('Missing closure check')
+			expect(checked.fingerprint).toBe(closed.fingerprint)
+			await expect(
+				command.execute(['execute', 'selection', '--closure', frozen, '--out', written], signal),
+			).resolves.toMatchObject({ status: 'completed', path: output })
+			const closure = readStudyClosure(destination)
+			await expect(
+				new StudyCommand({ root: closure.root, entry: closure.entry }).execute(
+					['progress', written],
+					signal,
+				),
+			).resolves.toMatchObject({ command: 'progress' })
 		} finally {
 			scratch.destroy()
 		}

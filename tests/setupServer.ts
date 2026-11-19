@@ -43,6 +43,7 @@ import type {
 } from '../src/server/labels/types.js'
 import type { StudyInstallResult } from '../src/server/launchers/types.js'
 import type {
+	StudyOllamaFetchFunction,
 	StudyOllamaMetadata,
 	StudyOllamaPolicy,
 	StudyOllamaRole,
@@ -52,6 +53,7 @@ import type {
 import type {
 	StudyChannelOptions,
 	StudyProcessSessionOptions,
+	StudySettleHandler,
 	StudyTaskOptions,
 	StudyTaskRequest,
 } from '../src/server/processes/types.js'
@@ -3119,7 +3121,7 @@ export class StudyInstallRecorder extends StudyInstall {
  */
 export function buildOllamaTransportOptions(
 	url: string,
-	change: Partial<StudyOllamaTransportOptions> = {},
+	change: StudyOllamaTransportChange = {},
 ): StudyOllamaTransportOptions {
 	return {
 		url,
@@ -3251,7 +3253,7 @@ export class OllamaExchangeRecorder implements StudyExchangeSinkInterface {
 export function buildOllamaStep(
 	admission: 'exact' | 'capture' = 'capture',
 	body = STUDY_OLLAMA_CHAT_BODY,
-	role: Exclude<StudyOllamaRole, 'triage'> = 'agent',
+	role: StudyOllamaGenerationRole = 'agent',
 	ordinal = 1,
 	goal = 'first',
 ): StudyOllamaStep {
@@ -3272,7 +3274,7 @@ export function buildOllamaStep(
  * @returns Model-role and body pairs in the declared execution order.
  */
 export function buildOllamaRoleBodies(): ReadonlyArray<
-	readonly [Exclude<StudyOllamaRole, 'triage'>, string]
+	readonly [StudyOllamaGenerationRole, string]
 > {
 	return [
 		['agent', STUDY_OLLAMA_CHAT_BODY],
@@ -3297,7 +3299,7 @@ export function buildOllamaRoleBodies(): ReadonlyArray<
  */
 export function buildOllamaDeclaration(
 	procedure: readonly StudyOllamaStep[] | undefined = [buildOllamaStep()],
-	change: Partial<StudyExchangeDeclaration> = {},
+	change: StudyExchangeDeclarationChange = {},
 ): StudyExchangeDeclaration {
 	const options = buildOllamaTransportOptions('http://127.0.0.1:1')
 	return {
@@ -3323,7 +3325,7 @@ export function buildOllamaDeclaration(
 export async function createOllamaRecordingFixture(
 	procedure: readonly StudyOllamaStep[] = [buildOllamaStep()],
 	replies: readonly OllamaWireReplyFixture[] = [],
-	change: Partial<StudyOllamaTransportOptions> = {},
+	change: StudyOllamaTransportChange = {},
 ): Promise<OllamaRecordingFixture> {
 	const sink = new OllamaExchangeRecorder(
 		buildOllamaDeclaration(procedure, {
@@ -3346,8 +3348,8 @@ export async function createOllamaRecordingFixture(
  */
 export async function createOpenOllamaRecordingFixture(
 	replies: readonly OllamaWireReplyFixture[] = [],
-	change: Partial<StudyOllamaTransportOptions> = {},
-	declaration: Partial<StudyExchangeDeclaration> = {},
+	change: StudyOllamaTransportChange = {},
+	declaration: StudyExchangeDeclarationChange = {},
 ): Promise<OllamaRecordingFixture> {
 	const { procedure: _procedure, ...base } = buildOllamaDeclaration()
 	const sink = new OllamaExchangeRecorder({
@@ -3369,7 +3371,7 @@ export async function createOpenOllamaRecordingFixture(
 export async function createOllamaDiskFixture(
 	recorded: boolean,
 	replies: readonly OllamaWireReplyFixture[] = [],
-	change: Partial<StudyOllamaTransportOptions> = {},
+	change: StudyOllamaTransportChange = {},
 ): Promise<OllamaDiskFixture> {
 	const teardown = createTeardown()
 	const scratch = createScratch()
@@ -3492,7 +3494,7 @@ export async function createOllamaExchange(bytes = 10): Promise<OllamaExchangeFi
  */
 export async function createOllamaTransportFixture(
 	replies: readonly OllamaWireReplyFixture[] = [],
-	change: Partial<StudyOllamaTransportOptions> = {},
+	change: StudyOllamaTransportChange = {},
 	checkpoint?: JSONValue,
 ): Promise<OllamaTransportFixture> {
 	const server = await createOllamaFixture({
@@ -3530,7 +3532,7 @@ export async function createOllamaTransportFixture(
 export function createOllamaTransportProvider(
 	transport: StudyOllamaTransport,
 	url: string,
-	role: Exclude<StudyOllamaRole, 'judge' | 'triage'> = 'agent',
+	role: 'agent' = 'agent',
 	dispatch?: StudyAgentDispatch,
 ): ProviderInterface {
 	return createOllama({
@@ -4385,6 +4387,24 @@ export function readStudyDistributionErrors(stage: DistributionStage): unknown {
 	return JSON.parse(result.stdout)
 }
 
+/** Holds the members a transport fixture replaces in its default options. */
+export type StudyOllamaTransportChange = Partial<StudyOllamaTransportOptions>
+
+/** Holds the members an opening-row fixture replaces in its default declaration. */
+export type StudyExchangeDeclarationChange = Partial<StudyExchangeDeclaration>
+
+/** Names the model roles a generation policy serves: `agent` on the chat wire and `judge` on the generate wire. */
+export type StudyOllamaGenerationRole = Exclude<StudyOllamaRole, 'triage'>
+
+/** Holds one settled usage row without its elapsed clock. */
+export type StudyUntimedUsage = Omit<StudyUsage, 'duration'>
+
+/** Holds the arguments one transport `fetch` collaborator call receives. */
+export type StudyOllamaFetchCall = Parameters<StudyOllamaFetchFunction>
+
+/** Holds the arguments one ticket settlement receives. */
+export type StudySettleCall = Parameters<StudySettleHandler>
+
 /** Holds evidence arrays with absent retained positions. */
 export interface StudySparseEvidence {
 	readonly lone: readonly StudyEvidence[]
@@ -4622,7 +4642,7 @@ export interface OllamaContextFixture {
 	readonly evidence: readonly StudyEvidence[]
 	readonly meter: StudyMeterFixture
 	/** Reads the settled usage of every admitted request without its elapsed clock. */
-	usage(): ReadonlyArray<Omit<StudyUsage, 'duration'>>
+	usage(): readonly StudyUntimedUsage[]
 	close(): void
 }
 
@@ -5113,6 +5133,32 @@ export const STUDY_SELECTION_REFUSALS: ReadonlyArray<readonly string[]> = Object
 	['execute', 'files', '--extend', 'baseline', '--trial', 'r1-s1-a1'],
 	['check', 'files', '--extend', 'baseline', '--goals', 'g1..g2'],
 	['execute', 'files', '--seed', 'baseline:r1-s1-a1:g2', '--extend', 'baseline'],
+])
+
+/** Pairs a path as a caller writes it with the form `normalizeStudyPath` returns on a host whose separator is a backslash; on a forward-slash host it returns the path as written. */
+export interface StudyPathForm {
+	readonly path: string
+	readonly backslash: string
+}
+
+/** Supplies forward-slash drive paths the normalizer rewrites and the other forms it leaves to the checks that follow. */
+export const STUDY_PATH_FORMS: readonly StudyPathForm[] = Object.freeze([
+	{ path: 'C:/work/consumer/result', backslash: 'C:\\work\\consumer\\result' },
+	{ path: 'z:/result', backslash: 'z:\\result' },
+	{ path: 'C:/work\\consumer/result', backslash: 'C:\\work\\consumer\\result' },
+	{ path: 'C:/work/../result', backslash: 'C:\\work\\..\\result' },
+	{ path: 'C:/work//result/', backslash: 'C:\\work\\\\result\\' },
+	{ path: 'C:\\work\\consumer\\result', backslash: 'C:\\work\\consumer\\result' },
+	{ path: 'C:result', backslash: 'C:result' },
+	{ path: 'C:', backslash: 'C:' },
+	{ path: 'tmp/studies/result', backslash: 'tmp/studies/result' },
+	{ path: '../outside', backslash: '../outside' },
+	{ path: '//server/share/result', backslash: '//server/share/result' },
+	{ path: '\\\\server\\share\\result', backslash: '\\\\server\\share\\result' },
+	{ path: '/rooted/result', backslash: '/rooted/result' },
+	{ path: '1:/result', backslash: '1:/result' },
+	{ path: 'CD:/result', backslash: 'CD:/result' },
+	{ path: '', backslash: '' },
 ])
 
 /** Names the sealed results a selection refusal proof reads its seeds from. */

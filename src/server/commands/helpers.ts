@@ -247,6 +247,22 @@ export async function readStudyDeclaration(
 }
 
 /**
+ * Returns the canonical host form of a drive path written with forward slashes, and every other path as written.
+ * @remarks
+ * Only a path that opens with a drive letter, a colon, and a forward slash changes: each forward slash becomes the host separator, so a host whose separator is a forward slash returns it as written. A relative path, a UNC path, and a `..` segment pass through unchanged, so the checks that follow refuse them as they refuse the canonical form.
+ * @param path - The path as the caller wrote it
+ * @returns The path the checks that follow read
+ * @example
+ * ```ts
+ * normalizeStudyPath('C:/work/consumer/tmp/studies/baseline') // 'C:\\work\\consumer\\tmp\\studies\\baseline' on Windows
+ * normalizeStudyPath('tmp/studies/baseline') // 'tmp/studies/baseline'
+ * ```
+ */
+export function normalizeStudyPath(path: string): string {
+	return /^[A-Za-z]:\//.test(path) ? path.split('/').join(sep) : path
+}
+
+/**
  * Resolves a portable relative artifact path strictly inside its selected directory.
  * @param directory - The selected custody or study directory
  * @param path - The slash-separated relative artifact path

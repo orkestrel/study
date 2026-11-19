@@ -3,6 +3,7 @@ import type { JSONValue } from '@orkestrel/contract'
 import type { OllamaTiming } from '@orkestrel/ollama'
 import type {
 	StudyOllamaAdmission,
+	StudyOllamaExtractFunction,
 	StudyOllamaInventory,
 	StudyOllamaModel,
 	StudyOllamaPolicy,
@@ -837,7 +838,7 @@ export function readStudyOllamaDigest(
  * ```
  */
 export function readStudyOllamaTelemetry(
-	extract: StudyOllamaTransportOptions['extract'],
+	extract: StudyOllamaExtractFunction,
 	record: Readonly<Record<string, unknown>>,
 ): OllamaTiming | undefined {
 	try {

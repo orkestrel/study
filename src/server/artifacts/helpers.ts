@@ -412,6 +412,15 @@ export function readArtifactBytes(descriptor: number, target: Buffer, offset = 0
 /** Iterates the remaining entries of an open directory handle lazily, in read order.
  * @param handle - The open synchronous directory handle; the caller owns it and closes it.
  * @returns Each remaining entry until the handle reports the end. An entry is read only when the consumer asks for it, so a consumer that stops early leaves the rest unread.
+ * @example
+ * ```ts
+ * import { opendirSync } from 'node:fs'
+ *
+ * declare const directory: string
+ * const handle = opendirSync(directory)
+ * const names = [...iterateArtifactEntries(handle)].map((entry) => entry.name) // every entry's name
+ * handle.closeSync()
+ * ```
  */
 export function* iterateArtifactEntries(handle: Dir): Generator<Dirent, void> {
 	for (;;) {

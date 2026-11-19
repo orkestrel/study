@@ -76,6 +76,13 @@ export type StudyOllamaFetchFunction = (
 	init: RequestInit,
 ) => Promise<Response>
 
+/**
+ * Reads the Ollama timing of a terminal row, which the selected Ollama runtime's `extractTiming` export does.
+ * @param record - The terminal row
+ * @returns The timing the row reports, or undefined when it reports none
+ */
+export type StudyOllamaExtractFunction = typeof extractTiming
+
 /** Bounds metadata calls, encoded bytes, and elapsed milliseconds outside model quotas.
  * @remarks
  * Each allowance is positive and finite; calls and bytes are safe integers. This budget covers
@@ -289,7 +296,7 @@ export interface StudyOllamaTransportOptions extends StudyOllamaAdmission {
 	readonly limit: StudyOllamaAllowance
 	readonly signal: AbortSignal
 	readonly observe: boolean
-	readonly extract: typeof extractTiming
+	readonly extract: StudyOllamaExtractFunction
 	readonly fetch?: StudyOllamaFetchFunction | undefined
 	readonly replay?: StudyOllamaReplayInterface | undefined
 	/** Bounds both metadata passes independently of every model quota. */
@@ -343,13 +350,19 @@ export interface StudyOllamaTerminal {
 }
 
 /**
- * Names the instance type of the host's global `TextDecoder`, which a strict response decoder is.
+ * Decodes a response's bytes as text, chunk by chunk, which the host's global `TextDecoder` does.
  * @remarks
- * The Node and DOM library declarations spell the global differently: Node's declares only a value
- * whose instance is the `node:util` class, and the DOM's declares its own interface. Reading the
- * instance type from the global value fits whichever declaration a project compiles under.
+ * The interface holds the one `decode` signature an exchange calls, so the global `TextDecoder`
+ * fits it under the Node and the DOM library declarations alike.
  */
-export type StudyOllamaDecoder = InstanceType<typeof TextDecoder>
+export interface StudyOllamaDecoderInterface {
+	/** Decodes one chunk, or with no argument the bytes it still holds.
+	 * @param input - The next chunk; absent ends the stream.
+	 * @param options - `stream`: if `true`, holds an incomplete sequence for the next chunk; if `false`, ends the stream.
+	 * @returns The text decoded so far.
+	 */
+	decode(input?: Uint8Array, options?: { readonly stream?: boolean }): string
+}
 
 /** Holds the facts of one dispatched request and its open response, which an exchange binds. */
 export interface StudyOllamaExchangeOptions {
@@ -368,7 +381,7 @@ export interface StudyOllamaExchangeOptions {
 	readonly ticket: StudyTicketInterface
 	readonly signal: AbortSignal
 	readonly reader: ReadableStreamDefaultReader<Uint8Array>
-	readonly decoder: StudyOllamaDecoder
+	readonly decoder: StudyOllamaDecoderInterface
 	/** Holds the HTTP status the daemon answered with. */
 	readonly status: number
 	readonly started: number

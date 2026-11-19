@@ -6,9 +6,11 @@ import { isStudyCustodyName } from '../stores/validators.js'
 import { STUDY_OLLAMA_KEYED_ROLES } from '../ollama/constants.js'
 import { isStudyKeyedSelection } from '../processes/validators.js'
 import { STUDY_COMMAND_HELP } from './constants.js'
-import { resolveStudyPath } from './helpers.js'
+import { normalizeStudyPath, resolveStudyPath } from './helpers.js'
 
 /** Parses public command tokens with operation-specific grammar diagnostics.
+ * @remarks
+ * Each path flag, the seed's result, and a result target take the form `normalizeStudyPath` returns before any check reads them.
  * @param arguments_ - Exact command tokens, after the CLI help boundary.
  * @returns The independent operation request.
  * @throws StudyError when a token, required flag, or portable path is invalid.
@@ -99,7 +101,24 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 	}
 	const flags = new Map(
 		pairs.flatMap(({ flag, value }) =>
-			flag === undefined || value === undefined ? [] : [[flag, value] as const],
+			flag === undefined || value === undefined
+				? []
+				: [
+						[
+							flag,
+							[
+								'--to',
+								'--out',
+								'--closure',
+								'--extend',
+								'--replay',
+								'--rubric',
+								'--labels',
+							].includes(flag)
+								? normalizeStudyPath(value)
+								: value,
+						] as const,
+					],
 		),
 	)
 	if (command === 'check' || command === 'execute' || command === 'freeze') {
@@ -219,7 +238,7 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 				'--goals ' + JSON.stringify(goals) + ' must name two goal ids as <first>..<last>. ' + usage,
 			)
 		const parts = seed?.split(':') ?? []
-		const source = parts.slice(0, -2).join(':')
+		const source = normalizeStudyPath(parts.slice(0, -2).join(':'))
 		const [origin, goal] = parts.slice(-2)
 		if (seed !== undefined && (source === '' || !isStudyCustodyName(origin) || !isStudyName(goal)))
 			throw new StudyError(
@@ -266,11 +285,12 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 					}),
 		}
 	}
-	if (command === 'progress') return { command, target, from: flags.get('--from') }
+	const location = normalizeStudyPath(target)
+	if (command === 'progress') return { command, target: location, from: flags.get('--from') }
 	if (command === 'grade') {
 		const rubric = flags.get('--rubric')
 		if (rubric === undefined) throw new StudyError('CONFIG', 'Missing --rubric. ' + usage)
-		return { command, target, rubric }
+		return { command, target: location, rubric }
 	}
 	const assessment = flags.get('--assessment')
 	if (!isStudyDigest(assessment))
@@ -284,7 +304,7 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 	if (command === 'label') {
 		const labels = flags.get('--labels')
 		if (labels === undefined) throw new StudyError('CONFIG', 'Missing --labels. ' + usage)
-		return { command, target, assessment, labels }
+		return { command, target: location, assessment, labels }
 	}
-	return { command: 'report', target, assessment }
+	return { command: 'report', target: location, assessment }
 }
