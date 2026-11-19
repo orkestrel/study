@@ -158,7 +158,7 @@ describe('StudyArtifactLoader', () => {
 				...options,
 				profile: { ...profile, agent: second },
 			}).inspect()
-			expect(selectedFirst.subject).toBe(selectedFirst.agent)
+			expect(selectedFirst.subject).not.toBe(selectedFirst.agent)
 			expect(selectedFirst.agent).not.toBe(selectedSecond.agent)
 			const repeated = await new StudyArtifactLoader({
 				...options,

@@ -1,3 +1,6 @@
+/** Names the package that holds the Study runtime, which a bundle identity leaves out. */
+export const STUDY_PACKAGE = '@orkestrel/study'
+
 /** Limits each serialized IPC envelope, including its JSON framing. */
 export const STUDY_FRAME_BYTES = 16 * 1024 * 1024
 

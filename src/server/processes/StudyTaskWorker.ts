@@ -1,10 +1,11 @@
-import type { StudyAttempt, StudyJudgment, StudyProfile } from '@src/core'
+import type { StudyAttempt, StudyJudgment, StudyManifest, StudyProfile } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
 import type {
 	StudyAdapterInterface,
 	StudyAdjudication,
 	StudyProgressTarget,
 } from '../adapters/types.js'
+import type { ArtifactInventory } from '../artifacts/types.js'
 import {
 	isStudyError,
 	StudyError,
@@ -14,8 +15,8 @@ import {
 	parseStudyScenario,
 	isStudyJudgment,
 } from '@src/core'
-import { arrayOf, isArray, isJSONValue, isRecord, isString } from '@orkestrel/contract'
-import { dirname, isAbsolute } from 'node:path'
+import { arrayOf, isArray, isJSONValue, isRecord, isString, parseJSON } from '@orkestrel/contract'
+import { dirname, isAbsolute, join } from 'node:path'
 import { ArtifactLoader } from '../artifacts/ArtifactLoader.js'
 import { verifyArtifactClosure } from '../artifacts/helpers.js'
 import { collectStudyEvidence } from '../commands/helpers.js'
@@ -34,6 +35,7 @@ import {
 import { STUDY_FRAME_BYTES } from './constants.js'
 import {
 	collectStudyEntries,
+	computeStudyBundleDigest,
 	computeStudyInstrumentDigest,
 	resolveStudyInstrument,
 	validateStudyRuntime,
@@ -42,6 +44,12 @@ import {
 
 /**
  * Evaluates only admitted instrumentation in a disposable native child.
+ * @remarks
+ * A grading child reads and verifies the sealed evidence, then recomputes the agent, subject, and
+ * provider bundle identities from the grading install and refuses with `CONFIG` when one differs
+ * from the result's, all before any adapter module evaluates. It compares no instrument: the Study
+ * executable and the adapter, which carries the grade function, may differ, and the assessment
+ * records the grader's own instrument. Execution identity keeps the full instrument.
  * @example
  * ```ts
  * // Inside a child forked with an IPC channel, answer its one request and exit.
@@ -100,10 +108,12 @@ export class StudyTaskWorker {
 			source: { root: dirname(value.adapter), entry: value.adapter },
 			...(profile === undefined ? {} : { excluded: collectStudyEntries(profile) }),
 		})
+		const inventory = loader.inspect()
 		const instrument = computeStudyInstrumentDigest(
 			hashStudyBytes(await readStudyBytes(value.entry, STUDY_CUSTODY_BYTES)),
-			loader.inspect().digest,
+			inventory,
 		)
+		if (adjudication !== undefined) this.#bundle(adjudication.manifest, inventory, value.root)
 		const adapter = readStudyAdapter(await loader.load(value.adapter))
 		if (profile === undefined && value.operation !== 'grade' && value.operation !== 'progress')
 			throw new StudyError('CONFIG', 'Unknown adapter operation')
@@ -163,6 +173,37 @@ export class StudyTaskWorker {
 				Object.entries(evidence).map(([trial, records]) => [trial, [...records]]),
 			),
 		}
+	}
+
+	// Refuses a grading install whose agent, subject, or provider bundle differs from the execution's, before any adapter module evaluates.
+	#bundle(manifest: StudyManifest, inventory: ArtifactInventory, root: unknown): void {
+		const entry = parseJSON(manifest.host.entry ?? '')
+		if (
+			!isString(root) ||
+			!isAbsolute(root) ||
+			!isRecord(entry) ||
+			!isString(entry.agent) ||
+			!isString(entry.subject) ||
+			(entry.provider !== undefined && !isString(entry.provider))
+		)
+			throw new StudyError('CONFIG', 'Execution does not retain relative role entry keys')
+		const keys = [entry.agent, entry.subject, isString(entry.provider) ? entry.provider : undefined]
+		if (keys.some((key) => key !== undefined && (isAbsolute(key) || key.includes('\\'))))
+			throw new StudyError('CONFIG', 'Execution does not retain relative role entry keys')
+		const [agent, subject, provider] = keys.map((key) =>
+			key === undefined
+				? undefined
+				: computeStudyBundleDigest(inventory, join(root, ...key.split('/'))),
+		)
+		if (
+			agent !== manifest.identity.agent ||
+			subject !== manifest.identity.subject ||
+			provider !== manifest.identity.provider
+		)
+			throw new StudyError(
+				'CONFIG',
+				"Grading bundle differs from the executed bundle; grade from an install whose agent, subject, and provider package bytes equal the execution's",
+			)
 	}
 
 	#grade(adapter: StudyAdapterInterface, input: StudyAdjudication): readonly StudyJudgment[] {

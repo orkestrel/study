@@ -16,9 +16,11 @@ import {
 	isStudyGoal,
 	isStudyProduct,
 	isStudyProfile,
+	parseStudyProfile,
 } from '@src/core'
 import { canonicalStringify, isJSONValue, isNumber, isRecord, isString } from '@orkestrel/contract'
 import { open } from 'node:fs/promises'
+import { join } from 'node:path'
 import { STUDY_PROCESS_LABEL } from './constants.js'
 import {
 	computeStudyProfileDigest,
@@ -29,7 +31,12 @@ import {
 	valueToWire,
 } from './helpers.js'
 import { readStudyBytes, readStudyExchangeRows } from '../stores/helpers.js'
-import { hashStudyBytes } from '../helpers.js'
+import { decodeStudyJSON, hashStudyBytes } from '../helpers.js'
+import {
+	readStudyDeclarationBytes,
+	resolveStudyPath,
+	resolveStudyProfile,
+} from '../commands/helpers.js'
 import { StudyExchangeSink } from '../stores/StudyExchangeSink.js'
 import { StudyOllamaKeyedReplay } from '../ollama/StudyOllamaKeyedReplay.js'
 import { StudyOllamaReplay } from '../ollama/StudyOllamaReplay.js'
@@ -286,6 +293,18 @@ export class StudyWorker {
 			...(value.closure === undefined ? {} : { closure: value.closure }),
 		})
 		const identity = await this.#artifacts.inspect()
+		// The identity binds the profile as authored, so the worker reads that declaration and resolves it as its parent did.
+		const source = parseStudyProfile(
+			decodeStudyJSON(
+				await readStudyDeclarationBytes(
+					value.root,
+					resolveStudyPath(
+						resolveStudyPath(join(value.root, 'studies'), value.driver),
+						`profiles/${value.profile.name}.json`,
+					),
+				),
+			),
+		)
 		if (
 			identity.agent !== value.identity.agent ||
 			identity.runtime !== value.identity.runtime ||
@@ -293,7 +312,16 @@ export class StudyWorker {
 			identity.subject !== value.identity.subject ||
 			identity.provider !== value.identity.provider ||
 			identity.instrument !== value.identity.instrument ||
-			computeStudyProfileDigest(value.profile) !== value.identity.profile
+			computeStudyProfileDigest(source) !== value.identity.profile ||
+			canonicalStringify(
+				valueToWire(
+					resolveStudyProfile(
+						value.root,
+						source,
+						value.closure === undefined ? undefined : value.closure.closure,
+					),
+				),
+			) !== canonicalStringify(valueToWire(value.profile))
 		)
 			throw new StudyError('FAULT', 'Worker artifact identity differs from parent declaration')
 		const modules = await this.#artifacts.load()

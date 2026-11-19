@@ -1893,7 +1893,7 @@ describe('selection', () => {
 			]) {
 				await expect(command.execute(operation, signal)).rejects.toMatchObject({
 					code: 'CONFIG',
-					message: expect.stringContaining("through that closure's own entry"),
+					message: expect.stringContaining('resolve against this working root'),
 				})
 			}
 			const own = new StudyCommand({ root: closure.root, entry: closure.entry })

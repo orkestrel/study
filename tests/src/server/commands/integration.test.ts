@@ -1,9 +1,11 @@
+import type { StudyClosureFixture } from '../../../setupServer.js'
 import { createStudyScratch } from '../../../setupServer.js'
 import { isArray, isRecord, parseJSON } from '@orkestrel/contract'
 import { destroyScratch, isRunning } from '@orkestrel/test/server'
-import { readFileSync, appendFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, appendFileSync, cpSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
-import { expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { parseStudyRubric } from '../../../../src/core/parsers.js'
 import { StudyCommand } from '../../../../src/server/commands/StudyCommand.js'
 import { StudyArtifactLoader } from '../../../../src/server/processes/StudyArtifactLoader.js'
 import { isStudyClosure } from '../../../../src/server/commands/validators.js'
@@ -16,7 +18,11 @@ import {
 	readStudyExchangeRows,
 } from '../../../../src/server/stores/helpers.js'
 import {
+	STUDY_CLOSURE_LABEL,
+	STUDY_CLOSURE_RUBRIC,
+	buildCustodyPacketLabels,
 	buildStudyCLI,
+	createStudyClosureFixture,
 	createStudyConsumer,
 	createStudyReplayFixture,
 	createStudyContinuationFixture,
@@ -454,7 +460,7 @@ it('freezes twice with equal closure digests and checks and executes relocated b
 		)
 			throw new Error('Missing closure publication')
 		expect(publication.closure.digest).toBe(other.closure.digest)
-		expect(publication.source).not.toEqual(publication.identity)
+		expect(publication.source).toEqual(publication.identity)
 		for (const destination of [first, second]) {
 			const checked = await command.execute(
 				['check', 'assessment', '--profile', 'local', '--closure', destination],
@@ -531,3 +537,194 @@ it('refuses check-time writes before publishing closure.json', async () => {
 		await destroyScratch(scratch)
 	}
 }, 120000)
+
+describe('closure identities bind content, not location', () => {
+	const fixture = Promise.withResolvers<StudyClosureFixture>()
+	beforeAll(async () => {
+		await createStudyClosureFixture().then(fixture.resolve, fixture.reject)
+		await fixture.promise
+	}, 240000)
+	afterAll(async () => {
+		await fixture.promise.then(
+			(value) => value.close(),
+			() => undefined,
+		)
+	})
+
+	it('binds equal identities across two closures of one study, a quality closure, and the consumer checkout', async () => {
+		const { command, first, second, quality } = await fixture.promise
+		const checked = await command.execute(
+			['check', 'assessment', '--profile', 'local'],
+			new AbortController().signal,
+		)
+		expect(second.identity).toEqual(first.identity)
+		expect(quality.identity).toEqual(first.identity)
+		expect(first.source).toEqual(first.identity)
+		expect(isRecord(checked) ? checked.identity : undefined).toEqual(first.identity)
+	}, 120000)
+
+	it('passes the qualification gate for a quality closure whose relative qualification selects a capacity result executed under another closure', async () => {
+		const { command, scratch, quality, capacity } = await fixture.promise
+		const output = join(scratch.path, 'qualified')
+		await expect(
+			command.execute(
+				[
+					'execute',
+					'quality',
+					'--profile',
+					'local',
+					'--closure',
+					quality.closure.destination,
+					'--out',
+					output,
+				],
+				new AbortController().signal,
+			),
+		).resolves.toMatchObject({ status: 'completed' })
+		const sealed = await readStudyResult(output)
+		expect(sealed.status === 'sealed' ? sealed.manifest.qualification : undefined).toBe(
+			capacity.seal.id,
+		)
+	}, 120000)
+
+	it('grades a closure result from the consumer install and from another closure, loading the declared package from each grading install', async () => {
+		const { command, second, capacity } = await fixture.promise
+		const other = new StudyCommand({ root: second.root, entry: second.entry })
+		for (const grader of [command, other]) {
+			const graded = await grader.execute(
+				['grade', capacity.directory, '--rubric', STUDY_CLOSURE_RUBRIC],
+				new AbortController().signal,
+			)
+			if (!isRecord(graded) || typeof graded.assessment !== 'string')
+				throw new Error('Missing grading identity')
+			expect(
+				parseJSON(
+					readFileSync(
+						join(capacity.directory, 'grades', graded.assessment, 'grading.json'),
+						'utf8',
+					),
+				),
+			).toMatchObject({
+				judgments: expect.arrayContaining([
+					expect.objectContaining({
+						reason: `Retained file observation by ${STUDY_CLOSURE_LABEL}`,
+					}),
+				]),
+			})
+		}
+	}, 120000)
+
+	it('grades a changed adapter as a new grader that the assessment records', async () => {
+		const { command, scratch, capacity } = await fixture.promise
+		const grade = ['grade', capacity.directory, '--rubric', STUDY_CLOSURE_RUBRIC]
+		const unchanged = await command.execute(grade, new AbortController().signal)
+		const adapter = requireValue(scratch.read('studies/files/index.ts'))
+		scratch.write('studies/files/index.ts', `${adapter}\n// changed grading adapter\n`)
+		try {
+			const changed = await command.execute(grade, new AbortController().signal)
+			expect(isRecord(changed) ? changed.assessment : undefined).toMatch(/^[a-f0-9]{64}$/)
+			expect(isRecord(changed) ? changed.assessment : undefined).not.toBe(
+				isRecord(unchanged) ? unchanged.assessment : undefined,
+			)
+		} finally {
+			scratch.write('studies/files/index.ts', adapter)
+		}
+	}, 120000)
+
+	it('grades a result under a Study entry of different bytes when the bundle is unchanged', async () => {
+		const { scratch, capacity } = await fixture.promise
+		cpSync(join(scratch.path, 'runtime'), join(scratch.path, 'runtime-next'), { recursive: true })
+		const entry = join(scratch.path, 'runtime-next', 'dist', 'bin', 'main.js')
+		appendFileSync(entry, '\n// inert bytes\n')
+		await expect(
+			new StudyCommand({ root: scratch.path, entry }).execute(
+				['grade', capacity.directory, '--rubric', STUDY_CLOSURE_RUBRIC],
+				new AbortController().signal,
+			),
+		).resolves.toMatchObject({ command: 'grade', result: capacity.manifest.id })
+	}, 120000)
+
+	it('refuses with CONFIG a grade under a Study entry of different bytes when a role package changed', async () => {
+		const { scratch, capacity } = await fixture.promise
+		cpSync(join(scratch.path, 'runtime'), join(scratch.path, 'runtime-later'), { recursive: true })
+		const entry = join(scratch.path, 'runtime-later', 'dist', 'bin', 'main.js')
+		appendFileSync(entry, '\n// inert bytes\n')
+		const subject = requireValue(scratch.read('subject/dist/index.js'))
+		scratch.write('subject/dist/index.js', `${subject}\n// changed subject bytes\n`)
+		try {
+			await expect(
+				new StudyCommand({ root: scratch.path, entry }).execute(
+					['grade', capacity.directory, '--rubric', STUDY_CLOSURE_RUBRIC],
+					new AbortController().signal,
+				),
+			).rejects.toMatchObject({
+				code: 'CONFIG',
+				message:
+					"Grading bundle differs from the executed bundle; grade from an install whose agent, subject, and provider package bytes equal the execution's",
+			})
+		} finally {
+			scratch.write('subject/dist/index.js', subject)
+		}
+	}, 120000)
+
+	it('binds the label instrument by content, so a label from the consumer install equals one from a closure install', async () => {
+		const { command, scratch, first, capacity } = await fixture.promise
+		const own = new StudyCommand({ root: first.root, entry: first.entry })
+		const graded = await own.execute(
+			['grade', capacity.directory, '--rubric', STUDY_CLOSURE_RUBRIC],
+			new AbortController().signal,
+		)
+		if (!isRecord(graded) || typeof graded.assessment !== 'string')
+			throw new Error('Missing grading identity')
+		const rubric = parseStudyRubric(parseJSON(requireValue(scratch.read(STUDY_CLOSURE_RUBRIC))))
+		const labels = scratch.write(
+			'labels.json',
+			JSON.stringify(buildCustodyPacketLabels(capacity, rubric)),
+		)
+		const label = [
+			'label',
+			capacity.directory,
+			'--assessment',
+			graded.assessment,
+			'--labels',
+			labels,
+		]
+		const consumer = await command.execute(label, new AbortController().signal)
+		const closure = await own.execute(label, new AbortController().signal)
+		expect(isRecord(consumer) ? consumer.assessment : undefined).toMatch(/^[a-f0-9]{64}$/)
+		expect(isRecord(closure) ? closure.assessment : undefined).toBe(
+			isRecord(consumer) ? consumer.assessment : undefined,
+		)
+	}, 120000)
+
+	it('refuses with CUSTODY a grade of evidence altered after sealing', async () => {
+		const { command, scratch, first } = await fixture.promise
+		const output = join(scratch.path, 'altered')
+		await command.execute(
+			[
+				'execute',
+				'assessment',
+				'--profile',
+				'local',
+				'--closure',
+				first.closure.destination,
+				'--out',
+				output,
+			],
+			new AbortController().signal,
+		)
+		const result = await readStudyResult(output)
+		if (result.status !== 'sealed') throw new Error('Altered fixture did not seal')
+		const trial = requireValue(result.manifest.schedule[0])
+		appendFileSync(
+			join(output, 'execution', 'trials', trial.id, 'evidence.jsonl'),
+			'{"event":"saved","goal":"write","value":"saved:fabricated"}\n',
+		)
+		await expect(
+			command.execute(
+				['grade', output, '--rubric', STUDY_CLOSURE_RUBRIC],
+				new AbortController().signal,
+			),
+		).rejects.toMatchObject({ code: 'CUSTODY' })
+	}, 120000)
+})

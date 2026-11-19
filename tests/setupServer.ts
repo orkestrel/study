@@ -29,6 +29,7 @@ import type { StudyAgentPlan } from '../src/server/agents/types.js'
 import type { StudyAgentTrace } from '../src/server/agents/StudyAgentTrace.js'
 import type { ArtifactLoaderOptions } from '../src/server/artifacts/types.js'
 import type {
+	StudyClosure,
 	StudyCommandOptions,
 	StudyDaemonSessionOptions,
 } from '../src/server/commands/types.js'
@@ -113,7 +114,7 @@ import {
 	writeDistributionFile,
 	writeDistributionProject,
 } from './setupDistribution.js'
-import { createScratch, isRunning, readInventory } from '@orkestrel/test/server'
+import { createScratch, destroyScratch, isRunning, readInventory } from '@orkestrel/test/server'
 import { createTeardown, requireValue, waitForCondition, waitForEvent } from '@orkestrel/test'
 import { fork, spawn } from 'node:child_process'
 import {
@@ -148,16 +149,19 @@ import {
 import { StudyTask } from '../src/server/processes/StudyTask.js'
 import {
 	buildStudyExchangeDeclaration,
+	computeStudyBundleDigest,
 	drainStudyChild,
+	resolveStudyInstrument,
 	terminateStudyChild,
 } from '../src/server/processes/helpers.js'
+import { ArtifactLoader } from '../src/server/artifacts/ArtifactLoader.js'
 import { StudyChannel } from '../src/server/processes/StudyChannel.js'
 import { StudyCommand } from '../src/server/commands/StudyCommand.js'
 import { STUDY_TASK_DURATION, STUDY_WORKER_OPERATION } from '../src/server/processes/constants.js'
 import { STUDY_LAUNCH_BYTES } from '../src/server/launchers/constants.js'
 import { createStudyInstall } from '../src/server/launchers/factories.js'
 import { StudyInstall } from '../src/server/launchers/StudyInstall.js'
-import { collectStudyEvidence } from '../src/server/commands/helpers.js'
+import { collectStudyEvidence, readStudyClosure } from '../src/server/commands/helpers.js'
 import { StudyResultStore } from '../src/server/stores/StudyResultStore.js'
 import { StudyExchangeSink } from '../src/server/stores/StudyExchangeSink.js'
 import {
@@ -317,6 +321,116 @@ export async function createStudyReplayFixture(
 		await server.destroy()
 		library.destroy()
 		scratch.destroy()
+		throw error
+	}
+}
+
+/** Names the capacity result a closure fixture's relative qualification selects from the consumer root. */
+export const STUDY_CLOSURE_QUALIFICATION = 'tmp/studies/capacity'
+
+/** Holds the text a closure fixture's declared package exports, which its adapter writes into each judgment reason. */
+export const STUDY_CLOSURE_LABEL = 'declared'
+
+/** Names the rubric a closure fixture grades with, relative to a consumer or closure root. */
+export const STUDY_CLOSURE_RUBRIC = 'studies/assessment/rubric.json'
+
+/** Freezes a consumer into two capacity closures and a quality closure and executes the capacity study under the first.
+ * @remarks
+ * The Study runtime declares the `study-dep` package, the profile admits it, and the adapter imports
+ * it, so a grade loads it from the grading install's own roots. The profile names its qualification
+ * by the relative {@link STUDY_CLOSURE_QUALIFICATION} path, and the capacity result sits there.
+ * @returns The three verified closure publications, the sealed capacity result, and its teardown.
+ */
+export async function createStudyClosureFixture(): Promise<StudyClosureFixture> {
+	const scratch = createStudyConsumer()
+	try {
+		const entry = await buildStudyCLI(scratch)
+		scratch.write(
+			'runtime/package.json',
+			JSON.stringify({
+				name: '@orkestrel/study',
+				version: '0.0.0-runtime',
+				type: 'module',
+				dependencies: { 'study-dep': '1.0.0' },
+			}),
+		)
+		scratch.write(
+			'node_modules/study-dep/package.json',
+			JSON.stringify({
+				name: 'study-dep',
+				version: '1.0.0',
+				type: 'module',
+				main: 'dist/index.js',
+			}),
+		)
+		scratch.write(
+			'node_modules/study-dep/dist/index.js',
+			`export const label = ${JSON.stringify(STUDY_CLOSURE_LABEL)}\n`,
+		)
+		const adapter = requireValue(scratch.read('studies/files/index.ts'))
+		scratch.write(
+			'studies/files/index.ts',
+			`import {label} from 'study-dep'\n${adapter.replace("reason:'Retained file observation'", "reason:'Retained file observation by '+label")}`,
+		)
+		const profile = parseStudyProfile(
+			parseJSON(requireValue(scratch.read('studies/files/profiles/local.json'))),
+		)
+		scratch.write(
+			'studies/files/profiles/local.json',
+			JSON.stringify({
+				...profile,
+				roots: [...profile.roots, join(scratch.path, 'node_modules', 'study-dep')],
+				qualification: STUDY_CLOSURE_QUALIFICATION,
+			}),
+		)
+		const definition = parseJSON(requireValue(scratch.read('studies/assessment/study.json')))
+		if (!isRecord(definition)) throw new Error('Missing closure fixture definition')
+		scratch.write(
+			'studies/quality/study.json',
+			JSON.stringify({ ...definition, name: 'quality', purpose: 'quality' }),
+		)
+		scratch.write('studies/quality/rubric.json', requireValue(scratch.read(STUDY_CLOSURE_RUBRIC)))
+		const command = new StudyCommand({ root: scratch.path, entry })
+		for (const [name, target] of [
+			['first', 'assessment'],
+			['second', 'assessment'],
+			['quality', 'quality'],
+		] as const)
+			await command.execute(
+				['freeze', target, '--profile', 'local', '--to', join(scratch.path, name)],
+				new AbortController().signal,
+			)
+		await command.execute(
+			[
+				'execute',
+				'assessment',
+				'--profile',
+				'local',
+				'--closure',
+				join(scratch.path, 'first'),
+				'--out',
+				STUDY_CLOSURE_QUALIFICATION,
+			],
+			new AbortController().signal,
+		)
+		const capacity = await readStudyResult(
+			join(scratch.path, ...STUDY_CLOSURE_QUALIFICATION.split('/')),
+		)
+		if (capacity.status !== 'sealed') throw new Error('Closure fixture capacity did not seal')
+		return {
+			scratch,
+			entry,
+			command,
+			first: readStudyClosure(join(scratch.path, 'first')),
+			second: readStudyClosure(join(scratch.path, 'second')),
+			quality: readStudyClosure(join(scratch.path, 'quality')),
+			capacity,
+			close: async () => {
+				await destroyScratch(scratch)
+			},
+		}
+	} catch (error) {
+		await destroyScratch(scratch)
 		throw error
 	}
 }
@@ -1911,6 +2025,71 @@ export const STUDY_TASK_WORKER_ADAPTER = `export function createStudyAdapter() {
 	}
 }
 `
+
+/** Writes a consumer adapter whose import writes a marker file before it exports anything.
+ * @param scratch - The owned temporary resource holding the adapter and its marker.
+ * @param name - The adapter directory under the scratch.
+ * @returns The adapter entry and the marker path its import writes.
+ */
+export function writeStudyMarkerAdapter(
+	scratch: ScratchInterface,
+	name: string,
+): StudyMarkerFixture {
+	const marker = join(scratch.path, `${name}.marker`)
+	const adapter = scratch.write(
+		`${name}/index.ts`,
+		`import {writeFileSync} from 'node:fs'
+writeFileSync(${JSON.stringify(marker)}, 'imported')
+export function createStudyAdapter() { return {
+ validate() {},
+ driver() { throw new Error('The marker adapter opens no driver') },
+ grade() { return [] },
+} }
+`,
+	)
+	return { adapter, marker }
+}
+
+/** Builds a custody manifest whose role entry keys and agent and subject identities match a grading child's bundle under one scratch root.
+ * @param scratch - The owned root a grading child resolves the entry keys against.
+ * @param entry - The built Study executable the grading child runs.
+ * @param adapter - The grading adapter entry.
+ * @returns The manifest and the package roots a grading request admits.
+ */
+export function buildStudyBundleFixture(
+	scratch: ScratchInterface,
+	entry: string,
+	adapter: string,
+): StudyBundleFixture {
+	scratch.write(
+		'bundle/package.json',
+		JSON.stringify({ name: 'bundle-fixture', version: '1.0.0', type: 'module' }),
+	)
+	const agent = scratch.write('bundle/dist/index.js', 'export const bundle = true\n')
+	const roots = [join(scratch.path, 'bundle')]
+	const instrument = resolveStudyInstrument(entry)
+	const digest = computeStudyBundleDigest(
+		new ArtifactLoader({
+			entries: [],
+			roots: [...roots, instrument],
+			instrument,
+			source: { root: dirname(adapter), entry: adapter },
+		}).inspect(),
+		agent,
+	)
+	const manifest = buildCustodyManifest()
+	return {
+		roots,
+		manifest: {
+			...manifest,
+			identity: { ...manifest.identity, agent: digest, subject: digest, provider: undefined },
+			host: {
+				...manifest.host,
+				entry: JSON.stringify({ agent: 'bundle/dist/index.js', subject: 'bundle/dist/index.js' }),
+			},
+		},
+	}
+}
 
 /** Supplies the scheduled trial a task worker progress target names. */
 export const STUDY_TASK_WORKER_TRIAL = Object.freeze({
@@ -4322,6 +4501,30 @@ export interface StudyContinuationSource {
 export interface StudyInstallFixture {
 	readonly scratch: ScratchInterface
 	readonly install: StudyInstall
+}
+
+/** Holds a custody manifest a grading child's bundle matches and the package roots it admits. */
+export interface StudyBundleFixture {
+	readonly manifest: StudyManifest
+	readonly roots: readonly string[]
+}
+
+/** Holds a marker adapter's entry and the file its import writes. */
+export interface StudyMarkerFixture {
+	readonly adapter: string
+	readonly marker: string
+}
+
+/** Holds a consumer's three verified closures, the capacity result executed under the first, and its teardown. */
+export interface StudyClosureFixture {
+	readonly scratch: ScratchInterface
+	readonly entry: string
+	readonly command: StudyCommand
+	readonly first: StudyClosure
+	readonly second: StudyClosure
+	readonly quality: StudyClosure
+	readonly capacity: StudySealedResult
+	close(): Promise<void>
 }
 
 /** Holds a sealed open recording and its real command, worker, and protocol resources. */

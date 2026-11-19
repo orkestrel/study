@@ -56,6 +56,8 @@ Declare a study at `studies/<name>/study.json`. Its rubric path resolves inside 
 
 Results default to `tmp/studies/<result>`. A result selector can be an identity under that directory, a root-relative path, or an absolute path. Relative paths must stay inside the consumer workspace. Output directories must be absent before execution.
 
+A quality profile names its capacity result in `qualification`, a result selector that resolves against the consumer workspace, never against a closure. Identities bind bytes, not location, so a capacity and quality pair runs under two closures with a relative qualification path.
+
 Read the exit code to distinguish outcomes.
 
 | Exit code | Meaning                                             |

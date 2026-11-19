@@ -289,7 +289,10 @@ export function resolveStudyPath(directory: string, path: string): string {
  * @param root - The repository root
  * @param profile - The validated source profile
  * @param closure - The optional verified physical forest used to relocate executable selections
- * @returns The reproducible resolved execution profile
+ * @returns The reproducible resolved execution profile, its `qualification` kept as authored
+ * @remarks
+ * The command resolves `qualification` as a result selector against its own working root, where
+ * results are written, never against a closure root.
  * @example
  * ```ts
  * resolveStudyProfile(root, profile)
@@ -308,8 +311,6 @@ export function resolveStudyProfile(
 		throw new StudyError('CONFIG', 'Daemon executable must name its canonical absolute path')
 	return {
 		...profile,
-		qualification:
-			profile.qualification === undefined ? undefined : resolve(root, profile.qualification),
 		agent: resolveStudyClosurePath(root, profile.agent, closure),
 		subject: resolveStudyClosurePath(root, profile.subject, closure),
 		roots: profile.roots.map((path) => resolveStudyClosurePath(root, path, closure)),

@@ -229,7 +229,8 @@ describe('StudyWorker', () => {
 			const entry = await buildStudyCLI(scratch)
 			const signal = new AbortController().signal
 			const declared = parseJSON(requireValue(scratch.read('studies/segments/profiles/local.json')))
-			const profile = resolveStudyProfile(scratch.path, parseStudyProfile(declared))
+			const source = parseStudyProfile(declared)
+			const profile = resolveStudyProfile(scratch.path, source)
 			const adapter = join(scratch.path, 'studies', 'segments', 'index.ts')
 			const loader = new StudyArtifactLoader({ root: scratch.path, entry, profile, adapter })
 			const selected = await loader.inspect()
@@ -243,7 +244,7 @@ describe('StudyWorker', () => {
 				identity: {
 					...selected,
 					fixtures: 'c'.repeat(64),
-					profile: computeStudyProfileDigest(profile),
+					profile: computeStudyProfileDigest(source),
 				},
 			})
 			const trial = { id: 'r1-s1-a1', scenario: 'first', arm: 'small', repetition: 0 }

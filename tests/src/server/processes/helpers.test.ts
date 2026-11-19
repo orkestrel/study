@@ -9,6 +9,8 @@ import {
 	STUDY_PROFILE_SETTINGS,
 } from '../../../setupStudy.js'
 import {
+	ARTIFACT_CLOSURE_FILES,
+	buildArtifactClosureOptions,
 	createStudyScratch,
 	buildOllamaDeclaration,
 	buildOllamaStep,
@@ -19,6 +21,7 @@ import {
 	retainStudyExchangeFixture,
 } from '../../../setupServer.js'
 import { parseStudyProfile } from '../../../../src/core/parsers.js'
+import { ArtifactLoader } from '../../../../src/server/artifacts/ArtifactLoader.js'
 import { readStudyResult, readStudyExchanges } from '../../../../src/server/stores/helpers.js'
 import { describe, expect, it } from 'vitest'
 import { requireValue, waitForEvent } from '@orkestrel/test'
@@ -35,6 +38,7 @@ import {
 	collectStudyAncestors,
 	collectStudyEntries,
 	drainStudyChild,
+	computeStudyBundleDigest,
 	computeStudyInstrumentDigest,
 	computeStudyProfileDigest,
 	createStudyProcessFailure,
@@ -369,7 +373,7 @@ describe('process helpers', () => {
 			scratch.destroy()
 		}
 	})
-	it('binds canonical resolved profile settings across the JSON boundary', () => {
+	it('binds canonical authored profile settings across the JSON boundary', () => {
 		const profile = buildStudyProfile()
 		expect(computeStudyProfileDigest(profile)).toMatch(/^[a-f0-9]{64}$/)
 		expect(
@@ -451,15 +455,107 @@ describe('process helpers', () => {
 			collectStudyEntries({ ...shared, provider: { ...provider, entry: base.subject } }),
 		).toEqual(['subject-v1'])
 	})
-	it('binds the runtime entry and adapter inventory in an ordered JSON pair', () => {
-		const entry = 'a'.repeat(64)
-		const inventory = 'b'.repeat(64)
-		expect(computeStudyInstrumentDigest(entry, inventory)).toBe(
-			'2ba3056e95d23c0c154eca683e330401c46e441d5074523e16349e29d7597a64',
-		)
-		expect(computeStudyInstrumentDigest(inventory, entry)).not.toBe(
-			computeStudyInstrumentDigest(entry, inventory),
-		)
+	it('binds the runtime entry to the adapter inventory by content, not location', () => {
+		const one = createScratch({ files: ARTIFACT_CLOSURE_FILES })
+		const two = createScratch({ files: ARTIFACT_CLOSURE_FILES })
+		try {
+			const entry = 'a'.repeat(64)
+			const first = new ArtifactLoader(buildArtifactClosureOptions(one)).inspect()
+			const second = new ArtifactLoader(buildArtifactClosureOptions(two)).inspect()
+			expect(second.digest).not.toBe(first.digest)
+			expect(computeStudyInstrumentDigest(entry, second)).toBe(
+				computeStudyInstrumentDigest(entry, first),
+			)
+			expect(computeStudyInstrumentDigest('b'.repeat(64), first)).not.toBe(
+				computeStudyInstrumentDigest(entry, first),
+			)
+			two.write('subject/dist/index.js', `${requireValue(two.read('subject/dist/index.js'))}\n`)
+			expect(
+				computeStudyInstrumentDigest(
+					entry,
+					new ArtifactLoader(buildArtifactClosureOptions(two)).inspect(),
+				),
+			).not.toBe(computeStudyInstrumentDigest(entry, first))
+		} finally {
+			one.destroy()
+			two.destroy()
+		}
+	})
+	it('binds a role bundle by content without any Study package or the adapter source', () => {
+		const one = createScratch({ files: ARTIFACT_CLOSURE_FILES })
+		const two = createScratch({ files: ARTIFACT_CLOSURE_FILES })
+		try {
+			const entry = join(one.path, 'subject', 'dist', 'index.js')
+			const first = new ArtifactLoader(buildArtifactClosureOptions(one)).inspect()
+			two.write(
+				'runtime/package.json',
+				JSON.stringify({ name: '@orkestrel/study', version: '9.9.9', type: 'module' }),
+			)
+			two.write('runtime/dist/bin/main.js', 'export const runtime = true\n')
+			two.write(
+				'subject/studies/adapter/index.ts',
+				`${requireValue(two.read('subject/studies/adapter/index.ts'))}\n`,
+			)
+			const options = buildArtifactClosureOptions(two)
+			const runtime = join(two.path, 'runtime')
+			const second = new ArtifactLoader({
+				...options,
+				roots: [...options.roots, runtime],
+				instrument: runtime,
+			}).inspect()
+			const other = join(two.path, 'subject', 'dist', 'index.js')
+			expect(computeStudyBundleDigest(second, other)).toBe(computeStudyBundleDigest(first, entry))
+			expect(
+				computeStudyBundleDigest(
+					first,
+					join(one.path, 'subject', 'node_modules', 'provider', 'dist', 'index.js'),
+				),
+			).not.toBe(computeStudyBundleDigest(first, entry))
+			two.write('subject/dist/index.js', `${requireValue(two.read('subject/dist/index.js'))}\n`)
+			expect(
+				computeStudyBundleDigest(
+					new ArtifactLoader({
+						...options,
+						roots: [...options.roots, runtime],
+						instrument: runtime,
+					}).inspect(),
+					other,
+				),
+			).not.toBe(computeStudyBundleDigest(first, entry))
+			const main = join(runtime, 'dist', 'bin', 'main.js')
+			const alone = new ArtifactLoader({ entries: [main], roots: [runtime] }).inspect()
+			expect(() => computeStudyBundleDigest(alone, other)).toThrow(
+				'Study bundle admits no package besides the Study runtime',
+			)
+			const own = computeStudyBundleDigest(alone, main)
+			two.write('runtime/dist/bin/main.js', 'export const runtime = false\n')
+			expect(
+				computeStudyBundleDigest(
+					new ArtifactLoader({ entries: [main], roots: [runtime] }).inspect(),
+					main,
+				),
+			).not.toBe(own)
+		} finally {
+			one.destroy()
+			two.destroy()
+		}
+	})
+	it('leaves the host daemon executable out of the authored profile digest', () => {
+		const provider = buildStudyDaemonProvider()
+		const daemon = requireValue(provider.daemon)
+		const profile = { ...buildStudyProfile(), provider }
+		expect(
+			computeStudyProfileDigest({
+				...profile,
+				provider: { ...provider, daemon: { ...daemon, executable: '/srv/other/ollama' } },
+			}),
+		).toBe(computeStudyProfileDigest(profile))
+		expect(
+			computeStudyProfileDigest({
+				...profile,
+				provider: { ...provider, daemon: { ...daemon, environment: { OLLAMA_MODELS: '/other' } } },
+			}),
+		).not.toBe(computeStudyProfileDigest(profile))
 	})
 	it('terminates a live recorded child and treats an exited child as already released', async () => {
 		const scratch = createScratch()

@@ -803,13 +803,13 @@ try { parseStudyArguments([]) } catch (error) {
 		it('frame evidence: refuses evidence changed after its seal was verified, in the grading child, as custody', async () => {
 			const entry = await compiled.promise
 			const { tampered } = await retained.promise
-			const roots = parseJSON(tampered.manifest.host.roots ?? '')
-			if (!arrayOf(isString)(roots)) throw new Error('Missing retained adapter roots')
+			const keys = parseJSON(tampered.manifest.host.roots ?? '')
+			if (!arrayOf(isString)(keys)) throw new Error('Missing retained adapter roots')
 			const task = new StudyTask({
 				root: consumer.path,
 				entry,
 				adapter: join(consumer.path, 'studies', 'files', 'index.ts'),
-				roots,
+				roots: keys.map((key) => resolve(consumer.path, ...key.split('/'))),
 			})
 			const request: StudyTaskRequest = {
 				operation: 'grade',

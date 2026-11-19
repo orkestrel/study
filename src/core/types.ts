@@ -160,13 +160,24 @@ export interface StudyTrial {
 	readonly repetition: number
 }
 
-/** Holds the separately bound instrument and selected module inventory identities. */
+/**
+ * Holds the native runtime identity and the content-bound identities of the captured code, each role entry, and the instrument.
+ * @remarks
+ * Every member but `runtime` keys captured files relative to the admitted roots' common base and
+ * binds their bytes, so equal bytes in one relative layout give equal identities at any location.
+ */
 export interface StudyArtifactIdentity {
+	/** Binds the Node version, execution arguments, NODE_OPTIONS, platform, and architecture. */
 	readonly runtime: string
+	/** Binds the captured code, its selected entries, and the Study executable bytes. */
 	readonly content: string
+	/** Binds the agent entry's relative key over the bundle: the admitted packages' code without the adapter source or any Study package that does not hold the entry. */
 	readonly agent: string
+	/** Binds the subject entry's relative key over the bundle. */
 	readonly subject: string
+	/** Binds the provider entry's relative key over the bundle; undefined without a provider. */
 	readonly provider: string | undefined
+	/** Binds the Study executable, the adapter graph, and the admitted roots' code. */
 	readonly instrument: string
 }
 
@@ -228,6 +239,18 @@ export interface StudySelection {
 	readonly seed: StudySeed | undefined
 }
 
+/**
+ * Holds each role's executable entry as a slash key relative to the executing root.
+ * @remarks
+ * A manifest retains it as JSON under `host.entry`, beside the dependency root keys under
+ * `host.roots`, so a grade resolves both against its own working root.
+ */
+export interface StudyEntry {
+	readonly agent: string
+	readonly subject: string
+	readonly provider: string | undefined
+}
+
 /** Holds the execution declaration sealed before any trial begins. */
 export interface StudyManifest {
 	readonly id: string
@@ -238,6 +261,7 @@ export interface StudyManifest {
 	readonly schedule: readonly StudyTrial[]
 	readonly bounds: StudyAllowance
 	readonly qualification: string | undefined
+	/** Holds host facts, with the dependency root keys under `roots` and the {@link StudyEntry} keys under `entry`, each as JSON. */
 	readonly host: Readonly<Record<string, string>>
 	/** Copies the profile's recording declaration before any trial starts. */
 	readonly record?: StudyRecord | undefined

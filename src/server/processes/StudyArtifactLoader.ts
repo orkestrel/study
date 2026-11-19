@@ -16,6 +16,7 @@ import { readStudyBytes } from '../stores/helpers.js'
 import { STUDY_CUSTODY_BYTES } from '../stores/constants.js'
 import {
 	collectStudyEntries,
+	computeStudyBundleDigest,
 	computeStudyInstrumentDigest,
 	resolveStudyInstrument,
 	validateStudyRuntime,
@@ -86,10 +87,13 @@ export class StudyArtifactLoader {
 		this.#identity = Object.freeze({
 			runtime: computeArtifactRuntimeDigest(code),
 			content: computeArtifactContentDigest({ ...code, entries: inventory.entries }, entry),
-			agent: inventory.digest,
-			subject: inventory.digest,
-			provider: profile.provider === undefined ? undefined : inventory.digest,
-			instrument: computeStudyInstrumentDigest(entry, this.#instrument.inspect().digest),
+			agent: computeStudyBundleDigest(code, profile.agent),
+			subject: computeStudyBundleDigest(code, profile.subject),
+			provider:
+				profile.provider === undefined
+					? undefined
+					: computeStudyBundleDigest(code, profile.provider.entry),
+			instrument: computeStudyInstrumentDigest(entry, code),
 		})
 		this.verify()
 		return this.#identity

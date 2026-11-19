@@ -234,7 +234,7 @@ export function computeArtifactRuntimeDigest(inventory: ArtifactInventory): stri
 
 /** Computes a location-independent identity of captured code and selected entries.
  * @param inventory - The code inventory, without custody-only assets.
- * @param entry - The trusted Study executable's byte digest.
+ * @param entry - The trusted Study executable's byte digest; undefined leaves the executable out of the identity.
  * @returns The SHA-256 identity relative to the admitted roots' common base.
  * @example
  * ```ts
@@ -243,7 +243,7 @@ export function computeArtifactRuntimeDigest(inventory: ArtifactInventory): stri
  * computeArtifactContentDigest(loader.inspect(), entry) // a SHA-256 hex digest
  * ```
  */
-export function computeArtifactContentDigest(inventory: ArtifactInventory, entry: string): string {
+export function computeArtifactContentDigest(inventory: ArtifactInventory, entry?: string): string {
 	const base = resolveArtifactBase(
 		inventory.packages.map((member) => join(member.root, 'package.json')),
 	)

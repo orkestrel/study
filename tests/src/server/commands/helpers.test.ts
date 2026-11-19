@@ -517,6 +517,10 @@ describe('study command helpers', () => {
 			)
 			expect(profile.subject).toBe('subject-v1')
 			expect(profile.agent).toBe('agent-v1')
+			expect(
+				resolveStudyProfile(scratch.path, { ...profile, qualification: 'tmp/studies/capacity' })
+					.qualification,
+			).toBe('tmp/studies/capacity')
 		} finally {
 			scratch.destroy()
 		}
@@ -582,7 +586,7 @@ describe('study command helpers', () => {
 		const sealed = profiles.map((profile) => {
 			const source = parseStudyProfile(JSON.parse(JSON.stringify(profile)))
 			const admitted = resolveStudyProfile(root, source)
-			const identity = { ...manifest.identity, profile: computeStudyProfileDigest(admitted) }
+			const identity = { ...manifest.identity, profile: computeStudyProfileDigest(source) }
 			return {
 				profile: identity.profile,
 				fingerprint: computeStudyCommandFingerprint(identity, admitted.bounds, manifest.definition),

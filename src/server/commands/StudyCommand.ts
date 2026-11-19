@@ -1,6 +1,7 @@
 import type {
 	StudyAssessment,
 	StudyDefinition,
+	StudyEntry,
 	StudyKeyedSource,
 	StudyManifest,
 	StudyScenario,
@@ -47,7 +48,7 @@ import {
 } from '@orkestrel/contract'
 import { randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { isAbsolute, join, resolve } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { StudyArtifactLoader } from '../processes/StudyArtifactLoader.js'
 import { StudyProcessDriver } from '../processes/StudyProcessDriver.js'
 import { StudyDaemonSession } from './StudyDaemonSession.js'
@@ -272,7 +273,7 @@ export class StudyCommand {
 			identity: {
 				...selected,
 				fixtures: computeStudyFixtureDigest(definition, fixtures),
-				profile: computeStudyProfileDigest(profile),
+				profile: computeStudyProfileDigest(source),
 			},
 			artifacts,
 			source: hashStudyBytes(profileBytes),
@@ -451,6 +452,16 @@ export class StudyCommand {
 						})
 			try {
 				const startup = await daemon?.start()
+				const executing = preparation.closure?.root ?? this.#root
+				const { agent, subject, provider } = preparation.profile
+				const roles: StudyEntry = {
+					agent: relative(executing, agent).split(sep).join('/'),
+					subject: relative(executing, subject).split(sep).join('/'),
+					provider:
+						provider === undefined
+							? undefined
+							: relative(executing, provider.entry).split(sep).join('/'),
+				}
 				const manifest: StudyManifest = {
 					id,
 					created: new Date().toISOString(),
@@ -471,7 +482,13 @@ export class StudyCommand {
 						platform: process.platform,
 						architecture: process.arch,
 						profile: preparation.source,
-						roots: JSON.stringify(preparation.profile.roots),
+						// Keys relative to the executing root, so a grade resolves them against its own install.
+						roots: JSON.stringify(
+							preparation.profile.roots.map((path) =>
+								relative(executing, path).split(sep).join('/'),
+							),
+						),
+						entry: JSON.stringify(roles),
 						...(startup === undefined ? {} : { daemon: JSON.stringify(startup) }),
 					},
 				}
@@ -730,11 +747,8 @@ export class StudyCommand {
 			root,
 			resolveStudyPath(bundle, `profiles/${request.profile}.json`),
 		)
-		const profile = resolveStudyProfile(
-			root,
-			parseStudyProfile(decodeStudyJSON(bytes)),
-			closure?.closure,
-		)
+		const authored = parseStudyProfile(decodeStudyJSON(bytes))
+		const profile = resolveStudyProfile(root, authored, closure?.closure)
 		const segment = await this.#select(request, definition, scenarios)
 		const retained = source.manifest.selection
 		if (
@@ -772,7 +786,7 @@ export class StudyCommand {
 		const identity = {
 			...selected,
 			fixtures: computeStudyFixtureDigest(definition, fixtures),
-			profile: computeStudyProfileDigest(profile),
+			profile: computeStudyProfileDigest(authored),
 		}
 		if (selected.runtime !== source.manifest.identity.runtime)
 			throw new StudyError('CONFIG', 'Replay runtime declaration changed')
@@ -993,11 +1007,12 @@ export class StudyCommand {
 		return valueToWire({ command: 'progress', progress })
 	}
 
-	// Reads the adapter roots a result retains and refuses an entry those roots do not admit, before any child starts.
+	// Resolves the root keys a result retains against this working root and refuses an entry they do not admit, before any child starts.
 	#roots(manifest: StudyManifest): readonly string[] {
-		const roots = parseJSON(manifest.host.roots ?? '')
-		if (!arrayOf(isString)(roots))
-			throw new StudyError('CONFIG', 'Execution does not retain adapter dependency roots')
+		const keys = parseJSON(manifest.host.roots ?? '')
+		if (!arrayOf(isString)(keys) || keys.some((key) => isAbsolute(key) || key.includes('\\')))
+			throw new StudyError('CONFIG', 'Execution does not retain relative adapter dependency roots')
+		const roots = keys.map((key) => resolve(this.#root, ...key.split('/')))
 		const instrument = resolveStudyInstrument(this.#entry)
 		try {
 			validateStudyRuntime(instrument, [...new Set([...roots, instrument])])
@@ -1005,7 +1020,7 @@ export class StudyCommand {
 			if (!isStudyError(error) || error.code !== 'CONFIG') throw error
 			throw new StudyError(
 				'CONFIG',
-				`${error.message}. The result executed under other package roots, so run this command through the entry that executed it, with its root as the working directory; a result executed under --closure reads through that closure's own entry.`,
+				`${error.message}. The result's dependency roots resolve against this working root, so run this command from a root that installs the packages the execution admitted.`,
 			)
 		}
 		return roots
@@ -1142,7 +1157,7 @@ export class StudyCommand {
 			new ArtifactLoader({
 				entries: [this.#entry],
 				roots: [resolveStudyInstrument(this.#entry)],
-			}).inspect().digest,
+			}).inspect(),
 		)
 	}
 }

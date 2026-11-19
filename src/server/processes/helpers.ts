@@ -12,6 +12,7 @@ import type {
 	StudyExchangeAncestor,
 } from '../stores/types.js'
 import type { StudyOllamaKeyedSelection, StudyOllamaReplaySelection } from '../ollama/types.js'
+import type { ArtifactInventory } from '../artifacts/types.js'
 import type { JSONValue } from '@orkestrel/contract'
 import type { ChildProcess } from 'node:child_process'
 import { StudyError } from '@src/core'
@@ -21,8 +22,9 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import { hashStudyBytes, matchesSystemError } from '../helpers.js'
-import { STUDY_DRAIN_DURATION } from './constants.js'
+import { containsArtifact, hashStudyBytes, matchesSystemError } from '../helpers.js'
+import { computeArtifactContentDigest } from '../artifacts/helpers.js'
+import { STUDY_DRAIN_DURATION, STUDY_PACKAGE } from './constants.js'
 import { buildStudyOllamaModels } from '../ollama/helpers.js'
 import { isStudyOllamaMetadata } from '../ollama/validators.js'
 import { readStudyExchanges, readStudyResult } from '../stores/helpers.js'
@@ -316,8 +318,8 @@ export function createStudyProcessFailure(message: string): StudyFailure {
 	return { cause: 'infrastructure', message, role: undefined, stop: undefined }
 }
 
-/** Binds the canonical fully resolved execution profile carried over IPC.
- * @param profile - The resolved execution settings, with optional absent leaves.
+/** Binds a profile as authored, before resolution, without the host's daemon executable.
+ * @param profile - The authored execution settings, with optional absent leaves.
  * @returns The SHA256 digest of the canonical JSON wire representation.
  * @example
  * ```ts
@@ -326,7 +328,19 @@ export function createStudyProcessFailure(message: string): StudyFailure {
  * ```
  */
 export function computeStudyProfileDigest(profile: StudyProfile): string {
-	const encoded = canonicalStringify(valueToWire(profile))
+	const { executable: _executable, ...daemon } = profile.provider?.daemon ?? {}
+	const encoded = canonicalStringify(
+		valueToWire({
+			...profile,
+			provider:
+				profile.provider === undefined
+					? undefined
+					: {
+							...profile.provider,
+							daemon: profile.provider.daemon === undefined ? undefined : daemon,
+						},
+		}),
+	)
 	if (encoded === undefined) throw new StudyError('CONFIG', 'Study profile is not JSON-compatible')
 	return hashStudyBytes(encoded)
 }
@@ -351,17 +365,62 @@ export function collectStudyEntries(profile: StudyProfile): readonly string[] {
 	]
 }
 
-/** Computes the instrument identity binding trusted runtime bytes to the adapter inventory.
+/** Computes the instrument identity binding trusted runtime bytes to the adapter inventory's content.
  * @param entry - The SHA-256 identity of the trusted runtime entry bytes.
- * @param inventory - The captured adapter inventory digest.
- * @returns The identity that validation, assessment, and trial children must share.
+ * @param inventory - The captured adapter inventory, whose files bind by keys relative to its roots' common base.
+ * @returns The identity that validation, grading, labels, and trial children must share.
  * @example
  * ```ts
- * computeStudyInstrumentDigest('a'.repeat(64), 'b'.repeat(64)) // a 64-character SHA-256 hex digest
+ * declare const entry: string
+ * declare const loader: ArtifactLoader
+ * computeStudyInstrumentDigest(entry, loader.inspect()) // a 64-character SHA-256 hex digest
  * ```
  */
-export function computeStudyInstrumentDigest(entry: string, inventory: string): string {
-	return hashStudyBytes(JSON.stringify([entry, inventory]))
+export function computeStudyInstrumentDigest(entry: string, inventory: ArtifactInventory): string {
+	return hashStudyBytes(JSON.stringify([entry, computeArtifactContentDigest(inventory, entry)]))
+}
+
+/** Computes one role's bundle identity: its entry's relative key over the admitted packages' code, without the Study executable, the adapter source, or any Study runtime package that does not hold the entry.
+ * @remarks
+ * Grading compares these identities instead of the instrument, so a later Study release or a
+ * changed adapter grades an earlier result whose role packages are unchanged. A Study package that
+ * holds the role's own entry stays, because it is then that role's code.
+ * @param inventory - A captured inventory of the admitted roots and the adapter source.
+ * @param entry - The role's canonical entry path.
+ * @returns The SHA-256 identity relative to the remaining packages' common base.
+ * @throws StudyError - Thrown with `CONFIG` when no package besides the Study runtime remains.
+ * @example
+ * ```ts
+ * declare const loader: ArtifactLoader
+ * declare const agent: string
+ * computeStudyBundleDigest(loader.inspect(), agent) // a 64-character SHA-256 hex digest
+ * ```
+ */
+export function computeStudyBundleDigest(inventory: ArtifactInventory, entry: string): string {
+	const runtimes = inventory.packages
+		.filter(
+			(member) =>
+				member.name === STUDY_PACKAGE && !containsArtifact(join(member.root, 'dist'), entry),
+		)
+		.map((member) => member.root)
+	const packages = inventory.packages.filter((member) => !runtimes.includes(member.root))
+	if (packages.length === 0)
+		throw new StudyError('CONFIG', 'Study bundle admits no package besides the Study runtime')
+	const { source, ...code } = inventory
+	return computeArtifactContentDigest({
+		...code,
+		entries: [entry],
+		packages,
+		files: code.files.filter(
+			(file) =>
+				(source === undefined || !containsArtifact(source.root, file.path)) &&
+				!runtimes.some(
+					(root) =>
+						file.path === join(root, 'package.json') ||
+						containsArtifact(join(root, 'dist'), file.path),
+				),
+		),
+	})
 }
 
 /** Resolves the actual host package from its trusted executable entry.
@@ -378,7 +437,7 @@ export function resolveStudyInstrument(entry: string): string {
 		const manifest = join(directory, 'package.json')
 		if (!existsSync(manifest)) return false
 		const value: unknown = JSON.parse(readFileSync(manifest, 'utf8'))
-		return isRecord(value) && value.name === '@orkestrel/study'
+		return isRecord(value) && value.name === STUDY_PACKAGE
 	})
 	if (root === undefined) throw new StudyError('CONFIG', 'Cannot locate the study runtime package')
 	return root

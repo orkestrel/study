@@ -33,6 +33,9 @@ export interface StudyTaskOptions {
  * @remarks
  * The child reads each scheduled trial's `evidence.jsonl` under `directory` within the manifest's
  * trial byte bound, and refuses with `CUSTODY` a file whose digest differs from its `seal` entry.
+ * It then resolves the manifest's `host.entry` keys against its working root and refuses with
+ * `CONFIG` when an agent, subject, or provider bundle identity differs from the manifest's; it
+ * compares no instrument, so another Study executable or adapter grades.
  */
 export interface StudyGradeInput extends StudySealedCustody {
 	readonly attempts: readonly StudyAttempt[]
