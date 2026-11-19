@@ -7,6 +7,9 @@ export const STUDY_COMMAND_GRADER = 'consumer-adapter'
 /** Names the evidence event whose row a seeded execution hands its trial at open. */
 export const STUDY_CHECKPOINT_EVENT = 'checkpoint'
 
+/** Names the Ollama `options` members a report reads as a model's placement; `num_gpu` mirrors Ollama's count of layers it offloads to a GPU, so 0 runs the model on the CPU. */
+export const STUDY_PLACEMENT_OPTIONS: readonly string[] = Object.freeze(['num_gpu'])
+
 /** Defines the complete public CLI reference shared by help and grammar diagnostics. */
 export const STUDY_COMMAND_HELP = `study check <study> [--profile <name>] [--closure <directory>] [--extend <result>] [--trial <name>] [--goals <first>..<last>] [--seed <result>:<trial>:<goal>]
 study freeze <study> --profile <name> --to <directory>

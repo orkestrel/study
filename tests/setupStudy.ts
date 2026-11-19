@@ -2366,6 +2366,67 @@ export const STUDY_LABELS_LOCKSTEP: readonly StudyLockstepCase[] = Object.freeze
 		},
 	},
 	{
+		name: 'control tallies',
+		accepted: true,
+		value: {
+			...buildStudyLockstepLabels(),
+			controls: [
+				{ labeler: 'haiku', answered: 4, missed: 0 },
+				{ labeler: 'sonnet', answered: 3, missed: 2 },
+			],
+		},
+	},
+	{
+		name: 'empty control tallies',
+		accepted: false,
+		value: { ...buildStudyLockstepLabels(), controls: [] },
+	},
+	{
+		name: 'blank control labeler',
+		accepted: false,
+		value: {
+			...buildStudyLockstepLabels(),
+			controls: [{ labeler: ' ', answered: 1, missed: 0 }],
+		},
+	},
+	{
+		name: 'negative control count',
+		accepted: false,
+		value: {
+			...buildStudyLockstepLabels(),
+			controls: [{ labeler: 'haiku', answered: 1, missed: -1 }],
+		},
+	},
+	{
+		name: 'fractional control count',
+		accepted: false,
+		value: {
+			...buildStudyLockstepLabels(),
+			controls: [{ labeler: 'haiku', answered: 1.5, missed: 0 }],
+		},
+	},
+	{
+		name: 'unsafe control count',
+		accepted: false,
+		value: {
+			...buildStudyLockstepLabels(),
+			controls: [{ labeler: 'haiku', answered: Number.MAX_SAFE_INTEGER + 2, missed: 0 }],
+		},
+	},
+	{
+		name: 'unknown control member',
+		accepted: false,
+		value: {
+			...buildStudyLockstepLabels(),
+			controls: [{ labeler: 'haiku', answered: 1, missed: 0, total: 1 }],
+		},
+	},
+	{
+		name: 'missing control count',
+		accepted: false,
+		value: { ...buildStudyLockstepLabels(), controls: [{ labeler: 'haiku', answered: 1 }] },
+	},
+	{
 		name: 'short packet',
 		accepted: false,
 		value: { ...buildStudyLockstepLabels(), packet: 'abc' },

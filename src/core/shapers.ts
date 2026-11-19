@@ -76,6 +76,13 @@ export const studyLabelJudgmentShape = objectShape({
 	references: arrayShape(studyTextShape),
 })
 
+/** Describes one labeling lane's control tally a labeling tool fills. */
+export const studyLabelTallyShape = objectShape({
+	labeler: studyTextShape,
+	answered: studyMeasurementShape,
+	missed: studyMeasurementShape,
+})
+
 /** Describes imported semantic labels; `scanStudyLabelSheetFaults` holds what a shape cannot express. */
 export const studyLabelSheetShape = objectShape({
 	packet: studyDigestShape,
@@ -84,4 +91,5 @@ export const studyLabelSheetShape = objectShape({
 	created: studyTimestampShape,
 	usage: arrayShape(studyUsageShape),
 	judgments: arrayShape(studyLabelJudgmentShape),
+	controls: optionalShape(arrayShape(studyLabelTallyShape, { min: 1 })),
 })

@@ -1,5 +1,6 @@
 import type {
 	StudyDefinition,
+	StudyEvidence,
 	StudyFailure,
 	StudyAssessment,
 	StudyIdentity,
@@ -14,7 +15,7 @@ import type {
 } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
 import type { StudyArtifactLoader } from '../processes/StudyArtifactLoader.js'
-import type { StudyPacketBundle } from '../stores/types.js'
+import type { StudyPacketBundle, StudySealedResult } from '../stores/types.js'
 import type { StudyExchangeDestination } from '../stores/types.js'
 import type { ArtifactClosure } from '../artifacts/types.js'
 import type { StudyOllamaKeyedSelection, StudyOllamaReplaySelection } from '../ollama/types.js'
@@ -186,6 +187,20 @@ export interface StudyAttributionSource {
 	readonly goal: string | undefined
 	readonly failure: StudyFailure
 	readonly executed: boolean
+}
+
+/** Holds a sealed result's verified evidence rows keyed by scheduled trial id. */
+export type StudyEvidenceTable = Readonly<Record<string, readonly StudyEvidence[]>>
+
+/**
+ * Holds the sealed source a replay served requests from, with the evidence rows its seal verified.
+ * @remarks
+ * `result` is the source that a keyed replay's `keyed` member or a prefix replay's `ancestor` member
+ * names.
+ */
+export interface StudyReportSource {
+	readonly result: StudySealedResult
+	readonly evidence: StudyEvidenceTable
 }
 
 /** Holds a parsed study declaration with its driver bundle, scenarios, scenario fixtures, and rubric. */

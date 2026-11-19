@@ -20,6 +20,7 @@ import {
 	isStudyAssessment,
 	isStudyJudgment,
 	isStudyLabelSheet,
+	isStudyLabelTally,
 	isStudyLimit,
 	isStudyName,
 	isStudyProduct,
@@ -344,6 +345,19 @@ it('requires nonnegative known usage and honest semantic-label provenance', () =
 		false,
 	)
 	expect(isStudyLabelSheet({ ...labels, typo: true })).toBe(false)
+	const tally = { labeler: 'haiku', answered: 4, missed: 1 }
+	expect(isStudyLabelTally(tally)).toBe(true)
+	expect(isStudyLabelTally({ ...tally, answered: 0, missed: 0 })).toBe(true)
+	expect(isStudyLabelTally({ ...tally, labeler: ' ' })).toBe(false)
+	expect(isStudyLabelTally({ ...tally, missed: -1 })).toBe(false)
+	expect(isStudyLabelTally({ ...tally, answered: 0.5 })).toBe(false)
+	expect(isStudyLabelTally({ ...tally, typo: true })).toBe(false)
+	expect(isStudyLabelTally(null)).toBe(false)
+	expect(isStudyLabelSheet({ ...labels, controls: [tally] })).toBe(true)
+	expect(isStudyLabelSheet({ ...labels, controls: Array(1) })).toBe(false)
+	expect(isStudyLabelSheet({ ...labels, controls: Object.assign([tally], { typo: true }) })).toBe(
+		false,
+	)
 })
 
 it('accepts JSON products with partial status and refuses non-JSON or hostile output', () => {

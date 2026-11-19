@@ -1,18 +1,27 @@
-import { createStudyScratch } from '../../../setupServer.js'
-import { isRunning } from '@orkestrel/test/server'
+import {
+	buildCustodyAssessment,
+	buildStudyWireRow,
+	createStudyScratch,
+	retainStudyFixture,
+	STUDY_SOURCE_ROWS,
+} from '../../../setupServer.js'
+import { createScratch, isRunning } from '@orkestrel/test/server'
 import { isArray, isRecord, parseJSON } from '@orkestrel/contract'
 import { createRecorder, requireValue } from '@orkestrel/test'
 import { createHash } from 'node:crypto'
-import { appendFileSync, cpSync, rmSync } from 'node:fs'
+import { appendFileSync, cpSync, mkdirSync, rmSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { readStudyClosure } from '../../../../src/server/commands/helpers.js'
 import { StudyCommand } from '../../../../src/server/commands/StudyCommand.js'
 import { parseStudyArguments } from '../../../../src/server/commands/parsers.js'
 import { parseStudyProfile } from '../../../../src/core/parsers.js'
-import { hashStudyBytes } from '../../../../src/server/helpers.js'
+import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
+import { StudyAssessmentStore } from '../../../../src/server/stores/StudyAssessmentStore.js'
 import { createOllamaFixture } from '@orkestrel/ollama/server'
 import {
+	buildCompactCustodyManifest,
+	buildStudyRubric,
 	createOllamaReply,
 	OllamaReplyQueue,
 	STUDY_OLLAMA_FIXTURE,
@@ -2130,4 +2139,76 @@ describe('grading', () => {
 			scratch.destroy()
 		}
 	}, 240000)
+})
+
+describe('report readings', () => {
+	it('report: a keyed replay states its source by id under tmp/studies, or absent when none sits there', async () => {
+		const scratch = createScratch()
+		const signal = new AbortController().signal
+		try {
+			const command = new StudyCommand({ root: scratch.path, entry: join(scratch.path, 'main.js') })
+			const rubric = buildStudyRubric()
+			const original = buildCompactCustodyManifest()
+			mkdirSync(join(scratch.path, 'tmp', 'studies'), { recursive: true })
+			const source = await retainStudyFixture(
+				join(scratch.path, 'tmp', 'studies', original.id),
+				original,
+				STUDY_SOURCE_ROWS,
+			)
+			const keyed = {
+				result: source.manifest.id,
+				seal: source.seal.id,
+				identity: source.manifest.identity,
+				roles: ['agent', 'judge', 'triage'],
+				offline: true,
+			} as const
+			const host = { platform: 'linux', architecture: 'x64' }
+			const replays = [
+				{ directory: 'replay', keyed },
+				{ directory: 'orphan', keyed: { ...keyed, result: 'c'.repeat(64) } },
+			]
+			const reports = []
+			for (const replay of replays) {
+				const result = await retainStudyFixture(
+					join(scratch.path, replay.directory),
+					{ ...buildCompactCustodyManifest(), id: 'b'.repeat(64), host, keyed: replay.keyed },
+					[buildStudyWireRow('agent', 0.5)],
+				)
+				const assessment = await new StudyAssessmentStore({
+					result,
+					rubric: encodeStudyJSON(rubric),
+				}).write(buildCustodyAssessment(result, rubric))
+				reports.push(
+					await command.execute(['report', result.directory, '--assessment', assessment], signal),
+				)
+			}
+			const [found, absent] = reports
+			expect(found).toMatchObject({
+				report: {
+					setup: { ...host, models: [], roles: [{ role: 'agent', calls: 2, duration: 1 }] },
+					source: {
+						result: original.id,
+						seal: source.seal.id,
+						duration: 0,
+						roles: [
+							{ role: 'agent', calls: 4, duration: 6001.5 },
+							{ role: 'judge', calls: 2, duration: 600 },
+							{ role: 'triage', calls: 2, duration: 80 },
+						],
+					},
+				},
+				labels: { status: 'absent' },
+			})
+			expect(isRecord(found) && isRecord(found.report) ? found.report.setup : undefined).toEqual({
+				...host,
+				models: [],
+				roles: [{ role: 'agent', calls: 2, duration: 1 }],
+			})
+			expect(
+				isRecord(absent) && isRecord(absent.report) ? absent.report.source : undefined,
+			).toEqual({ result: 'c'.repeat(64), seal: source.seal.id, status: 'absent' })
+		} finally {
+			scratch.destroy()
+		}
+	}, 60000)
 })

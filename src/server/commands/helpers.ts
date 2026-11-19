@@ -5,6 +5,8 @@ import type {
 	StudyEvidence,
 	StudyAssessment,
 	StudyIdentity,
+	StudyLabelSheet,
+	StudyManifest,
 	StudyObservation,
 	StudyProfile,
 	StudyRubric,
@@ -14,7 +16,9 @@ import type {
 import type { StudyAttributionSource, StudyCommandArtifact, StudyDeclaration } from './types.js'
 import type {
 	StudyClosure,
+	StudyEvidenceTable,
 	StudyFreezeInput,
+	StudyReportSource,
 	StudySeedResult,
 	StudyTargetSelector,
 } from './types.js'
@@ -32,7 +36,15 @@ import {
 	parseStudyScenario,
 	parseStudyRubric,
 } from '@src/core'
-import { parseJSON } from '@orkestrel/contract'
+import {
+	isFiniteNumber,
+	isNonEmptyString,
+	isNonNegativeNumber,
+	isRecord,
+	isString,
+	parseJSON,
+	parseStringField,
+} from '@orkestrel/contract'
 import { lstat } from 'node:fs/promises'
 import { realpathSync } from 'node:fs'
 import { isAbsolute, join, parse, relative, resolve, sep } from 'node:path'
@@ -47,8 +59,8 @@ import { readStudyBytes } from '../stores/helpers.js'
 import { isStudyCustodyEvidence } from '../stores/validators.js'
 import { STUDY_CUSTODY_BYTES, STUDY_RESERVED_NAME } from '../stores/constants.js'
 import { readArtifact, verifyArtifactClosure, relocateArtifactPath } from '../artifacts/helpers.js'
-import { collectStudyEntries, resolveStudyInstrument } from '../processes/helpers.js'
-import { STUDY_CHECKPOINT_EVENT } from './constants.js'
+import { collectStudyEntries, resolveStudyInstrument, valueToWire } from '../processes/helpers.js'
+import { STUDY_CHECKPOINT_EVENT, STUDY_PLACEMENT_OPTIONS } from './constants.js'
 import { isStudyClosure } from './validators.js'
 
 /**
@@ -408,7 +420,7 @@ export function computeStudyFixtureDigest(
  */
 export async function collectStudyEvidence(
 	result: StudySealedCustody,
-): Promise<Readonly<Record<string, readonly StudyEvidence[]>>> {
+): Promise<StudyEvidenceTable> {
 	const retained: Array<readonly [string, readonly StudyEvidence[]]> = []
 	for (const trial of result.manifest.schedule) {
 		const path = `trials/${trial.id}/evidence.jsonl`
@@ -551,27 +563,147 @@ export function computeStudyAttributions(sources: readonly StudyAttributionSourc
 }
 
 /**
+ * Computes each role's calls and send-to-settlement milliseconds over the `wire` evidence rows.
+ * @remarks
+ * A role appears when at least one `wire` row names it, in `STUDY_ROLES` order. `calls` counts the
+ * role's rows, a served row included. `duration` sums each row's `elapsed` reading, which a row
+ * carries when its profile observes, and is absent when any of the role's rows carries none, never 0.
+ * @param rows - The evidence rows
+ * @returns The JSON role readings
+ * @example
+ * ```ts
+ * computeStudyWireUsage([{ event: 'wire', goal: 'write', value: { role: 'agent', elapsed: 12.5 } }])
+ * // [{ role: 'agent', calls: 1, duration: 12.5 }]
+ * ```
+ */
+export function computeStudyWireUsage(rows: readonly StudyEvidence[]): JSONValue {
+	const wires = rows.flatMap((row) =>
+		row.event === 'wire' && isRecord(row.value) ? [row.value] : [],
+	)
+	return STUDY_ROLES.flatMap((role) => {
+		const values = wires.filter((value) => value.role === role)
+		const durations = values.map((value) => value.elapsed)
+		return values.length === 0
+			? []
+			: [
+					{
+						role,
+						calls: values.length,
+						...(durations.every(isNonNegativeNumber)
+							? { duration: durations.reduce((total, duration) => total + duration, 0) }
+							: {}),
+					},
+				]
+	})
+}
+
+/**
+ * Computes the setup a result ran under from its manifest's host facts and its evidence rows.
+ * @remarks
+ * `platform` and `architecture` read the manifest's recorded runtime inventory. `daemon.executable`
+ * reads the executable path the daemon's startup identity records, and `daemon.versions` lists, in
+ * row order, the distinct versions the `version` rows name. Each is absent when unrecorded, and
+ * `daemon` is absent when both are. `models` lists each distinct role, model, and placement the
+ * `wire` rows sent, where a row's Ollama `options` carry a member `STUDY_PLACEMENT_OPTIONS` names.
+ * `roles` holds `computeStudyWireUsage` over the rows.
+ * @param manifest - The sealed execution manifest
+ * @param rows - The result's evidence rows
+ * @returns The JSON setup
+ * @example
+ * ```ts
+ * declare const manifest: StudyManifest
+ * computeStudySetup({ ...manifest, host: { platform: 'linux', architecture: 'x64' } }, [])
+ * // { platform: 'linux', architecture: 'x64', models: [], roles: [] }
+ * ```
+ */
+export function computeStudySetup(
+	manifest: StudyManifest,
+	rows: readonly StudyEvidence[],
+): JSONValue {
+	const { platform, architecture } = manifest.host
+	const startup = parseJSON(manifest.host.daemon ?? '')
+	const executable = isRecord(startup)
+		? parseStringField(startup, ['executable', 'path'])
+		: undefined
+	const versions = [
+		...new Set(
+			rows.flatMap((row) =>
+				row.event === 'version' && isRecord(row.value) && isNonEmptyString(row.value.version)
+					? [row.value.version]
+					: [],
+			),
+		),
+	]
+	const placed = rows.flatMap((row) => {
+		const value = row.event === 'wire' && isRecord(row.value) ? row.value : undefined
+		const options = isRecord(value?.options) ? value.options : {}
+		const placement = Object.fromEntries(
+			STUDY_PLACEMENT_OPTIONS.flatMap((name) => {
+				const member = options[name]
+				return isFiniteNumber(member) ? [[name, member] as const] : []
+			}),
+		)
+		return value === undefined ||
+			!isString(value.role) ||
+			!isNonEmptyString(value.model) ||
+			Object.keys(placement).length === 0
+			? []
+			: [{ role: value.role, model: value.model, placement }]
+	})
+	const models = new Map(placed.map((entry) => [JSON.stringify(entry), entry] as const))
+	return {
+		...(platform === undefined ? {} : { platform }),
+		...(architecture === undefined ? {} : { architecture }),
+		...(executable === undefined && versions.length === 0
+			? {}
+			: {
+					daemon: {
+						...(executable === undefined ? {} : { executable }),
+						...(versions.length === 0 ? {} : { versions }),
+					},
+				}),
+		models: [...models.values()],
+		roles: computeStudyWireUsage(rows),
+	}
+}
+
+/**
  * Computes whole-horizon results with operational costs and repetitions kept distinct.
  * @param result - The verified complete execution
  * @param rubric - The retained compatible rubric
  * @param assessment - The independently verified selected assessment
+ * @param evidence - The result's evidence rows its seal verified
+ * @param source - The sealed source a replay names, when it was found
  * @returns The JSON report without pooling identities or inventing absent measurements
+ * @throws StudyError - Thrown with `CUSTODY` when `source` is not the result and seal the replay recorded
  * @remarks
  * Operations count affected trial and goal records, not independent failure events, and the
  * trial and goal counts overlap and are never added. Completion is operational: a goal is
  * completed when it holds a non-partial product and no failure, and a trial when it holds no
  * failure and every goal completed. It is neither task success nor a qualification gate. Costs
  * state what this execution spent, so a request a recording served counts under `replayed` alone.
+ * `setup` holds `computeStudySetup` over the evidence. A result whose manifest names a `keyed` or
+ * an `ancestor` source holds `source`: the source's summed trial `duration` and
+ * `computeStudyWireUsage` over its rows, so a replay states the live cost it served; without a
+ * found source it holds `status: 'absent'`.
  * @example
  * ```ts
- * computeStudyReport(result, rubric, assessment)
+ * computeStudyReport(result, rubric, assessment, await collectStudyEvidence(result))
  * ```
  */
 export function computeStudyReport(
 	result: StudySealedResult,
 	rubric: StudyRubric,
 	assessment: StudyAssessment,
+	evidence: StudyEvidenceTable,
+	source?: StudyReportSource,
 ): JSONValue {
+	const origin = result.manifest.keyed ?? result.manifest.ancestor
+	if (
+		source !== undefined &&
+		(source.result.manifest.id !== origin?.result || source.result.seal.id !== origin.seal)
+	)
+		throw new StudyError('CUSTODY', 'Replay source differs from the seal its replay recorded')
 	const scores = computeStudyScores(result.manifest, rubric, assessment)
 	const observations = result.attempts.flatMap((attempt) => attempt.observations)
 	const usage = observations.flatMap((observation) => observation.usage)
@@ -648,6 +780,10 @@ export function computeStudyReport(
 			profile: identity.profile,
 			...(identity.provider === undefined ? {} : { provider: identity.provider }),
 		},
+		setup: computeStudySetup(
+			result.manifest,
+			schedule.flatMap((trial) => evidence[trial.id] ?? []),
+		),
 		purpose: result.manifest.definition.purpose,
 		population:
 			selection === undefined
@@ -671,6 +807,26 @@ export function computeStudyReport(
 						roles: [...result.manifest.keyed.roles],
 						offline: result.manifest.keyed.offline,
 					},
+				}),
+		...(origin === undefined
+			? {}
+			: {
+					source:
+						source === undefined
+							? { result: origin.result, seal: origin.seal, status: 'absent' }
+							: {
+									result: origin.result,
+									seal: origin.seal,
+									duration: source.result.attempts.reduce(
+										(total, attempt) => total + attempt.duration,
+										0,
+									),
+									roles: computeStudyWireUsage(
+										source.result.manifest.schedule.flatMap(
+											(trial) => source.evidence[trial.id] ?? [],
+										),
+									),
+								},
 				}),
 		...(assessment.unselected === undefined ? {} : { unselected: [...assessment.unselected] }),
 		uncertainty:
@@ -761,5 +917,40 @@ export function computeStudyReport(
 				}
 			}),
 		},
+	}
+}
+
+/**
+ * Computes the labels block a report states beside a labeled assessment.
+ * @remarks
+ * Without labels the block holds `status: 'absent'`. Otherwise it holds the file's `labeler`,
+ * `version`, and `usage`, and, when the file carries control tallies, `controls` with `origin:
+ * 'imported'` and each lane's `labeler`, `answered`, and `missed`, because Study holds no control map
+ * to check them against.
+ * @param labels - The labeled assessment's imported labels, or undefined without any
+ * @returns The JSON labels block
+ * @example
+ * ```ts
+ * computeStudyLabelReport(undefined) // { status: 'absent' }
+ * ```
+ */
+export function computeStudyLabelReport(labels: StudyLabelSheet | undefined): JSONValue {
+	if (labels === undefined) return { status: 'absent' }
+	return {
+		labeler: labels.labeler,
+		version: labels.version,
+		usage: valueToWire(labels.usage),
+		...(labels.controls === undefined
+			? {}
+			: {
+					controls: {
+						origin: 'imported',
+						lanes: labels.controls.map((tally) => ({
+							labeler: tally.labeler,
+							answered: tally.answered,
+							missed: tally.missed,
+						})),
+					},
+				}),
 	}
 }

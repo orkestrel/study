@@ -17,6 +17,7 @@ import type {
 	StudyLabelRequest,
 	StudyPreparation,
 	StudyReportRequest,
+	StudyReportSource,
 	StudyProgressRequest,
 	StudyFreezeRequest,
 	StudyClosure,
@@ -83,8 +84,10 @@ import { StudyTask } from '../processes/StudyTask.js'
 import { STUDY_COMMAND_DURATION, STUDY_COMMAND_GRADER } from './constants.js'
 import {
 	buildStudyFreezeOptions,
+	collectStudyEvidence,
 	computeStudyCommandFingerprint,
 	computeStudyFixtureDigest,
+	computeStudyLabelReport,
 	computeStudyReport,
 	resolveStudyPath,
 	resolveStudyProfile,
@@ -940,20 +943,32 @@ export class StudyCommand {
 	async #report(request: StudyReportRequest, signal: AbortSignal): Promise<JSONValue> {
 		const result = await this.#result(request.target)
 		const context = await this.#assessment(result, request.assessment)
+		const evidence = await collectStudyEvidence(result)
+		const source = await this.#source(result.manifest)
 		signal.throwIfAborted()
-		const labels =
-			context.labels === undefined
-				? undefined
-				: parseStudyLabelSheet(decodeStudyJSON(context.labels))
 		return valueToWire({
 			command: 'report',
 			assessment: request.assessment,
-			report: computeStudyReport(result, context.rubric, context.assessment),
-			labels:
-				labels === undefined
-					? { status: 'absent' }
-					: { labeler: labels.labeler, version: labels.version, usage: labels.usage },
+			report: computeStudyReport(result, context.rubric, context.assessment, evidence, source),
+			labels: computeStudyLabelReport(
+				context.labels === undefined
+					? undefined
+					: parseStudyLabelSheet(decodeStudyJSON(context.labels)),
+			),
 		})
+	}
+
+	// Reads the sealed source a replay names, by its id under the default result directory; undefined when none sits there.
+	async #source(manifest: StudyManifest): Promise<StudyReportSource | undefined> {
+		const origin = manifest.keyed ?? manifest.ancestor
+		if (origin === undefined) return undefined
+		const view = await readStudyResult(this.#location(origin.result)).catch((error: unknown) => {
+			if (matchesSystemError(error, 'ENOENT')) return undefined
+			throw error
+		})
+		if (view === undefined) return undefined
+		if (view.status !== 'sealed') throw new StudyError('CUSTODY', 'Replay source is not sealed')
+		return { result: view, evidence: await collectStudyEvidence(view) }
 	}
 
 	async #progress(request: StudyProgressRequest, signal: AbortSignal): Promise<JSONValue> {

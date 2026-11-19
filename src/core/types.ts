@@ -486,6 +486,19 @@ export interface StudyJudgment {
 	readonly references: readonly string[]
 }
 
+/**
+ * Holds one labeling lane's answers over a pool's control rows, as the labeling tool counted them.
+ * @remarks
+ * `answered` counts the controls the lane answered with a reason. `missed` counts the controls it
+ * omitted or answered against the authored verdict. Study holds no control map, so a report marks
+ * the tally as imported.
+ */
+export interface StudyLabelTally {
+	readonly labeler: string
+	readonly answered: number
+	readonly missed: number
+}
+
 /** Holds imported semantic judgments and their accountable origin. */
 export interface StudyLabelSheet {
 	readonly packet: string
@@ -494,6 +507,8 @@ export interface StudyLabelSheet {
 	readonly created: string
 	readonly usage: readonly StudyUsage[]
 	readonly judgments: readonly StudyJudgment[]
+	/** Holds each labeling lane's control tally, in lane order; absent when the pool seated no control. */
+	readonly controls?: readonly StudyLabelTally[]
 }
 
 /** Lists, by path, what a contract's shape cannot express in a value the contract accepted. */

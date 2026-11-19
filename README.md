@@ -71,6 +71,8 @@ node node_modules/@orkestrel/study/dist/bin/main.js execute assessment --out C:/
 
 Study rewrites no other spelling: a relative path, a UNC path, and a path with a `..` segment reach the same checks they reach in canonical form.
 
+A report states its result's setup from the recorded evidence: the host platform and architecture, the daemon executable and the versions its `version` rows name, each model's placement, such as `num_gpu`, and per-role calls and durations from the `wire` rows. A role whose rows carry no timing reports no duration rather than 0. A keyed or prefix replay's report adds a `source` block with the source run's wall time and per-role calls and durations, read from the sealed source under `tmp/studies/<result>`, beside its own costs, which count a served request under `replayed`. A labeled report states each labeling lane's control tally, marked as imported from the labels file.
+
 A quality profile names its capacity result in `qualification`, a result selector that resolves against the consumer workspace, never against a closure. Identities bind bytes, not location, so a capacity and quality pair runs under two closures with a relative qualification path.
 
 Read the exit code to distinguish outcomes.

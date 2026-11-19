@@ -8,6 +8,7 @@ import type {
 	StudyAssessment,
 	StudyJudgment,
 	StudyLabelSheet,
+	StudyLabelTally,
 	StudyGoal,
 	StudyLimit,
 	StudyProduct,
@@ -649,9 +650,32 @@ export function isStudyJudgment(value: unknown): value is StudyJudgment {
 }
 
 /**
+ * Checks whether a labeling lane's control tally names its labeler and two safe counts.
+ * @param value - The candidate tally
+ * @returns True if the labeler is nonblank and `answered` and `missed` are nonnegative safe integers; false otherwise
+ * @example
+ * ```ts
+ * isStudyLabelTally({ labeler: 'haiku', answered: 4, missed: 1 }) // true
+ * ```
+ */
+export function isStudyLabelTally(value: unknown): value is StudyLabelTally {
+	return holds(() => {
+		return (
+			isRecord(value) &&
+			matchesStudyKeys(value, ['labeler', 'answered', 'missed']) &&
+			isString(value.labeler) &&
+			value.labeler.trim().length > 0 &&
+			['answered', 'missed'].every(
+				(key) => isNumber(value[key]) && Number.isSafeInteger(value[key]) && value[key] >= 0,
+			)
+		)
+	})
+}
+
+/**
  * Checks whether imported semantic labels have accountable packet provenance.
  * @param value - The candidate labels
- * @returns True if provenance, usage and semantic judgments are valid; false otherwise
+ * @returns True if provenance, usage, semantic judgments, and any control tallies are valid; false otherwise
  * @example
  * ```ts
  * isStudyLabelSheet({}) // false
@@ -661,7 +685,16 @@ export function isStudyLabelSheet(value: unknown): value is StudyLabelSheet {
 	return holds(() => {
 		return (
 			isRecord(value) &&
-			matchesStudyKeys(value, ['packet', 'labeler', 'version', 'created', 'usage', 'judgments']) &&
+			matchesStudyKeys(
+				value,
+				['packet', 'labeler', 'version', 'created', 'usage', 'judgments'],
+				['controls'],
+			) &&
+			(value.controls === undefined ||
+				(isArray(value.controls) &&
+					value.controls.length > 0 &&
+					Reflect.ownKeys(value.controls).length === value.controls.length + 1 &&
+					Array.from(value.controls).every(isStudyLabelTally))) &&
 			isStudyDigest(value.packet) &&
 			isString(value.labeler) &&
 			value.labeler.trim().length > 0 &&

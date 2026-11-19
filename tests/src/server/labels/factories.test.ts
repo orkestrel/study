@@ -508,6 +508,25 @@ describe('createStudyLabelSheet', () => {
 		expect(labels[0]?.judgments.map((entry) => entry.trial)).toEqual(['t-1'])
 		expect(missed).toEqual([0, 2])
 		expect(omitted).toBe(0)
+		expect(labels.map((sheet) => sheet.controls)).toEqual([
+			[
+				{ labeler: 'first', answered: 2, missed: 0 },
+				{ labeler: 'second', answered: 1, missed: 2 },
+			],
+		])
+		expect(
+			createStudyLabelSheet(
+				buildStudyLabelMap(['work']),
+				[
+					{
+						labeler: 'first',
+						method: 'model',
+						rows: [{ row: 1, verdict: 'achieved', reason: 'One' }],
+					},
+				],
+				options,
+			).labels[0],
+		).not.toHaveProperty('controls')
 	})
 
 	it('writes one file per packet and refuses a repeated row or a wrong lane count', () => {

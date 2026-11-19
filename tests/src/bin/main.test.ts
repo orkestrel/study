@@ -453,7 +453,10 @@ try { parseStudyArguments([]) } catch (error) {
 			const rubric = parseStudyRubric(
 				parseJSON(scratch.read('studies/assessment/rubric.json') ?? ''),
 			)
-			const labels = buildCustodyPacketLabels(sealed, rubric)
+			const labels = {
+				...buildCustodyPacketLabels(sealed, rubric),
+				controls: [{ labeler: 'human-v1', answered: 3, missed: 1 }],
+			}
 			const path = scratch.write('labels.json', JSON.stringify(labels))
 			const labeled = await install.execute([
 				'label',
@@ -481,6 +484,13 @@ try { parseStudyArguments([]) } catch (error) {
 			const labeledReport = await install.execute(labeledResult.next)
 			expect(parseJSON(labeledReport.stdout)).toMatchObject({
 				report: { scores: [{ achieved: 2, unknown: 0 }] },
+				labels: {
+					labeler: 'human-v1',
+					controls: {
+						origin: 'imported',
+						lanes: [{ labeler: 'human-v1', answered: 3, missed: 1 }],
+					},
+				},
 			})
 			const missingGrade = 'e'.repeat(64)
 			for (const operation of [

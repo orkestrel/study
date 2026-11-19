@@ -65,7 +65,7 @@ describe('StudyAgentScript', () => {
 		const result = buildStudyReportResult(run.attempts, buildCompactCustodyManifest())
 		const rubric = buildStudyRubric()
 		expect(
-			computeStudyReport(result, rubric, buildCustodyAssessment(result, rubric)),
+			computeStudyReport(result, rubric, buildCustodyAssessment(result, rubric), {}),
 		).toMatchObject({
 			operations: {
 				trials: {

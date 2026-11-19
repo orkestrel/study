@@ -33,20 +33,26 @@ import {
 	createStudyDaemonFixture,
 	createStudyConsumer,
 	buildStudyReportResult,
+	buildStudyWireRow,
 	retainStudyFixture,
 	ARTIFACT_CLOSURE_FILES,
 	buildArtifactClosureOptions,
+	STUDY_DAEMON_STARTUP,
 	STUDY_SELECTION_NUMBERS,
 	STUDY_SELECTION_SEED,
 	STUDY_PATH_FORMS,
+	STUDY_SOURCE_ROWS,
 } from '../../../setupServer.js'
 import {
 	buildStudyFreezeOptions,
 	collectStudyEvidence,
 	computeStudyCommandFingerprint,
 	computeStudyFixtureDigest,
+	computeStudyLabelReport,
 	computeStudyPartition,
 	computeStudyReport,
+	computeStudySetup,
+	computeStudyWireUsage,
 	computeStudyAttributions,
 	normalizeStudyPath,
 	resolveStudyPath,
@@ -429,6 +435,7 @@ describe('study command helpers', () => {
 			result,
 			buildStudyRubric(),
 			buildCustodyAssessment(result, buildStudyRubric()),
+			{},
 		)
 		expect(report).toMatchObject({
 			operations: {
@@ -612,6 +619,7 @@ describe('study command helpers', () => {
 			result,
 			buildStudyRubric(),
 			buildCustodyAssessment(result, buildStudyRubric()),
+			{},
 		)
 		if (!isRecord(report)) throw new Error('Missing report')
 		expect(report.operations).toMatchObject({
@@ -675,6 +683,7 @@ describe('study command helpers', () => {
 			result,
 			buildStudyRubric(),
 			buildCustodyAssessment(result, buildStudyRubric()),
+			{},
 		)
 		if (!isRecord(report) || !isRecord(report.operations)) throw new Error('Missing operations')
 		const { trials, goals } = report.operations
@@ -717,6 +726,7 @@ describe('study command helpers', () => {
 			result,
 			buildStudyRubric(),
 			buildCustodyAssessment(result, buildStudyRubric()),
+			{},
 		)
 		if (!isRecord(report) || !isRecord(report.operations)) throw new Error('Missing operations')
 		expect(report.operations).toMatchObject({
@@ -786,6 +796,7 @@ describe('study command helpers', () => {
 				},
 				rubric,
 				assessment,
+				{},
 			)
 			expect(report).toMatchObject({
 				population: 'Complete declared trial and criterion horizon',
@@ -937,7 +948,7 @@ describe('study selection helpers', () => {
 		const result = buildStudyReportResult([buildCustodyAttempt(manifest, trial)], manifest)
 		const rubric = buildStudyRubric()
 		const assessment = { ...buildCustodyAssessment(result, rubric), unselected: ['second-write'] }
-		const report = computeStudyReport(result, rubric, assessment)
+		const report = computeStudyReport(result, rubric, assessment, {})
 		expect(report).toMatchObject({
 			population: 'Selected segment of the declared trial and criterion horizon',
 			selection: { trial: 'r2-s1-a2' },
@@ -962,7 +973,7 @@ describe('study selection helpers', () => {
 			base.schedule.map((entry) => buildCustodyAttempt(base, entry)),
 			base,
 		)
-		const unselected = computeStudyReport(full, rubric, buildCustodyAssessment(full, rubric))
+		const unselected = computeStudyReport(full, rubric, buildCustodyAssessment(full, rubric), {})
 		expect(unselected).not.toHaveProperty('selection')
 		expect(unselected).not.toHaveProperty('unselected')
 		expect(unselected).toMatchObject({
@@ -1011,6 +1022,7 @@ describe('computeStudyReport over a keyed replay', () => {
 				result,
 				buildStudyRubric(),
 				buildCustodyAssessment(result, buildStudyRubric()),
+				{},
 			)
 			const count = manifest.schedule.length
 			expect(report).toMatchObject({
@@ -1043,7 +1055,201 @@ describe('computeStudyReport over a keyed replay', () => {
 				result,
 				buildStudyRubric(),
 				buildCustodyAssessment(result, buildStudyRubric()),
+				{},
 			),
 		).not.toHaveProperty('keyed')
+	})
+})
+
+describe('computeStudyReport setup and source', () => {
+	it('states a keyed or prefix replay source by its summed trial duration and the wire sums of its rows', () => {
+		const original = buildCompactCustodyManifest()
+		const source = buildStudyReportResult(
+			original.schedule.map((trial, index) => ({
+				...buildCustodyAttempt(original, trial),
+				duration: index === 0 ? 7000 : 894,
+			})),
+			original,
+		)
+		const evidence = Object.fromEntries(
+			original.schedule.map((trial) => [trial.id, STUDY_SOURCE_ROWS]),
+		)
+		const origin = { result: original.id, seal: source.seal.id, identity: original.identity }
+		const rubric = buildStudyRubric()
+		for (const member of [
+			{ keyed: { ...origin, roles: ['agent', 'judge', 'triage'], offline: true } },
+			{ ancestor: origin },
+		] as const) {
+			const manifest = buildCustodyManifest({ ...member, id: 'b'.repeat(64) })
+			const result = buildStudyReportResult(
+				manifest.schedule.map((trial) => buildCustodyAttempt(manifest, trial)),
+				manifest,
+			)
+			const report = computeStudyReport(
+				result,
+				rubric,
+				buildCustodyAssessment(result, rubric),
+				{},
+				{ result: source, evidence },
+			)
+			expect(isRecord(report) ? report.source : undefined).toEqual({
+				result: original.id,
+				seal: source.seal.id,
+				duration: 7894,
+				roles: [
+					{ role: 'agent', calls: 4, duration: 6001.5 },
+					{ role: 'judge', calls: 2, duration: 600 },
+					{ role: 'triage', calls: 2, duration: 80 },
+				],
+			})
+		}
+	})
+
+	it('states an unfound source by the identity its replay recorded, refuses a source of another seal, and holds no source without one', () => {
+		const original = buildCompactCustodyManifest()
+		const source = buildStudyReportResult(
+			original.schedule.map((trial) => buildCustodyAttempt(original, trial)),
+			original,
+		)
+		const keyed = {
+			result: original.id,
+			seal: source.seal.id,
+			identity: original.identity,
+			roles: ['judge'],
+			offline: true,
+		} as const
+		const rubric = buildStudyRubric()
+		const manifest = buildCustodyManifest({ keyed })
+		const result = buildStudyReportResult(
+			manifest.schedule.map((trial) => buildCustodyAttempt(manifest, trial)),
+			manifest,
+		)
+		const assessment = buildCustodyAssessment(result, rubric)
+		const report = computeStudyReport(result, rubric, assessment, {})
+		expect(isRecord(report) ? report.source : undefined).toEqual({
+			result: original.id,
+			seal: source.seal.id,
+			status: 'absent',
+		})
+		const other = { ...source, seal: { ...source.seal, id: 'f'.repeat(64) } }
+		expect(() =>
+			computeStudyReport(result, rubric, assessment, {}, { result: other, evidence: {} }),
+		).toThrow('Replay source differs from the seal its replay recorded')
+		const live = buildStudyReportResult(
+			original.schedule.map((trial) => buildCustodyAttempt(original, trial)),
+			original,
+		)
+		const unreplayed = buildCustodyAssessment(live, rubric)
+		expect(computeStudyReport(live, rubric, unreplayed, {})).not.toHaveProperty('source')
+		expect(() =>
+			computeStudyReport(live, rubric, unreplayed, {}, { result: source, evidence: {} }),
+		).toThrow('Replay source differs from the seal its replay recorded')
+	})
+
+	it('omits the daemon version from a report whose evidence holds no version row', () => {
+		const manifest = {
+			...buildCompactCustodyManifest(),
+			host: { platform: 'linux', architecture: 'x64' },
+		}
+		const result = buildStudyReportResult(
+			manifest.schedule.map((trial) => buildCustodyAttempt(manifest, trial)),
+			manifest,
+		)
+		const rubric = buildStudyRubric()
+		const rows = [buildStudyWireRow('agent', 12.5)]
+		const report = computeStudyReport(
+			result,
+			rubric,
+			buildCustodyAssessment(result, rubric),
+			Object.fromEntries(manifest.schedule.map((trial) => [trial.id, rows])),
+		)
+		expect(isRecord(report) ? report.setup : undefined).toEqual({
+			platform: 'linux',
+			architecture: 'x64',
+			models: [],
+			roles: [{ role: 'agent', calls: 2, duration: 25 }],
+		})
+	})
+
+	it('reads the daemon executable, the distinct versions, and each placed model the setup ran under', () => {
+		const manifest = {
+			...buildCompactCustodyManifest(),
+			host: { platform: 'win32', architecture: 'x64', daemon: STUDY_DAEMON_STARTUP },
+		}
+		const rows = [
+			...STUDY_SOURCE_ROWS,
+			...STUDY_SOURCE_ROWS,
+			{ event: 'version', goal: 'read', value: { version: null } },
+			{ event: 'version', goal: 'read', value: { version: '0.13.1' } },
+		]
+		expect(computeStudySetup(manifest, rows)).toEqual({
+			platform: 'win32',
+			architecture: 'x64',
+			daemon: { executable: '/opt/ollama/bin/ollama', versions: ['0.13.0', '0.13.1'] },
+			models: [{ role: 'judge', model: 'judge-model', placement: { num_gpu: 0 } }],
+			roles: [
+				{ role: 'agent', calls: 4, duration: 6001.5 },
+				{ role: 'judge', calls: 2, duration: 600 },
+				{ role: 'triage', calls: 2, duration: 80 },
+			],
+		})
+		expect(
+			computeStudySetup({ ...manifest, host: { daemon: 'not json' } }, [
+				buildStudyWireRow('judge', 1, 0),
+				buildStudyWireRow('judge', 1, 2),
+			]),
+		).toEqual({
+			models: [
+				{ role: 'judge', model: 'judge-model', placement: { num_gpu: 0 } },
+				{ role: 'judge', model: 'judge-model', placement: { num_gpu: 2 } },
+			],
+			roles: [{ role: 'judge', calls: 2, duration: 2 }],
+		})
+	})
+
+	it('leaves a role duration absent when any of its rows carries no elapsed reading, never 0', () => {
+		expect(
+			computeStudyWireUsage([
+				buildStudyWireRow('agent', 5),
+				buildStudyWireRow('agent'),
+				buildStudyWireRow('judge', 0),
+				{ event: 'wire', goal: 'write', value: 'unread' },
+				{ event: 'saved', goal: 'write', value: { role: 'triage', elapsed: 1 } },
+			]),
+		).toEqual([
+			{ role: 'agent', calls: 2 },
+			{ role: 'judge', calls: 1, duration: 0 },
+		])
+		expect(computeStudyWireUsage([])).toEqual([])
+	})
+
+	it('shows a labeled report each lane control tally as imported, and labels absent without any', () => {
+		expect(computeStudyLabelReport(undefined)).toEqual({ status: 'absent' })
+		const labels = {
+			packet: 'a'.repeat(64),
+			labeler: 'haiku+sonnet',
+			version: '1',
+			created: '2026-11-18T00:00:00.000Z',
+			usage: [{ role: 'judge', calls: 1, duration: 2, tokens: undefined }],
+			judgments: [],
+			controls: [
+				{ labeler: 'haiku', answered: 4, missed: 1 },
+				{ labeler: 'sonnet', answered: 3, missed: 2 },
+			],
+		} as const
+		expect(computeStudyLabelReport(labels)).toEqual({
+			labeler: 'haiku+sonnet',
+			version: '1',
+			usage: [{ role: 'judge', calls: 1, duration: 2 }],
+			controls: {
+				origin: 'imported',
+				lanes: [
+					{ labeler: 'haiku', answered: 4, missed: 1 },
+					{ labeler: 'sonnet', answered: 3, missed: 2 },
+				],
+			},
+		})
+		const { controls: _controls, ...untallied } = labels
+		expect(computeStudyLabelReport(untallied)).not.toHaveProperty('controls')
 	})
 })

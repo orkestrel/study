@@ -2390,6 +2390,49 @@ export const STUDY_FIXTURE_ROWS: readonly StudyEvidence[] = Object.freeze([
 ])
 
 /**
+ * Builds one `wire` evidence row as an Ollama transport writes it, for the role's own model.
+ * @param role - The request's role
+ * @param elapsed - The observed send-to-settlement milliseconds; undefined writes an unobserved row
+ * @param gpu - The Ollama `num_gpu` placement the row's options carry; undefined carries none
+ * @returns The inert row
+ */
+export function buildStudyWireRow(role: StudyRole, elapsed?: number, gpu?: number): StudyEvidence {
+	return {
+		event: 'wire',
+		goal: 'write',
+		value: {
+			role,
+			path: '/api/chat',
+			model: `${role}-model`,
+			options: { num_ctx: 32, num_predict: 8, ...(gpu === undefined ? {} : { num_gpu: gpu }) },
+			finish: 'stop',
+			prompt: 3,
+			completion: 2,
+			bytes: 64,
+			...(elapsed === undefined ? {} : { started: 1, sent: 2, elapsed }),
+		},
+	}
+}
+
+/** Supplies one trial's observed source rows: two agent calls, one judge call placed on the CPU, one triage call, and a serving version. */
+export const STUDY_SOURCE_ROWS: readonly StudyEvidence[] = Object.freeze([
+	{ event: 'version', goal: 'write', value: { version: '0.13.0' } },
+	buildStudyWireRow('agent', 1000.5),
+	buildStudyWireRow('judge', 300, 0),
+	buildStudyWireRow('agent', 2000.25),
+	buildStudyWireRow('triage', 40),
+])
+
+/** Supplies the startup identity a daemon-owning execution records under the manifest's `host.daemon`. */
+export const STUDY_DAEMON_STARTUP = JSON.stringify({
+	executable: { path: '/opt/ollama/bin/ollama', digest: 'a'.repeat(64) },
+	url: 'http://127.0.0.1:11500',
+	pid: 4100,
+	version: '0.13.0',
+	models: [],
+})
+
+/**
  * Retains a complete fixture through the real append-only execution store.
  * @param directory - The nonexistent result directory inside an owned scratch resource
  * @param manifest - The execution declaration; Default: a fresh custody manifest

@@ -149,7 +149,8 @@ export function createStudyLabelPool(
  * @remarks
  * A row reaches a file only when every labeling lane answered it. A missing or blank answer refuses
  * unless `options.partial` is `true`, so a gate that means to read a partial pool says so. Each
- * judgment carries the `method` of the lane that settled it.
+ * judgment carries the `method` of the lane that settled it. When the map seats a control, every file
+ * carries each labeling lane's control tally under `controls`, which `study report` reads.
  * @param map - The pool's map
  * @param lanes - One or two labeling lanes
  * @param options - The file fields, the lane that settles disputes, and whether a missing answer is admitted
@@ -225,6 +226,11 @@ export function createStudyLabelSheet(
 		return [{ packet: link.packet, judgment }]
 	})
 	const names = every.map((lane) => lane.labeler).join('+')
+	const controls = answers.map(({ lane, rows }) => ({
+		labeler: lane.labeler,
+		answered: map.checks.filter((check) => rows.has(check.row)).length,
+		missed: map.checks.filter((check) => rows.get(check.row)?.verdict !== check.verdict).length,
+	}))
 	return {
 		labels: [...new Set(map.links.map((link) => link.packet))].map((packet) =>
 			parseStudyLabelSheet({
@@ -236,13 +242,11 @@ export function createStudyLabelSheet(
 				judgments: settled
 					.filter((entry) => entry.packet === packet)
 					.map((entry) => entry.judgment),
+				...(map.checks.length === 0 ? {} : { controls }),
 			}),
 		),
 		omitted: unanswered.length,
 		disputes,
-		missed: answers.map(
-			({ rows }) =>
-				map.checks.filter((check) => rows.get(check.row)?.verdict !== check.verdict).length,
-		),
+		missed: controls.map((tally) => tally.missed),
 	}
 }
