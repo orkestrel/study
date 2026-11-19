@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { isArray, isRecord, parseJSON } from '@orkestrel/contract'
 import { createMCPClient, HTTPClientTransport } from '@orkestrel/mcp'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
 import { isStudyAllowance } from '../src/core/validators.js'
 import { parseStudyProfile } from '../src/core/parsers.js'
 import { STUDY_LAUNCH_BYTES } from '../src/server/launchers/constants.js'
@@ -106,6 +106,11 @@ import {
 	STUDY_SELECTION_GOALS,
 	STUDY_SELECTION_LOG,
 	STUDY_SELECTION_RUBRIC,
+	STUDY_HISTORY_EXTRAS,
+	STUDY_HISTORY_RUNS,
+	buildStudyCostFixture,
+	buildStudySpreadFixture,
+	writeStudyHistoryFixture,
 } from './setupServer.js'
 import { readStudyResult, readStudyExchanges } from '../src/server/stores/helpers.js'
 import { validateStudyCaptureDeclaration, valueToWire } from '../src/server/processes/helpers.js'
@@ -710,6 +715,69 @@ describe('study server fixtures', () => {
 			)
 			expect(executed.status).toBe(0)
 			expect(executed.stdout).toBe('')
+		} finally {
+			scratch.destroy()
+		}
+	})
+	it('writes a history fixture of timed sealed results, an interrupted result, a directory holding no result, and a loose file', async () => {
+		const scratch = createScratch()
+		try {
+			const directory = join(scratch.path, 'runs')
+			const sealed = await writeStudyHistoryFixture(directory)
+			expect(sealed.map((result) => result.manifest.id)).toEqual(
+				STUDY_HISTORY_RUNS.map((run) => run.result),
+			)
+			for (const [index, result] of sealed.entries()) {
+				const run = requireValue(STUDY_HISTORY_RUNS[index])
+				expect(result.directory).toBe(join(directory, run.name))
+				expect(result.manifest).toMatchObject({
+					created: run.created,
+					identity: { agent: run.agent },
+				})
+				expect(result.attempts.map((attempt) => attempt.duration)).toEqual(
+					result.manifest.schedule.map(() => run.duration),
+				)
+				expect(result.attempts.map((attempt) => attempt.observations[0]?.usage)).toEqual(
+					result.manifest.schedule.map(() => run.usage),
+				)
+			}
+			expect(readdirSync(directory).toSorted()).toEqual(
+				[
+					...STUDY_HISTORY_RUNS.map((run) => run.name),
+					STUDY_HISTORY_EXTRAS.unsealed,
+					STUDY_HISTORY_EXTRAS.refused,
+					STUDY_HISTORY_EXTRAS.file,
+				].toSorted(),
+			)
+			await expect(
+				readStudyResult(join(directory, STUDY_HISTORY_EXTRAS.unsealed)),
+			).resolves.toMatchObject({ status: 'interrupted' })
+			expect(buildStudyCostFixture(5, [{ role: 'judge', calls: 1, duration: 2 }])).toEqual({
+				duration: 5,
+				roles: [
+					{ role: 'agent', calls: 0, duration: 0 },
+					{ role: 'judge', calls: 1, duration: 2 },
+					{ role: 'triage', calls: 0, duration: 0 },
+					{ role: 'metadata', calls: 0, duration: 0 },
+					{ role: 'maintenance', calls: 0, duration: 0 },
+					{ role: 'tool', calls: 0, duration: 0 },
+				],
+			})
+			const zero = { minimum: 0, median: 0, maximum: 0 }
+			const spread = { minimum: 1, median: 2, maximum: 3 }
+			expect(
+				buildStudySpreadFixture(spread, [{ role: 'tool', calls: spread, duration: spread }]),
+			).toEqual({
+				duration: spread,
+				roles: [
+					{ role: 'agent', calls: zero, duration: zero },
+					{ role: 'judge', calls: zero, duration: zero },
+					{ role: 'triage', calls: zero, duration: zero },
+					{ role: 'metadata', calls: zero, duration: zero },
+					{ role: 'maintenance', calls: zero, duration: zero },
+					{ role: 'tool', calls: spread, duration: spread },
+				],
+			})
 		} finally {
 			scratch.destroy()
 		}

@@ -217,6 +217,25 @@ export const STUDY_PROGRESS_REFUSALS = Object.freeze([
 	},
 ] as const)
 
+/** Pairs malformed history tokens with the grammar diagnostic each must name. */
+export const STUDY_HISTORY_REFUSALS = Object.freeze([
+	{
+		name: 'flag',
+		tokens: ['history', 'runs', '--from', 'read'],
+		message: /^"--from" is not a history flag; history takes no flags\. study history <directory>$/,
+	},
+	{
+		name: 'missing directory',
+		tokens: ['history'],
+		message: /^Missing <directory> before "<end>"\. study history <directory>$/,
+	},
+	{
+		name: 'flag before the directory',
+		tokens: ['history', '--from', 'runs'],
+		message: /^Missing <directory> before "--from"\. study history <directory>$/,
+	},
+] as const)
+
 /** Supplies missing declaration selections and their root-relative diagnostics. */
 export const STUDY_MISSING_DECLARATIONS = Object.freeze([
 	{ tokens: ['check', 'nope'], removed: undefined, path: 'studies/nope/study.json' },

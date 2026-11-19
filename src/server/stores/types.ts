@@ -309,6 +309,25 @@ export interface StudySealedResult extends StudySealedCustody {
 /** Holds an offline execution reading discriminated by custody completeness. */
 export type StudyResultView = StudyInterruptedResult | StudySealedResult
 
+/** Holds a directory the custody reader refused to read as a result, and the refusal's message. */
+export interface StudyResultRefusal {
+	readonly path: string
+	readonly message: string
+}
+
+/**
+ * Holds what the custody reader reads from each subdirectory of one directory.
+ * @remarks
+ * `sealed` holds each verified sealed result, `unsealed` the path of each result the reader reads
+ * as interrupted, and `refused` each subdirectory it refused with `CUSTODY`, such as one that holds
+ * no result or holds altered evidence. Each list follows the subdirectory names' order.
+ */
+export interface StudyResultCollection {
+	readonly sealed: readonly StudySealedResult[]
+	readonly unsealed: readonly string[]
+	readonly refused: readonly StudyResultRefusal[]
+}
+
 /** Holds imported grading artifacts independently of execution. */
 export interface StudyAssessmentStoreOptions {
 	readonly result: StudySealedResult

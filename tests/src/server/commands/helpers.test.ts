@@ -34,6 +34,8 @@ import {
 	createStudyConsumer,
 	buildStudyReportResult,
 	buildStudyWireRow,
+	buildStudyCostFixture,
+	buildStudySpreadFixture,
 	retainStudyFixture,
 	ARTIFACT_CLOSURE_FILES,
 	buildArtifactClosureOptions,
@@ -47,11 +49,15 @@ import {
 	buildStudyFreezeOptions,
 	collectStudyEvidence,
 	computeStudyCommandFingerprint,
+	computeStudyCost,
+	computeStudyDifference,
 	computeStudyFixtureDigest,
+	computeStudyHistory,
 	computeStudyLabelReport,
 	computeStudyPartition,
 	computeStudyReport,
 	computeStudySetup,
+	computeStudySpread,
 	computeStudyWireUsage,
 	computeStudyAttributions,
 	normalizeStudyPath,
@@ -1251,5 +1257,165 @@ describe('computeStudyReport setup and source', () => {
 		})
 		const { controls: _controls, ...untallied } = labels
 		expect(computeStudyLabelReport(untallied)).not.toHaveProperty('controls')
+	})
+})
+
+describe('study history helpers', () => {
+	it('computes an execution cost over live usage that equals the report costs', () => {
+		const manifest = buildCustodyManifest()
+		const attempts = manifest.schedule.map((trial) => {
+			const attempt = buildCustodyAttempt(manifest, trial)
+			return {
+				...attempt,
+				duration: 250,
+				observations: attempt.observations.map((observation, index) =>
+					index === 0
+						? {
+								...observation,
+								usage: [
+									{ role: 'agent', calls: 2, duration: 30 },
+									{ role: 'tool', calls: 1, duration: 5, tokens: 3 },
+									{ role: 'agent', calls: 1, duration: 9, replayed: true },
+								] as const,
+							}
+						: observation,
+				),
+			}
+		})
+		const count = manifest.schedule.length
+		const cost = computeStudyCost(attempts)
+		expect(count).toBeGreaterThan(1)
+		expect(cost).toEqual(
+			buildStudyCostFixture(250 * count, [
+				{ role: 'agent', calls: 2 * count, duration: 30 * count },
+				{ role: 'tool', calls: count, duration: 5 * count },
+			]),
+		)
+		const result = buildStudyReportResult(attempts, manifest)
+		expect(
+			computeStudyReport(
+				result,
+				buildStudyRubric(),
+				buildCustodyAssessment(result, buildStudyRubric()),
+				{},
+			),
+		).toMatchObject({
+			costs: {
+				duration: cost.duration,
+				roles: cost.roles.map((entry) => expect.objectContaining(entry)),
+			},
+		})
+		expect(computeStudyCost([])).toEqual(buildStudyCostFixture(0))
+	})
+
+	it('subtracts a preceding cost field by field and counts a role the preceding cost omits as zero', () => {
+		expect(
+			computeStudyDifference(
+				{
+					duration: 900,
+					roles: [
+						{ role: 'agent', calls: 4, duration: 800 },
+						{ role: 'judge', calls: 1, duration: 50 },
+					],
+				},
+				{ duration: 1200, roles: [{ role: 'agent', calls: 3, duration: 500 }] },
+			),
+		).toEqual({
+			duration: -300,
+			roles: [
+				{ role: 'agent', calls: 1, duration: 300 },
+				{ role: 'judge', calls: 1, duration: 50 },
+			],
+		})
+	})
+
+	it('computes a spread whose median interpolates and refuses a reading that is not finite', () => {
+		expect(computeStudySpread([1320000, 420000, 840000])).toEqual({
+			minimum: 420000,
+			median: 840000,
+			maximum: 1320000,
+		})
+		expect(computeStudySpread([4, 1, 3, 2])).toEqual({ minimum: 1, median: 2.5, maximum: 4 })
+		expect(computeStudySpread([7])).toEqual({ minimum: 7, median: 7, maximum: 7 })
+		expect(computeStudySpread([])).toBeUndefined()
+		expect(() => computeStudySpread([1, Number.NaN])).toThrow(
+			expect.objectContaining({ code: 'CONFIG' }),
+		)
+	})
+
+	it('groups by fingerprint and keyed source, never by location, and orders each identity by creation', () => {
+		const manifest = buildCompactCustodyManifest()
+		const attempts = manifest.schedule.map((trial) => buildCustodyAttempt(manifest, trial))
+		const late = {
+			...buildStudyReportResult(attempts, {
+				...manifest,
+				id: 'late',
+				created: '2026-11-02T00:00:00.000Z',
+			}),
+			directory: join('closure', 'late'),
+		}
+		const soon = {
+			...buildStudyReportResult(attempts, {
+				...manifest,
+				id: 'soon',
+				created: '2026-11-01T00:00:00.000Z',
+			}),
+			directory: join('checkout', 'soon'),
+		}
+		const keyed = buildStudyReportResult(attempts, {
+			...manifest,
+			id: 'keyed',
+			created: '2026-11-03T00:00:00.000Z',
+			keyed: {
+				result: 'soon',
+				seal: 'e'.repeat(64),
+				identity: manifest.identity,
+				roles: ['judge'],
+				offline: true,
+			},
+		})
+		const replay = buildStudyReportResult(attempts, {
+			...manifest,
+			id: 'replay',
+			created: '2026-11-04T00:00:00.000Z',
+			ancestor: { result: 'soon', seal: 'e'.repeat(64), identity: manifest.identity },
+		})
+		const selected = buildStudyReportResult(attempts, {
+			...manifest,
+			id: 'selected',
+			created: '2026-11-05T00:00:00.000Z',
+			selection: {
+				trial: requireValue(manifest.schedule[0]).id,
+				goals: undefined,
+				seed: undefined,
+			},
+		})
+		const history = computeStudyHistory([selected, late, replay, keyed, soon])
+		expect(history.map((entry) => entry.results.map(({ result }) => result))).toEqual([
+			['soon', 'late'],
+			['keyed'],
+			['replay'],
+			['selected'],
+		])
+		expect(history.map((entry) => entry.results.map(({ path }) => path))).toEqual([
+			[join('checkout', 'soon'), join('closure', 'late')],
+			[''],
+			[''],
+			[''],
+		])
+		const [fresh, served, replayed, segment] = history
+		expect(served?.fingerprint).toBe(fresh?.fingerprint)
+		expect(served?.keyed).toMatchObject({ result: 'soon', roles: ['judge'], offline: true })
+		expect(fresh?.keyed).toBeUndefined()
+		expect(replayed?.fingerprint).not.toBe(fresh?.fingerprint)
+		expect(replayed?.ancestor).toMatchObject({ result: 'soon' })
+		expect(segment?.fingerprint).not.toBe(fresh?.fingerprint)
+		expect(fresh?.spread).toEqual(buildStudySpreadFixture({ minimum: 0, median: 0, maximum: 0 }))
+		expect(served?.spread).toBeUndefined()
+		expect(fresh?.results.map(({ difference }) => difference)).toEqual([
+			undefined,
+			buildStudyCostFixture(0),
+		])
+		expect(computeStudyHistory([])).toEqual([])
 	})
 })

@@ -1,7 +1,11 @@
 import { captureError } from '@orkestrel/test'
 import { resolve, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { STUDY_COMMAND_INVALID_ARGUMENTS, STUDY_PROGRESS_REFUSALS } from '../../../setupStudy.js'
+import {
+	STUDY_COMMAND_INVALID_ARGUMENTS,
+	STUDY_HISTORY_REFUSALS,
+	STUDY_PROGRESS_REFUSALS,
+} from '../../../setupStudy.js'
 import { STUDY_SELECTION_ARGUMENTS, STUDY_SELECTION_REFUSALS } from '../../../setupServer.js'
 import { parseStudyArguments } from '../../../../src/server/commands/parsers.js'
 
@@ -139,6 +143,25 @@ describe('study command arguments', () => {
 
 	it.each(STUDY_PROGRESS_REFUSALS)(
 		'refuses a progress $name as invalid input',
+		async ({ tokens, message }) => {
+			const refusal = Promise.resolve().then(() => parseStudyArguments(tokens))
+			await expect(refusal).rejects.toMatchObject({
+				code: 'CONFIG',
+				message: expect.stringMatching(message),
+			})
+		},
+	)
+
+	it('parses history over a directory selector with no flags', () => {
+		expect(parseStudyArguments(['history', 'runs'])).toEqual({ command: 'history', target: 'runs' })
+		expect(parseStudyArguments(['history', 'tmp/studies/runs'])).toEqual({
+			command: 'history',
+			target: 'tmp/studies/runs',
+		})
+	})
+
+	it.each(STUDY_HISTORY_REFUSALS)(
+		'refuses a history $name as invalid input',
 		async ({ tokens, message }) => {
 			const refusal = Promise.resolve().then(() => parseStudyArguments(tokens))
 			await expect(refusal).rejects.toMatchObject({

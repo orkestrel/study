@@ -26,9 +26,11 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 	const target = arguments_[1]
 	const usage =
 		STUDY_COMMAND_HELP.split('\n').find((line) => line.startsWith('study ' + command + ' ')) ??
-		'Expected study check, freeze, execute, grade, label, report, or progress; use study --help.'
+		'Expected study check, freeze, execute, grade, label, report, progress, or history; use study --help.'
 	if (
-		!['check', 'freeze', 'execute', 'grade', 'label', 'report', 'progress'].includes(command ?? '')
+		!['check', 'freeze', 'execute', 'grade', 'label', 'report', 'progress', 'history'].includes(
+			command ?? '',
+		)
 	)
 		throw new StudyError(
 			'CONFIG',
@@ -40,7 +42,9 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 			'Missing <' +
 				(command === 'check' || command === 'execute' || command === 'freeze'
 					? 'study'
-					: 'result') +
+					: command === 'history'
+						? 'directory'
+						: 'result') +
 				'> before ' +
 				JSON.stringify(target ?? '<end>') +
 				'. ' +
@@ -72,7 +76,9 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 							? ['--assessment', '--labels']
 							: command === 'progress'
 								? ['--from']
-								: ['--assessment']
+								: command === 'history'
+									? []
+									: ['--assessment']
 	const tokens: ReadonlyArray<string | undefined> = arguments_.slice(2)
 	// Positions, not present elements: a sparse token array keeps each hole as an absent flag or value.
 	const pairs = [...tokens.entries()].flatMap(([index, flag]) =>
@@ -87,8 +93,8 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 				JSON.stringify(flag ?? '<end>') +
 					' is not a ' +
 					command +
-					' flag; accepts ' +
-					allowed.join(', ') +
+					' flag; ' +
+					(allowed.length === 0 ? command + ' takes no flags' : 'accepts ' + allowed.join(', ')) +
 					'. ' +
 					usage,
 			)
@@ -287,6 +293,7 @@ export function parseStudyArguments(arguments_: readonly string[]): StudyCommand
 	}
 	const location = normalizeStudyPath(target)
 	if (command === 'progress') return { command, target: location, from: flags.get('--from') }
+	if (command === 'history') return { command, target: location }
 	if (command === 'grade') {
 		const rubric = flags.get('--rubric')
 		if (rubric === undefined) throw new StudyError('CONFIG', 'Missing --rubric. ' + usage)

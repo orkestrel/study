@@ -36,6 +36,9 @@ import {
 	spawnStudyScript,
 	writeStudyProgressFixture,
 	writeStudyProgressResult,
+	STUDY_HISTORY_EXTRAS,
+	STUDY_HISTORY_RUNS,
+	writeStudyHistoryFixture,
 } from '../../../setupServer.js'
 import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
 import { STUDY_FRAME_BYTES } from '../../../../src/server/processes/constants.js'
@@ -46,6 +49,7 @@ import { StudyResultStore } from '../../../../src/server/stores/StudyResultStore
 import { isStudyExchangeDeclaration } from '../../../../src/server/stores/validators.js'
 import {
 	checkStudyDirectory,
+	collectStudyResults,
 	buildStudyPacket,
 	buildStudyPacketLinks,
 	computeStudyPacketDigest,
@@ -429,6 +433,93 @@ describe('study packet construction over sparse and oversized declarations', () 
 			scratch.destroy()
 		}
 	}, 20000)
+})
+
+describe('collectStudyResults', () => {
+	it('reads each subdirectory in name order into sealed, unsealed, and refused, and passes over a file', async () => {
+		const scratch = createScratch()
+		try {
+			const directory = join(scratch.path, 'runs')
+			await writeStudyHistoryFixture(directory)
+			const collection = await collectStudyResults(directory, new AbortController().signal)
+			expect(collection.sealed.map((result) => result.manifest.id)).toEqual(
+				['early', 'last', 'later', 'other'].map(
+					(name) => STUDY_HISTORY_RUNS.find((run) => run.name === name)?.result,
+				),
+			)
+			expect(collection.sealed.map((result) => result.directory)).toEqual(
+				['early', 'last', 'later', 'other'].map((name) => join(directory, name)),
+			)
+			expect(collection.unsealed).toEqual([join(directory, STUDY_HISTORY_EXTRAS.unsealed)])
+			expect(collection.refused).toEqual([
+				{
+					path: join(directory, STUDY_HISTORY_EXTRAS.refused),
+					message: 'Result contains an unknown path',
+				},
+			])
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('refuses a sealed result whose evidence changed by path and keeps reading the rest', async () => {
+		const scratch = createScratch()
+		try {
+			const directory = join(scratch.path, 'runs')
+			const [early] = await writeStudyHistoryFixture(directory)
+			const trial = requireValue(early?.manifest.schedule[0])
+			const evidence = join(directory, 'early', 'execution', 'trials', trial.id, 'evidence.jsonl')
+			await writeFile(
+				evidence,
+				`${await readFile(evidence, 'utf8')}{"event":"saved","goal":"write","value":"altered"}\n`,
+			)
+			const collection = await collectStudyResults(directory, new AbortController().signal)
+			expect(collection.sealed).toHaveLength(STUDY_HISTORY_RUNS.length - 1)
+			expect(collection.refused).toEqual([
+				expect.objectContaining({ path: join(directory, 'early') }),
+				expect.objectContaining({ path: join(directory, STUDY_HISTORY_EXTRAS.refused) }),
+			])
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('refuses a linked subdirectory by path without reading the result behind the link', async () => {
+		const scratch = createScratch()
+		const outside = createScratch()
+		try {
+			await retainStudyFixture(join(outside.path, 'sealed'))
+			const directory = scratch.ensure('runs')
+			scratch.link('runs/linked', join(outside.path, 'sealed'))
+			await expect(collectStudyResults(directory, new AbortController().signal)).resolves.toEqual({
+				sealed: [],
+				unsealed: [],
+				refused: [
+					{ path: join(directory, 'linked'), message: 'Linked or invalid custody directory' },
+				],
+			})
+		} finally {
+			scratch.remove('runs/linked')
+			scratch.destroy()
+			outside.destroy()
+		}
+	})
+
+	it('refuses an aborted read before any subdirectory and a missing directory with its system code', async () => {
+		const scratch = createScratch()
+		try {
+			const directory = join(scratch.path, 'runs')
+			await writeStudyHistoryFixture(directory)
+			const controller = new AbortController()
+			controller.abort(new Error('Stopped'))
+			await expect(collectStudyResults(directory, controller.signal)).rejects.toThrow('Stopped')
+			await expect(
+				collectStudyResults(join(scratch.path, 'absent'), new AbortController().signal),
+			).rejects.toMatchObject({ code: 'ENOENT' })
+		} finally {
+			scratch.destroy()
+		}
+	})
 })
 
 describe('readStudyHandle', () => {

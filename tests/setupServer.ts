@@ -21,6 +21,7 @@ import type {
 	StudyRole,
 	StudyRubric,
 	StudySinkInterface,
+	StudyTrial,
 	StudyUsage,
 } from '../src/core/types.js'
 import type { StudyAgentDispatch } from '../src/core/agents/types.js'
@@ -31,7 +32,10 @@ import type { ArtifactLoaderOptions } from '../src/server/artifacts/types.js'
 import type {
 	StudyClosure,
 	StudyCommandOptions,
+	StudyCost,
 	StudyDaemonSessionOptions,
+	StudyRoleCost,
+	StudySpread,
 } from '../src/server/commands/types.js'
 import type {
 	StudyLabelAnswer,
@@ -140,6 +144,7 @@ import { outputBoundary, resolveExternal } from '../configs/helpers.js'
 import { encodeStudyJSON, hashStudyBytes } from '../src/server/helpers.js'
 import { parseStudyProfile } from '../src/core/parsers.js'
 import { buildStudySchedule } from '../src/core/helpers.js'
+import { STUDY_ROLES } from '../src/core/constants.js'
 import {
 	isStudyCharge,
 	isStudyEvidence,
@@ -2437,24 +2442,180 @@ export const STUDY_DAEMON_STARTUP = JSON.stringify({
  * @param directory - The nonexistent result directory inside an owned scratch resource
  * @param manifest - The execution declaration; Default: a fresh custody manifest
  * @param rows - The evidence rows appended to every trial in order; Default: one saved write row
+ * @param attempt - Builds each trial's terminal record; Default: a complete zero-duration record
  * @returns The independently verified sealed execution
  */
 export async function retainStudyFixture(
 	directory: string,
 	manifest: StudyManifest = buildCustodyManifest(),
 	rows: readonly StudyEvidence[] = STUDY_FIXTURE_ROWS,
+	attempt: StudyAttemptFunction = buildCustodyAttempt,
 ): Promise<StudySealedResult> {
 	const results = new StudyResultStore({ directory, manifest })
 	await results.create()
 	for (const trial of manifest.schedule) {
 		const sink = await results.start(trial)
 		for (const row of rows) await sink.append(row)
-		await results.finish(buildCustodyAttempt(manifest, trial))
+		await results.finish(attempt(manifest, trial))
 	}
 	await results.seal()
 	const result = await readStudyResult(directory)
 	if (result.status !== 'sealed') throw new Error('Fixture execution did not seal')
 	return result
+}
+
+/**
+ * Describes the sealed results a history fixture holds, each under its own directory name.
+ * @remarks
+ * Every result runs the compact two-trial custody horizon. `agent` replaces the identity's agent
+ * digest, so `early`, `later`, and `last` share one identity and `other` holds another. Each trial
+ * takes `duration` milliseconds and spends `usage` on its first goal. The directory names sort
+ * apart from the creation order, and `later` carries one replayed request that no cost counts.
+ */
+export const STUDY_HISTORY_RUNS: readonly StudyHistoryRun[] = Object.freeze([
+	{
+		name: 'early',
+		result: '6f1d2c4e-0a51-4c1e-9d07-1b7e2f3a4c01',
+		agent: '1'.repeat(64),
+		created: '2026-11-01T09:00:00.000Z',
+		duration: 1000,
+		usage: [{ role: 'agent', calls: 2, duration: 600 }],
+	},
+	{
+		name: 'other',
+		result: '6f1d2c4e-0a51-4c1e-9d07-1b7e2f3a4c02',
+		agent: '2'.repeat(64),
+		created: '2026-11-01T10:00:00.000Z',
+		duration: 400,
+		usage: [{ role: 'agent', calls: 1, duration: 300 }],
+	},
+	{
+		name: 'later',
+		result: '6f1d2c4e-0a51-4c1e-9d07-1b7e2f3a4c03',
+		agent: '1'.repeat(64),
+		created: '2026-11-02T09:00:00.000Z',
+		duration: 1500,
+		usage: [
+			{ role: 'agent', calls: 3, duration: 900 },
+			{ role: 'judge', calls: 1, duration: 100 },
+			{ role: 'agent', calls: 1, duration: 50, replayed: true },
+		],
+	},
+	{
+		name: 'last',
+		result: '6f1d2c4e-0a51-4c1e-9d07-1b7e2f3a4c04',
+		agent: '1'.repeat(64),
+		created: '2026-11-03T09:00:00.000Z',
+		duration: 1200,
+		usage: [{ role: 'agent', calls: 2, duration: 700 }],
+	},
+])
+
+/** Names the history fixture's interrupted result, its directory that holds no result, and its loose file. */
+export const STUDY_HISTORY_EXTRAS = Object.freeze({
+	unsealed: 'running',
+	refused: 'labels',
+	file: 'tally.json',
+})
+
+/**
+ * Builds a history run's compact custody manifest under its result id, creation time, and agent digest.
+ * @param run - The described run
+ * @returns The independently owned manifest
+ */
+export function buildStudyHistoryManifest(run: StudyHistoryRun): StudyManifest {
+	const manifest = buildCompactCustodyManifest()
+	return {
+		...manifest,
+		id: run.result,
+		created: run.created,
+		identity: { ...manifest.identity, agent: run.agent },
+	}
+}
+
+/**
+ * Builds the terminal record builder of a history run: a complete record whose duration and first-goal usage the run names.
+ * @param run - The described run
+ * @returns The builder `retainStudyFixture` calls for each trial
+ */
+export function buildStudyHistoryAttempt(run: StudyHistoryRun): StudyAttemptFunction {
+	return (manifest, trial) => {
+		const attempt = buildCustodyAttempt(manifest, trial)
+		return {
+			...attempt,
+			duration: run.duration,
+			observations: attempt.observations.map((observation, index) =>
+				index === 0 ? { ...observation, usage: run.usage } : observation,
+			),
+		}
+	}
+}
+
+/**
+ * Writes a history fixture: each sealed result `STUDY_HISTORY_RUNS` describes, an interrupted result, a directory that holds no result, and a loose file.
+ * @param directory - The nonexistent directory inside an owned scratch resource, created with its parents
+ * @returns The sealed results in `STUDY_HISTORY_RUNS` order
+ */
+export async function writeStudyHistoryFixture(
+	directory: string,
+): Promise<readonly StudySealedResult[]> {
+	await mkdir(directory, { recursive: true })
+	const sealed: StudySealedResult[] = []
+	for (const run of STUDY_HISTORY_RUNS)
+		sealed.push(
+			await retainStudyFixture(
+				join(directory, run.name),
+				buildStudyHistoryManifest(run),
+				STUDY_FIXTURE_ROWS,
+				buildStudyHistoryAttempt(run),
+			),
+		)
+	const running = buildCompactCustodyManifest()
+	await new StudyResultStore({
+		directory: join(directory, STUDY_HISTORY_EXTRAS.unsealed),
+		manifest: { ...running, id: 'interrupted' },
+	}).create()
+	await mkdir(join(directory, STUDY_HISTORY_EXTRAS.refused))
+	await writeFile(join(directory, STUDY_HISTORY_EXTRAS.refused, 'sheet.json'), '{}\n')
+	await writeFile(join(directory, STUDY_HISTORY_EXTRAS.file), '{}\n')
+	return sealed
+}
+
+/**
+ * Builds an expected cost with every role in `STUDY_ROLES` order, a role the list omits at zero.
+ * @param duration - The wall time
+ * @param roles - The roles with nonzero readings
+ * @returns The expected cost
+ */
+export function buildStudyCostFixture(
+	duration: number,
+	roles: readonly StudyRoleCost[] = [],
+): StudyCost {
+	return {
+		duration,
+		roles: STUDY_ROLES.map(
+			(role) => roles.find((entry) => entry.role === role) ?? { role, calls: 0, duration: 0 },
+		),
+	}
+}
+
+/**
+ * Builds an expected spread with every role in `STUDY_ROLES` order, a role the list omits at a zero spread.
+ * @param duration - The wall time spread
+ * @param roles - The roles with nonzero spreads
+ * @returns The expected spread
+ */
+export function buildStudySpreadFixture(
+	duration: StudySpread,
+	roles: ReadonlyArray<StudyRoleCost<StudySpread>> = [],
+): StudyCost<StudySpread> {
+	const zero = { minimum: 0, median: 0, maximum: 0 }
+	return {
+		duration,
+		roles: STUDY_ROLES.map(
+			(role) => roles.find((entry) => entry.role === role) ?? { role, calls: zero, duration: zero },
+		),
+	}
 }
 
 /**
@@ -4576,6 +4737,19 @@ export interface StudyBundleFixture {
 export interface StudyMarkerFixture {
 	readonly adapter: string
 	readonly marker: string
+}
+
+/** Builds the terminal record a retained fixture finishes for one scheduled trial. */
+export type StudyAttemptFunction = (manifest: StudyManifest, trial: StudyTrial) => StudyAttempt
+
+/** Describes one sealed result of a history fixture: its directory, manifest id, agent digest, creation time, per-trial duration, and first-goal usage. */
+export interface StudyHistoryRun {
+	readonly name: string
+	readonly result: string
+	readonly agent: string
+	readonly created: string
+	readonly duration: number
+	readonly usage: readonly StudyUsage[]
 }
 
 /** Holds a consumer's three verified closures, the capacity result executed under the first, and its teardown. */

@@ -16,10 +16,13 @@ import type {
 import type { StudyAttributionSource, StudyCommandArtifact, StudyDeclaration } from './types.js'
 import type {
 	StudyClosure,
+	StudyCost,
 	StudyEvidenceTable,
 	StudyFreezeInput,
+	StudyHistoryIdentity,
 	StudyReportSource,
 	StudySeedResult,
+	StudySpread,
 	StudyTargetSelector,
 } from './types.js'
 import type { ArtifactClosure, ArtifactLoaderOptions } from '../artifacts/types.js'
@@ -30,6 +33,7 @@ import {
 	STUDY_LAYERS,
 	STUDY_ROLES,
 	StudyError,
+	computeStudyQuantile,
 	computeStudyScores,
 	studyStopToJSON,
 	parseStudyDefinition,
@@ -406,6 +410,169 @@ export function computeStudyFixtureDigest(
 			scenarios,
 		}),
 	)
+}
+
+/**
+ * Computes what one execution spent: its wall time and each role's live calls and duration.
+ * @param attempts - The terminal attempts of one sealed execution
+ * @returns The wall time as the attempts' summed duration, and every role in `STUDY_ROLES` order over the requests no recording served
+ * @example Compute an execution's cost
+ * ```ts
+ * import { computeStudyCost } from '@orkestrel/study/server'
+ *
+ * declare const attempts: readonly StudyAttempt[]
+ * computeStudyCost(attempts) // { duration: 4200, roles: [{ role: 'agent', calls: 3, duration: 3900 }, ...] }
+ * ```
+ */
+export function computeStudyCost(attempts: readonly StudyAttempt[]): StudyCost {
+	const spent = attempts
+		.flatMap((attempt) => attempt.observations.flatMap((observation) => observation.usage))
+		.filter((entry) => entry.replayed !== true)
+	return {
+		duration: attempts.reduce((total, attempt) => total + attempt.duration, 0),
+		roles: STUDY_ROLES.map((role) => {
+			const charges = spent.filter((entry) => entry.role === role)
+			return {
+				role,
+				calls: charges.reduce((total, entry) => total + entry.calls, 0),
+				duration: charges.reduce((total, entry) => total + entry.duration, 0),
+			}
+		}),
+	}
+}
+
+/**
+ * Subtracts a prior execution's cost from a later one's, field by field.
+ * @param cost - The later execution's cost
+ * @param prior - The prior execution's cost
+ * @returns The wall time difference and each role's calls and duration difference, in the later cost's role order; a role the prior cost omits counts as zero
+ * @example Read the change between two executions
+ * ```ts
+ * import { computeStudyDifference } from '@orkestrel/study/server'
+ *
+ * computeStudyDifference(
+ * 	{ duration: 900, roles: [{ role: 'agent', calls: 4, duration: 800 }] },
+ * 	{ duration: 600, roles: [{ role: 'agent', calls: 3, duration: 500 }] },
+ * ) // { duration: 300, roles: [{ role: 'agent', calls: 1, duration: 300 }] }
+ * ```
+ */
+export function computeStudyDifference(cost: StudyCost, prior: StudyCost): StudyCost {
+	return {
+		duration: cost.duration - prior.duration,
+		roles: cost.roles.map((entry) => {
+			const earlier = prior.roles.find((candidate) => candidate.role === entry.role)
+			return {
+				role: entry.role,
+				calls: entry.calls - (earlier?.calls ?? 0),
+				duration: entry.duration - (earlier?.duration ?? 0),
+			}
+		}),
+	}
+}
+
+/**
+ * Computes the minimum, median, and maximum of finite readings.
+ * @param values - The readings, in any order
+ * @returns The spread, with the median from `computeStudyQuantile`; undefined for no readings
+ * @throws StudyError - Thrown with `CONFIG` when a reading is not a finite number
+ * @example Read the spread of three wall times
+ * ```ts
+ * import { computeStudySpread } from '@orkestrel/study/server'
+ *
+ * computeStudySpread([420000, 840000, 1320000]) // { minimum: 420000, median: 840000, maximum: 1320000 }
+ * computeStudySpread([]) // undefined
+ * ```
+ */
+export function computeStudySpread(values: readonly number[]): StudySpread | undefined {
+	const minimum = computeStudyQuantile(values, 0)
+	const median = computeStudyQuantile(values, 0.5)
+	const maximum = computeStudyQuantile(values, 1)
+	return minimum === undefined || median === undefined || maximum === undefined
+		? undefined
+		: { minimum, median, maximum }
+}
+
+/**
+ * Groups sealed results by execution identity, each identity's results in creation order with their costs, differences, spread, and estimate.
+ * @param results - The verified sealed results, in any order
+ * @returns One entry per identity, ordered by its first result
+ * @remarks
+ * Two results share an identity when their manifests give one `computeStudyCommandFingerprint`
+ * digest over the identity, bounds, definition, replayed or extended source seal, and selection,
+ * and name one keyed recording or none. A result's location never takes part. The spread covers
+ * two or more results, and the estimate is the last result's wall time.
+ * @example Group two executions of one identity
+ * ```ts
+ * import { computeStudyHistory } from '@orkestrel/study/server'
+ *
+ * declare const results: readonly StudySealedResult[]
+ * const [identity] = computeStudyHistory(results)
+ * identity?.estimate // the last result's wall time in milliseconds
+ * ```
+ */
+export function computeStudyHistory(
+	results: readonly StudySealedResult[],
+): readonly StudyHistoryIdentity[] {
+	const ordered = results
+		.toSorted((left, right) =>
+			left.manifest.created < right.manifest.created
+				? -1
+				: left.manifest.created > right.manifest.created
+					? 1
+					: left.directory < right.directory
+						? -1
+						: left.directory > right.directory
+							? 1
+							: 0,
+		)
+		.map((result) => ({
+			result,
+			cost: computeStudyCost(result.attempts),
+			fingerprint: computeStudyCommandFingerprint(
+				result.manifest.identity,
+				result.manifest.bounds,
+				result.manifest.definition,
+				result.manifest.ancestor?.seal,
+				result.manifest.selection,
+			),
+		}))
+	const groups = Map.groupBy(ordered, ({ result, fingerprint }) =>
+		hashStudyBytes(encodeStudyJSON({ fingerprint, keyed: result.manifest.keyed })),
+	)
+	return [...groups.values()].flatMap((members) => {
+		const [first] = members
+		const last = members.at(-1)
+		if (first === undefined || last === undefined) return []
+		const costs = members.map(({ cost }) => cost)
+		const duration = computeStudySpread(costs.map((cost) => cost.duration))
+		const roles = STUDY_ROLES.flatMap((role) => {
+			const entries = costs.flatMap((cost) => cost.roles.filter((entry) => entry.role === role))
+			const calls = computeStudySpread(entries.map((entry) => entry.calls))
+			const time = computeStudySpread(entries.map((entry) => entry.duration))
+			return calls === undefined || time === undefined ? [] : [{ role, calls, duration: time }]
+		})
+		return [
+			{
+				fingerprint: first.fingerprint,
+				identity: first.result.manifest.identity,
+				ancestor: first.result.manifest.ancestor,
+				keyed: first.result.manifest.keyed,
+				results: members.map(({ result, cost }, index) => {
+					const prior = costs[index - 1]
+					return {
+						result: result.manifest.id,
+						path: result.directory,
+						created: result.manifest.created,
+						seal: result.seal.id,
+						cost,
+						difference: prior === undefined ? undefined : computeStudyDifference(cost, prior),
+					}
+				}),
+				spread: members.length < 2 || duration === undefined ? undefined : { duration, roles },
+				estimate: last.cost.duration,
+			},
+		]
+	})
 }
 
 /**

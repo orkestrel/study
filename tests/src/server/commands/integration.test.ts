@@ -563,6 +563,50 @@ describe('closure identities bind content, not location', () => {
 		expect(isRecord(checked) ? checked.identity : undefined).toEqual(first.identity)
 	}, 120000)
 
+	it('lists a repeat executed under another closure with the capacity result as one history identity under the check fingerprint', async () => {
+		const { command, scratch, second, capacity } = await fixture.promise
+		await expect(
+			command.execute(
+				[
+					'execute',
+					'assessment',
+					'--profile',
+					'local',
+					'--closure',
+					second.closure.destination,
+					'--out',
+					'tmp/studies/repeat',
+				],
+				new AbortController().signal,
+			),
+		).resolves.toMatchObject({ status: 'completed' })
+		const repeat = await readStudyResult(join(scratch.path, 'tmp', 'studies', 'repeat'))
+		if (repeat.status !== 'sealed') throw new Error('Repeat execution did not seal')
+		const checked = await command.execute(
+			['check', 'assessment', '--profile', 'local'],
+			new AbortController().signal,
+		)
+		const history = await command.execute(['history', 'tmp/studies'], new AbortController().signal)
+		expect(history).toMatchObject({
+			command: 'history',
+			directory: join(scratch.path, 'tmp', 'studies'),
+			identities: [
+				{
+					fingerprint: isRecord(checked) ? checked.fingerprint : undefined,
+					identity: isRecord(checked) ? checked.identity : undefined,
+					results: [
+						{ result: capacity.manifest.id, path: capacity.directory, seal: capacity.seal.id },
+						{ result: repeat.manifest.id, path: repeat.directory, seal: repeat.seal.id },
+					],
+					spread: { duration: { minimum: expect.any(Number) } },
+				},
+			],
+			unsealed: [],
+			refused: [],
+		})
+		expect(history).toHaveProperty(['identities', 0, 'results', 1, 'difference', 'duration'])
+	}, 120000)
+
 	it('passes the qualification gate for a quality closure whose relative qualification selects a capacity result executed under another closure', async () => {
 		const { command, scratch, quality, capacity } = await fixture.promise
 		const output = join(scratch.path, 'qualified')

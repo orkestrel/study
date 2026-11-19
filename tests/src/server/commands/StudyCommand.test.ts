@@ -5,11 +5,11 @@ import {
 	retainStudyFixture,
 	STUDY_SOURCE_ROWS,
 } from '../../../setupServer.js'
-import { createScratch, isRunning } from '@orkestrel/test/server'
+import { createScratch, isRunning, readInventory } from '@orkestrel/test/server'
 import { isArray, isRecord, parseJSON } from '@orkestrel/contract'
 import { createRecorder, requireValue } from '@orkestrel/test'
 import { createHash } from 'node:crypto'
-import { appendFileSync, cpSync, mkdirSync, rmSync } from 'node:fs'
+import { appendFileSync, cpSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { readStudyClosure } from '../../../../src/server/commands/helpers.js'
@@ -59,6 +59,11 @@ import {
 	STUDY_STRICT_RUBRIC,
 	STUDY_STRICT_RUBRIC_PATH,
 	writeStudySelectionConsumer,
+	STUDY_HISTORY_EXTRAS,
+	STUDY_HISTORY_RUNS,
+	buildStudyCostFixture,
+	buildStudySpreadFixture,
+	writeStudyHistoryFixture,
 } from '../../../setupServer.js'
 
 describe('recording and replay command handoff', () => {
@@ -2211,4 +2216,167 @@ describe('report readings', () => {
 			scratch.destroy()
 		}
 	}, 60000)
+})
+
+describe('history', () => {
+	it('history: lists the results of one identity in creation order with each difference from the preceding result, their spread, and the last wall time as the estimate', async () => {
+		const scratch = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
+		try {
+			const directory = join(scratch.path, 'tmp', 'studies', 'runs')
+			await writeStudyHistoryFixture(directory)
+			const [early, , later, last] = STUDY_HISTORY_RUNS
+			const command = new StudyCommand({
+				root: scratch.path,
+				entry: join(scratch.path, 'absent.js'),
+			})
+			const history = await command.execute(['history', 'runs'], new AbortController().signal)
+			expect(history).toMatchObject({
+				command: 'history',
+				directory,
+				identities: [
+					{
+						identity: { agent: '1'.repeat(64) },
+						results: [
+							{
+								result: early?.result,
+								path: join(directory, 'early'),
+								created: early?.created,
+								cost: buildStudyCostFixture(2000, [{ role: 'agent', calls: 4, duration: 1200 }]),
+							},
+							{
+								result: later?.result,
+								path: join(directory, 'later'),
+								created: later?.created,
+								cost: buildStudyCostFixture(3000, [
+									{ role: 'agent', calls: 6, duration: 1800 },
+									{ role: 'judge', calls: 2, duration: 200 },
+								]),
+								difference: buildStudyCostFixture(1000, [
+									{ role: 'agent', calls: 2, duration: 600 },
+									{ role: 'judge', calls: 2, duration: 200 },
+								]),
+							},
+							{
+								result: last?.result,
+								path: join(directory, 'last'),
+								created: last?.created,
+								cost: buildStudyCostFixture(2400, [{ role: 'agent', calls: 4, duration: 1400 }]),
+								difference: buildStudyCostFixture(-600, [
+									{ role: 'agent', calls: -2, duration: -400 },
+									{ role: 'judge', calls: -2, duration: -200 },
+								]),
+							},
+						],
+						spread: buildStudySpreadFixture({ minimum: 2000, median: 2400, maximum: 3000 }, [
+							{
+								role: 'agent',
+								calls: { minimum: 4, median: 4, maximum: 6 },
+								duration: { minimum: 1200, median: 1400, maximum: 1800 },
+							},
+							{
+								role: 'judge',
+								calls: { minimum: 0, median: 0, maximum: 2 },
+								duration: { minimum: 0, median: 0, maximum: 200 },
+							},
+						]),
+						estimate: 2400,
+					},
+					{ identity: { agent: '2'.repeat(64) } },
+				],
+			})
+			expect(history).not.toHaveProperty(['identities', 0, 'results', 0, 'difference'])
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('history: groups the results of two identities apart, each under its own fingerprint', async () => {
+		const scratch = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
+		try {
+			const directory = join(scratch.path, 'tmp', 'studies', 'runs')
+			await writeStudyHistoryFixture(directory)
+			const other = STUDY_HISTORY_RUNS[1]
+			const command = new StudyCommand({
+				root: scratch.path,
+				entry: join(scratch.path, 'absent.js'),
+			})
+			const history = await command.execute(
+				['history', 'tmp/studies/runs'],
+				new AbortController().signal,
+			)
+			const identities = isRecord(history) && isArray(history.identities) ? history.identities : []
+			const fingerprints = identities.map((entry) =>
+				isRecord(entry) ? entry.fingerprint : undefined,
+			)
+			expect(fingerprints).toEqual([
+				expect.stringMatching(/^[a-f0-9]{64}$/),
+				expect.stringMatching(/^[a-f0-9]{64}$/),
+			])
+			expect(new Set(fingerprints).size).toBe(2)
+			expect(identities[1]).toMatchObject({
+				identity: { agent: '2'.repeat(64) },
+				results: [
+					{
+						result: other?.result,
+						path: join(directory, 'other'),
+						cost: buildStudyCostFixture(800, [{ role: 'agent', calls: 2, duration: 600 }]),
+					},
+				],
+				estimate: 800,
+			})
+			expect(identities[1]).not.toHaveProperty('spread')
+			expect(identities[1]).not.toHaveProperty(['results', 0, 'difference'])
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('history: skips and counts an unsealed result, refuses a directory that holds no result by path, passes over a file, and writes nothing', async () => {
+		const scratch = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
+		try {
+			const directory = join(scratch.path, 'runs')
+			await writeStudyHistoryFixture(directory)
+			const before = readInventory(directory, readdirSync(directory))
+			const command = new StudyCommand({
+				root: scratch.path,
+				entry: join(scratch.path, 'absent.js'),
+			})
+			const history = await command.execute(['history', directory], new AbortController().signal)
+			expect(history).toMatchObject({
+				directory,
+				unsealed: [join(directory, STUDY_HISTORY_EXTRAS.unsealed)],
+				refused: [
+					{
+						path: join(directory, STUDY_HISTORY_EXTRAS.refused),
+						message: 'Result contains an unknown path',
+					},
+				],
+			})
+			const identities = isRecord(history) && isArray(history.identities) ? history.identities : []
+			expect(
+				identities.flatMap((entry) =>
+					isRecord(entry) && isArray(entry.results) ? entry.results : [],
+				),
+			).toHaveLength(STUDY_HISTORY_RUNS.length)
+			expect(JSON.stringify(history)).not.toContain(STUDY_HISTORY_EXTRAS.file)
+			expect(readInventory(directory, readdirSync(directory))).toEqual(before)
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('history: refuses a missing directory with CUSTODY and names the selector', async () => {
+		const scratch = createStudyScratch(resolve('tmp/units'), 'orkestrel-test-')
+		try {
+			const command = new StudyCommand({
+				root: scratch.path,
+				entry: join(scratch.path, 'absent.js'),
+			})
+			await expect(
+				command.execute(['history', 'absent'], new AbortController().signal),
+			).rejects.toMatchObject({ code: 'CUSTODY', message: 'Selected directory is missing: absent' })
+		} finally {
+			scratch.destroy()
+		}
+	})
 })

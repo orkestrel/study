@@ -46,7 +46,7 @@ When a process spawns commands without a shell, such as an agent lane on Windows
 node node_modules/@orkestrel/study/dist/bin/main.js --help
 ```
 
-The `study --help` command prints the command reference. The `study --version` command prints the installed Study version. Use the operations for validation, execution, progress reading, freezing, independent grading, label import, and reporting.
+The `study --help` command prints the command reference. The `study --version` command prints the installed Study version. Use the operations for validation, execution, progress reading, freezing, independent grading, label import, reporting, and execution history.
 
 | Operation                     | Command                                                                         |
 | ----------------------------- | ------------------------------------------------------------------------------- |
@@ -57,6 +57,7 @@ The `study --help` command prints the command reference. The `study --version` c
 | Grade retained evidence       | `study grade <result> --rubric <path>`                                          |
 | Import semantic labels        | `study label <result> --assessment <sha256> --labels <path>`                    |
 | Report an exact grading       | `study report <result> --assessment <sha256>`                                   |
+| Compare repeated executions   | `study history <directory>`                                                     |
 
 Declare a study at `studies/<name>/study.json`. Its rubric path resolves inside that study directory. Its `driver` field selects a bundle at `studies/<driver>/` containing the adapter module `index.ts`, scenario declarations at `scenarios/<scenario>.json`, and execution profiles at `profiles/<profile>.json`. The profile defaults to `local`.
 

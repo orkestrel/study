@@ -21,13 +21,21 @@ import type {
 	StudyPacketBundle,
 	StudyPacketEntry,
 	StudyPacketLink,
+	StudyResultCollection,
+	StudyResultRefusal,
 	StudyResultView,
 	StudySealedResult,
 } from './types.js'
 import type { JSONValue } from '@orkestrel/contract'
 import type { FileHandle } from 'node:fs/promises'
 import type { StudyProgressFunction, StudyProgressTarget } from '../adapters/types.js'
-import { STUDY_ROLES, StudyError, isStudyStop, parseStudyMeasurement } from '@src/core'
+import {
+	STUDY_ROLES,
+	StudyError,
+	isStudyError,
+	isStudyStop,
+	parseStudyMeasurement,
+} from '@src/core'
 import { attempt, canonicalStringify, isNumber, isRecord, parseJSON } from '@orkestrel/contract'
 import { constants } from 'node:fs'
 import { lstat, open, readdir, rename } from 'node:fs/promises'
@@ -703,6 +711,56 @@ export async function readStudyResult(directory: string): Promise<StudyResultVie
 		attempts: Object.freeze(attempts),
 		seal,
 	})
+}
+
+/**
+ * Reads each subdirectory of a directory through `readStudyResult`, one at a time, and writes nothing.
+ * @param directory - The directory whose subdirectories hold results
+ * @param signal - The caller's cancellation, checked before each subdirectory
+ * @returns The sealed results, the paths of unsealed results, and each subdirectory the reader refused with `CUSTODY`, with its message
+ * @throws StudyError - Thrown with `CUSTODY` when the directory or an ancestor is linked or is not a directory
+ * @remarks
+ * A file directly under the directory is no result and is passed over; a linked subdirectory is
+ * read, and the reader refuses it. Any refusal other than `CUSTODY` propagates.
+ * @example Read a directory of results
+ * ```ts
+ * import { collectStudyResults } from '@orkestrel/study/server'
+ *
+ * const { sealed, unsealed, refused } = await collectStudyResults(
+ * 	'tmp/studies',
+ * 	new AbortController().signal,
+ * )
+ * ```
+ */
+export async function collectStudyResults(
+	directory: string,
+	signal: AbortSignal,
+): Promise<StudyResultCollection> {
+	const absolute = await checkStudyDirectory(directory)
+	const names = (await readdir(absolute, { withFileTypes: true }))
+		.filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
+		.map((entry) => entry.name)
+		.toSorted()
+	const readings: Array<StudyResultView | StudyResultRefusal> = []
+	for (const name of names) {
+		signal.throwIfAborted()
+		const path = join(absolute, name)
+		readings.push(
+			await readStudyResult(path).catch((error: unknown): StudyResultRefusal => {
+				if (!isStudyError(error) || error.code !== 'CUSTODY') throw error
+				return { path, message: error.message }
+			}),
+		)
+	}
+	return {
+		sealed: readings.filter(
+			(reading): reading is StudySealedResult => 'status' in reading && reading.status === 'sealed',
+		),
+		unsealed: readings.flatMap((reading) =>
+			'status' in reading && reading.status === 'interrupted' ? [reading.directory] : [],
+		),
+		refused: readings.filter((reading): reading is StudyResultRefusal => !('status' in reading)),
+	}
 }
 
 /**

@@ -19,6 +19,7 @@ import type {
 	StudyReportRequest,
 	StudyReportSource,
 	StudyProgressRequest,
+	StudyHistoryRequest,
 	StudyFreezeRequest,
 	StudyClosure,
 	StudyContinuation,
@@ -70,6 +71,7 @@ import { STUDY_CUSTODY_BYTES, STUDY_PACKET_DISCLOSURE } from '../stores/constant
 import {
 	buildStudyPacket,
 	checkStudyDirectory,
+	collectStudyResults,
 	computeStudyPacketDigest,
 	readStudyBytes,
 	readStudyProgress,
@@ -87,6 +89,7 @@ import {
 	collectStudyEvidence,
 	computeStudyCommandFingerprint,
 	computeStudyFixtureDigest,
+	computeStudyHistory,
 	computeStudyLabelReport,
 	computeStudyReport,
 	resolveStudyPath,
@@ -148,6 +151,7 @@ export class StudyCommand {
 		if (request.command === 'label') return this.#label(request, signal)
 		if (request.command === 'report') return this.#report(request, signal)
 		if (request.command === 'progress') return this.#progress(request, signal)
+		if (request.command === 'history') return this.#history(request, signal)
 		throw new StudyError('CONFIG', 'Unsupported study operation')
 	}
 
@@ -1020,6 +1024,24 @@ export class StudyCommand {
 			),
 		)
 		return valueToWire({ command: 'progress', progress })
+	}
+
+	// Reads every result under the selected directory through the custody reader, loading no adapter and writing nothing.
+	async #history(request: StudyHistoryRequest, signal: AbortSignal): Promise<JSONValue> {
+		const path = this.#location(request.target)
+		await checkStudyDirectory(path).catch((error: unknown) => {
+			if (matchesSystemError(error, 'ENOENT'))
+				throw new StudyError('CUSTODY', `Selected directory is missing: ${request.target}`)
+			throw error
+		})
+		const { sealed, unsealed, refused } = await collectStudyResults(path, signal)
+		return valueToWire({
+			command: 'history',
+			directory: path,
+			identities: computeStudyHistory(sealed),
+			unsealed,
+			refused,
+		})
 	}
 
 	// Resolves the root keys a result retains against this working root and refuses an entry they do not admit, before any child starts.

@@ -4,7 +4,9 @@ import type {
 	StudyFailure,
 	StudyAssessment,
 	StudyIdentity,
+	StudyKeyedSource,
 	StudyProfile,
+	StudyRole,
 	StudyRubric,
 	StudyScenario,
 	StudyAncestor,
@@ -161,6 +163,13 @@ export interface StudyProgressRequest {
 	readonly from: string | undefined
 }
 
+/** Holds a read-only history request over the results under one directory. */
+export interface StudyHistoryRequest {
+	readonly command: 'history'
+	/** Selects the directory as a result selector does: a name under `tmp/studies`, a root-relative path, or an absolute path. */
+	readonly target: string
+}
+
 /** Names the independently dispatched study command operation. */
 export type StudyCommandRequest =
 	| StudyExecutionRequest
@@ -169,6 +178,75 @@ export type StudyCommandRequest =
 	| StudyLabelRequest
 	| StudyReportRequest
 	| StudyProgressRequest
+	| StudyHistoryRequest
+
+/**
+ * Holds one role's live calls and their summed duration, or a reading of each.
+ * @remarks
+ * `T` is a number for one execution and a {@link StudySpread} across the results of one identity.
+ */
+export interface StudyRoleCost<T = number> {
+	readonly role: StudyRole
+	readonly calls: T
+	readonly duration: T
+}
+
+/**
+ * Holds what one execution spent: its wall time and each role's live calls and duration in milliseconds.
+ * @remarks
+ * `duration` sums the terminal attempts' durations, as the report's `costs.duration` does. `roles`
+ * lists every role in `STUDY_ROLES` order and counts only requests no recording served, as the
+ * report's `costs.roles` does. `T` is a number for one execution and a {@link StudySpread} across
+ * the results of one identity.
+ */
+export interface StudyCost<T = number> {
+	readonly duration: T
+	readonly roles: ReadonlyArray<StudyRoleCost<T>>
+}
+
+/** Holds the minimum, median, and maximum of a set of readings. */
+export interface StudySpread {
+	readonly minimum: number
+	readonly median: number
+	readonly maximum: number
+}
+
+/**
+ * Holds one sealed result's row in its identity's history.
+ * @remarks
+ * `result` is the manifest's id and `path` the result directory. `difference` subtracts the
+ * preceding result's cost from this one's, field by field, and is undefined for the identity's
+ * first result.
+ */
+export interface StudyHistoryEntry {
+	readonly result: string
+	readonly path: string
+	readonly created: string
+	readonly seal: string
+	readonly cost: StudyCost
+	readonly difference: StudyCost | undefined
+}
+
+/**
+ * Holds the sealed results of one execution identity in creation order, their spread, and the estimate.
+ * @remarks
+ * `fingerprint` is the `computeStudyCommandFingerprint` digest of the manifest's identity, bounds,
+ * definition, the seal of its replayed or extended source, and its selection, so a fresh or
+ * extended execution's equals the fingerprint `study check` returned for it. `keyed` names the
+ * recording a keyed replay served from, which also separates identities. A seal records no time,
+ * so `results` follow the manifests' `created` order, which is seal order for executions that do
+ * not overlap. `spread` is undefined below two results, and `estimate` is the last result's wall
+ * time.
+ */
+export interface StudyHistoryIdentity {
+	readonly fingerprint: string
+	readonly identity: StudyIdentity
+	readonly ancestor: StudyAncestor | undefined
+	readonly keyed: StudyKeyedSource | undefined
+	readonly results: readonly StudyHistoryEntry[]
+	readonly spread: StudyCost<StudySpread> | undefined
+	readonly estimate: number
+}
 
 /** Holds one bounded source artifact retained during offline validation. */
 export interface StudyCommandArtifact {
