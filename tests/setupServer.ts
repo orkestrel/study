@@ -2570,10 +2570,10 @@ export async function writeStudyHistoryFixture(
 				buildStudyHistoryAttempt(run),
 			),
 		)
-	const running = buildCompactCustodyManifest()
+	const manifest = buildCompactCustodyManifest()
 	await new StudyResultStore({
 		directory: join(directory, STUDY_HISTORY_EXTRAS.unsealed),
-		manifest: { ...running, id: 'interrupted' },
+		manifest: { ...manifest, id: 'interrupted' },
 	}).create()
 	await mkdir(join(directory, STUDY_HISTORY_EXTRAS.refused))
 	await writeFile(join(directory, STUDY_HISTORY_EXTRAS.refused, 'sheet.json'), '{}\n')

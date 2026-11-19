@@ -741,11 +741,11 @@ export async function collectStudyResults(
 		.filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
 		.map((entry) => entry.name)
 		.toSorted()
-	const readings: Array<StudyResultView | StudyResultRefusal> = []
+	const outcomes: Array<StudyResultView | StudyResultRefusal> = []
 	for (const name of names) {
 		signal.throwIfAborted()
 		const path = join(absolute, name)
-		readings.push(
+		outcomes.push(
 			await readStudyResult(path).catch((error: unknown): StudyResultRefusal => {
 				if (!isStudyError(error) || error.code !== 'CUSTODY') throw error
 				return { path, message: error.message }
@@ -753,13 +753,13 @@ export async function collectStudyResults(
 		)
 	}
 	return {
-		sealed: readings.filter(
-			(reading): reading is StudySealedResult => 'status' in reading && reading.status === 'sealed',
+		sealed: outcomes.filter(
+			(outcome): outcome is StudySealedResult => 'status' in outcome && outcome.status === 'sealed',
 		),
-		unsealed: readings.flatMap((reading) =>
-			'status' in reading && reading.status === 'interrupted' ? [reading.directory] : [],
+		unsealed: outcomes.flatMap((outcome) =>
+			'status' in outcome && outcome.status === 'interrupted' ? [outcome.directory] : [],
 		),
-		refused: readings.filter((reading): reading is StudyResultRefusal => !('status' in reading)),
+		refused: outcomes.filter((outcome): outcome is StudyResultRefusal => !('status' in outcome)),
 	}
 }
 

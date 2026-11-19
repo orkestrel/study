@@ -459,15 +459,15 @@ export class StudyCommand {
 						})
 			try {
 				const startup = await daemon?.start()
-				const executing = preparation.closure?.root ?? this.#root
+				const base = preparation.closure?.root ?? this.#root
 				const { agent, subject, provider } = preparation.profile
 				const roles: StudyEntry = {
-					agent: relative(executing, agent).split(sep).join('/'),
-					subject: relative(executing, subject).split(sep).join('/'),
+					agent: relative(base, agent).split(sep).join('/'),
+					subject: relative(base, subject).split(sep).join('/'),
 					provider:
 						provider === undefined
 							? undefined
-							: relative(executing, provider.entry).split(sep).join('/'),
+							: relative(base, provider.entry).split(sep).join('/'),
 				}
 				const manifest: StudyManifest = {
 					id,
@@ -491,9 +491,7 @@ export class StudyCommand {
 						profile: preparation.source,
 						// Keys relative to the executing root, so a grade resolves them against its own install.
 						roots: JSON.stringify(
-							preparation.profile.roots.map((path) =>
-								relative(executing, path).split(sep).join('/'),
-							),
+							preparation.profile.roots.map((path) => relative(base, path).split(sep).join('/')),
 						),
 						entry: JSON.stringify(roles),
 						...(startup === undefined ? {} : { daemon: JSON.stringify(startup) }),
