@@ -151,6 +151,10 @@ none.
 | The launch child's drain is pinned only on its interruption arm: mutants routing the deadline, overflow, or pre-aborted path straight to `terminateStudyChild`, or arming per call, survive (review 3) | The next change to `StudyLaunchChild`'s termination | Study |
 | `buildOllamaRow` beside `createOllamaReply`'s default row (review 3, advisory) | The next change to either | Study |
 | Toolbox 0.0.35 and every other package on `@orkestrel/agent ^0.0.46` at runtime re-pin to 0.0.47, run their gates, and republish (records-native T1) | The user's go-ahead after the wave | Orchestrator, on the user's word |
+| The 0.0.26 review's advisories: `isAbsolute` and the seal-to-manifest check untested (A1); no test proves the evidence is read before an adapter loads (A2); `iterateArtifactEntries` lacks an `@example` (A3); the POSIX `ps` worklist unexercised on Windows (A4); `readStudyOllamaTelemetry`'s indexed-access parameter type (A5); an optional declared decoder interface (A8); inline utility types in tests (A9) | D3's units, or the next change at each seam | Study |
+| Plural `-ings` names (`settings` locals mirroring the profile key, `readings`, `findings`, `mappings`, the `STUDY_PROFILE_*SETTINGS` constants) | The user's word | Study, on the user's word |
+| `-ing` names in scaffold-owned test files (`tests/config.test.ts`, `tests/policy.test.ts`, `tests/setupPolicy.ts`) | A scaffold release | scaffold's owner session |
+| The lookup drop on `qualification` (100 to 16) has an unknown effect on quality; comparing with October's labeled reading needs a labeled endurance reading | D3's labeling unit | Agent's owner |
 | Agent's seven records-native findings below the bar (`share` and `thresholds` admit unknown keys, `Selection.recoveries` unvalidated, role and member agreement at `add`, `Ledger#flush`'s positional pending, `reference()`'s default label, two consumerless helpers, the "fitted" sentence) | The next Agent unit at each seam | Agent's owner |
 
 ## ROADMAP triggers
@@ -177,15 +181,14 @@ none.
 - 2026-11-18, ollama 0.0.43 published from `3b44cc6` (the provider's `model`); U6 landed (agent `de2bc0ad`).
 - 2026-11-18, the user ruled one wave on local tarball pins in place of one-off publishes, scoped to ollama, study, and agent, with only dist-moving and gate-required work before it. The wave published study 0.0.24 (`a32874b`, the bridge), Agent 0.0.47 (agent `f39e638e`), ollama 0.0.44 (`f727f4c`, O1), and study 0.0.25 (`9e8ffa0`, S1).
 - 2026-11-18, Agent's D1 landed (agent `48a53228`), P2 read byte-identical on the published set, and the user approved U7's run plan. Rows 1 to 3 sealed (`disclosure`, `chat` at `full` and `compact`); `tight` reruns at its re-estimated cap.
-- 2026-11-18, the user ruled the plain names back before rows 5 to 8 record; the rename, ROADMAP item 65's class move (it changed the memory fingerprints), `local`'s record allowance, and `recommended`'s 9,600,000 ms durations landed together (agent `71d0105a`). Each capacity and quality pair runs from one frozen closure, because the qualification gate compares whole identity, root included.
-- Next: U7's `tight` rerun and rows 5 to 8, then U7c.
+- 2026-11-18, the user ruled the plain names back before rows 5 to 8 record; the rename, ROADMAP item 65's class move (it changed the memory fingerprints), `local`'s record allowance, and `recommended`'s 9,600,000 ms durations landed together (agent `71d0105a`). A closure admits only the study it froze, and the gate path resolves under the executing root, so each capacity and quality pair runs from the repository root by keyed offline replay; the README documents the route.
+- 2026-11-18, rows 4 to 7 sealed (`tight` at its re-estimated cap, `capacity`, `memory` by the grade fallback, and `qualification` live in 131.6 min). Row 7's 108.8 MB evidence exposed the grade channel limit; G1 fixed it (study `a9e9ce1`), and the user's conformance pass (C1a audit, C1b in three phases: study `ec9feca`, `2cbd228`) shipped with it in study 0.0.26 (`b70afa1`) after a passing review.
+- 2026-11-19, Agent took study 0.0.26 (agent `25284fcd`). Row 7's 0.0.25-closure result could not grade under either entry, so, by the user's ruling, rows 7 and 8 graded by keyed offline replay under fresh 0.0.26 closures, with no source change. The user accepted U7c's three differences as the new baselines; U7d removed the earlier results outside the protected paths; U8 replaced the documents' readings (agent `78edebb6`). The exit criterion is met.
+- Next: design round D3 (labeling with one model labeler, Claude Haiku 5.5; the approved improvements; the version cleanup), then the user's approval of its plan.
 
 ## Sequence
 
 | Unit | Repository | Owner | Depends on | Release |
 | --- | --- | --- | --- | --- |
-| Records-native D1: Agent's devDependencies at study 0.0.25 and ollama 0.0.44, latching through its own transport, P2 and `test:studies` green | agent | agent's owner | study 0.0.25 | none unless `compare` exits 3 |
-| U7: the run plan with a time estimate per run, given to the user, then one rehearsed, sealed baseline per kept study on the 4B | agent | agent's owner | records-native D1 | none |
-| U7c: the comparison of each new baseline against the earlier readings, anomalies stopped and reported | agent | agent's owner | U7 | none |
-| U7d: delete the earlier results outside the protected paths, replace the documents' readings | agent | agent's owner | U7c with no anomaly | none |
-| U8: Agent's readings in U7d | agent | agent's owner | U7d | none |
+| D3: one design round on labeling (one model labeler, Claude Haiku 5.5, Study's control items, the runner in Agent's studies), the approved improvements, and the version cleanup | study, agent | `consultant` (Claude Fable 5.2) | U8 | none |
+| The units D3 rules, once the user approves its plan | study, agent | per D3 | D3 | one wave, per D3 |
