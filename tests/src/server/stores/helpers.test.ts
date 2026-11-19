@@ -138,7 +138,7 @@ describe('study custody helpers', () => {
 				computeStudyPacketDigest(packet),
 			)
 			const labels = buildCustodyPacketLabels(result, rubric)
-			expect(translateStudyPacketLabels(result, rubric, digest, labels)).toMatchObject([
+			expect(translateStudyPacketLabels(packet, links, labels)).toMatchObject([
 				{
 					trial: result.manifest.schedule[0]?.id,
 					criterion: 'first-read',
@@ -147,10 +147,10 @@ describe('study custody helpers', () => {
 				},
 			])
 			expect(() =>
-				translateStudyPacketLabels(result, rubric, digest, { ...labels, packet: 'f'.repeat(64) }),
+				translateStudyPacketLabels(packet, links, { ...labels, packet: 'f'.repeat(64) }),
 			).toThrow('different semantic packet')
 			expect(() =>
-				translateStudyPacketLabels(result, rubric, digest, {
+				translateStudyPacketLabels(packet, links, {
 					...labels,
 					judgments: labels.judgments.map((judgment) => ({
 						...judgment,

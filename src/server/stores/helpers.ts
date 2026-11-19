@@ -179,6 +179,7 @@ export function buildStudyPacketLinks(
  * @param result - The verified sealed execution
  * @param rubric - The compatible semantic criterion declaration
  * @param digest - The exact imported rubric-byte identity
+ * @param links - The neutral links of the same result and rubric. Default: `buildStudyPacketLinks(result, rubric)`.
  * @returns The packet bundle, or undefined for a purely mechanical rubric
  * @throws StudyError - Thrown when a semantic pair has no declared input or terminal record
  * @example
@@ -190,8 +191,8 @@ export function buildStudyPacket(
 	result: StudySealedResult,
 	rubric: StudyRubric,
 	digest: string,
+	links: readonly StudyPacketLink[] = buildStudyPacketLinks(result, rubric),
 ): StudyPacketBundle | undefined {
-	const links = buildStudyPacketLinks(result, rubric)
 	if (links.length === 0) return undefined
 	const overhead = encodeStudyJSON({ disclosure: STUDY_PACKET_DISCLOSURE, entries: [] }).byteLength
 	// Each link is looked up, refused or counted before the next one is read; each record carries the
@@ -250,32 +251,29 @@ export function computeStudyPacketDigest(packet: StudyPacketBundle): string {
 
 /**
  * Translates bound neutral imported labels through the sealed semantic horizon.
- * @param result - The verified sealed execution
- * @param rubric - The retained rubric
- * @param digest - The exact retained rubric-byte identity
+ * @param packet - The sealed horizon's packet bundle
+ * @param links - The neutral links the packet was built from
  * @param labels - The original imported neutral labels
  * @returns Judgments translated to scheduled trial and criterion identities
- * @throws StudyError - Thrown when the packet or a label identity is foreign
+ * @throws StudyError - Thrown when the labels bind a different packet or a label identity is foreign
  * @example
  * ```ts
- * translateStudyPacketLabels(result, rubric, rubricDigest, labels)
+ * translateStudyPacketLabels(packet, links, labels)
  * ```
  */
 export function translateStudyPacketLabels(
-	result: StudySealedResult,
-	rubric: StudyRubric,
-	digest: string,
+	packet: StudyPacketBundle,
+	links: readonly StudyPacketLink[],
 	labels: StudyLabelSheet,
 ): readonly StudyJudgment[] {
-	const packet = buildStudyPacket(result, rubric, digest)
-	if (packet === undefined || labels.packet !== hashStudyBytes(packet.content))
+	if (labels.packet !== hashStudyBytes(packet.content))
 		throw new StudyError('EVIDENCE', 'Labels bind a different semantic packet')
-	const links = buildStudyPacketLinks(result, rubric)
+	const neutral = new Map(
+		links.map((link) => [canonicalStringify([link.trial, link.criterion]), link]),
+	)
 	return Object.freeze(
 		labels.judgments.map((judgment) => {
-			const link = links.find(
-				(entry) => entry.trial === judgment.trial && entry.criterion === judgment.criterion,
-			)
+			const link = neutral.get(canonicalStringify([judgment.trial, judgment.criterion]))
 			if (link === undefined || (judgment.method !== 'human' && judgment.method !== 'model'))
 				throw new StudyError('EVIDENCE', 'Label refers to a foreign semantic packet identity')
 			return { ...judgment, trial: link.source.trial, criterion: link.source.criterion }

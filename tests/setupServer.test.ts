@@ -84,7 +84,9 @@ import {
 	readStudyOrphan,
 	readStudyPid,
 	releaseStudyPid,
+	measureStudyLabeledWrite,
 	retainStudyFixture,
+	retainStudyLabeledFixture,
 	spawnStudyScript,
 	writeStudyAgent,
 	writeStudyTaskAdapter,
@@ -804,6 +806,38 @@ describe('study server fixtures', () => {
 			expect(buildCustodyAssessment(result, rubric, labels).judgments).toEqual(
 				expect.arrayContaining([...labels.judgments]),
 			)
+		} finally {
+			scratch.destroy()
+		}
+	})
+	it('retains a labeled fixture whose grading imports a label for each packet row, and measures its one write', async () => {
+		const scratch = createScratch()
+		try {
+			const fixture = await retainStudyLabeledFixture(join(scratch.path, 'result'), 3)
+			const trials = fixture.result.manifest.schedule.map((trial) => trial.id)
+			expect(trials).toHaveLength(2)
+			expect(
+				fixture.assessment.judgments
+					.map((judgment) => `${judgment.trial}/${judgment.criterion}`)
+					.toSorted(),
+			).toEqual(
+				trials
+					.flatMap((trial) =>
+						['goal-1', 'goal-2', 'goal-3'].map((goal) => `${trial}/first-${goal}`),
+					)
+					.toSorted(),
+			)
+			expect(
+				fixture.assessment.judgments.every(
+					(judgment) => judgment.verdict === 'achieved' && judgment.method === 'model',
+				),
+			).toBe(true)
+			expect(parseJSON(new TextDecoder().decode(fixture.labels))).toMatchObject({
+				labeler: 'model-v1',
+				judgments: expect.arrayContaining([expect.objectContaining({ method: 'model' })]),
+			})
+			expect(await measureStudyLabeledWrite(fixture)).toBeGreaterThan(0)
+			expect(scratch.names('result/grades')).toHaveLength(1)
 		} finally {
 			scratch.destroy()
 		}

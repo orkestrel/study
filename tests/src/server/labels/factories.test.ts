@@ -11,7 +11,10 @@ import {
 	createStudyLabelPool,
 	createStudyLabelSheet,
 } from '../../../../src/server/labels/factories.js'
-import { translateStudyPacketLabels } from '../../../../src/server/stores/helpers.js'
+import {
+	buildStudyPacketLinks,
+	translateStudyPacketLabels,
+} from '../../../../src/server/stores/helpers.js'
 import {
 	STUDY_LABEL_CONTROLS,
 	STUDY_LABEL_CREATED,
@@ -280,9 +283,8 @@ describe('createStudyLabelSheet', () => {
 			expect(built.disputes).toEqual([disputed.row])
 			expect(built.labels).toHaveLength(1)
 			const translated = translateStudyPacketLabels(
-				fixture.result,
-				fixture.rubric,
-				fixture.digest,
+				{ content: fixture.segment.packet, legend: fixture.segment.legend },
+				buildStudyPacketLinks(fixture.result, fixture.rubric),
 				parseStudyLabelSheet(built.labels[0]),
 			)
 			expect(translated).toHaveLength(map.links.length)

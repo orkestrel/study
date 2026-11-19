@@ -77,7 +77,6 @@ import {
 	readStudyProgress,
 	readStudyResult,
 	readStudyExchanges,
-	translateStudyPacketLabels,
 } from '../stores/helpers.js'
 import { isStudyCustodyManifest } from '../stores/validators.js'
 import { StudyAssessmentStore } from '../stores/StudyAssessmentStore.js'
@@ -887,16 +886,18 @@ export class StudyCommand {
 
 	async #label(request: StudyLabelRequest, signal: AbortSignal): Promise<JSONValue> {
 		const result = await this.#result(request.target)
-		const previous = await this.#assessment(result, request.assessment)
+		const bytes = await readStudyBytes(this.#file(request.labels), STUDY_CUSTODY_BYTES)
+		const previous = await this.#assessment(result, request.assessment, bytes)
 		if (previous.packet === undefined || previous.assessment.packet === undefined)
 			throw new StudyError('EVIDENCE', 'Selected grading has no semantic packet')
-		const bytes = await readStudyBytes(this.#file(request.labels), STUDY_CUSTODY_BYTES)
 		const labels = parseStudyLabelSheet(decodeStudyJSON(bytes))
-		const translated = translateStudyPacketLabels(
-			result,
-			previous.rubric,
-			previous.assessment.rubric,
-			labels,
+		const translated = new Map(
+			previous.store
+				.translate()
+				.map((judgment) => [canonicalStringify([judgment.trial, judgment.criterion]), judgment]),
+		)
+		const methods = new Map(
+			previous.rubric.criteria.map((criterion) => [criterion.id, criterion.method]),
 		)
 		signal.throwIfAborted()
 		const assessment: StudyAssessment = {
@@ -907,15 +908,9 @@ export class StudyCommand {
 			),
 			labels: hashStudyBytes(bytes),
 			judgments: previous.assessment.judgments.map((judgment) => {
-				const imported = translated.find(
-					(entry) => entry.trial === judgment.trial && entry.criterion === judgment.criterion,
-				)
+				const imported = translated.get(canonicalStringify([judgment.trial, judgment.criterion]))
 				if (imported !== undefined) return imported
-				if (
-					previous.rubric.criteria.find((criterion) => criterion.id === judgment.criterion)
-						?.method !== 'semantic'
-				)
-					return judgment
+				if (methods.get(judgment.criterion) !== 'semantic') return judgment
 				return {
 					...judgment,
 					verdict: 'unknown',
@@ -925,13 +920,7 @@ export class StudyCommand {
 				}
 			}),
 		}
-		const store = new StudyAssessmentStore({
-			result,
-			rubric: previous.bytes,
-			labels: bytes,
-			packet: previous.packet,
-		})
-		const id = await store.write(assessment)
+		const id = await previous.store.write(assessment)
 		return valueToWire({
 			command: 'label',
 			result: result.manifest.id,
@@ -1081,7 +1070,12 @@ export class StudyCommand {
 		return result
 	}
 
-	async #assessment(result: StudySealedResult, id: string): Promise<StudyAssessmentContext> {
+	// Reads the selected grading through one store, which also holds the labels an import supplies and writes the import's version.
+	async #assessment(
+		result: StudySealedResult,
+		id: string,
+		imported?: Uint8Array,
+	): Promise<StudyAssessmentContext> {
 		const directory = join(result.directory, 'grades', id)
 		const raw = await readStudyBytes(join(directory, 'grading.json'), STUDY_CUSTODY_BYTES).catch(
 			(error: unknown) => {
@@ -1101,22 +1095,28 @@ export class StudyCommand {
 			STUDY_CUSTODY_BYTES,
 		)
 		const rubric = parseStudyRubric(decodeStudyJSON(bytes))
-		const assessment = await new StudyAssessmentStore({ result, rubric: bytes }).read(id)
-		if (assessment === undefined)
-			throw new StudyError('CUSTODY', `Selected grading is missing: ${directory}`)
 		const packet =
-			assessment.packet === undefined
+			declared.packet === undefined
 				? undefined
 				: {
 						content: await readStudyBytes(
-							join(directory, `${assessment.packet}.packet.json`),
+							join(directory, `${declared.packet}.packet.json`),
 							STUDY_CUSTODY_BYTES,
 						),
 						legend: await readStudyBytes(
-							join(directory, `${assessment.packet}.mapping.json`),
+							join(directory, `${declared.packet}.mapping.json`),
 							STUDY_CUSTODY_BYTES,
 						),
 					}
+		const store = new StudyAssessmentStore({
+			result,
+			rubric: bytes,
+			...(imported === undefined ? {} : { labels: imported }),
+			...(packet === undefined ? {} : { packet }),
+		})
+		const assessment = await store.read(id)
+		if (assessment === undefined)
+			throw new StudyError('CUSTODY', `Selected grading is missing: ${directory}`)
 		const labels =
 			assessment.labels === undefined
 				? undefined
@@ -1133,7 +1133,7 @@ export class StudyCommand {
 				'CUSTODY',
 				'Grading artifacts changed while reading their verified context',
 			)
-		return { assessment, rubric, bytes, packet, labels }
+		return { assessment, rubric, bytes, packet, labels, store }
 	}
 
 	#file(path: string): string {

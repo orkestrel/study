@@ -17,6 +17,7 @@ import type {
 } from '@src/core'
 import type { JSONValue } from '@orkestrel/contract'
 import type { StudyArtifactLoader } from '../processes/StudyArtifactLoader.js'
+import type { StudyAssessmentStore } from '../stores/StudyAssessmentStore.js'
 import type { StudyPacketBundle, StudySealedResult } from '../stores/types.js'
 import type { StudyExchangeDestination } from '../stores/types.js'
 import type { ArtifactClosure } from '../artifacts/types.js'
@@ -311,11 +312,13 @@ export interface StudyPreparation {
 	readonly closure?: StudyClosure
 }
 
-/** Holds artifacts already verified inside a selected immutable grading directory. */
+/** Holds artifacts already verified inside a selected immutable grading directory, and the store that verified them. */
 export interface StudyAssessmentContext {
 	readonly assessment: StudyAssessment
 	readonly rubric: StudyRubric
 	readonly bytes: Uint8Array
 	readonly packet: StudyPacketBundle | undefined
 	readonly labels: Uint8Array | undefined
+	/** Holds the store that read the grading, which an import's labels and next version go through. */
+	readonly store: StudyAssessmentStore
 }

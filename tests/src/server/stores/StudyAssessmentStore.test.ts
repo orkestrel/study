@@ -1,3 +1,4 @@
+import { requireValue } from '@orkestrel/test'
 import { createScratch } from '@orkestrel/test/server'
 import { appendFile, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -7,10 +8,13 @@ import {
 	buildCustodyAssessment,
 	buildCustodyLabels,
 	buildCustodyPacketLabels,
+	measureStudyLabeledWrite,
 	retainStudyFixture,
+	retainStudyLabeledFixture,
 } from '../../../setupServer.js'
 import { StudyAssessmentStore } from '../../../../src/server/stores/StudyAssessmentStore.js'
-import { encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
+import { parseStudyLabelSheet } from '../../../../src/core/parsers.js'
+import { decodeStudyJSON, encodeStudyJSON, hashStudyBytes } from '../../../../src/server/helpers.js'
 import {
 	buildStudyPacket,
 	computeStudyPacketDigest,
@@ -225,6 +229,76 @@ describe('StudyGradingStore', () => {
 			scratch.destroy()
 		}
 	}, 10000)
+
+	it('reads a version against the verified reading it holds and reads the execution again before a write publishes', async () => {
+		const scratch = createScratch()
+		try {
+			const result = await retainStudyFixture(
+				join(scratch.path, 'result'),
+				buildCompactCustodyManifest(),
+			)
+			const rubric = buildStudyRubric()
+			const grades = new StudyAssessmentStore({ result, rubric: encodeStudyJSON(rubric) })
+			const assessment = buildCustodyAssessment(result, rubric)
+			const id = await grades.write(assessment)
+			const trial = requireValue(result.manifest.schedule[0])
+			await appendFile(
+				join(result.directory, 'execution', 'trials', trial.id, 'evidence.jsonl'),
+				'{"event":"saved","goal":"write","value":"saved:fabricated"}\n',
+			)
+			await expect(grades.read(id)).resolves.toEqual({ ...assessment, labels: undefined })
+			await expect(grades.write({ ...assessment, grader: 'after-tamper' })).rejects.toMatchObject({
+				code: 'CUSTODY',
+			})
+			expect(scratch.names('result/grades')).toEqual([id])
+		} finally {
+			scratch.destroy()
+		}
+	}, 20000)
+
+	it('validates a labeled grading in time that grows linearly with its packet rows', async () => {
+		const scratch = createScratch()
+		try {
+			const small = await measureStudyLabeledWrite(
+				await retainStudyLabeledFixture(join(scratch.path, 'small'), 64),
+			)
+			const large = await measureStudyLabeledWrite(
+				await retainStudyLabeledFixture(join(scratch.path, 'large'), 256),
+			)
+			// Four times the rows costs at most four times as much when each row is looked up once, and sixteen times under a search per row.
+			expect(large / small).toBeLessThan(8)
+		} finally {
+			scratch.destroy()
+		}
+	}, 120000)
+
+	it('translates its imported labels through the verified horizon, and none without labels', async () => {
+		const scratch = createScratch()
+		try {
+			const fixture = await retainStudyLabeledFixture(join(scratch.path, 'result'), 3)
+			const store = new StudyAssessmentStore({
+				result: fixture.result,
+				rubric: fixture.rubric,
+				labels: fixture.labels,
+				packet: fixture.packet,
+			})
+			expect(store.translate()).toEqual(fixture.assessment.judgments)
+			expect(
+				new StudyAssessmentStore({ result: fixture.result, rubric: fixture.rubric }).translate(),
+			).toEqual([])
+			const foreign = new StudyAssessmentStore({
+				result: fixture.result,
+				rubric: fixture.rubric,
+				labels: encodeStudyJSON({
+					...parseStudyLabelSheet(decodeStudyJSON(fixture.labels)),
+					packet: 'f'.repeat(64),
+				}),
+			})
+			expect(() => foreign.translate()).toThrow('Labels bind a different semantic packet')
+		} finally {
+			scratch.destroy()
+		}
+	}, 20000)
 
 	it('detects tampered grading, artifact, and execution bytes and never overwrites them', async () => {
 		const scratch = createScratch()

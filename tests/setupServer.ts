@@ -67,6 +67,7 @@ import type {
 	StudyExchangeIdentity,
 	StudyExchangeRow,
 	StudyExchangeSinkInterface,
+	StudyPacketBundle,
 	StudyResultStoreInterface,
 	StudySealedResult,
 } from '../src/server/stores/types.js'
@@ -95,6 +96,7 @@ import {
 	buildStudyDefinition,
 	buildStudyProfile,
 	buildStudyDaemonProvider,
+	buildStudyRepetitionManifest,
 	buildStudyScenario,
 	buildOllamaCall,
 	buildOllamaRow,
@@ -170,9 +172,11 @@ import { createStudyInstall } from '../src/server/launchers/factories.js'
 import { StudyInstall } from '../src/server/launchers/StudyInstall.js'
 import { collectStudyEvidence, readStudyClosure } from '../src/server/commands/helpers.js'
 import { StudyResultStore } from '../src/server/stores/StudyResultStore.js'
+import { StudyAssessmentStore } from '../src/server/stores/StudyAssessmentStore.js'
 import { StudyExchangeSink } from '../src/server/stores/StudyExchangeSink.js'
 import {
 	buildStudyPacket,
+	computeStudyPacketDigest,
 	projectStudyExchangeIdentity,
 	buildStudyPacketLinks,
 	readStudyResult,
@@ -2462,6 +2466,110 @@ export async function retainStudyFixture(
 	const result = await readStudyResult(directory)
 	if (result.status !== 'sealed') throw new Error('Fixture execution did not seal')
 	return result
+}
+
+/** Holds a sealed result whose rubric judges each goal by one semantic criterion, and a grading that imports a label for every packet row. */
+export interface StudyLabeledFixture {
+	readonly result: StudySealedResult
+	readonly rubric: Uint8Array
+	readonly labels: Uint8Array
+	readonly packet: StudyPacketBundle
+	readonly assessment: StudyAssessment
+}
+
+/**
+ * Retains a sealed two-trial result over one scenario of the given goal count and labels every row of its semantic packet.
+ * @param directory - The nonexistent result directory inside an owned scratch resource
+ * @param goals - The scenario's goal count; each goal has one semantic criterion, so the packet holds twice as many rows
+ * @returns The sealed result, the exact rubric, labels, and packet bytes, and the grading that imports every label
+ */
+export async function retainStudyLabeledFixture(
+	directory: string,
+	goals: number,
+): Promise<StudyLabeledFixture> {
+	const base = buildStudyRepetitionManifest()
+	const names = Array.from({ length: goals }, (_entry, index) => `goal-${String(index + 1)}`)
+	const scenarios = [{ id: 'first', goals: names.map((id) => ({ id, input: { text: 'recall' } })) }]
+	const result = await retainStudyFixture(
+		directory,
+		{
+			...base,
+			scenarios,
+			schedule: buildStudySchedule(base.definition, scenarios),
+			bounds: { ...base.bounds, series: { ...base.bounds.series, bytes: 4 * 1024 * 1024 } },
+		},
+		[{ event: 'saved', goal: 'goal-1', value: 'remember' }],
+	)
+	const rubric: StudyRubric = {
+		version: '1',
+		criteria: names.map((goal) => ({
+			id: `first-${goal}`,
+			scenario: 'first',
+			goal,
+			method: 'semantic',
+			critical: false,
+			assertion: { criterion: `Fictional recall of ${goal}` },
+		})),
+	}
+	const bytes = encodeStudyJSON(rubric)
+	const digest = hashStudyBytes(bytes)
+	const packet = requireValue(buildStudyPacket(result, rubric, digest))
+	const links = buildStudyPacketLinks(result, rubric)
+	const labels: StudyLabelSheet = {
+		packet: hashStudyBytes(packet.content),
+		labeler: 'model-v1',
+		version: '1',
+		created: '2026-11-19T12:00:00.000Z',
+		usage: [],
+		judgments: links.map((link) => ({
+			trial: link.trial,
+			criterion: link.criterion,
+			verdict: 'achieved',
+			method: 'model',
+			reason: 'Supplied relevant recall label',
+			references: [`trials/${link.source.trial}/attempt.json`],
+		})),
+	}
+	const encoded = encodeStudyJSON(labels)
+	return {
+		result,
+		rubric: bytes,
+		labels: encoded,
+		packet,
+		assessment: {
+			result: result.seal.id,
+			rubric: digest,
+			grader: 'predicate',
+			instrument: 'b'.repeat(64),
+			attempts: result.manifest.schedule.map((trial) => trial.id),
+			labels: hashStudyBytes(encoded),
+			judgments: links.map((link) => ({
+				trial: link.source.trial,
+				criterion: link.source.criterion,
+				verdict: 'achieved',
+				method: 'model',
+				reason: 'Supplied relevant recall label',
+				references: [`trials/${link.source.trial}/attempt.json`],
+			})),
+			packet: computeStudyPacketDigest(packet),
+		},
+	}
+}
+
+/**
+ * Writes a labeled fixture's grading through a fresh store and measures the construction and the write.
+ * @param fixture - The labeled fixture, whose grading no store has retained yet
+ * @returns The elapsed milliseconds
+ */
+export async function measureStudyLabeledWrite(fixture: StudyLabeledFixture): Promise<number> {
+	const started = performance.now()
+	await new StudyAssessmentStore({
+		result: fixture.result,
+		rubric: fixture.rubric,
+		labels: fixture.labels,
+		packet: fixture.packet,
+	}).write(fixture.assessment)
+	return performance.now() - started
 }
 
 /**

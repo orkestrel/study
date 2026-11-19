@@ -1,5 +1,10 @@
-import type { StudyAssessment, StudyLabelSheet, StudyRubric } from '@src/core'
-import type { StudyAssessmentStoreOptions, StudyPacketBundle, StudySealedResult } from './types.js'
+import type { StudyAssessment, StudyJudgment, StudyLabelSheet, StudyRubric } from '@src/core'
+import type {
+	StudyAssessmentStoreOptions,
+	StudyPacketBundle,
+	StudyPacketLink,
+	StudySealedResult,
+} from './types.js'
 import {
 	StudyError,
 	computeStudyScores,
@@ -16,6 +21,7 @@ import { STUDY_CUSTODY_BYTES } from './constants.js'
 import {
 	checkStudyDirectory,
 	buildStudyPacket,
+	buildStudyPacketLinks,
 	computeStudyPacketDigest,
 	readStudyBytes,
 	readStudyResult,
@@ -36,8 +42,7 @@ import {
  * ```
  */
 export class StudyAssessmentStore {
-	readonly #directory: string
-	readonly #seal: string
+	readonly #result: StudySealedResult
 	readonly #rubric: StudyRubric
 	readonly #rubricBytes: Uint8Array
 	readonly #rubricDigest: string
@@ -45,6 +50,9 @@ export class StudyAssessmentStore {
 	readonly #labelsBytes: Uint8Array | undefined
 	readonly #labelsDigest: string | undefined
 	readonly #packet: StudyPacketBundle | undefined
+	// The verified reading's semantic horizon, built once per rubric identity: its neutral links and its packet.
+	readonly #links = new Map<string, readonly StudyPacketLink[]>()
+	readonly #packets = new Map<string, StudyPacketBundle | undefined>()
 	// The writes not yet settled; a write joins when called and leaves when it settles, and each waits for every earlier one.
 	readonly #writes = new Set<Promise<string>>()
 
@@ -52,6 +60,9 @@ export class StudyAssessmentStore {
 	 * Owns exact imported grading bytes without writing any custody files.
 	 * @param options - The verified execution and exact rubric and optional labels bytes
 	 * @throws StudyError - Thrown when imported bytes exceed bounds or fail validation
+	 * @remarks
+	 * The store validates every version against the verified reading `options.result` holds, and
+	 * reads the execution again only right before a write publishes.
 	 */
 	constructor(options: StudyAssessmentStoreOptions) {
 		if (options.result.status !== 'sealed')
@@ -61,8 +72,7 @@ export class StudyAssessmentStore {
 			(options.labels !== undefined && options.labels.byteLength > STUDY_CUSTODY_BYTES)
 		)
 			throw new StudyError('CAPACITY', 'Imported grading bytes exceed the metadata allowance')
-		this.#directory = options.result.directory
-		this.#seal = options.result.seal.id
+		this.#result = options.result
 		this.#rubricBytes = new Uint8Array(options.rubric)
 		this.#rubricDigest = hashStudyBytes(this.#rubricBytes)
 		this.#rubric = parseStudyRubric(decodeStudyJSON(this.#rubricBytes))
@@ -86,6 +96,24 @@ export class StudyAssessmentStore {
 						content: new Uint8Array(options.packet.content),
 						legend: new Uint8Array(options.packet.legend),
 					}
+	}
+
+	/**
+	 * Translates the imported labels through the verified execution's sealed semantic horizon.
+	 * @returns The labels' judgments under scheduled trial and criterion identities; empty without imported labels
+	 * @throws StudyError - Thrown when the labels bind a different semantic packet or name a foreign identity
+	 * @example
+	 * ```ts
+	 * declare const result: StudySealedResult
+	 * declare const rubric: Uint8Array
+	 * declare const labels: Uint8Array
+	 * new StudyAssessmentStore({ result, rubric, labels }).translate() // the labels under sealed identities
+	 * ```
+	 */
+	translate(): readonly StudyJudgment[] {
+		return this.#labels === undefined
+			? Object.freeze([])
+			: this.#translate(this.#rubric, this.#rubricDigest, this.#labels)
 	}
 
 	/**
@@ -118,11 +146,11 @@ export class StudyAssessmentStore {
 	 * @param id - The grading-byte SHA-256 identity
 	 * @returns The verified assessment, or undefined when the version does not exist
 	 * @throws StudyError - Thrown when an existing version is partial or tampered
+	 * @remarks It validates the version against the store's verified execution reading and reads no execution byte.
 	 */
 	async read(id: string): Promise<StudyAssessment | undefined> {
 		if (!isStudyDigest(id)) throw new StudyError('EVIDENCE', 'Invalid grading identity')
-		const result = await this.#verifyResult()
-		const directory = join(result.directory, 'grades', id)
+		const directory = join(this.#result.directory, 'grades', id)
 		try {
 			await lstat(directory)
 		} catch (error) {
@@ -174,8 +202,7 @@ export class StudyAssessmentStore {
 							STUDY_CUSTODY_BYTES,
 						),
 					}
-		this.#validate(assessment, result, rubric, labels, packet)
-		await this.#verifyResult()
+		this.#validate(assessment, rubric, labels, packet)
 		return assessment
 	}
 
@@ -190,12 +217,12 @@ export class StudyAssessmentStore {
 	}
 
 	async #write(assessment: StudyAssessment, bytes: Uint8Array): Promise<string> {
-		const result = await this.#verifyResult()
+		await this.#verifyResult()
 		if (assessment.rubric !== this.#rubricDigest || assessment.labels !== this.#labelsDigest)
 			throw new StudyError('EVIDENCE', 'Grading does not bind the imported artifact bytes')
-		this.#validate(assessment, result, this.#rubric, this.#labels, this.#packet)
+		this.#validate(assessment, this.#rubric, this.#labels, this.#packet)
 		const id = hashStudyBytes(bytes)
-		const root = join(result.directory, 'grades')
+		const root = join(this.#result.directory, 'grades')
 		try {
 			await mkdir(root)
 		} catch (error) {
@@ -236,27 +263,49 @@ export class StudyAssessmentStore {
 		return id
 	}
 
-	async #verifyResult(): Promise<StudySealedResult> {
-		const result = await readStudyResult(this.#directory)
-		if (result.status !== 'sealed' || result.seal.id !== this.#seal)
+	// Reads the execution again and refuses when it no longer matches the verified reading's seal.
+	async #verifyResult(): Promise<void> {
+		const result = await readStudyResult(this.#result.directory)
+		if (result.status !== 'sealed' || result.seal.id !== this.#result.seal.id)
 			throw new StudyError('CUSTODY', 'Execution no longer matches the verified seal')
-		return result
+	}
+
+	// Builds the verified reading's links and packet for a rubric once, and returns the packet.
+	#horizon(rubric: StudyRubric, digest: string): StudyPacketBundle | undefined {
+		if (!this.#packets.has(digest)) {
+			const links = buildStudyPacketLinks(this.#result, rubric)
+			const packet = buildStudyPacket(this.#result, rubric, digest, links)
+			this.#links.set(digest, links)
+			this.#packets.set(digest, packet)
+		}
+		return this.#packets.get(digest)
+	}
+
+	#translate(
+		rubric: StudyRubric,
+		digest: string,
+		labels: StudyLabelSheet,
+	): readonly StudyJudgment[] {
+		const packet = this.#horizon(rubric, digest)
+		const links = this.#links.get(digest)
+		if (packet === undefined || links === undefined)
+			throw new StudyError('EVIDENCE', 'Labels bind a different semantic packet')
+		return translateStudyPacketLabels(packet, links, labels)
 	}
 
 	#validate(
 		assessment: StudyAssessment,
-		result: StudySealedResult,
 		rubric: StudyRubric,
 		labels: StudyLabelSheet | undefined,
 		packet: StudyPacketBundle | undefined,
 	): void {
-		if (assessment.result !== result.seal.id)
+		if (assessment.result !== this.#result.seal.id)
 			throw new StudyError('EVIDENCE', 'Grading binds a different execution seal')
-		computeStudyScores(result.manifest, rubric, assessment)
+		computeStudyScores(this.#result.manifest, rubric, assessment)
 		if (assessment.packet !== (packet === undefined ? undefined : computeStudyPacketDigest(packet)))
 			throw new StudyError('CUSTODY', 'Grading packet bytes do not match their bundle identity')
 		if (packet !== undefined) {
-			const expected = buildStudyPacket(result, rubric, assessment.rubric)
+			const expected = this.#horizon(rubric, assessment.rubric)
 			if (
 				expected === undefined ||
 				hashStudyBytes(expected.content) !== hashStudyBytes(packet.content) ||
@@ -267,35 +316,33 @@ export class StudyAssessmentStore {
 		if (labels !== undefined && packet === undefined)
 			throw new StudyError('EVIDENCE', 'Imported labels require a retained semantic packet')
 		const translated =
-			labels === undefined
-				? []
-				: translateStudyPacketLabels(result, rubric, assessment.rubric, labels)
-		for (const trial of result.manifest.schedule) {
+			labels === undefined ? [] : this.#translate(rubric, assessment.rubric, labels)
+		const imported = new Set(translated.map((judgment) => canonicalStringify(judgment)))
+		const judgments = new Map(
+			assessment.judgments.map((judgment) => [
+				canonicalStringify([judgment.trial, judgment.criterion]),
+				judgment,
+			]),
+		)
+		for (const trial of this.#result.manifest.schedule) {
 			for (const criterion of rubric.criteria) {
 				if (criterion.scenario !== trial.scenario) continue
-				const judgment = assessment.judgments.find(
-					(entry) => entry.trial === trial.id && entry.criterion === criterion.id,
-				)
+				const judgment = judgments.get(canonicalStringify([trial.id, criterion.id]))
 				if (judgment === undefined)
 					throw new StudyError('EVIDENCE', 'Grading must record every scheduled criterion judgment')
 				if (
 					criterion.method === 'semantic' &&
 					judgment.verdict !== 'unknown' &&
-					!translated.some((entry) => canonicalStringify(entry) === canonicalStringify(judgment))
+					!imported.has(canonicalStringify(judgment))
 				)
 					throw new StudyError('EVIDENCE', 'Semantic verdict has no bound imported label')
 			}
 		}
-		for (const judgment of translated) {
-			if (
-				!assessment.judgments.some(
-					(entry) => canonicalStringify(entry) === canonicalStringify(judgment),
-				)
+		const recorded = new Set(assessment.judgments.map((judgment) => canonicalStringify(judgment)))
+		if (translated.some((judgment) => !recorded.has(canonicalStringify(judgment))))
+			throw new StudyError(
+				'EVIDENCE',
+				'Imported label is absent or differs from its recorded judgment',
 			)
-				throw new StudyError(
-					'EVIDENCE',
-					'Imported label is absent or differs from its recorded judgment',
-				)
-		}
 	}
 }
